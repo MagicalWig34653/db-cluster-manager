@@ -6,7 +6,7 @@ Updated: 2026-10-18.
 
 Concept documented; Claude Code handover prepared. Go and the monorepo are confirmed. The user explicitly authorized Claude to initialize Git and push a public GitHub repository.
 
-No application code, Git repository, remote or test infrastructure has been created by this preparation. No production Swarm access has occurred.
+W01 done: public repository https://github.com/MagicalWig34653/db-cluster-manager (`main`), license `AGPL-3.0-only` (LICENSE from gnu.org, SHA-256 0d96a4ff…bcb0), workflow actions pinned to commit SHAs, Pages deployed at https://magicalwig34653.github.io/db-cluster-manager/. No application code or test infrastructure exists. No production Swarm access has occurred. Copyright identity is still open.
 
 ## Completed
 
@@ -18,12 +18,10 @@ No application code, Git repository, remote or test infrastructure has been crea
 
 ## Next action
 
-Claude starts W01 via [the handover](handoffs/CLAUDE-START.md): inspect tools/authentication, resolve actual GitHub coordinates and the remaining AGPL-only/or-later choice, then initialize and publish. Public publication is already authorized; ask only for genuinely missing details. Pin verified action revisions before publication.
-
-Continue with Go/Svelte scaffolding and P0 architecture/lab work. Replicated metadata, fencing, storage identity and several other implementation decisions remain open. The first working version must be validated locally before the user's Swarm trial.
+W02: scaffold Go manager/agent/CLI and SvelteKit UI, versioned API contract with health/version endpoints, UI served by the manager, reproducible build. Replicated metadata, fencing, storage identity and several other implementation decisions remain open (W03). The first working version must be validated locally before the user's Swarm trial.
 
 ## Verification and limits
 
 `python3 scripts/check_docs.py` checks local Markdown file links and the mapping of 56 requirements to releases. It does not validate external URLs, anchors or rendered website links.
 
-No application tests, VM tests, native architecture checks, Jekyll build, GitHub Actions run or publication has occurred. The Claude CLI itself has not been launched or configured globally. Workflow action tags are preparatory and must be pinned during bootstrap.
+No application tests, VM tests or native architecture checks have run. The docs check, Jekyll build and Pages deployment succeeded on GitHub Actions. The Claude CLI itself has not been launched or configured globally.
