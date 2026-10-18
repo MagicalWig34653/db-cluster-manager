@@ -12,4 +12,4 @@ The repository is the source of truth; sessions are disposable. Technical docume
 
 The user deploys the manager; it deploys agents and database services. Swarm comes first, Kubernetes later. Local storage and replicated managers are required. Initial validation uses isolated Colima/Lima environments, not the user's existing Swarm.
 
-License choice: AGPLv3. The exact `AGPL-3.0-only` versus `AGPL-3.0-or-later` designation and license file remain to be finalized before code publication.
+License: `AGPL-3.0-only` (SPDX), see [LICENSE](LICENSE).

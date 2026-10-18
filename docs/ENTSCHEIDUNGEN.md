@@ -11,7 +11,7 @@ Automatic single-node replacement is allowed by policy/capacity. Full-cluster re
 ## Remaining product decisions
 
 - Final project name/GitHub owner, release naming and Pages setup. Public visibility and Git initialization/public push by Claude are explicitly authorized.
-- AGPL-3.0-only or AGPL-3.0-or-later; copyright identity.
+- Copyright identity (the license is decided: `AGPL-3.0-only`).
 - Choose initial supported database/Docker versions and LTS/Rolling mapping. Go and the monorepo are confirmed; see ADR 0002.
 - Numerical recovery objectives (RPO/RTO), failure detection/replacement delays, retention/storage defaults beyond metrics.
 - Initial DNS provider integrations; email delivery setup and webhook authentication.

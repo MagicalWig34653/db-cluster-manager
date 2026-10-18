@@ -12,7 +12,7 @@ During brainstorming, ask one focused question and wait for the answer. The user
 
 Code, identifiers and comments: English. Technical documentation: English initially. UI and user guides: German and English. Existing technical filenames are retained to keep links stable; their contents are now English.
 
-AGPLv3 is confirmed. Exact SPDX variant and copyright identity remain open. Add the correct license text before publishing code. Dependency licenses and any copied reference code require review.
+The license is `AGPL-3.0-only` (confirmed by the user); the full text is in `LICENSE`. The copyright identity remains open. New source files should carry `SPDX-License-Identifier: AGPL-3.0-only`. Dependency licenses and any copied reference code require review.
 
 ## Claude Code handover
 
