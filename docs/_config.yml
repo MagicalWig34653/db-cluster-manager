@@ -1,0 +1,14 @@
+title: Galera Cluster Manager
+description: Concept and documentation for a self-hosted database cluster manager
+theme: jekyll-theme-minimal
+lang: en
+plugins:
+  - jekyll-relative-links
+relative_links:
+  enabled: true
+  collections: true
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: default

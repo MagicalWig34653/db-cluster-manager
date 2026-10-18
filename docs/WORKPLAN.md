@@ -1,0 +1,23 @@
+# Execution workplan
+
+Status labels: READY, PENDING, IN PROGRESS, DONE, BLOCKED. Only mark DONE with recorded evidence. The product release roadmap remains in [RELEASES.md](RELEASES.md).
+
+| ID | Status | Work package | Completion evidence |
+| --- | --- | --- | --- |
+| W00 | DONE | Prepare Claude instructions, bootstrap task, Go/monorepo ADR and initial docs workflows | Local documentation check passed; no Git/remote or infrastructure changes |
+| W01 | READY | Resolve publication coordinates/license detail, initialize Git, public push and enable Pages | Public repository URL, pushed commit, successful checks and deployed Pages URL |
+| W02 | PENDING | Scaffold Go manager/agent/CLI and SvelteKit UI, versioned API contract, reproducible build | Documented commands; real health/version API and UI delivered from manager; tests/build pass |
+| W03 | PENDING | Design and prototype manager metadata HA/fencing and Swarm/local-storage ownership | ADRs, failure scenarios and reproducible evidence; no production infrastructure |
+| W04 | PENDING | Implement dedicated local lab creation/inventory/cleanup within resource budget | Resource measurements, safe teardown and unrelated-workload checks |
+| W05 | PENDING | Execute P0 Galera/agent/routing experiments | P0 acceptance gates in release plan, compatibility limits and test artifacts |
+| W06 | PENDING | Refine R1 work packages from evidence and implement incrementally | Traceable requirements, tests and bilingual user guides per package |
+
+W03 experiments requiring VMs depend on the safe lab controls from W04. Design work can start first; do not run ad hoc experiments before ownership and cleanup are in place.
+
+## Session handover fields
+
+For the active task, maintain: objective, changed files/contracts, executed checks/results, unresolved issues, and next concrete action. Keep this concise and update `docs/STATUS.md`; avoid duplicating the full requirement catalog.
+
+## Current next action
+
+Claude executes [the bootstrap handover](handoffs/CLAUDE-START.md), beginning with read-only environment/authentication inspection and resolving only genuinely missing publication details.
