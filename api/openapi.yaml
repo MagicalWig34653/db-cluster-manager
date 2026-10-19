@@ -1,0 +1,46 @@
+openapi: 3.1.0
+info:
+  title: DB Cluster Manager API
+  version: 1.0.0
+  description: >-
+    Versioned manager API (prototype). Only process-level endpoints exist;
+    no cluster operations are implemented.
+  license:
+    name: AGPL-3.0-only
+    identifier: AGPL-3.0-only
+servers:
+  - url: /api/v1
+paths:
+  /health:
+    get:
+      summary: Liveness of the manager process
+      description: Reports only that this process serves requests, not cluster or storage health.
+      operationId: getHealth
+      responses:
+        "200":
+          description: Process is serving requests
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, enum: [ok] }
+  /version:
+    get:
+      summary: Build information of the manager
+      operationId: getVersion
+      responses:
+        "200":
+          description: Build information
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [component, version, commit, goVersion, platform]
+                properties:
+                  component: { type: string }
+                  version: { type: string }
+                  commit: { type: string }
+                  goVersion: { type: string }
+                  platform: { type: string }

@@ -32,3 +32,7 @@ __pycache__/
 *.pyc
 
 # Keep lockfiles, public certificates and deliberately added test fixtures tracked.
+
+# Built frontend embedded into the manager (placeholder stays tracked)
+internal/webui/assets/*
+!internal/webui/assets/.gitkeep

@@ -6,7 +6,7 @@ Status labels: READY, PENDING, IN PROGRESS, DONE, BLOCKED. Only mark DONE with r
 | --- | --- | --- | --- |
 | W00 | DONE | Prepare Claude instructions, bootstrap task, Go/monorepo ADR and initial docs workflows | Local documentation check passed; no Git/remote or infrastructure changes |
 | W01 | DONE | Resolve publication coordinates/license detail, initialize Git, public push and enable Pages | Public repo https://github.com/MagicalWig34653/db-cluster-manager, commit 684c2ea pushed to `main`, docs-check and Pages runs succeeded, https://magicalwig34653.github.io/db-cluster-manager/ returns HTTP 200 |
-| W02 | PENDING | Scaffold Go manager/agent/CLI and SvelteKit UI, versioned API contract, reproducible build | Documented commands; real health/version API and UI delivered from manager; tests/build pass |
+| W02 | IN PROGRESS | Scaffold Go manager/agent/CLI and SvelteKit UI, versioned API contract, reproducible build | Documented commands; real health/version API and UI delivered from manager; tests/build pass |
 | W03 | PENDING | Design and prototype manager metadata HA/fencing and Swarm/local-storage ownership | ADRs, failure scenarios and reproducible evidence; no production infrastructure |
 | W04 | PENDING | Implement dedicated local lab creation/inventory/cleanup within resource budget | Resource measurements, safe teardown and unrelated-workload checks |
 | W05 | PENDING | Execute P0 Galera/agent/routing experiments | P0 acceptance gates in release plan, compatibility limits and test artifacts |
@@ -20,4 +20,4 @@ For the active task, maintain: objective, changed files/contracts, executed chec
 
 ## Current next action
 
-Start W02: scaffold Go manager/agent/CLI and the SvelteKit UI with a versioned API contract. Confirm dependency versions from primary documentation first.
+W02 remainder: initialize shadcn-svelte in `web/`, German/English UI strings, and confirm the new `build` workflow passes remotely. Then record W02 DONE with evidence.

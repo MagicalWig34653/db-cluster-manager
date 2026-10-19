@@ -32,7 +32,12 @@ Automatic single-node replacement must not bypass quorum/recovery rules. Full-cl
 
 - `python3 scripts/check_docs.py` — check local Markdown link targets and requirement coverage.
 
-No Go module, frontend package or VM scripts exist yet. Add and document real commands when creating them; never report unexecuted checks as passing. GitHub workflows are prepared but not yet run remotely.
+- `make build` — build the frontend (`web/`, output embedded from `internal/webui/assets/`) and `bin/manager`, `bin/agent`, `bin/cli`.
+- `make test` — Go tests and frontend (vitest) tests.
+- `make check` — gofmt, `go vet`, `svelte-check` and the documentation check.
+- `bin/manager -listen 127.0.0.1:8080` — serves `/api/v1/health`, `/api/v1/version` and the UI.
+
+No VM scripts exist yet. Add and document real commands when creating them; never report unexecuted checks as passing. SvelteKit 3 is configured through the `sveltekit(...)` Vite plugin in `web/vite.config.ts`; there is no `svelte.config.js`. GitHub workflows `docs-check`, `pages` ran successfully; `build` is new and has not run remotely yet.
 
 ## Publication
 

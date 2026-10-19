@@ -16,9 +16,15 @@ W01 done: public repository https://github.com/MagicalWig34653/db-cluster-manage
 - Bootstrap handover covers authentication, publication coordinates, licensing detail, initial commit/public push, Pages and subsequent development.
 - Workplan W00–W06, `.gitignore`, a dependency-free documentation checker, documentation CI and Pages workflow prepared.
 
+## W02 progress (not yet complete)
+
+Implemented and executed locally: Go module with `cmd/manager`, `cmd/agent`, `cmd/cli`; `internal/api` (`/api/v1/health`, `/api/v1/version`, OpenAPI contract in `api/openapi.yaml`); `internal/webui` (embedded SPA with index fallback); SvelteKit 3 / Svelte 5 / Tailwind 4 prototype page in `web/` (dependencies pinned exactly in `web/package-lock.json`). `make build`, `make test` and `make check` pass locally. A manager built by `make build` served the API (200 JSON, JSON 404) and the UI (HTML, SPA fallback) on a loopback port; the page was not rendered in a browser.
+
+Not done: shadcn-svelte is not initialized, no i18n, no remote run of `build.yml`, agent and CLI only report their version.
+
 ## Next action
 
-W02: scaffold Go manager/agent/CLI and SvelteKit UI, versioned API contract with health/version endpoints, UI served by the manager, reproducible build. Replicated metadata, fencing, storage identity and several other implementation decisions remain open (W03). The first working version must be validated locally before the user's Swarm trial.
+Finish W02 (see WORKPLAN). Replicated metadata, fencing, storage identity and several other implementation decisions remain open (W03). The first working version must be validated locally before the user's Swarm trial.
 
 ## Verification and limits
 
