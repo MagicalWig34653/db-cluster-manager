@@ -178,7 +178,7 @@ func TestPlanCleanupOnlyOwnedNames(t *testing.T) {
 	}
 	actions := PlanCleanup(m)
 	want := [][]string{
-		{"limactl", "stop", "dbcm-lab-m1"},
+		{"limactl", "stop", "--force", "dbcm-lab-m1"},
 		{"limactl", "delete", "--force", "dbcm-lab-m1"},
 	}
 	if got := commands(actions); !reflect.DeepEqual(got, want) {
@@ -228,9 +228,9 @@ func TestPlanCleanupDirectoriesAndDedup(t *testing.T) {
 	}
 	m.Resources = append(m.Resources, Resource{Kind: "lima-vm", Name: "dbcm-lab-m1"}) // hand-inserted duplicate
 	want := [][]string{
-		{"limactl", "stop", "dbcm-lab-m1"},
+		{"limactl", "stop", "--force", "dbcm-lab-m1"},
 		{"limactl", "delete", "--force", "dbcm-lab-m1"},
-		{"limactl", "stop", "dbcm-lab-m2"},
+		{"limactl", "stop", "--force", "dbcm-lab-m2"},
 		{"limactl", "delete", "--force", "dbcm-lab-m2"},
 		{"rm", "-rf", "--", LabDir + "/dbcm-lab-cache"},
 	}

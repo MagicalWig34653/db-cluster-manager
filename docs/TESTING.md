@@ -39,4 +39,18 @@ Provide a cleanup preview and scoped teardown based on the ownership manifest. R
 
 Retain sanitized test commands, versions, results and resource measurements in the repository. Test data and secrets are disposable. Verify removal and reclaimed disk space, and compare unrelated resource inventories before/after. Teardown must be repeatable after interrupted runs.
 
+## Lab commands
+
+`make build` produces `bin/lab` (source `cmd/lab`). All commands read the ownership manifest at `.lab/manifest.json` (override with `-manifest PATH`; `.lab/` is git-ignored). VM names are `dbcm-lab-m1` … `dbcm-lab-mN`.
+
+- `bin/lab status` — read-only: host capacity (logical CPUs from the Go runtime, RAM from `sysctl -n hw.memsize`), the lab budget (CPU limit = half the logical CPUs, 16 GiB RAM, 100 GiB disk), the manifest entries, the Lima/Colima inventory (`limactl list --json`, `colima list --json`) and the unrelated entries that lab never touches.
+- `bin/lab plan [-vms 3] [-cpus 2] [-ram 4] [-disk 20]` — dry run: checks the request plus VMs already in the manifest against the budget and prints the `limactl create`/`limactl start` commands. RAM and disk are GiB per VM. Fails (exit 1) when the budget is exceeded or the host capacity cannot be detected.
+- `bin/lab apply [same flags]` — without `--apply`, identical to `plan`. With `--apply` it refuses to run when host capacity or the pre-snapshot cannot be determined; otherwise it prints and records the pre-snapshot (`.lab/pre-apply-snapshot.json` next to the manifest), prints and executes the actions (recording each created VM in the manifest), then prints the post-snapshot diff. Exit 1 if an action failed or the diff contains anything other than additions owned by the manifest.
+- `bin/lab cleanup` — preview of `limactl stop --force`, `limactl delete --force` for manifest VMs and `rm -rf -- .lab/<name>` for manifest directories. Only names matching `dbcm-lab-[a-z0-9-]` are considered.
+- `bin/lab cleanup --apply` — refuses to run without detected host capacity and a pre-snapshot; prints the pre-snapshot, the unrelated entries, the actions and the post-snapshot diff. Exit 1 if an action failed (a failed delete keeps the VM in the manifest) or if any pre-existing unrelated entry is missing afterwards.
+
+The stop uses `--force` because a graceful `limactl stop` fails on an instance that is not running, which would otherwise abort cleanup before the delete. Exit codes: 0 success, 1 failure, 2 usage error.
+
+The `cmd/lab` tests use a fake runner only. `lab apply --apply` and `lab cleanup --apply` have not been executed against a real host.
+
 No VM has been created and no infrastructure test has run yet.

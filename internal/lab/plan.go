@@ -112,11 +112,16 @@ func PlanCreate(b Budget, m *Manifest, specs []VMSpec) ([]Action, error) {
 }
 
 // PlanCleanup returns, for each manifest resource of kind "lima-vm",
-// `limactl stop <name>` and `limactl delete --force <name>`, followed by
+// `limactl stop --force <name>` and `limactl delete --force <name>`, followed by
 // `rm -rf -- LabDir/<name>` for each "directory" resource. Only names
 // accepted by IsLabName are considered; every other entry (including
 // hand-edited foreign names) is ignored. Duplicates are planned once.
 // Other kinds are not cleaned up by this planner.
+//
+// The stop uses --force because a graceful `limactl stop` fails on an
+// instance that is not running (e.g. after an interrupted run), which would
+// abort Execute before the delete; a forced stop does not require the
+// instance to be running.
 func PlanCleanup(m *Manifest) []Action {
 	if m == nil {
 		return nil
@@ -132,7 +137,7 @@ func PlanCleanup(m *Manifest) []Action {
 		case "lima-vm":
 			seen[r.Kind+"\x00"+r.Name] = true
 			vms = append(vms,
-				Action{Describe: "stop Lima VM " + r.Name, Command: []string{"limactl", "stop", r.Name}},
+				Action{Describe: "stop Lima VM " + r.Name, Command: []string{"limactl", "stop", "--force", r.Name}},
 				Action{Describe: "delete Lima VM " + r.Name, Command: []string{"limactl", "delete", "--force", r.Name}, Resource: &res, Remove: true})
 		case "directory":
 			seen[r.Kind+"\x00"+r.Name] = true
