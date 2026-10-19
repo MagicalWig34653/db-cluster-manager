@@ -32,12 +32,16 @@ Automatic single-node replacement must not bypass quorum/recovery rules. Full-cl
 
 - `python3 scripts/check_docs.py` — check local Markdown link targets and requirement coverage.
 
-- `make build` — build the frontend (`web/`, output embedded from `internal/webui/assets/`) and `bin/manager`, `bin/agent`, `bin/cli`.
+- `make build` — build the frontend (`web/`, output embedded from `internal/webui/assets/`) and `bin/manager`, `bin/agent`, `bin/cli`, `bin/lab`.
 - `make test` — Go tests and frontend (vitest) tests.
 - `make check` — gofmt, `go vet`, `svelte-check` and the documentation check.
 - `bin/manager -listen 127.0.0.1:8080` — serves `/api/v1/health`, `/api/v1/version` and the UI.
+- `bin/lab status` — read-only host capacity, lab budget, ownership manifest (`.lab/manifest.json`, flag `-manifest`) and unrelated Lima/Colima inventory.
+- `bin/lab plan [-vms N] [-cpus C] [-ram GiB] [-disk GiB]` — budget-checked dry run of the `dbcm-lab-mN` VM creation commands (defaults 3/2/4/20).
+- `bin/lab apply [same flags] --apply` — creates the planned VMs with pre/post inventory snapshots; without `--apply` it is a dry run.
+- `bin/lab cleanup` — preview of the manifest-scoped teardown; `bin/lab cleanup --apply` executes it and fails if an unrelated entry disappeared.
 
-No VM scripts exist yet. Add and document real commands when creating them; never report unexecuted checks as passing. SvelteKit 3 is configured through the `sveltekit(...)` Vite plugin in `web/vite.config.ts`; there is no `svelte.config.js`. GitHub workflows `docs-check`, `pages` ran successfully; `build` ran successfully.
+See `docs/TESTING.md` ("Lab commands"). No VM has been created yet; `apply --apply` and `cleanup --apply` have not been run against a real host. Add and document real commands when creating them; never report unexecuted checks as passing. SvelteKit 3 is configured through the `sveltekit(...)` Vite plugin in `web/vite.config.ts`; there is no `svelte.config.js`. GitHub workflows `docs-check`, `pages` ran successfully; `build` ran successfully.
 
 ## Publication
 
