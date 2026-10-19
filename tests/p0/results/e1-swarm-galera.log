@@ -1,0 +1,1205 @@
+
+## Step 1: lab VMs
+
+### host free disk before apply
+
+```
+$ host_free_disk
+host free disk (/System/Volumes/Data): 76Gi of 926Gi
+(exit 0)
+```
+
+### bin/lab status before
+
+```
+$ <repo>/bin/lab status
+host:
+  logical CPUs: 14
+  RAM: 48.0 GiB
+budget:
+  lab CPU limit: 7
+  lab RAM limit: 16.0 GiB
+  lab disk limit: 100.0 GiB
+manifest .lab/manifest.json:
+  (empty)
+inventory:
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+unrelated (never touched):
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+(exit 0)
+```
+
+### bin/lab apply -apply -vms 3 -cpus 2 -ram 4 -disk 20
+
+```
+$ <repo>/bin/lab apply -apply -vms 3 -cpus 2 -ram 4 -disk 20
+pre-snapshot:
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+executing actions:
+  # create Lima VM dbcm-lab-m1 (2 CPUs, 4 GiB RAM, 20 GiB disk, template docker)
+  limactl create --name=dbcm-lab-m1 --cpus=2 --memory=4 --disk=20 --tty=false template:docker
+  # start Lima VM dbcm-lab-m1
+  limactl start --tty=false dbcm-lab-m1
+  # create Lima VM dbcm-lab-m2 (2 CPUs, 4 GiB RAM, 20 GiB disk, template docker)
+  limactl create --name=dbcm-lab-m2 --cpus=2 --memory=4 --disk=20 --tty=false template:docker
+  # start Lima VM dbcm-lab-m2
+  limactl start --tty=false dbcm-lab-m2
+  # create Lima VM dbcm-lab-m3 (2 CPUs, 4 GiB RAM, 20 GiB disk, template docker)
+  limactl create --name=dbcm-lab-m3 --cpus=2 --memory=4 --disk=20 --tty=false template:docker
+  # start Lima VM dbcm-lab-m3
+  limactl start --tty=false dbcm-lab-m3
+post-snapshot diff:
+  added: lima:dbcm-lab-m1, lima:dbcm-lab-m2, lima:dbcm-lab-m3
+  removed: (none)
+(exit 0)
+```
+
+### host free disk after apply
+
+```
+$ host_free_disk
+host free disk (/System/Volumes/Data): 74Gi of 926Gi
+(exit 0)
+```
+
+
+## Step 1b: guest preparation (lab VMs only)
+
+### default network of dbcm-lab-m1
+
+```
+$ vm_sh dbcm-lab-m1 ip -4 -o addr show eth0 | awk "{print \$2, \$4}"
+eth0 192.168.5.15/24
+(exit 0)
+```
+
+### default network of dbcm-lab-m2
+
+```
+$ vm_sh dbcm-lab-m2 ip -4 -o addr show eth0 | awk "{print \$2, \$4}"
+eth0 192.168.5.15/24
+(exit 0)
+```
+
+### default network of dbcm-lab-m3
+
+```
+$ vm_sh dbcm-lab-m3 ip -4 -o addr show eth0 | awk "{print \$2, \$4}"
+eth0 192.168.5.15/24
+(exit 0)
+```
+
+### stop dbcm-lab-m1 for network edit
+
+```
+$ limactl stop dbcm-lab-m1
+time="2026-10-19T16:00:31+02:00" level=info msg="Sending SIGINT to hostagent process 41707"
+time="2026-10-19T16:00:31+02:00" level=info msg="Waiting for the host agent and the driver processes to shut down"
+time="2026-10-19T16:00:31+02:00" level=info msg="[hostagent] Received SIGINT, shutting down the host agent"
+time="2026-10-19T16:00:31+02:00" level=info msg="[hostagent] Shutting down the host agent"
+time="2026-10-19T16:00:31+02:00" level=info msg="[hostagent] Stopping forwarding `/run/user/501/docker.sock` (guest) to `~/.lima/dbcm-lab-m1/sock/docker.sock` (host)"
+time="2026-10-19T16:00:31+02:00" level=info msg="[hostagent] Shutting down VZ"
+time="2026-10-19T16:00:33+02:00" level=info msg="[hostagent] [VZ] - vm state change: stopped"
+time="2026-10-19T16:00:33+02:00" level=info msg="Waiting for the instance to shut down"
+time="2026-10-19T16:00:33+02:00" level=info msg="The instance dbcm-lab-m1 has shut down"
+(exit 0)
+```
+
+### attach lima:user-v2 to dbcm-lab-m1
+
+```
+$ limactl edit --tty=false --network=lima:user-v2 dbcm-lab-m1
+time="2026-10-19T16:00:33+02:00" level=info msg="Instance `dbcm-lab-m1` configuration edited"
+(exit 0)
+```
+
+### start dbcm-lab-m1
+
+```
+$ limactl start --tty=false dbcm-lab-m1
+time="2026-10-19T16:00:33+02:00" level=info msg="Using the existing instance `dbcm-lab-m1`"
+time="2026-10-19T16:00:34+02:00" level=info msg="Starting the instance `dbcm-lab-m1` with internal VM driver `vz`"
+time="2026-10-19T16:00:34+02:00" level=info msg="[hostagent] hostagent socket created at ~/.lima/dbcm-lab-m1/ha.sock"
+time="2026-10-19T16:00:34+02:00" level=info msg="[hostagent] Starting VZ (hint: to watch the boot progress, see `~/.lima/dbcm-lab-m1/serial*.log`)"
+time="2026-10-19T16:00:34+02:00" level=info msg="[hostagent] [VZ] - vm state change: running"
+time="2026-10-19T16:00:39+02:00" level=info msg="[hostagent] Started vsock forwarder: 127.0.0.1:61153 -> vsock:22 on VM"
+time="2026-10-19T16:00:39+02:00" level=info msg="[hostagent] Detected SSH server is listening on the vsock port; changed 127.0.0.1:61153 to proxy for the vsock port"
+time="2026-10-19T16:00:39+02:00" level=info msg="SSH Local Port: 61153"
+time="2026-10-19T16:00:39+02:00" level=info msg="[hostagent] Waiting for the essential requirement 1 of 3: `ssh`"
+time="2026-10-19T16:00:40+02:00" level=info msg="[hostagent] The essential requirement 1 of 3 is satisfied"
+time="2026-10-19T16:00:40+02:00" level=info msg="[hostagent] Waiting for the essential requirement 2 of 3: `user session is ready for ssh`"
+time="2026-10-19T16:00:40+02:00" level=info msg="[hostagent] The essential requirement 2 of 3 is satisfied"
+time="2026-10-19T16:00:40+02:00" level=info msg="[hostagent] Waiting for the essential requirement 3 of 3: `Explicitly start ssh ControlMaster`"
+time="2026-10-19T16:00:40+02:00" level=info msg="[hostagent] The essential requirement 3 of 3 is satisfied"
+time="2026-10-19T16:00:40+02:00" level=info msg="[hostagent] Waiting for the optional requirement 1 of 1: `user probe 1/1`"
+time="2026-10-19T16:00:40+02:00" level=info msg="[hostagent] Forwarding `/run/user/501/docker.sock` (guest) to `~/.lima/dbcm-lab-m1/sock/docker.sock` (host)"
+time="2026-10-19T16:00:40+02:00" level=info msg="[hostagent] Guest agent is running"
+time="2026-10-19T16:00:40+02:00" level=info msg="[hostagent] Time sync: guest agent is alive, starting time synchronization"
+time="2026-10-19T16:00:40+02:00" level=info msg="[hostagent] Not forwarding TCP 127.0.0.54:53"
+time="2026-10-19T16:00:40+02:00" level=info msg="[hostagent] Not forwarding TCP 0.0.0.0:22"
+time="2026-10-19T16:00:40+02:00" level=info msg="[hostagent] Not forwarding TCP 127.0.0.53:53"
+time="2026-10-19T16:00:40+02:00" level=info msg="[hostagent] Not forwarding TCP [::]:22"
+time="2026-10-19T16:00:40+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.54:53"
+time="2026-10-19T16:00:40+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.53:53"
+time="2026-10-19T16:00:40+02:00" level=info msg="[hostagent] Not forwarding UDP 192.168.104.1:68"
+time="2026-10-19T16:00:40+02:00" level=info msg="[hostagent] Forwarding UDP from 127.0.0.1:323 to 127.0.0.1:323"
+time="2026-10-19T16:00:40+02:00" level=info msg="[hostagent] Forwarding UDP from 0.0.0.0:5353 to 127.0.0.1:5353"
+time="2026-10-19T16:00:40+02:00" level=info msg="[hostagent] Forwarding UDP from [::1]:323 to 127.0.0.1:323"
+time="2026-10-19T16:00:40+02:00" level=info msg="[hostagent] Forwarding UDP from [::]:5353 to 127.0.0.1:5353"
+time="2026-10-19T16:00:40+02:00" level=info msg="[hostagent] Not forwarding UDP 0.0.0.0:323"
+time="2026-10-19T16:00:40+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:323"
+time="2026-10-19T16:00:40+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-19T16:00:40+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-19T16:00:40+02:00" level=info msg="[hostagent] The optional requirement 1 of 1 is satisfied"
+time="2026-10-19T16:00:40+02:00" level=info msg="[hostagent] Waiting for the guest agent to be running"
+time="2026-10-19T16:00:40+02:00" level=info msg="[hostagent] Waiting for the final requirement 1 of 1: `boot scripts must have finished`"
+time="2026-10-19T16:00:40+02:00" level=info msg="[hostagent] The final requirement 1 of 1 is satisfied"
+time="2026-10-19T16:00:40+02:00" level=info msg="READY. Run `limactl shell dbcm-lab-m1` to open the shell."
+time="2026-10-19T16:00:40+02:00" level=info msg="Message from the instance `dbcm-lab-m1`:"
+To run `docker` on the host (assumes docker-cli is installed), run the following commands:
+------
+docker context create lima-dbcm-lab-m1 --docker "host=unix://~/.lima/dbcm-lab-m1/sock/docker.sock"
+docker context use lima-dbcm-lab-m1
+docker run hello-world
+------
+(exit 0)
+```
+
+### stop dbcm-lab-m2 for network edit
+
+```
+$ limactl stop dbcm-lab-m2
+time="2026-10-19T16:00:40+02:00" level=info msg="Sending SIGINT to hostagent process 42591"
+time="2026-10-19T16:00:40+02:00" level=info msg="Waiting for the host agent and the driver processes to shut down"
+time="2026-10-19T16:00:40+02:00" level=info msg="[hostagent] Received SIGINT, shutting down the host agent"
+time="2026-10-19T16:00:40+02:00" level=info msg="[hostagent] Shutting down the host agent"
+time="2026-10-19T16:00:40+02:00" level=info msg="[hostagent] Stopping forwarding `/run/user/501/docker.sock` (guest) to `~/.lima/dbcm-lab-m2/sock/docker.sock` (host)"
+time="2026-10-19T16:00:40+02:00" level=info msg="[hostagent] Shutting down VZ"
+time="2026-10-19T16:00:42+02:00" level=info msg="[hostagent] [VZ] - vm state change: stopped"
+time="2026-10-19T16:00:42+02:00" level=info msg="Waiting for the instance to shut down"
+time="2026-10-19T16:00:42+02:00" level=info msg="The instance dbcm-lab-m2 has shut down"
+(exit 0)
+```
+
+### attach lima:user-v2 to dbcm-lab-m2
+
+```
+$ limactl edit --tty=false --network=lima:user-v2 dbcm-lab-m2
+time="2026-10-19T16:00:43+02:00" level=info msg="Instance `dbcm-lab-m2` configuration edited"
+(exit 0)
+```
+
+### start dbcm-lab-m2
+
+```
+$ limactl start --tty=false dbcm-lab-m2
+time="2026-10-19T16:00:43+02:00" level=info msg="Using the existing instance `dbcm-lab-m2`"
+time="2026-10-19T16:00:43+02:00" level=info msg="Starting the instance `dbcm-lab-m2` with internal VM driver `vz`"
+time="2026-10-19T16:00:43+02:00" level=info msg="[hostagent] hostagent socket created at ~/.lima/dbcm-lab-m2/ha.sock"
+time="2026-10-19T16:00:43+02:00" level=info msg="[hostagent] Starting VZ (hint: to watch the boot progress, see `~/.lima/dbcm-lab-m2/serial*.log`)"
+time="2026-10-19T16:00:43+02:00" level=info msg="[hostagent] [VZ] - vm state change: running"
+time="2026-10-19T16:00:48+02:00" level=info msg="[hostagent] Started vsock forwarder: 127.0.0.1:61164 -> vsock:22 on VM"
+time="2026-10-19T16:00:48+02:00" level=info msg="[hostagent] Detected SSH server is listening on the vsock port; changed 127.0.0.1:61164 to proxy for the vsock port"
+time="2026-10-19T16:00:48+02:00" level=info msg="SSH Local Port: 61164"
+time="2026-10-19T16:00:48+02:00" level=info msg="[hostagent] Waiting for the essential requirement 1 of 3: `ssh`"
+time="2026-10-19T16:00:49+02:00" level=info msg="[hostagent] The essential requirement 1 of 3 is satisfied"
+time="2026-10-19T16:00:49+02:00" level=info msg="[hostagent] Waiting for the essential requirement 2 of 3: `user session is ready for ssh`"
+time="2026-10-19T16:00:49+02:00" level=info msg="[hostagent] The essential requirement 2 of 3 is satisfied"
+time="2026-10-19T16:00:49+02:00" level=info msg="[hostagent] Waiting for the essential requirement 3 of 3: `Explicitly start ssh ControlMaster`"
+time="2026-10-19T16:00:49+02:00" level=info msg="[hostagent] The essential requirement 3 of 3 is satisfied"
+time="2026-10-19T16:00:49+02:00" level=info msg="[hostagent] Waiting for the optional requirement 1 of 1: `user probe 1/1`"
+time="2026-10-19T16:00:49+02:00" level=info msg="[hostagent] Forwarding `/run/user/501/docker.sock` (guest) to `~/.lima/dbcm-lab-m2/sock/docker.sock` (host)"
+time="2026-10-19T16:00:49+02:00" level=info msg="[hostagent] Guest agent is running"
+time="2026-10-19T16:00:49+02:00" level=info msg="[hostagent] Time sync: guest agent is alive, starting time synchronization"
+time="2026-10-19T16:00:49+02:00" level=info msg="[hostagent] Not forwarding TCP 0.0.0.0:22"
+time="2026-10-19T16:00:49+02:00" level=info msg="[hostagent] Not forwarding TCP 127.0.0.53:53"
+time="2026-10-19T16:00:49+02:00" level=info msg="[hostagent] Not forwarding TCP 127.0.0.54:53"
+time="2026-10-19T16:00:49+02:00" level=info msg="[hostagent] Not forwarding TCP [::]:22"
+time="2026-10-19T16:00:49+02:00" level=info msg="[hostagent] Forwarding UDP from 127.0.0.1:323 to 127.0.0.1:323"
+time="2026-10-19T16:00:49+02:00" level=info msg="[hostagent] Forwarding UDP from 0.0.0.0:5353 to 127.0.0.1:5353"
+time="2026-10-19T16:00:49+02:00" level=info msg="[hostagent] Not forwarding UDP 0.0.0.0:323"
+time="2026-10-19T16:00:49+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.54:53"
+time="2026-10-19T16:00:49+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:323"
+time="2026-10-19T16:00:49+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.53:53"
+time="2026-10-19T16:00:49+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-19T16:00:49+02:00" level=info msg="[hostagent] Not forwarding UDP 192.168.104.3:68"
+time="2026-10-19T16:00:49+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-19T16:00:49+02:00" level=info msg="[hostagent] Forwarding UDP from [::1]:323 to 127.0.0.1:323"
+time="2026-10-19T16:00:49+02:00" level=info msg="[hostagent] Forwarding UDP from [::]:5353 to 127.0.0.1:5353"
+time="2026-10-19T16:00:49+02:00" level=info msg="[hostagent] Not forwarding UDP 0.0.0.0:323"
+time="2026-10-19T16:00:49+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:323"
+time="2026-10-19T16:00:49+02:00" level=info msg="[hostagent] The optional requirement 1 of 1 is satisfied"
+time="2026-10-19T16:00:49+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-19T16:00:49+02:00" level=info msg="[hostagent] Waiting for the guest agent to be running"
+time="2026-10-19T16:00:49+02:00" level=info msg="[hostagent] Waiting for the final requirement 1 of 1: `boot scripts must have finished`"
+time="2026-10-19T16:00:49+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-19T16:00:49+02:00" level=info msg="[hostagent] The final requirement 1 of 1 is satisfied"
+time="2026-10-19T16:00:49+02:00" level=info msg="READY. Run `limactl shell dbcm-lab-m2` to open the shell."
+time="2026-10-19T16:00:49+02:00" level=info msg="Message from the instance `dbcm-lab-m2`:"
+To run `docker` on the host (assumes docker-cli is installed), run the following commands:
+------
+docker context create lima-dbcm-lab-m2 --docker "host=unix://~/.lima/dbcm-lab-m2/sock/docker.sock"
+docker context use lima-dbcm-lab-m2
+docker run hello-world
+------
+(exit 0)
+```
+
+### stop dbcm-lab-m3 for network edit
+
+```
+$ limactl stop dbcm-lab-m3
+time="2026-10-19T16:00:49+02:00" level=info msg="Sending SIGINT to hostagent process 43244"
+time="2026-10-19T16:00:49+02:00" level=info msg="Waiting for the host agent and the driver processes to shut down"
+time="2026-10-19T16:00:49+02:00" level=info msg="[hostagent] Received SIGINT, shutting down the host agent"
+time="2026-10-19T16:00:49+02:00" level=info msg="[hostagent] Shutting down the host agent"
+time="2026-10-19T16:00:49+02:00" level=info msg="[hostagent] Stopping forwarding `/run/user/501/docker.sock` (guest) to `~/.lima/dbcm-lab-m3/sock/docker.sock` (host)"
+time="2026-10-19T16:00:49+02:00" level=info msg="[hostagent] Shutting down VZ"
+time="2026-10-19T16:00:51+02:00" level=info msg="[hostagent] [VZ] - vm state change: stopped"
+time="2026-10-19T16:00:51+02:00" level=info msg="Waiting for the instance to shut down"
+time="2026-10-19T16:00:51+02:00" level=info msg="The instance dbcm-lab-m3 has shut down"
+(exit 0)
+```
+
+### attach lima:user-v2 to dbcm-lab-m3
+
+```
+$ limactl edit --tty=false --network=lima:user-v2 dbcm-lab-m3
+time="2026-10-19T16:00:51+02:00" level=info msg="Instance `dbcm-lab-m3` configuration edited"
+(exit 0)
+```
+
+### start dbcm-lab-m3
+
+```
+$ limactl start --tty=false dbcm-lab-m3
+time="2026-10-19T16:00:51+02:00" level=info msg="Using the existing instance `dbcm-lab-m3`"
+time="2026-10-19T16:00:51+02:00" level=info msg="Starting the instance `dbcm-lab-m3` with internal VM driver `vz`"
+time="2026-10-19T16:00:52+02:00" level=info msg="[hostagent] hostagent socket created at ~/.lima/dbcm-lab-m3/ha.sock"
+time="2026-10-19T16:00:52+02:00" level=info msg="[hostagent] Starting VZ (hint: to watch the boot progress, see `~/.lima/dbcm-lab-m3/serial*.log`)"
+time="2026-10-19T16:00:52+02:00" level=info msg="[hostagent] [VZ] - vm state change: running"
+time="2026-10-19T16:00:56+02:00" level=info msg="[hostagent] Started vsock forwarder: 127.0.0.1:61181 -> vsock:22 on VM"
+time="2026-10-19T16:00:56+02:00" level=info msg="[hostagent] Detected SSH server is listening on the vsock port; changed 127.0.0.1:61181 to proxy for the vsock port"
+time="2026-10-19T16:00:57+02:00" level=info msg="SSH Local Port: 61181"
+time="2026-10-19T16:00:57+02:00" level=info msg="[hostagent] Waiting for the essential requirement 1 of 3: `ssh`"
+time="2026-10-19T16:00:57+02:00" level=info msg="[hostagent] The essential requirement 1 of 3 is satisfied"
+time="2026-10-19T16:00:57+02:00" level=info msg="[hostagent] Waiting for the essential requirement 2 of 3: `user session is ready for ssh`"
+time="2026-10-19T16:00:57+02:00" level=info msg="[hostagent] The essential requirement 2 of 3 is satisfied"
+time="2026-10-19T16:00:57+02:00" level=info msg="[hostagent] Waiting for the essential requirement 3 of 3: `Explicitly start ssh ControlMaster`"
+time="2026-10-19T16:00:57+02:00" level=info msg="[hostagent] The essential requirement 3 of 3 is satisfied"
+time="2026-10-19T16:00:58+02:00" level=info msg="[hostagent] Waiting for the optional requirement 1 of 1: `user probe 1/1`"
+time="2026-10-19T16:00:58+02:00" level=info msg="[hostagent] Forwarding `/run/user/501/docker.sock` (guest) to `~/.lima/dbcm-lab-m3/sock/docker.sock` (host)"
+time="2026-10-19T16:00:58+02:00" level=info msg="[hostagent] Guest agent is running"
+time="2026-10-19T16:00:58+02:00" level=info msg="[hostagent] Time sync: guest agent is alive, starting time synchronization"
+time="2026-10-19T16:00:58+02:00" level=info msg="[hostagent] Not forwarding TCP 127.0.0.54:53"
+time="2026-10-19T16:00:58+02:00" level=info msg="[hostagent] Not forwarding TCP 127.0.0.53:53"
+time="2026-10-19T16:00:58+02:00" level=info msg="[hostagent] Not forwarding TCP 0.0.0.0:22"
+time="2026-10-19T16:00:58+02:00" level=info msg="[hostagent] Not forwarding TCP [::]:22"
+time="2026-10-19T16:00:58+02:00" level=info msg="[hostagent] Forwarding UDP from 0.0.0.0:5353 to 127.0.0.1:5353"
+time="2026-10-19T16:00:58+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.54:53"
+time="2026-10-19T16:00:58+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-19T16:00:58+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.53:53"
+time="2026-10-19T16:00:58+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-19T16:00:58+02:00" level=info msg="[hostagent] Not forwarding UDP 192.168.104.4:68"
+time="2026-10-19T16:00:58+02:00" level=info msg="[hostagent] Forwarding UDP from 127.0.0.1:323 to 127.0.0.1:323"
+time="2026-10-19T16:00:58+02:00" level=info msg="[hostagent] Forwarding UDP from [::]:5353 to 127.0.0.1:5353"
+time="2026-10-19T16:00:58+02:00" level=info msg="[hostagent] Not forwarding UDP 0.0.0.0:323"
+time="2026-10-19T16:00:58+02:00" level=info msg="[hostagent] Forwarding UDP from [::1]:323 to 127.0.0.1:323"
+time="2026-10-19T16:00:58+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:323"
+time="2026-10-19T16:00:58+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-19T16:00:58+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-19T16:00:58+02:00" level=info msg="[hostagent] Not forwarding UDP 0.0.0.0:323"
+time="2026-10-19T16:00:58+02:00" level=info msg="[hostagent] The optional requirement 1 of 1 is satisfied"
+time="2026-10-19T16:00:58+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:323"
+time="2026-10-19T16:00:58+02:00" level=info msg="[hostagent] Waiting for the guest agent to be running"
+time="2026-10-19T16:00:58+02:00" level=info msg="[hostagent] Waiting for the final requirement 1 of 1: `boot scripts must have finished`"
+time="2026-10-19T16:00:58+02:00" level=info msg="[hostagent] The final requirement 1 of 1 is satisfied"
+time="2026-10-19T16:00:58+02:00" level=info msg="READY. Run `limactl shell dbcm-lab-m3` to open the shell."
+time="2026-10-19T16:00:58+02:00" level=info msg="Message from the instance `dbcm-lab-m3`:"
+To run `docker` on the host (assumes docker-cli is installed), run the following commands:
+------
+docker context create lima-dbcm-lab-m3 --docker "host=unix://~/.lima/dbcm-lab-m3/sock/docker.sock"
+docker context use lima-dbcm-lab-m3
+docker run hello-world
+------
+(exit 0)
+```
+
+### switch dbcm-lab-m1 to rootful docker
+
+```
+$ vm_sh dbcm-lab-m1 
+			set -e
+			systemctl --user disable --now docker.service >/dev/null 2>&1 || true
+			sudo systemctl unmask containerd.service docker.service docker.socket >/dev/null 2>&1
+			sudo systemctl enable --now containerd.service docker.socket docker.service >/dev/null 2>&1
+			echo "rootless user docker: $(systemctl --user is-active docker.service || true)"
+			echo "rootful docker: $(systemctl is-active docker.service)"
+rootless user docker: inactive
+rootful docker: active
+(exit 0)
+```
+
+### switch dbcm-lab-m2 to rootful docker
+
+```
+$ vm_sh dbcm-lab-m2 
+			set -e
+			systemctl --user disable --now docker.service >/dev/null 2>&1 || true
+			sudo systemctl unmask containerd.service docker.service docker.socket >/dev/null 2>&1
+			sudo systemctl enable --now containerd.service docker.socket docker.service >/dev/null 2>&1
+			echo "rootless user docker: $(systemctl --user is-active docker.service || true)"
+			echo "rootful docker: $(systemctl is-active docker.service)"
+rootless user docker: inactive
+rootful docker: active
+(exit 0)
+```
+
+### switch dbcm-lab-m3 to rootful docker
+
+```
+$ vm_sh dbcm-lab-m3 
+			set -e
+			systemctl --user disable --now docker.service >/dev/null 2>&1 || true
+			sudo systemctl unmask containerd.service docker.service docker.socket >/dev/null 2>&1
+			sudo systemctl enable --now containerd.service docker.socket docker.service >/dev/null 2>&1
+			echo "rootless user docker: $(systemctl --user is-active docker.service || true)"
+			echo "rootful docker: $(systemctl is-active docker.service)"
+rootless user docker: inactive
+rootful docker: active
+(exit 0)
+```
+
+
+## Guest facts
+
+### limactl list
+
+```
+$ limactl list
+NAME                         STATUS     SSH                VMTYPE    ARCH       CPUS    MEMORY    DISK     DIR
+dbcm-lab-m1                  Running    127.0.0.1:61153    vz        aarch64    2       4GiB      20GiB    ~/.lima/dbcm-lab-m1
+dbcm-lab-m2                  Running    127.0.0.1:61164    vz        aarch64    2       4GiB      20GiB    ~/.lima/dbcm-lab-m2
+dbcm-lab-m3                  Running    127.0.0.1:61181    vz        aarch64    2       4GiB      20GiB    ~/.lima/dbcm-lab-m3
+thermoctl-e2e-basestation    Stopped    127.0.0.1:55325    vz        aarch64    2       3GiB      8GiB     ~/.lima/thermoctl-e2e-basestation
+thermoctl-test-vm            Stopped    127.0.0.1:50429    vz        aarch64    4       4GiB      20GiB    ~/.lima/thermoctl-test-vm
+(exit 0)
+```
+
+### facts dbcm-lab-m1
+
+```
+$ vm_sh dbcm-lab-m1 
+			echo "hostname: $(hostname)"; echo "arch: $(uname -m) kernel: $(uname -r)"
+			grep PRETTY_NAME /etc/os-release; echo "nproc: $(nproc)"; free -m | head -2
+			df -h / | tail -1
+			ip -4 -o addr show eth0 | awk "{print \"eth0:\", \$4}"
+			sudo docker version --format "docker server {{.Server.Version}} {{range .Server.Components}}{{.Name}}={{.Version}} {{end}}"
+			sudo docker info --format "security: {{.SecurityOptions}} cgroup: {{.CgroupDriver}} storage: {{.Driver}}"
+hostname: lima-dbcm-lab-m1
+arch: aarch64 kernel: 7.0.0-28-generic
+PRETTY_NAME="Ubuntu 26.04 LTS"
+nproc: 2
+               total        used        free      shared  buff/cache   available
+Mem:            3896         485        3031           1         525        3411
+/dev/vda1        19G  2.9G   16G  16% /
+eth0: 192.168.104.1/24
+docker server 29.9.1 Engine=29.9.1 containerd=v2.4.2 runc=1.5.2 docker-init=0.19.0 
+security: [name=apparmor,profile=default name=seccomp,profile=builtin name=cgroupns] cgroup: systemd storage: overlayfs
+(exit 0)
+```
+
+### facts dbcm-lab-m2
+
+```
+$ vm_sh dbcm-lab-m2 
+			echo "hostname: $(hostname)"; echo "arch: $(uname -m) kernel: $(uname -r)"
+			grep PRETTY_NAME /etc/os-release; echo "nproc: $(nproc)"; free -m | head -2
+			df -h / | tail -1
+			ip -4 -o addr show eth0 | awk "{print \"eth0:\", \$4}"
+			sudo docker version --format "docker server {{.Server.Version}} {{range .Server.Components}}{{.Name}}={{.Version}} {{end}}"
+			sudo docker info --format "security: {{.SecurityOptions}} cgroup: {{.CgroupDriver}} storage: {{.Driver}}"
+hostname: lima-dbcm-lab-m2
+arch: aarch64 kernel: 7.0.0-28-generic
+PRETTY_NAME="Ubuntu 26.04 LTS"
+nproc: 2
+               total        used        free      shared  buff/cache   available
+Mem:            3896         500        3015           1         526        3396
+/dev/vda1        19G  2.9G   16G  16% /
+eth0: 192.168.104.3/24
+docker server 29.9.1 Engine=29.9.1 containerd=v2.4.2 runc=1.5.2 docker-init=0.19.0 
+security: [name=apparmor,profile=default name=seccomp,profile=builtin name=cgroupns] cgroup: systemd storage: overlayfs
+(exit 0)
+```
+
+### facts dbcm-lab-m3
+
+```
+$ vm_sh dbcm-lab-m3 
+			echo "hostname: $(hostname)"; echo "arch: $(uname -m) kernel: $(uname -r)"
+			grep PRETTY_NAME /etc/os-release; echo "nproc: $(nproc)"; free -m | head -2
+			df -h / | tail -1
+			ip -4 -o addr show eth0 | awk "{print \"eth0:\", \$4}"
+			sudo docker version --format "docker server {{.Server.Version}} {{range .Server.Components}}{{.Name}}={{.Version}} {{end}}"
+			sudo docker info --format "security: {{.SecurityOptions}} cgroup: {{.CgroupDriver}} storage: {{.Driver}}"
+hostname: lima-dbcm-lab-m3
+arch: aarch64 kernel: 7.0.0-28-generic
+PRETTY_NAME="Ubuntu 26.04 LTS"
+nproc: 2
+               total        used        free      shared  buff/cache   available
+Mem:            3896         518        2997           1         526        3378
+/dev/vda1        19G  2.9G   16G  16% /
+eth0: 192.168.104.4/24
+docker server 29.9.1 Engine=29.9.1 containerd=v2.4.2 runc=1.5.2 docker-init=0.19.0 
+security: [name=apparmor,profile=default name=seccomp,profile=builtin name=cgroupns] cgroup: systemd storage: overlayfs
+(exit 0)
+```
+
+### VM-to-VM name resolution and ping
+
+```
+$ vm_sh dbcm-lab-m1 
+		for h in m1 m2 m3; do
+			getent hosts lima-dbcm-lab-$h.internal
+			ping -c2 -W2 lima-dbcm-lab-$h.internal | tail -1
+		done
+192.168.104.1   lima-dbcm-lab-m1.internal
+rtt min/avg/max/mdev = 0.010/0.029/0.049/0.019 ms
+192.168.104.3   lima-dbcm-lab-m2.internal
+rtt min/avg/max/mdev = 0.379/0.519/0.660/0.140 ms
+192.168.104.4   lima-dbcm-lab-m3.internal
+rtt min/avg/max/mdev = 0.289/0.345/0.402/0.056 ms
+(exit 0)
+```
+
+
+## Step 2: Swarm (one manager, two workers)
+
+14:01:08Z m1 advertise address: 192.168.104.1
+### TCP reachability dbcm-lab-m2 -> m1 (192.168.104.1) port 22
+
+```
+$ vm_sh dbcm-lab-m2 nc -z -w3 192.168.104.1 22 && echo reachable
+Connection to 192.168.104.1 22 port [tcp/ssh] succeeded!
+reachable
+(exit 0)
+```
+
+### TCP reachability dbcm-lab-m3 -> m1 (192.168.104.1) port 22
+
+```
+$ vm_sh dbcm-lab-m3 nc -z -w3 192.168.104.1 22 && echo reachable
+Connection to 192.168.104.1 22 port [tcp/ssh] succeeded!
+reachable
+(exit 0)
+```
+
+### swarm init on m1
+
+```
+$ vm_docker dbcm-lab-m1 swarm init --advertise-addr 192.168.104.1
+Swarm initialized: current node (t05ylyy1e8dnc70m94bjv9vw9) is now a manager.
+
+To add a worker to this swarm, run the following command:
+
+    docker swarm join --token SWMTKN-<redacted> 192.168.104.1:2377
+
+To add a manager to this swarm, run 'docker swarm join-token manager' and follow the instructions.
+(exit 0)
+```
+
+### swarm join dbcm-lab-m2 as worker (advertise 192.168.104.3, token not recorded)
+
+```
+$ vm_docker dbcm-lab-m2 swarm join --advertise-addr 192.168.104.3 --token SWMTKN-<redacted> 192.168.104.1:2377
+This node joined a swarm as a worker.
+(exit 0)
+```
+
+### swarm join dbcm-lab-m3 as worker (advertise 192.168.104.4, token not recorded)
+
+```
+$ vm_docker dbcm-lab-m3 swarm join --advertise-addr 192.168.104.4 --token SWMTKN-<redacted> 192.168.104.1:2377
+This node joined a swarm as a worker.
+(exit 0)
+```
+
+### docker node ls
+
+```
+$ vm_docker dbcm-lab-m1 node ls
+ID                            HOSTNAME           STATUS    AVAILABILITY   MANAGER STATUS   ENGINE VERSION
+t05ylyy1e8dnc70m94bjv9vw9 *   lima-dbcm-lab-m1   Ready     Active         Leader           29.9.1
+lb1h035jvc0re7k6mg6w27yge     lima-dbcm-lab-m2   Ready     Active                          29.9.1
+z4zp15cc49dfljfv2rx9q1kpf     lima-dbcm-lab-m3   Ready     Active                          29.9.1
+(exit 0)
+```
+
+
+## Step 3: unrelated sentinel service
+
+### create sentinel
+
+```
+$ vm_docker dbcm-lab-m1 service create --detach --name sentinel-web --replicas 1 --label dbcm.test=sentinel --publish published=18080,target=80 nginx:1.27-alpine
+kce1q614se3ndeaatemcmqv3x
+(exit 0)
+```
+
+14:01:15Z wait ok after 4s: sentinel answers on :18080
+### sentinel service ps
+
+```
+$ vm_docker dbcm-lab-m1 service ps --no-trunc sentinel-web
+ID                          NAME             IMAGE                                                                                       NODE               DESIRED STATE   CURRENT STATE          ERROR     PORTS
+pry4g6bwjfuexp671uxjs6va2   sentinel-web.1   nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10   lima-dbcm-lab-m3   Running         Running 1 second ago             
+(exit 0)
+```
+
+### sentinel snapshot before
+
+```
+task node container image started restarts response-sha256
+pry4g6bwjfuexp671uxjs6va2 z4zp15cc49dfljfv2rx9q1kpf 276155dfe1cee79918aa683dbdcfde08976dbc644302e2e8572660fea12b7024 nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10 2026-10-19T14:01:13.939785661Z restarts=0 fb47468a2cd3953c7131431991afcc6a2703f14640520102eea0a685a7e8d6de
+```
+
+14:01:16Z sentinel before: pry4g6bwjfuexp671uxjs6va2 z4zp15cc49dfljfv2rx9q1kpf 276155dfe1cee79918aa683dbdcfde08976dbc644302e2e8572660fea12b7024 nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10 2026-10-19T14:01:13.939785661Z restarts=0 fb47468a2cd3953c7131431991afcc6a2703f14640520102eea0a685a7e8d6de
+
+## Step 4: pinned Galera services
+
+### pull images on dbcm-lab-m1
+
+```
+$ vm_docker dbcm-lab-m1 pull -q mariadb:11.4
+docker.io/library/mariadb:11.4
+(exit 0)
+```
+
+### pull images on dbcm-lab-m2
+
+```
+$ vm_docker dbcm-lab-m2 pull -q mariadb:11.4
+docker.io/library/mariadb:11.4
+(exit 0)
+```
+
+### pull images on dbcm-lab-m3
+
+```
+$ vm_docker dbcm-lab-m3 pull -q mariadb:11.4
+docker.io/library/mariadb:11.4
+(exit 0)
+```
+
+### MariaDB image digest and arch (m1)
+
+```
+$ vm_docker dbcm-lab-m1 image inspect --format {{.RepoDigests}} {{.Architecture}} version={{index .Config.Labels "org.opencontainers.image.version"}} mariadb:11.4
+[mariadb@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873] arm64 version=11.4.13
+(exit 0)
+```
+
+### busybox/nginx image digests (m1)
+
+```
+$ vm_docker dbcm-lab-m1 image inspect --format {{.RepoTags}} {{.RepoDigests}} {{.Architecture}} busybox:1.37 nginx:1.27-alpine
+[busybox:1.37] [busybox@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e] arm64
+[nginx:1.27-alpine] [nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10] arm64
+(exit 0)
+```
+
+### create overlay network dbcm-e1-galera
+
+```
+$ vm_docker dbcm-lab-m1 network create --driver overlay --attachable --label dbcm.installation=e1-lab --label dbcm.cluster=e1-galera dbcm-e1-galera
+zcl80k7dh61lp20y5kcpp4pkh
+(exit 0)
+```
+
+### create synthetic root password secret
+
+```
+$ vm_sh dbcm-lab-m1 head -c 18 /dev/urandom | base64 | sudo docker secret create --label dbcm.installation=e1-lab dbcm-e1-root-pw -
+4y67vvuk0pym2qe06eanjovmc
+(exit 0)
+```
+
+### one-shot marker container for galera-1
+
+```
+$ vm_docker dbcm-lab-m1 run --rm --label dbcm.installation=e1-lab --label dbcm.node=galera-1 -v /var/lib/dbcm/galera-1:/vol busybox:1.37 sh -c 
+			set -e
+			mkdir -p /vol/data
+			printf '%s\n' '{"node_uuid":"81def889-15f7-44a3-b9db-3d4196e4b5b3","installation_id":"e1-lab","cluster_id":"e1-galera","node":"galera-1"}' >/vol/dbcm-identity.json
+			cp /vol/dbcm-identity.json /vol/data/dbcm-identity.json
+			chown 999:999 /vol/data /vol/data/dbcm-identity.json
+			ls -la /vol /vol/data; cat /vol/dbcm-identity.json
+/vol:
+total 16
+drwxr-xr-x    3 root     root          4096 Oct 19 14:01 .
+drwxr-xr-x    1 root     root          4096 Oct 19 14:01 ..
+drwxr-xr-x    2 999      999           4096 Oct 19 14:01 data
+-rw-r--r--    1 root     root           123 Oct 19 14:01 dbcm-identity.json
+
+/vol/data:
+total 12
+drwxr-xr-x    2 999      999           4096 Oct 19 14:01 .
+drwxr-xr-x    3 root     root          4096 Oct 19 14:01 ..
+-rw-r--r--    1 999      999            123 Oct 19 14:01 dbcm-identity.json
+{"node_uuid":"81def889-15f7-44a3-b9db-3d4196e4b5b3","installation_id":"e1-lab","cluster_id":"e1-galera","node":"galera-1"}
+(exit 0)
+```
+
+### one-shot marker container for galera-2
+
+```
+$ vm_docker dbcm-lab-m2 run --rm --label dbcm.installation=e1-lab --label dbcm.node=galera-2 -v /var/lib/dbcm/galera-2:/vol busybox:1.37 sh -c 
+			set -e
+			mkdir -p /vol/data
+			printf '%s\n' '{"node_uuid":"160b9c2c-037d-4549-a61d-27679001302e","installation_id":"e1-lab","cluster_id":"e1-galera","node":"galera-2"}' >/vol/dbcm-identity.json
+			cp /vol/dbcm-identity.json /vol/data/dbcm-identity.json
+			chown 999:999 /vol/data /vol/data/dbcm-identity.json
+			ls -la /vol /vol/data; cat /vol/dbcm-identity.json
+/vol:
+total 16
+drwxr-xr-x    3 root     root          4096 Oct 19 14:01 .
+drwxr-xr-x    1 root     root          4096 Oct 19 14:01 ..
+drwxr-xr-x    2 999      999           4096 Oct 19 14:01 data
+-rw-r--r--    1 root     root           123 Oct 19 14:01 dbcm-identity.json
+
+/vol/data:
+total 12
+drwxr-xr-x    2 999      999           4096 Oct 19 14:01 .
+drwxr-xr-x    3 root     root          4096 Oct 19 14:01 ..
+-rw-r--r--    1 999      999            123 Oct 19 14:01 dbcm-identity.json
+{"node_uuid":"160b9c2c-037d-4549-a61d-27679001302e","installation_id":"e1-lab","cluster_id":"e1-galera","node":"galera-2"}
+(exit 0)
+```
+
+### one-shot marker container for galera-3
+
+```
+$ vm_docker dbcm-lab-m3 run --rm --label dbcm.installation=e1-lab --label dbcm.node=galera-3 -v /var/lib/dbcm/galera-3:/vol busybox:1.37 sh -c 
+			set -e
+			mkdir -p /vol/data
+			printf '%s\n' '{"node_uuid":"7b070da2-478c-4cfe-8287-91368b403264","installation_id":"e1-lab","cluster_id":"e1-galera","node":"galera-3"}' >/vol/dbcm-identity.json
+			cp /vol/dbcm-identity.json /vol/data/dbcm-identity.json
+			chown 999:999 /vol/data /vol/data/dbcm-identity.json
+			ls -la /vol /vol/data; cat /vol/dbcm-identity.json
+/vol:
+total 16
+drwxr-xr-x    3 root     root          4096 Oct 19 14:01 .
+drwxr-xr-x    1 root     root          4096 Oct 19 14:01 ..
+drwxr-xr-x    2 999      999           4096 Oct 19 14:01 data
+-rw-r--r--    1 root     root           123 Oct 19 14:01 dbcm-identity.json
+
+/vol/data:
+total 12
+drwxr-xr-x    2 999      999           4096 Oct 19 14:01 .
+drwxr-xr-x    3 root     root          4096 Oct 19 14:01 ..
+-rw-r--r--    1 999      999            123 Oct 19 14:01 dbcm-identity.json
+{"node_uuid":"7b070da2-478c-4cfe-8287-91368b403264","installation_id":"e1-lab","cluster_id":"e1-galera","node":"galera-3"}
+(exit 0)
+```
+
+### Galera options
+
+```
+bootstrap (galera-1 initially): --wsrep_on=ON --wsrep_provider=/usr/lib/galera/libgalera_smm.so --wsrep_cluster_name=dbcm-e1 --wsrep_cluster_address=gcomm://galera-1,galera-2,galera-3 --wsrep_sst_method=mariabackup --binlog_format=ROW --innodb_autoinc_lock_mode=2 --wsrep_provider_options=gcache.size=128M --wsrep-new-cluster
+joiners and galera-1 after formation: --wsrep_on=ON --wsrep_provider=/usr/lib/galera/libgalera_smm.so --wsrep_cluster_name=dbcm-e1 --wsrep_cluster_address=gcomm://galera-1,galera-2,galera-3 --wsrep_sst_method=mariabackup --binlog_format=ROW --innodb_autoinc_lock_mode=2 --wsrep_provider_options=gcache.size=128M
+```
+
+### create service galera-1 pinned to node t05ylyy1e8dnc70m94bjv9vw9 (bootstrap=1)
+
+```
+$ vm_docker dbcm-lab-m1 service create --detach --name galera-1 --replicas 1 --constraint node.id==t05ylyy1e8dnc70m94bjv9vw9 --network dbcm-e1-galera --endpoint-mode dnsrr --hostname galera-1 --restart-condition any --stop-grace-period 60s --label dbcm.installation=e1-lab --label dbcm.cluster=e1-galera --label dbcm.node=galera-1 --secret dbcm-e1-root-pw --env MARIADB_ROOT_PASSWORD_FILE=/run/secrets/dbcm-e1-root-pw --env MARIADB_MYSQL_LOCALHOST_USER=1 --env MARIADB_MYSQL_LOCALHOST_GRANTS=RELOAD, PROCESS, LOCK TABLES, BINLOG MONITOR --mount type=bind,src=/var/lib/dbcm/galera-1/data,dst=/var/lib/mysql --mount type=bind,src=/var/lib/dbcm/galera-1/dbcm-identity.json,dst=/etc/dbcm/identity.json,readonly mariadb:11.4 --wsrep_on=ON --wsrep_provider=/usr/lib/galera/libgalera_smm.so --wsrep_cluster_name=dbcm-e1 --wsrep_cluster_address=gcomm://galera-1,galera-2,galera-3 --wsrep_sst_method=mariabackup --binlog_format=ROW --innodb_autoinc_lock_mode=2 --wsrep_provider_options=gcache.size=128M --wsrep-new-cluster
+pnmmlvnif7ww5erzrattl3g32
+(exit 0)
+```
+
+14:01:48Z wait ok after 5s: galera-1 bootstrapped (Synced, size 1)
+### create service galera-2 pinned to node lb1h035jvc0re7k6mg6w27yge (bootstrap=0)
+
+```
+$ vm_docker dbcm-lab-m1 service create --detach --name galera-2 --replicas 1 --constraint node.id==lb1h035jvc0re7k6mg6w27yge --network dbcm-e1-galera --endpoint-mode dnsrr --hostname galera-2 --restart-condition any --stop-grace-period 60s --label dbcm.installation=e1-lab --label dbcm.cluster=e1-galera --label dbcm.node=galera-2 --secret dbcm-e1-root-pw --env MARIADB_ROOT_PASSWORD_FILE=/run/secrets/dbcm-e1-root-pw --env MARIADB_MYSQL_LOCALHOST_USER=1 --env MARIADB_MYSQL_LOCALHOST_GRANTS=RELOAD, PROCESS, LOCK TABLES, BINLOG MONITOR --mount type=bind,src=/var/lib/dbcm/galera-2/data,dst=/var/lib/mysql --mount type=bind,src=/var/lib/dbcm/galera-2/dbcm-identity.json,dst=/etc/dbcm/identity.json,readonly mariadb:11.4 --wsrep_on=ON --wsrep_provider=/usr/lib/galera/libgalera_smm.so --wsrep_cluster_name=dbcm-e1 --wsrep_cluster_address=gcomm://galera-1,galera-2,galera-3 --wsrep_sst_method=mariabackup --binlog_format=ROW --innodb_autoinc_lock_mode=2 --wsrep_provider_options=gcache.size=128M
+9tbc0anwd673277pevb1klfhp
+(exit 0)
+```
+
+14:02:07Z wait ok after 18s: galera-2 joined (Synced, size 2)
+### create service galera-3 pinned to node z4zp15cc49dfljfv2rx9q1kpf (bootstrap=0)
+
+```
+$ vm_docker dbcm-lab-m1 service create --detach --name galera-3 --replicas 1 --constraint node.id==z4zp15cc49dfljfv2rx9q1kpf --network dbcm-e1-galera --endpoint-mode dnsrr --hostname galera-3 --restart-condition any --stop-grace-period 60s --label dbcm.installation=e1-lab --label dbcm.cluster=e1-galera --label dbcm.node=galera-3 --secret dbcm-e1-root-pw --env MARIADB_ROOT_PASSWORD_FILE=/run/secrets/dbcm-e1-root-pw --env MARIADB_MYSQL_LOCALHOST_USER=1 --env MARIADB_MYSQL_LOCALHOST_GRANTS=RELOAD, PROCESS, LOCK TABLES, BINLOG MONITOR --mount type=bind,src=/var/lib/dbcm/galera-3/data,dst=/var/lib/mysql --mount type=bind,src=/var/lib/dbcm/galera-3/dbcm-identity.json,dst=/etc/dbcm/identity.json,readonly mariadb:11.4 --wsrep_on=ON --wsrep_provider=/usr/lib/galera/libgalera_smm.so --wsrep_cluster_name=dbcm-e1 --wsrep_cluster_address=gcomm://galera-1,galera-2,galera-3 --wsrep_sst_method=mariabackup --binlog_format=ROW --innodb_autoinc_lock_mode=2 --wsrep_provider_options=gcache.size=128M
+rbzd7ma3ydptojdyp1vssjbtb
+(exit 0)
+```
+
+14:02:26Z wait ok after 18s: galera-3 joined (Synced, size 3)
+### galera-2 join method in log
+
+```
+$ vm_sh dbcm-lab-m2 sudo docker logs 6f0bba73f42bc882d806dcb87ec8e59f81f549dc9c3be125d4d9f60f41d2fd2f 2>&1 | grep -iE 'SST|IST' | grep -iE 'request|complete|receiv|prepar|method' | head -12
+2026-10-19 14:01:54 0 [Note] WSREP: Running: 'wsrep_sst_mariabackup --role 'joiner' --address '10.0.1.4' --datadir '/var/lib/mysql/' --parent 1 --progress 0 --mysqld-args --wsrep_on=ON --wsrep_provider=/usr/lib/galera/libgalera_smm.so --wsrep_cluster_name=dbcm-e1 --wsrep_cluster_address=gcomm://galera-1,galera-2,galera-3 --wsrep_sst_method=mariabackup --binlog_format=ROW --innodb_autoinc_lock_mode=2 --wsrep_provider_options=gcache.size=128M'
+2026-10-19 14:01:54 2 [Note] WSREP: IST receiver addr using tcp://10.0.1.4:4568
+2026-10-19 14:01:54 2 [Note] WSREP: Prepared IST receiver for 0-2, listening at: tcp://10.0.1.4:4568, waiting for connection to: tcp://10.0.1.4:4568
+WSREP_SST: [INFO] Waiting for SST streaming to complete! (20261019 14:01:54.726)
+WSREP_SST: [INFO] Preparing the backup at /var/lib/mysql/.sst (20261019 14:02:05.204)
+WSREP_SST: [INFO] Evaluating /usr//bin/mariadb-backup --prepare --no-version-check --target-dir='/var/lib/mysql/.sst' --datadir='/var/lib/mysql/.sst' --mysqld-args '--wsrep_on=ON' '--wsrep_provider=/usr/lib/galera/libgalera_smm.so' '--wsrep_cluster_name=dbcm-e1' '--wsrep_cluster_address=gcomm://galera-1,galera-2,galera-3' '--wsrep_sst_method=mariabackup' '--binlog_format=ROW' '--innodb_autoinc_lock_mode=2' '--wsrep_provider_options=gcache.size=128M' > '/var/lib/mysql/mariabackup.prepare.log' 2>&1 (20261019 14:02:05.204)
+WSREP_SST: [INFO] mariabackup SST completed on joiner (20261019 14:02:05.286)
+2026-10-19 14:02:05 3 [Note] WSREP: SST received
+2026-10-19 14:02:05 3 [Note] WSREP: SST received: 9f14fd2e-cbc5-11f1-b18b-f6cb8d63277e:2
+2026-10-19 14:02:05 0 [Note] WSREP: Receiving IST... 0.0% (0/1 events) complete.
+2026-10-19 14:02:05 0 [Note] WSREP: Receiving IST... 100.0% (1/1 events) complete.
+2026-10-19 14:02:05 2 [Note] WSREP: IST received: 9f14fd2e-cbc5-11f1-b18b-f6cb8d63277e:2
+(exit 0)
+```
+
+### galera-3 join method in log
+
+```
+$ vm_sh dbcm-lab-m3 sudo docker logs 2701c6812c4ff386b4d58561d1da05950c436c8f377053490fdacb4f425debcb 2>&1 | grep -iE 'SST|IST' | grep -iE 'request|complete|receiv|prepar|method' | head -12
+2026-10-19 14:02:12 0 [Note] WSREP: Running: 'wsrep_sst_mariabackup --role 'joiner' --address '10.0.1.6' --datadir '/var/lib/mysql/' --parent 1 --progress 0 --mysqld-args --wsrep_on=ON --wsrep_provider=/usr/lib/galera/libgalera_smm.so --wsrep_cluster_name=dbcm-e1 --wsrep_cluster_address=gcomm://galera-1,galera-2,galera-3 --wsrep_sst_method=mariabackup --binlog_format=ROW --innodb_autoinc_lock_mode=2 --wsrep_provider_options=gcache.size=128M'
+2026-10-19 14:02:12 2 [Note] WSREP: IST receiver addr using tcp://10.0.1.6:4568
+2026-10-19 14:02:12 2 [Note] WSREP: Prepared IST receiver for 0-3, listening at: tcp://10.0.1.6:4568, waiting for connection to: tcp://10.0.1.6:4568
+WSREP_SST: [INFO] Waiting for SST streaming to complete! (20261019 14:02:12.702)
+WSREP_SST: [INFO] Preparing the backup at /var/lib/mysql/.sst (20261019 14:02:23.257)
+WSREP_SST: [INFO] Evaluating /usr//bin/mariadb-backup --prepare --no-version-check --target-dir='/var/lib/mysql/.sst' --datadir='/var/lib/mysql/.sst' --mysqld-args '--wsrep_on=ON' '--wsrep_provider=/usr/lib/galera/libgalera_smm.so' '--wsrep_cluster_name=dbcm-e1' '--wsrep_cluster_address=gcomm://galera-1,galera-2,galera-3' '--wsrep_sst_method=mariabackup' '--binlog_format=ROW' '--innodb_autoinc_lock_mode=2' '--wsrep_provider_options=gcache.size=128M' > '/var/lib/mysql/mariabackup.prepare.log' 2>&1 (20261019 14:02:23.257)
+WSREP_SST: [INFO] mariabackup SST completed on joiner (20261019 14:02:23.349)
+2026-10-19 14:02:23 3 [Note] WSREP: SST received
+2026-10-19 14:02:24 3 [Note] WSREP: SST received: 9f14fd2e-cbc5-11f1-b18b-f6cb8d63277e:3
+2026-10-19 14:02:24 0 [Note] WSREP: Receiving IST... 0.0% (0/1 events) complete.
+2026-10-19 14:02:24 0 [Note] WSREP: Receiving IST... 100.0% (1/1 events) complete.
+2026-10-19 14:02:24 2 [Note] WSREP: IST received: 9f14fd2e-cbc5-11f1-b18b-f6cb8d63277e:3
+(exit 0)
+```
+
+### update galera-1 to non-bootstrap args
+
+```
+$ vm_docker dbcm-lab-m1 service update --detach --args --wsrep_on=ON --wsrep_provider=/usr/lib/galera/libgalera_smm.so --wsrep_cluster_name=dbcm-e1 --wsrep_cluster_address=gcomm://galera-1,galera-2,galera-3 --wsrep_sst_method=mariabackup --binlog_format=ROW --innodb_autoinc_lock_mode=2 --wsrep_provider_options=gcache.size=128M galera-1
+galera-1
+(exit 0)
+```
+
+14:02:35Z wait ok after 9s: galera-1 rejoined (Synced, size 3)
+### galera-1 rejoin method in log
+
+```
+$ vm_sh dbcm-lab-m1 sudo docker logs 4af88a37a70c2c8406e04f22382afabaa363736b7bb3860ecec4b5fc28eecdf6 2>&1 | grep -iE 'SST|IST' | grep -iE 'request|complete|receiv|prepar|method' | head -12
+2026-10-19 14:02:31 0 [Note] WSREP: Running: 'wsrep_sst_mariabackup --role 'joiner' --address '10.0.1.8' --datadir '/var/lib/mysql/' --parent 1 --progress 0 --mysqld-args --wsrep_on=ON --wsrep_provider=/usr/lib/galera/libgalera_smm.so --wsrep_cluster_name=dbcm-e1 --wsrep_cluster_address=gcomm://galera-1,galera-2,galera-3 --wsrep_sst_method=mariabackup --binlog_format=ROW --innodb_autoinc_lock_mode=2 --wsrep_provider_options=gcache.size=128M'
+2026-10-19 14:02:32 2 [Note] WSREP: IST receiver addr using tcp://10.0.1.8:4568
+2026-10-19 14:02:32 2 [Note] WSREP: Prepared IST receiver for 4-5, listening at: tcp://10.0.1.8:4568, waiting for connection to: tcp://10.0.1.8:4568
+WSREP_SST: [INFO] 'xtrabackup_ist' received from donor: Running IST (20261019 14:02:32.300)
+WSREP_SST: [INFO] mariabackup IST completed on joiner (20261019 14:02:32.303)
+2026-10-19 14:02:32 3 [Note] WSREP: SST received
+2026-10-19 14:02:33 3 [Note] WSREP: SST received: 9f14fd2e-cbc5-11f1-b18b-f6cb8d63277e:3
+2026-10-19 14:02:33 2 [Note] WSREP: Receiving IST: 2 writesets, seqnos 4-5
+2026-10-19 14:02:33 0 [Note] WSREP: Receiving IST... 0.0% (0/2 events) complete.
+2026-10-19 14:02:33 0 [Note] WSREP: Receiving IST... 100.0% (2/2 events) complete.
+2026-10-19 14:02:33 2 [Note] WSREP: IST received: 9f14fd2e-cbc5-11f1-b18b-f6cb8d63277e:5
+(exit 0)
+```
+
+### service list
+
+```
+$ vm_docker dbcm-lab-m1 service ls
+ID             NAME           MODE         REPLICAS   IMAGE               PORTS
+pnmmlvnif7ww   galera-1       replicated   1/1        mariadb:11.4        
+9tbc0anwd673   galera-2       replicated   1/1        mariadb:11.4        
+rbzd7ma3ydpt   galera-3       replicated   1/1        mariadb:11.4        
+kce1q614se3n   sentinel-web   replicated   1/1        nginx:1.27-alpine   *:18080->80/tcp
+(exit 0)
+```
+
+### galera-1 tasks (placement)
+
+```
+$ vm_docker dbcm-lab-m1 service ps --no-trunc --format {{.Name}} {{.Node}} {{.DesiredState}} {{.CurrentState}} {{.Error}} galera-1
+galera-1.1 lima-dbcm-lab-m1 Running Running 5 seconds ago 
+galera-1.1 lima-dbcm-lab-m1 Shutdown Shutdown 5 seconds ago 
+(exit 0)
+```
+
+### galera-2 tasks (placement)
+
+```
+$ vm_docker dbcm-lab-m1 service ps --no-trunc --format {{.Name}} {{.Node}} {{.DesiredState}} {{.CurrentState}} {{.Error}} galera-2
+galera-2.1 lima-dbcm-lab-m2 Running Running 46 seconds ago 
+(exit 0)
+```
+
+### galera-3 tasks (placement)
+
+```
+$ vm_docker dbcm-lab-m1 service ps --no-trunc --format {{.Name}} {{.Node}} {{.DesiredState}} {{.CurrentState}} {{.Error}} galera-3
+galera-3.1 lima-dbcm-lab-m3 Running Running 26 seconds ago 
+(exit 0)
+```
+
+### node ID map
+
+```
+$ vm_docker dbcm-lab-m1 node ls --format {{.ID}} {{.Hostname}} {{.ManagerStatus}}
+t05ylyy1e8dnc70m94bjv9vw9 lima-dbcm-lab-m1 Leader
+lb1h035jvc0re7k6mg6w27yge lima-dbcm-lab-m2 
+z4zp15cc49dfljfv2rx9q1kpf lima-dbcm-lab-m3 
+(exit 0)
+```
+
+
+## Step 5: cluster state and replication
+
+### wsrep status galera-1
+
+```
+$ sql 1 SHOW GLOBAL STATUS WHERE Variable_name IN
+			('wsrep_cluster_size','wsrep_cluster_status','wsrep_local_state_comment','wsrep_ready',
+			 'wsrep_connected','wsrep_cluster_state_uuid','wsrep_incoming_addresses','wsrep_last_committed')
+wsrep_last_committed	5
+wsrep_local_state_comment	Synced
+wsrep_incoming_addresses	10.0.1.4:0,10.0.1.6:0,10.0.1.8:0
+wsrep_cluster_size	3
+wsrep_cluster_state_uuid	9f14fd2e-cbc5-11f1-b18b-f6cb8d63277e
+wsrep_cluster_status	Primary
+wsrep_connected	ON
+wsrep_ready	ON
+(exit 0)
+```
+
+### wsrep status galera-2
+
+```
+$ sql 2 SHOW GLOBAL STATUS WHERE Variable_name IN
+			('wsrep_cluster_size','wsrep_cluster_status','wsrep_local_state_comment','wsrep_ready',
+			 'wsrep_connected','wsrep_cluster_state_uuid','wsrep_incoming_addresses','wsrep_last_committed')
+wsrep_last_committed	5
+wsrep_local_state_comment	Synced
+wsrep_incoming_addresses	10.0.1.4:0,10.0.1.6:0,10.0.1.8:0
+wsrep_cluster_size	3
+wsrep_cluster_state_uuid	9f14fd2e-cbc5-11f1-b18b-f6cb8d63277e
+wsrep_cluster_status	Primary
+wsrep_connected	ON
+wsrep_ready	ON
+(exit 0)
+```
+
+### wsrep status galera-3
+
+```
+$ sql 3 SHOW GLOBAL STATUS WHERE Variable_name IN
+			('wsrep_cluster_size','wsrep_cluster_status','wsrep_local_state_comment','wsrep_ready',
+			 'wsrep_connected','wsrep_cluster_state_uuid','wsrep_incoming_addresses','wsrep_last_committed')
+wsrep_last_committed	5
+wsrep_local_state_comment	Synced
+wsrep_incoming_addresses	10.0.1.4:0,10.0.1.6:0,10.0.1.8:0
+wsrep_cluster_size	3
+wsrep_cluster_state_uuid	9f14fd2e-cbc5-11f1-b18b-f6cb8d63277e
+wsrep_cluster_status	Primary
+wsrep_connected	ON
+wsrep_ready	ON
+(exit 0)
+```
+
+### write on galera-1
+
+```
+$ sql 1 CREATE DATABASE IF NOT EXISTS e1;
+		CREATE TABLE IF NOT EXISTS e1.probe (id INT AUTO_INCREMENT PRIMARY KEY, note VARCHAR(64), at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
+		INSERT INTO e1.probe (note) VALUES ('synthetic-row-from-galera-1');
+		SELECT id, note FROM e1.probe;
+3	synthetic-row-from-galera-1
+(exit 0)
+```
+
+### read on galera-2
+
+```
+$ sql 2 SELECT id, note, @@hostname FROM e1.probe
+3	synthetic-row-from-galera-1	galera-2
+(exit 0)
+```
+
+### read on galera-3
+
+```
+$ sql 3 SELECT id, note, @@hostname FROM e1.probe
+3	synthetic-row-from-galera-1	galera-3
+(exit 0)
+```
+
+
+## Step 6: kill galera-2 container
+
+### galera-2 container before kill
+
+```
+$ vm_docker dbcm-lab-m2 ps --no-trunc --format {{.ID}} {{.Names}} {{.Status}} -f label=com.docker.swarm.service.name=galera-2
+6f0bba73f42bc882d806dcb87ec8e59f81f549dc9c3be125d4d9f60f41d2fd2f galera-2.1.t9h5spngc1ezgu9sy59164r7j Up 47 seconds
+(exit 0)
+```
+
+### docker kill galera-2 container
+
+```
+$ vm_docker dbcm-lab-m2 kill 6f0bba73f42bc882d806dcb87ec8e59f81f549dc9c3be125d4d9f60f41d2fd2f
+6f0bba73f42bc882d806dcb87ec8e59f81f549dc9c3be125d4d9f60f41d2fd2f
+(exit 0)
+```
+
+14:02:42Z galera-2 new container after 5s
+### write on galera-1 while galera-2 is down
+
+```
+rows after write: 2
+write started 0s after kill, took 5s
+```
+
+### cluster size on galera-1 while galera-2 rejoins
+
+```
+$ wsrep 1 wsrep_cluster_size
+2
+(exit 0)
+```
+
+14:02:56Z galera-2 Synced, cluster size 3 after 19s
+### recovery timing
+
+```
+old container: 6f0bba73f42bc882d806dcb87ec8e59f81f549dc9c3be125d4d9f60f41d2fd2f
+new container: 7c8f5a33e3b7c1601dce752c9da9edac9a13b514d1614ece7671a827c79c028a
+new container running after: 5s
+Synced with cluster size 3 after: 19s
+```
+
+### galera-2 task history (same node?)
+
+```
+$ vm_docker dbcm-lab-m1 service ps --no-trunc --format {{.ID}} {{.Node}} {{.DesiredState}} {{.CurrentState}} {{.Error}} galera-2
+tymkvw4lo54coml3dv77mv69e lima-dbcm-lab-m2 Running Running 13 seconds ago 
+t9h5spngc1ezgu9sy59164r7j lima-dbcm-lab-m2 Shutdown Failed 18 seconds ago "task: non-zero exit (137)"
+(exit 0)
+```
+
+### galera-2 rejoin log (IST/SST)
+
+```
+$ vm_sh dbcm-lab-m2 sudo docker logs 7c8f5a33e3b7c1601dce752c9da9edac9a13b514d1614ece7671a827c79c028a 2>&1 | grep -E 'Found saved state|Group state|Local state|IST uuid|Prepared IST receiver|SST started|SST completed|IST completed|SST received|Receiving IST:|IST received|Synchronized with group'
+2026-10-19 14:02:43 0 [Note] WSREP: Found saved state: 9f14fd2e-cbc5-11f1-b18b-f6cb8d63277e:-1, safe_to_bootstrap: 0
+	Group state: 9f14fd2e-cbc5-11f1-b18b-f6cb8d63277e:11
+	Local state: 00000000-0000-0000-0000-000000000000:-1
+WSREP_SST: [INFO] mariabackup SST started on joiner (20261019 14:02:44.142)
+2026-10-19 14:02:44 2 [Note] WSREP: ####### IST uuid:00000000-0000-0000-0000-000000000000 f: 0, l: 11, STRv: 3
+2026-10-19 14:02:44 2 [Note] WSREP: Prepared IST receiver for 0-11, listening at: tcp://10.0.1.9:4568, waiting for connection to: tcp://10.0.1.9:4568
+WSREP_SST: [INFO] mariabackup SST completed on joiner (20261019 14:02:55.191)
+2026-10-19 14:02:55 3 [Note] WSREP: SST received
+2026-10-19 14:02:55 3 [Note] WSREP: SST received: 9f14fd2e-cbc5-11f1-b18b-f6cb8d63277e:11
+2026-10-19 14:02:55 2 [Note] WSREP: IST received: 9f14fd2e-cbc5-11f1-b18b-f6cb8d63277e:11
+2026-10-19 14:02:55 2 [Note] WSREP: Synchronized with group, ready for connections
+(exit 0)
+```
+
+### read on galera-2 after rejoin
+
+```
+$ sql 2 SELECT id, note FROM e1.probe ORDER BY id
+3	synthetic-row-from-galera-1
+6	written-while-galera-2-down
+(exit 0)
+```
+
+### cluster size/status galera-1 after rejoin
+
+```
+$ sql 1 SHOW GLOBAL STATUS WHERE Variable_name IN ('wsrep_cluster_size','wsrep_cluster_status','wsrep_local_state_comment')
+wsrep_local_state_comment	Synced
+wsrep_cluster_size	3
+wsrep_cluster_status	Primary
+(exit 0)
+```
+
+### cluster size/status galera-2 after rejoin
+
+```
+$ sql 2 SHOW GLOBAL STATUS WHERE Variable_name IN ('wsrep_cluster_size','wsrep_cluster_status','wsrep_local_state_comment')
+wsrep_local_state_comment	Synced
+wsrep_cluster_size	3
+wsrep_cluster_status	Primary
+(exit 0)
+```
+
+### cluster size/status galera-3 after rejoin
+
+```
+$ sql 3 SHOW GLOBAL STATUS WHERE Variable_name IN ('wsrep_cluster_size','wsrep_cluster_status','wsrep_local_state_comment')
+wsrep_local_state_comment	Synced
+wsrep_cluster_size	3
+wsrep_cluster_status	Primary
+(exit 0)
+```
+
+### identity markers on dbcm-lab-m1
+
+```
+$ vm_sh dbcm-lab-m1 sudo cat /var/lib/dbcm/galera-1/dbcm-identity.json; echo '-- in datadir:'; sudo ls -la /var/lib/dbcm/galera-1/data/dbcm-identity.json 2>&1; sudo cat /var/lib/dbcm/galera-1/data/grastate.dat
+{"node_uuid":"81def889-15f7-44a3-b9db-3d4196e4b5b3","installation_id":"e1-lab","cluster_id":"e1-galera","node":"galera-1"}
+-- in datadir:
+-rw-r--r-- 1 999 systemd-journal 123 Oct 19 16:01 /var/lib/dbcm/galera-1/data/dbcm-identity.json
+# GALERA saved state
+version: 2.1
+uuid:    9f14fd2e-cbc5-11f1-b18b-f6cb8d63277e
+seqno:   -1
+safe_to_bootstrap: 0
+(exit 0)
+```
+
+### identity markers on dbcm-lab-m2
+
+```
+$ vm_sh dbcm-lab-m2 sudo cat /var/lib/dbcm/galera-2/dbcm-identity.json; echo '-- in datadir:'; sudo ls -la /var/lib/dbcm/galera-2/data/dbcm-identity.json 2>&1; sudo cat /var/lib/dbcm/galera-2/data/grastate.dat
+{"node_uuid":"160b9c2c-037d-4549-a61d-27679001302e","installation_id":"e1-lab","cluster_id":"e1-galera","node":"galera-2"}
+-- in datadir:
+ls: cannot access '/var/lib/dbcm/galera-2/data/dbcm-identity.json': No such file or directory
+# GALERA saved state
+version: 2.1
+uuid:    9f14fd2e-cbc5-11f1-b18b-f6cb8d63277e
+seqno:   -1
+safe_to_bootstrap: 0
+(exit 0)
+```
+
+### identity markers on dbcm-lab-m3
+
+```
+$ vm_sh dbcm-lab-m3 sudo cat /var/lib/dbcm/galera-3/dbcm-identity.json; echo '-- in datadir:'; sudo ls -la /var/lib/dbcm/galera-3/data/dbcm-identity.json 2>&1; sudo cat /var/lib/dbcm/galera-3/data/grastate.dat
+{"node_uuid":"7b070da2-478c-4cfe-8287-91368b403264","installation_id":"e1-lab","cluster_id":"e1-galera","node":"galera-3"}
+-- in datadir:
+ls: cannot access '/var/lib/dbcm/galera-3/data/dbcm-identity.json': No such file or directory
+# GALERA saved state
+version: 2.1
+uuid:    9f14fd2e-cbc5-11f1-b18b-f6cb8d63277e
+seqno:   -1
+safe_to_bootstrap: 0
+(exit 0)
+```
+
+
+## Step 7: sentinel comparison
+
+### sentinel snapshot after
+
+```
+before: pry4g6bwjfuexp671uxjs6va2 z4zp15cc49dfljfv2rx9q1kpf 276155dfe1cee79918aa683dbdcfde08976dbc644302e2e8572660fea12b7024 nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10 2026-10-19T14:01:13.939785661Z restarts=0 fb47468a2cd3953c7131431991afcc6a2703f14640520102eea0a685a7e8d6de
+after:  pry4g6bwjfuexp671uxjs6va2 z4zp15cc49dfljfv2rx9q1kpf 276155dfe1cee79918aa683dbdcfde08976dbc644302e2e8572660fea12b7024 nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10 2026-10-19T14:01:13.939785661Z restarts=0 fb47468a2cd3953c7131431991afcc6a2703f14640520102eea0a685a7e8d6de
+```
+
+14:02:57Z sentinel unchanged (task, node, container, image, start time, response)
+sentinel: UNCHANGED
+### unrelated entries before cleanup
+
+```
+$ lab_status_unrelated
+unrelated (never touched):
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+(exit 0)
+```
+
+
+## Scoped cleanup
+
+### bin/lab cleanup -apply
+
+```
+$ <repo>/bin/lab cleanup -apply
+pre-snapshot:
+  colima:default
+  lima:dbcm-lab-m1
+  lima:dbcm-lab-m2
+  lima:dbcm-lab-m3
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+unrelated (must survive):
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+executing actions:
+  # stop Lima VM dbcm-lab-m1
+  limactl stop --force dbcm-lab-m1
+  # delete Lima VM dbcm-lab-m1
+  limactl delete --force dbcm-lab-m1
+  # stop Lima VM dbcm-lab-m2
+  limactl stop --force dbcm-lab-m2
+  # delete Lima VM dbcm-lab-m2
+  limactl delete --force dbcm-lab-m2
+  # stop Lima VM dbcm-lab-m3
+  limactl stop --force dbcm-lab-m3
+  # delete Lima VM dbcm-lab-m3
+  limactl delete --force dbcm-lab-m3
+post-snapshot diff:
+  added: (none)
+  removed: lima:dbcm-lab-m1, lima:dbcm-lab-m2, lima:dbcm-lab-m3
+unrelated resources intact (3)
+(exit 0)
+```
+
+### bin/lab status after cleanup
+
+```
+$ <repo>/bin/lab status
+host:
+  logical CPUs: 14
+  RAM: 48.0 GiB
+budget:
+  lab CPU limit: 7
+  lab RAM limit: 16.0 GiB
+  lab disk limit: 100.0 GiB
+manifest .lab/manifest.json:
+  (empty)
+inventory:
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+unrelated (never touched):
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+(exit 0)
+```
+
+### limactl list after cleanup
+
+```
+$ limactl list
+NAME                         STATUS     SSH                VMTYPE    ARCH       CPUS    MEMORY    DISK     DIR
+thermoctl-e2e-basestation    Stopped    127.0.0.1:55325    vz        aarch64    2       3GiB      8GiB     ~/.lima/thermoctl-e2e-basestation
+thermoctl-test-vm            Stopped    127.0.0.1:50429    vz        aarch64    4       4GiB      20GiB    ~/.lima/thermoctl-test-vm
+(exit 0)
+```
+
+### host free disk after cleanup
+
+```
+$ host_free_disk
+host free disk (/System/Volumes/Data): 76Gi of 926Gi
+(exit 0)
+```
+
+### Lima user-v2 usernet daemons after cleanup (recorded, not touched)
+
+```
+$ sh -c ps -axo pid,command | grep "[l]imactl usernet" || echo none
+ 6914 /opt/homebrew/bin/limactl usernet -p ~/.colima/_lima/_networks/user-v2/usernet_user-v2.pid -e ~/.colima/_lima/_networks/user-v2/user-v2_ep.sock --listen-qemu ~/.colima/_lima/_networks/user-v2/user-v2_qemu.sock --listen ~/.colima/_lima/_networks/user-v2/user-v2_fd.sock --subnet 192.168.5.0/24
+(exit 0)
+```
+
+14:02:59Z E1 finished with exit 0 (log: tests/p0/results/e1-swarm-galera.log)
