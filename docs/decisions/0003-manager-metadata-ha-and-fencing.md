@@ -1,7 +1,7 @@
 # ADR 0003: Manager metadata replication, coordination and fencing
 
 Date: 2026-10-19
-Status: Proposed. Nothing here is validated. No candidate library was run or version-checked yet; the properties below are design expectations to be confirmed by the W03 prototype and recorded as evidence.
+Status: Proposed; prototype evidence is in-process only (see the end of this document). Not accepted for production.
 
 ## Context
 
@@ -48,3 +48,24 @@ Do not build custom consensus. Three replicas alone are not proof of HA; the exp
 - Measured resource use of three replicas within the budget in [TESTING.md](../TESTING.md).
 
 First prototype step (no VMs, no Docker): three in-process or loopback-process replicas with injected partitions, a simulated agent that enforces term checks, and tests for the scenarios above. VM-based runs wait for the lab controls of W04.
+
+## Prototype evidence (in-process, no VMs)
+
+Library choice and comparison: [0003-evidence-library-evaluation.md](0003-evidence-library-evaluation.md). Chosen for the prototype: `github.com/hashicorp/raft` v1.8.0 (in-memory stores, in-memory transport wrapped with a switchable partition matrix). Executed on the development host: `go test -race -count=3 ./...` passed for `internal/fencing`, `internal/opjournal` and `internal/metastore`.
+
+| Scenario | Test | Observed result |
+| --- | --- | --- |
+| Three nodes elect one leader; committed operation commands reach all journals; followers refuse writes; a new leader keeps committed state after leader stop | `internal/metastore/store_test.go` | Passed |
+| Leader lost mid-operation | `TestScenarioLeaderLossMidOperation` | New leader adopts; the interrupted step is `Unknown`, never `Succeeded`; it is retried (attempt 2) and the operation completes; the simulated agent executed the finished step exactly once |
+| Partitioned old leader | `TestScenarioPartitionedOldLeader` | After the majority elects a higher term, the agent rejects the old term with `ErrStaleTerm`; the old leader's write does not commit and the majority journal stays unchanged |
+| Majority loss | `TestScenarioMajorityLoss` | Survivor's write does not commit; existing journal remains readable |
+| Heal | `TestScenarioHealConverges` | Old leader steps down and converges to the same journal as the others |
+
+Findings that change the design:
+
+- `Apply` on a leader that lost its quorum returns "apply outcome unknown", not "not leader", because the entry might still commit. Callers must treat this as unknown completion and reconcile.
+- The state machine does not compare `Command.Term` with the term at commit time. Fencing relies on the agent-side guard and on the issuer passing the current term. Whether the state machine should enforce this too is open.
+- Journal reads are local and may lag; a new leader needs a barrier before it trusts its journal. Not implemented.
+- The snapshot is a replay of applied commands (the journal has no export API) and grows without bound; restore replaces the journal object.
+
+Limitations: persistence is in memory only; transport is in-process; no real network, agent mTLS, enrollment, secret handling or restore-from-backup flow was exercised; resource use was not measured; AGPL-3.0-only/MPL-2.0 compatibility was read from licence text only, without legal review. The VM-based confirmation belongs to W05 after the lab controls of W04.
