@@ -16,15 +16,15 @@ W01 done: public repository https://github.com/MagicalWig34653/db-cluster-manage
 - Bootstrap handover covers authentication, publication coordinates, licensing detail, initial commit/public push, Pages and subsequent development.
 - Workplan W00–W06, `.gitignore`, a dependency-free documentation checker, documentation CI and Pages workflow prepared.
 
-## W02 progress (not yet complete)
+## W02 result
 
-Implemented and executed locally: Go module with `cmd/manager`, `cmd/agent`, `cmd/cli`; `internal/api` (`/api/v1/health`, `/api/v1/version`, OpenAPI contract in `api/openapi.yaml`); `internal/webui` (embedded SPA with index fallback); SvelteKit 3 / Svelte 5 / Tailwind 4 prototype page in `web/` (dependencies pinned exactly in `web/package-lock.json`). `make build`, `make test` and `make check` pass locally. A manager built by `make build` served the API (200 JSON, JSON 404) and the UI (HTML, SPA fallback) on a loopback port; the page was not rendered in a browser.
+Go module with `cmd/manager`, `cmd/agent`, `cmd/cli`; `internal/api` (`/api/v1/health`, `/api/v1/version`, contract in `api/openapi.yaml`); `internal/webui` (embedded SPA with index fallback); SvelteKit 3 / Svelte 5 / Tailwind 4 / shadcn-svelte (button, card, badge; hand-written `components.json` and zinc theme CSS because `shadcn-svelte init` needs an interactive preset choice) in `web/`, dependencies pinned in `web/package-lock.json`. German/English UI strings with browser-language detection and a language switch (`web/src/lib/i18n.ts`). Executed: `make build`, `make test` (Go and 4 vitest tests), `make check`, and the `Build and test` workflow on GitHub. A built manager served the API and UI over loopback.
 
-Not done: shadcn-svelte is not initialized, no i18n, no remote run of `build.yml`, agent and CLI only report their version.
+Limits: the UI was never rendered in a browser (none installed), so layout, dark mode and the language switch are unverified visually. Frontend imports use Node subpath imports (`#lib/...`, `web/package.json`). Agent and CLI only report their version. `npm` reports pending install-script approvals (`npm approve-scripts`) that have not been reviewed.
 
 ## Next action
 
-Finish W02 (see WORKPLAN). Replicated metadata, fencing, storage identity and several other implementation decisions remain open (W03). The first working version must be validated locally before the user's Swarm trial.
+W03 (see WORKPLAN). Replicated metadata, fencing, storage identity and several other implementation decisions remain open. The first working version must be validated locally before the user's Swarm trial.
 
 ## Verification and limits
 

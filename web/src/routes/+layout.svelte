@@ -1,12 +1,31 @@
 <script lang="ts">
 	import '../app.css';
+	import { Badge } from '#lib/components/ui/badge/index.js';
+	import { Button } from '#lib/components/ui/button/index.js';
+	import { locales } from '#lib/i18n';
+	import { locale, t } from '#lib/locale.svelte';
+
 	let { children } = $props();
+
+	$effect(() => {
+		document.documentElement.lang = locale.value;
+	});
 </script>
 
-<div class="min-h-screen bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
-	<header class="flex items-center gap-3 border-b border-zinc-200 px-6 py-3 dark:border-zinc-800">
-		<span class="font-semibold">DB Cluster Manager</span>
-		<span class="rounded-full border border-amber-500 px-2 py-0.5 text-xs text-amber-700 dark:text-amber-400">Prototype</span>
+<div class="min-h-screen">
+	<header class="flex items-center gap-3 border-b px-6 py-3">
+		<span class="font-semibold">{t('appName')}</span>
+		<Badge variant="outline">{t('prototype')}</Badge>
+		<nav class="ml-auto flex items-center gap-1" aria-label={t('language')}>
+			{#each locales as l (l)}
+				<Button
+					size="sm"
+					variant={locale.value === l ? 'default' : 'ghost'}
+					aria-pressed={locale.value === l}
+					onclick={() => locale.set(l)}>{l.toUpperCase()}</Button
+				>
+			{/each}
+		</nav>
 	</header>
 	<main class="mx-auto max-w-3xl p-6">{@render children()}</main>
 </div>

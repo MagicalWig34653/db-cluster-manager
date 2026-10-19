@@ -18,11 +18,26 @@
     "@sveltejs/kit": "3.1.0",
     "@sveltejs/vite-plugin-svelte": "7.3.1",
     "@tailwindcss/vite": "4.3.3",
+    "clsx": "2.1.1",
     "svelte": "5.57.2",
     "svelte-check": "4.7.7",
+    "tailwind-merge": "3.7.0",
+    "tailwind-variants": "3.3.0",
     "tailwindcss": "4.3.3",
     "typescript": "6.0.3",
     "vite": "8.3.4",
     "vitest": "5.0.5"
+  },
+  "imports": {
+    "#lib": "./src/lib/index.ts",
+    "#lib/*.js": [
+      "./src/lib/*.ts",
+      "./src/lib/*.js"
+    ],
+    "#lib/*": [
+      "./src/lib/*.ts",
+      "./src/lib/*.svelte",
+      "./src/lib/*"
+    ]
   }
 }
