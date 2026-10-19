@@ -1,7 +1,7 @@
 # ADR 0004: Swarm service ownership and local-storage identity
 
 Date: 2026-10-19
-Status: Proposed. Mechanisms below are unverified Docker/Swarm behavior assumptions to be tested in W05 on dedicated VMs. Nothing was run against Docker for this document.
+Status: Proposed; partly confirmed by lab experiments E1/E2 (arm64 only, one Swarm manager, three Lima VMs, Docker 29.9.1, MariaDB Galera). The design text below is unchanged except where the evidence section says otherwise.
 
 ## Context
 
@@ -31,3 +31,26 @@ Requirements: P04/P05 (manager deploys agents as services, one per host), A10 (d
 - Multi-Swarm isolation of installation IDs.
 
 Evidence plan: dedicated lab VMs (W04), unrelated sentinel services before/after, host loss, host return with old volume, delayed messages and partition, as listed in [TESTING.md](../TESTING.md).
+
+## Evidence (lab VMs, 2026-10-19)
+
+Sources: [E1](../../tests/p0/results/e1-swarm-galera.md), [E2](../../tests/p0/results/e2-host-loss.md); scripts in `tests/p0/`. Each run created its own `dbcm-lab-` VMs through `bin/lab`, removed them afterwards, and left the unrelated Lima/Colima resources and a sentinel service unchanged.
+
+| Assumption | Result |
+| --- | --- |
+| One service per node, replicas=1, pinned by `node.id` constraint, restarts on the same host | Confirmed: after `docker kill` the task restarted on the same node within 5 s |
+| Pinned service is not rescheduled when its host is lost | Confirmed: after a forced VM stop the task stayed Pending ("no suitable node") and never moved |
+| Returning host rejoins with its own volume | Confirmed: marker byte-identical, node rejoined (SST), row counts and checksums matched on all nodes |
+| Swarm alone protects against an empty replacement volume | **Refuted**: the plain service started on an empty volume and joined the cluster after 18 s without any identity check. The marker guard (`tests/p0/marker-guard.sh`) refused the start; an explicit new-identity step then allowed it |
+| Marker survives in the data directory | **Refuted**: SST deletes files in the datadir. The marker must live outside it, at the volume root |
+| Minority partition cannot commit writes | Confirmed: the isolated node went non-Primary and refused reads and writes; the majority kept serving; no write from the isolated side was committed |
+
+Further observations that affect the design:
+
+- Failing or refused tasks restart roughly every 5-19 s with no backoff; the manager must detect and pause crash loops.
+- Every return after an unclean stop used full SST, not IST; `--wsrep-recover` was not evaluated.
+- `--wsrep-new-cluster` must be removed from the service spec after bootstrap or a restart could bootstrap a second cluster.
+- Lima's default network gives no VM-to-VM path; the lab attaches the documented `lima:user-v2` network. A forced VM stop loses unsynced writes, so the agent must fsync identity markers.
+- After a partition heals, Swarm replaced the old container; whether two containers briefly shared the datadir was not checked (`docker events` evidence is missing).
+
+Not tested: graceful reboot and drain, loss of the manager host or of several managers, multiple Swarms, AMD64, the real agent (only shell scripts stood in for it), rootless Docker (the lab uses rootful Docker because the Lima `docker` template installs rootless).

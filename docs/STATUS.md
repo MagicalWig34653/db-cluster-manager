@@ -32,9 +32,13 @@ Known gaps: no persistence, real transport, mTLS/enrollment, secrets, read barri
 
 `bin/lab` (cmd/lab, internal/lab): budget from detected CPUs (14 logical -> 7 allowed), RAM 16 GiB, disk 100 GiB; ownership manifest `.lab/manifest.json`; names restricted to `dbcm-lab-` plus a strict pattern; dry-run by default; cleanup acts only on manifest entries and fails if an unrelated Lima/Colima entry disappears. A real one-VM create/measure/cleanup cycle ran; unrelated resources were unchanged. Not verified: reclaimed disk space (free space was 3.4 GB lower afterwards), Ctrl-C handling, CPU utilisation cap (vCPU count only), Docker contexts and Colima profiles as lab resources (none created yet).
 
+## W05 progress
+
+E1 and E2 ran on three Lima VMs (Swarm, pinned Galera services, sentinel). Confirmed: pinned restart, no rescheduling on host loss, safe rejoin, minority refuses writes. Refuted: Swarm alone protects against an empty volume (a marker guard is required), and a datadir marker survives SST. Details in ADR 0004. Not yet covered: real agent, multi-manager failover on VMs, proxy/VIP, full-cluster outage, AMD64. P0 exit gates are therefore NOT met.
+
 ## Next action
 
-W05 (see WORKPLAN). The first working version must be validated locally before the user's Swarm trial.
+Continue W05 (see WORKPLAN). The first working version must be validated locally before the user's Swarm trial.
 
 ## Verification and limits
 
