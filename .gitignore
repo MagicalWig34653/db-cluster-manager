@@ -36,3 +36,6 @@ __pycache__/
 # Built frontend embedded into the manager (placeholder stays tracked)
 internal/webui/assets/*
 !internal/webui/assets/.gitkeep
+
+# Subagent scratch
+.superpowers/
