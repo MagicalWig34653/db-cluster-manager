@@ -22,13 +22,15 @@ Go module with `cmd/manager`, `cmd/agent`, `cmd/cli`; `internal/api` (`/api/v1/h
 
 Limits: the UI was never rendered in a browser (none installed), so layout, dark mode and the language switch are unverified visually. Frontend imports use Node subpath imports (`#lib/...`, `web/package.json`). Agent and CLI only report their version. `npm` reports pending install-script approvals (`npm approve-scripts`) that have not been reviewed.
 
-## W03 progress
+## W03 result
 
-ADR 0003 (proposed, unvalidated) covers manager metadata replication, leader-only operations and term-based fencing. The Swarm/local-storage ownership ADR and all prototypes are still missing.
+ADR 0003 (metadata replication, leader-only operations, term fencing) now has in-process prototype evidence: `internal/fencing` (agent term guard), `internal/opjournal` (operation journal), `internal/metastore` (hashicorp/raft v1.8.0 wrapper, in-memory) and four failure scenarios. `go test -race -count=3 ./...` passed. Library evaluation: [evidence document](decisions/0003-evidence-library-evaluation.md). ADR 0004 proposes pinned per-node Swarm services with a storage-identity marker; it is unverified against Docker.
+
+Known gaps: no persistence, real transport, mTLS/enrollment, secrets, read barrier or snapshot export; MPL-2.0 vs AGPL read from licence text only. The work used subagents (plan: `docs/superpowers/plans/2026-10-19-w03-consensus-and-fencing.md`); a final whole-branch review has not been run.
 
 ## Next action
 
-Continue W03 as described in the WORKPLAN. The first working version must be validated locally before the user's Swarm trial.
+W04 (see WORKPLAN). The first working version must be validated locally before the user's Swarm trial.
 
 ## Verification and limits
 
