@@ -53,4 +53,8 @@ The stop uses `--force` because a graceful `limactl stop` fails on an instance t
 
 The `cmd/lab` tests use a fake runner only. `lab apply --apply` and `lab cleanup --apply` have not been executed against a real host.
 
-No VM has been created and no infrastructure test has run yet.
+## Covered and open experiments
+
+Run on 2026-10-19 on dedicated `dbcm-lab-` Lima VMs (arm64): E1 Swarm with a sentinel and three pinned Galera services, E2 host loss, returning host, empty-volume guard and minority partition (scripts `tests/p0/`, results `tests/p0/results/`). Open: three-manager coordination on VMs, proxy/VIP failure and latency routing, backup/restore and PITR, standalone migration, resource exhaustion and capacity denial, restart during cleanup, native AMD64, graceful reboot/drain, and the real agent.
+
+Host free disk showed a drop of about 1 GiB and of about 3.4 GB across lab cycles that was not shown to be reclaimed; do not treat teardown as proof of reclaimed space until measured with a controlled method.
