@@ -7,7 +7,7 @@ Status labels: READY, PENDING, IN PROGRESS, DONE, BLOCKED. Only mark DONE with r
 | W00 | DONE | Prepare Claude instructions, bootstrap task, Go/monorepo ADR and initial docs workflows | Local documentation check passed; no Git/remote or infrastructure changes |
 | W01 | DONE | Resolve publication coordinates/license detail, initialize Git, public push and enable Pages | Public repo https://github.com/MagicalWig34653/db-cluster-manager, commit 684c2ea pushed to `main`, docs-check and Pages runs succeeded, https://magicalwig34653.github.io/db-cluster-manager/ returns HTTP 200 |
 | W02 | DONE | Scaffold Go manager/agent/CLI and SvelteKit UI, versioned API contract, reproducible build | `make build/test/check` pass locally and in the `Build and test` workflow; manager served `/api/v1/health`, `/api/v1/version` and the built UI over HTTP. Limitation: UI not rendered in a browser (none installed) |
-| W03 | PENDING | Design and prototype manager metadata HA/fencing and Swarm/local-storage ownership | ADRs, failure scenarios and reproducible evidence; no production infrastructure |
+| W03 | IN PROGRESS | Design and prototype manager metadata HA/fencing and Swarm/local-storage ownership | ADRs, failure scenarios and reproducible evidence; no production infrastructure |
 | W04 | PENDING | Implement dedicated local lab creation/inventory/cleanup within resource budget | Resource measurements, safe teardown and unrelated-workload checks |
 | W05 | PENDING | Execute P0 Galera/agent/routing experiments | P0 acceptance gates in release plan, compatibility limits and test artifacts |
 | W06 | PENDING | Refine R1 work packages from evidence and implement incrementally | Traceable requirements, tests and bilingual user guides per package |
@@ -20,4 +20,4 @@ For the active task, maintain: objective, changed files/contracts, executed chec
 
 ## Current next action
 
-W03: write ADRs for manager metadata replication, coordination/fencing and Swarm/local-storage ownership, with failure scenarios. Experiments needing VMs wait for W04 (safe lab controls). Start by reading `docs/TESTING.md`.
+W03: [ADR 0003](decisions/0003-manager-metadata-ha-and-fencing.md) is a proposal. Next: prototype it without VMs (three loopback replicas, injected partitions, simulated agent enforcing terms) after checking candidate Raft libraries against primary documentation; then write the Swarm/local-storage ownership ADR. W03 is DONE only with recorded failure-scenario evidence.

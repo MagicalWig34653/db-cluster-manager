@@ -22,9 +22,13 @@ Go module with `cmd/manager`, `cmd/agent`, `cmd/cli`; `internal/api` (`/api/v1/h
 
 Limits: the UI was never rendered in a browser (none installed), so layout, dark mode and the language switch are unverified visually. Frontend imports use Node subpath imports (`#lib/...`, `web/package.json`). Agent and CLI only report their version. `npm` reports pending install-script approvals (`npm approve-scripts`) that have not been reviewed.
 
+## W03 progress
+
+ADR 0003 (proposed, unvalidated) covers manager metadata replication, leader-only operations and term-based fencing. The Swarm/local-storage ownership ADR and all prototypes are still missing.
+
 ## Next action
 
-W03 (see WORKPLAN). Replicated metadata, fencing, storage identity and several other implementation decisions remain open. The first working version must be validated locally before the user's Swarm trial.
+Continue W03 as described in the WORKPLAN. The first working version must be validated locally before the user's Swarm trial.
 
 ## Verification and limits
 
