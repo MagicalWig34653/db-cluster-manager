@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"io/fs"
 	"maps"
+	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 
 	"github.com/MagicalWig34653/db-cluster-manager/internal/fencing"
@@ -170,6 +172,10 @@ func (e *Executor) execute(ctx context.Context, d decoded) Result {
 		return succeeded(obj)
 	case *ListOwnedArgs:
 		return e.listOwned(ctx, a.ObjectKind)
+	case *CreateVolumeArgs:
+		return e.createVolume(ctx, d.cmd, *a)
+	case *UpdateServiceArgs:
+		return e.updateService(ctx, *a)
 	case *AllowObjectsArgs:
 		for _, id := range a.IDs {
 			e.allow(id)
@@ -205,6 +211,158 @@ func (e *Executor) createService(ctx context.Context, cmd Command, spec ServiceS
 	}
 	e.allow(id)
 	return succeeded(map[string]string{"id": id})
+}
+
+// createVolume creates the local volume of one node.
+//
+// Mechanism: a Docker volume (driver local, type=none, o=bind) whose device
+// is the host directory VolumeBase/<volume>. A Docker volume rather than a
+// bare directory because the galera service spec mounts the node's data by
+// volume name, the volume gets an ID in the allow-list and ownership labels
+// that the guard can check, and remove-volume already operates on Docker
+// volumes. The directory is created here (Docker requires it for a bind
+// device) and must be new or empty; its identity marker is written only by
+// init-identity with a token, never here.
+//
+// Idempotence per step: an existing volume that is allow-listed, carries the
+// installation label and has the same mountpoint is success; an existing
+// foreign volume is refused; an existing non-empty directory without a
+// volume is refused as unknown data.
+func (e *Executor) createVolume(ctx context.Context, cmd Command, a CreateVolumeArgs) Result {
+	if got, ok := a.Labels[LabelInstallation]; ok && got != e.cfg.InstallationID {
+		return outcome(fmt.Errorf("%w: volume label %s=%q, want %q", ErrNotOwned, LabelInstallation, got, e.cfg.InstallationID))
+	}
+	root, res, ok := e.resolveVolumeRoot(a.VolumeRoot)
+	if !ok {
+		return res
+	}
+	out := map[string]string{"id": a.Volume, "root": a.VolumeRoot}
+	existing, err := e.docker.Inspect(ctx, KindVolume, a.Volume)
+	switch {
+	case err == nil:
+		if err := e.owner.Check(existing, KindVolume); err != nil {
+			return outcome(err)
+		}
+		if existing.Mountpoint == "" || filepath.Clean(existing.Mountpoint) != a.VolumeRoot {
+			return Result{Status: StatusRefused, Code: CodeVolumeMismatch,
+				Message: fmt.Sprintf("volume %q mountpoint %q is not %s", a.Volume, existing.Mountpoint, a.VolumeRoot)}
+		}
+		return succeeded(out)
+	case !errors.Is(err, ErrObjectNotFound):
+		return outcome(err)
+	}
+	if fi, err := os.Lstat(a.VolumeRoot); err == nil && fi.Mode()&fs.ModeSymlink != 0 {
+		return Result{Status: StatusRefused, Code: CodeInvalidPath, Message: fmt.Sprintf("volume root %s is a symbolic link", a.VolumeRoot)}
+	}
+	if err := ensureEmptyDir(root); err != nil {
+		return outcome(err)
+	}
+	labels := maps.Clone(a.Labels)
+	if labels == nil {
+		labels = map[string]string{}
+	}
+	labels[LabelInstallation] = e.cfg.InstallationID
+	labels[LabelOpID] = cmd.OpID
+	labels[LabelStepID] = cmd.StepID
+	if err := e.docker.CreateVolume(ctx, VolumeSpec{Name: a.Volume, Labels: labels, Device: a.VolumeRoot}); err != nil {
+		return outcome(err)
+	}
+	e.allow(a.Volume)
+	return succeeded(out)
+}
+
+// ensureEmptyDir creates dir (mode 0755) or accepts an existing empty one.
+func ensureEmptyDir(dir string) error {
+	if err := os.Mkdir(dir, 0o755); err == nil {
+		return nil
+	} else if !errors.Is(err, fs.ErrExist) {
+		return err
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	if len(entries) > 0 {
+		return fmt.Errorf("%w: %s exists and is not empty", ErrUnknownData, dir)
+	}
+	return nil
+}
+
+// ownershipLabels are the labels update-service may not change.
+var ownershipLabels = []string{LabelInstallation, LabelCluster, LabelNode}
+
+// updateService replaces the spec of an owned service found by name. It
+// refuses changes to what defines ownership or identity: the installation,
+// cluster and node labels, the node constraint (a move is a different
+// operation), the mounts (they select the data volume) and the replica count
+// (starting a database goes through start-db, which verifies the identity).
+// The creating step's labels (dbcm.op, dbcm.step) are preserved.
+func (e *Executor) updateService(ctx context.Context, a UpdateServiceArgs) Result {
+	objs, err := e.docker.ListByLabel(ctx, KindService, LabelInstallation, e.cfg.InstallationID)
+	if err != nil {
+		return outcome(err)
+	}
+	var cur Object
+	found := false
+	for _, o := range objs {
+		if o.Name != a.ServiceName {
+			continue
+		}
+		if err := e.owner.Check(o, KindService); err != nil {
+			return outcome(err)
+		}
+		cur, found = o, true
+		break
+	}
+	if !found {
+		return outcome(fmt.Errorf("%w: service %q", ErrObjectNotFound, a.ServiceName))
+	}
+	cur, res, ok := e.owned(ctx, KindService, cur.ID)
+	if !ok {
+		return res
+	}
+	spec := a.Spec
+	labels := maps.Clone(spec.Labels)
+	if labels == nil {
+		labels = map[string]string{}
+	}
+	for _, k := range ownershipLabels {
+		if v, set := labels[k]; set && v != cur.Labels[k] {
+			return immutable("label %s of service %q is %q, the update sets %q", k, a.ServiceName, cur.Labels[k], v)
+		}
+		if v, has := cur.Labels[k]; has {
+			labels[k] = v
+		}
+	}
+	for _, k := range []string{LabelOpID, LabelStepID} {
+		if v, has := cur.Labels[k]; has {
+			labels[k] = v
+		}
+	}
+	spec.Labels = labels
+	if !slices.Equal(spec.Constraints, cur.Constraints) {
+		return immutable("placement constraints of service %q are %v, the update sets %v", a.ServiceName, cur.Constraints, spec.Constraints)
+	}
+	if !slices.Equal(spec.Mounts, cur.Mounts) {
+		return immutable("mounts of service %q cannot be changed", a.ServiceName)
+	}
+	if spec.Replicas != cur.Replicas {
+		return immutable("replicas of service %q are %d, the update sets %d (use start-db or stop-db)", a.ServiceName, cur.Replicas, spec.Replicas)
+	}
+	if spec.Networks, res, ok = e.ownedRefs(ctx, KindNetwork, spec.Networks); !ok {
+		return res
+	}
+	if spec.Secrets, res, ok = e.ownedRefs(ctx, KindSecret, spec.Secrets); !ok {
+		return res
+	}
+	if err := e.docker.UpdateService(ctx, cur.ID, spec); err != nil {
+		return outcome(err)
+	}
+	return succeeded(map[string]string{"id": cur.ID})
+}
+
+func immutable(format string, a ...any) Result {
+	return Result{Status: StatusRefused, Code: CodeImmutable, Message: fmt.Sprintf(format, a...)}
 }
 
 func (e *Executor) removeService(ctx context.Context, id string) Result {

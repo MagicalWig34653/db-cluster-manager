@@ -130,7 +130,9 @@ type wireService struct {
 			ContainerSpec struct {
 				Mounts []wireMount `json:"Mounts"`
 			} `json:"ContainerSpec"`
+			Placement *wirePlacement `json:"Placement"`
 		} `json:"TaskTemplate"`
+		Mode wireServiceMode `json:"Mode"`
 	} `json:"Spec"`
 }
 
@@ -330,6 +332,126 @@ func (c *Client) ScaleService(ctx context.Context, id string, replicas uint64) e
 	return c.do(ctx, http.MethodPost, p+"/update", q, svc.Spec, &resp, true)
 }
 
+// shape lists the keys of a JSON object this client models (and therefore
+// replaces on update) and, for nested objects, their own shapes.
+type shape struct {
+	keys []string
+	sub  map[string]*shape
+}
+
+// specShape is the part of the Swarm ServiceSpec that toWireSpec produces.
+// Everything else in a service's current spec (UpdateConfig, RollbackConfig,
+// LogDriver, ForceUpdate, endpoint ports, ...) is preserved on update.
+var specShape = &shape{
+	keys: []string{"Name", "Labels", "Mode"},
+	sub: map[string]*shape{
+		"TaskTemplate": {
+			keys: []string{"Resources", "RestartPolicy", "Placement", "Networks"},
+			sub: map[string]*shape{"ContainerSpec": {keys: []string{
+				"Image", "Labels", "Command", "Args", "Hostname", "Env", "Mounts", "StopGracePeriod", "Secrets"}}},
+		},
+		"EndpointSpec": {keys: []string{"Mode"}},
+	},
+}
+
+func toRawMap(v any) (map[string]json.RawMessage, error) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(b, &m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// mergeShape returns cur with the modeled keys of want applied: modeled keys
+// absent from want are removed, nested objects are merged, other keys of cur
+// stay.
+func mergeShape(cur, want map[string]json.RawMessage, sh *shape) (map[string]json.RawMessage, error) {
+	out := make(map[string]json.RawMessage, len(cur)+len(want))
+	for k, v := range cur {
+		out[k] = v
+	}
+	for _, k := range sh.keys {
+		delete(out, k)
+	}
+	for k, v := range want {
+		sub, nested := sh.sub[k]
+		var curSub map[string]json.RawMessage
+		if nested {
+			if raw, ok := cur[k]; ok {
+				if err := json.Unmarshal(raw, &curSub); err != nil {
+					curSub = nil
+				}
+			}
+		}
+		if !nested || curSub == nil {
+			out[k] = v
+			continue
+		}
+		var wantSub map[string]json.RawMessage
+		if err := json.Unmarshal(v, &wantSub); err != nil {
+			return nil, err
+		}
+		merged, err := mergeShape(curSub, wantSub, sub)
+		if err != nil {
+			return nil, err
+		}
+		if out[k], err = json.Marshal(merged); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+// UpdateService replaces the modeled parts of a service's spec. It reads the
+// service (GET /services/{id}) for its version index, merges the new spec
+// into the current one so fields this client does not model are kept, and
+// posts the result (POST /services/{id}/update?version=N). A concurrent
+// change makes the daemon reject the stale version; the caller sees the
+// error and retries with a fresh read. Referenced secrets are inspected
+// first, as in CreateService.
+func (c *Client) UpdateService(ctx context.Context, id string, spec agent.ServiceSpec) error {
+	if err := validateSpec(spec); err != nil {
+		return err
+	}
+	p, err := objectPath("/services/", id)
+	if err != nil {
+		return err
+	}
+	secrets, err := c.resolveSecrets(ctx, spec.Secrets)
+	if err != nil {
+		return err
+	}
+	var svc struct {
+		Version struct {
+			Index uint64 `json:"Index"`
+		} `json:"Version"`
+		Spec map[string]json.RawMessage `json:"Spec"`
+	}
+	if err := c.do(ctx, http.MethodGet, p, nil, nil, &svc, false); err != nil {
+		return err
+	}
+	if svc.Spec == nil {
+		return fmt.Errorf("dockerclient: service %q: response has no spec", id)
+	}
+	want, err := toRawMap(toWireSpec(spec, secrets))
+	if err != nil {
+		return err
+	}
+	merged, err := mergeShape(svc.Spec, want, specShape)
+	if err != nil {
+		return fmt.Errorf("dockerclient: merge spec of service %q: %w", id, err)
+	}
+	q := url.Values{"version": {strconv.FormatUint(svc.Version.Index, 10)}}
+	var resp struct {
+		Warnings []string `json:"Warnings"`
+	}
+	return c.do(ctx, http.MethodPost, p+"/update", q, merged, &resp, true)
+}
+
 func (c *Client) inspectService(ctx context.Context, id string) (agent.Object, error) {
 	p, err := objectPath("/services/", id)
 	if err != nil {
@@ -358,6 +480,12 @@ func serviceObject(s wireService) agent.Object {
 	o := agent.Object{Kind: agent.KindService, ID: s.ID, Name: s.Spec.Name, Labels: s.Spec.Labels}
 	for _, m := range s.Spec.TaskTemplate.ContainerSpec.Mounts {
 		o.Mounts = append(o.Mounts, agent.Mount{Type: m.Type, Source: m.Source, Target: m.Target, ReadOnly: m.ReadOnly})
+	}
+	if p := s.Spec.TaskTemplate.Placement; p != nil {
+		o.Constraints = p.Constraints
+	}
+	if r := s.Spec.Mode.Replicated; r != nil {
+		o.Replicas = r.Replicas
 	}
 	return o
 }

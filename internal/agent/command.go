@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -42,6 +43,13 @@ const (
 	// KindListOwned lists objects of a kind that pass the ownership guard
 	// (args: ListOwnedArgs).
 	KindListOwned Kind = "list-owned"
+	// KindCreateVolume creates the local volume of a node below VolumeBase
+	// (args: CreateVolumeArgs). It never writes an identity marker.
+	KindCreateVolume Kind = "create-volume"
+	// KindUpdateService replaces the spec of an owned service, found by
+	// name (args: UpdateServiceArgs). Ownership labels, placement, mounts
+	// and replica count cannot change.
+	KindUpdateService Kind = "update-service"
 	// KindAllowObjects adds manager inventory IDs to the allow-list (args:
 	// AllowObjectsArgs). Objects still need the installation label.
 	KindAllowObjects Kind = "allow-objects"
@@ -59,6 +67,24 @@ type Command struct {
 // ServiceArgs names one service.
 type ServiceArgs struct {
 	ServiceID string `json:"service_id"`
+}
+
+// CreateVolumeArgs are the arguments of KindCreateVolume. VolumeRoot must be
+// VolumeBase/Volume. Labels are optional extra labels (for example
+// dbcm.cluster and dbcm.node); dbcm.installation, dbcm.op and dbcm.step are
+// set by the agent.
+type CreateVolumeArgs struct {
+	Volume     string            `json:"volume"`
+	VolumeRoot string            `json:"volume_root"`
+	Labels     map[string]string `json:"labels,omitempty"`
+}
+
+// UpdateServiceArgs are the arguments of KindUpdateService. The service is
+// named because a service created earlier in the same operation has no ID at
+// planning time; Spec.Name must equal ServiceName.
+type UpdateServiceArgs struct {
+	ServiceName string      `json:"service_name"`
+	Spec        ServiceSpec `json:"spec"`
 }
 
 // StartDBArgs are the arguments of KindStartDB.
@@ -133,6 +159,7 @@ const (
 	CodeDocker                Code = "docker-error"
 	CodeIO                    Code = "io-error"
 	CodeInDoubt               Code = "in-doubt"
+	CodeImmutable             Code = "immutable-field"
 )
 
 // Result is the recorded outcome of one step.
@@ -200,6 +227,10 @@ func decodeCommand(cmd Command, volumeBase string) (decoded, error) {
 		args = &ListOwnedArgs{}
 	case KindAllowObjects:
 		args = &AllowObjectsArgs{}
+	case KindCreateVolume:
+		args = &CreateVolumeArgs{}
+	case KindUpdateService:
+		args = &UpdateServiceArgs{}
 	default:
 		return decoded{}, invalid("unknown kind %q", cmd.Kind)
 	}
@@ -235,23 +266,24 @@ func checkID(name, v string) error {
 func checkArgs(args any, volumeBase string) error {
 	switch a := args.(type) {
 	case *ServiceSpec:
-		if a.Name == "" || a.Image == "" {
-			return invalid("service spec needs name and image")
+		return checkSpec(*a)
+	case *UpdateServiceArgs:
+		if a.ServiceName == "" || len(a.ServiceName) > maxIDLen {
+			return invalid("service_name must be 1..%d bytes", maxIDLen)
 		}
-		switch a.EndpointMode {
-		case "", EndpointModeVIP, EndpointModeDNSRR:
-		default:
-			return invalid("endpoint_mode %q (want vip or dnsrr)", a.EndpointMode)
+		if a.Spec.Name != a.ServiceName {
+			return invalid("spec name %q differs from service_name %q", a.Spec.Name, a.ServiceName)
 		}
-		if a.StopGracePeriodNS < 0 {
-			return invalid("negative stop_grace_period_ns")
+		return checkSpec(a.Spec)
+	case *CreateVolumeArgs:
+		if !volumeName.MatchString(a.Volume) {
+			return invalid("volume name %q (want [A-Za-z0-9][A-Za-z0-9_.-]*, at most 255 bytes)", a.Volume)
 		}
-		for _, refs := range [][]string{a.Networks, a.Secrets} {
-			for _, r := range refs {
-				if r == "" || len(r) > maxIDLen {
-					return invalid("network or secret reference must be 1..%d bytes", maxIDLen)
-				}
-			}
+		if err := checkVolumeRoot(a.VolumeRoot, volumeBase); err != nil {
+			return err
+		}
+		if want := filepath.Join(volumeBase, a.Volume); a.VolumeRoot != want {
+			return invalid("volume_root %q must be %q", a.VolumeRoot, want)
 		}
 	case *ServiceArgs:
 		if a.ServiceID == "" {
@@ -291,6 +323,31 @@ func checkArgs(args any, volumeBase string) error {
 	}
 	return nil
 }
+
+func checkSpec(a ServiceSpec) error {
+	if a.Name == "" || a.Image == "" {
+		return invalid("service spec needs name and image")
+	}
+	switch a.EndpointMode {
+	case "", EndpointModeVIP, EndpointModeDNSRR:
+	default:
+		return invalid("endpoint_mode %q (want vip or dnsrr)", a.EndpointMode)
+	}
+	if a.StopGracePeriodNS < 0 {
+		return invalid("negative stop_grace_period_ns")
+	}
+	for _, refs := range [][]string{a.Networks, a.Secrets} {
+		for _, r := range refs {
+			if r == "" || len(r) > maxIDLen {
+				return invalid("network or secret reference must be 1..%d bytes", maxIDLen)
+			}
+		}
+	}
+	return nil
+}
+
+// volumeName is the accepted shape of a volume name (Docker's rule).
+var volumeName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$`)
 
 // checkVolumeRoot requires a clean absolute path strictly below volumeBase.
 // Symlinks are checked again at execution time.
