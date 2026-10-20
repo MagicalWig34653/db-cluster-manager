@@ -8,6 +8,7 @@ LDFLAGS := -X $(PKG).Version=$(VERSION) -X $(PKG).Commit=$(COMMIT)
 
 web: ## Build the frontend into internal/webui/assets (embedded by the manager)
 	cd web && npm ci && npm run build
+	touch internal/webui/assets/.gitkeep # the build empties the directory; keep the tracked placeholder
 
 build: web ## Build manager, agent and CLI into bin/
 	go build -ldflags '$(LDFLAGS)' -o bin/ ./cmd/...
