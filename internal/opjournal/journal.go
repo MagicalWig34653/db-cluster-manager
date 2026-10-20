@@ -5,6 +5,7 @@
 // leader that runs it. A new leader adopts unfinished operations; steps that
 // were Running become Unknown because their completion could not be observed.
 // The journal is a pure state machine; replication is layered on top.
+// Snapshot and Restore export and import its complete state as JSON.
 package opjournal
 
 import (
