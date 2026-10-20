@@ -39,3 +39,4 @@ internal/webui/assets/*
 
 # Subagent scratch
 .superpowers/
+.claude/worktrees/
