@@ -73,7 +73,8 @@ func (f *fakeDocker) CreateService(_ context.Context, spec ServiceSpec) (string,
 	}
 	f.nextID++
 	id := fmt.Sprintf("svc-new-%d", f.nextID)
-	f.objects[id] = Object{Kind: KindService, ID: id, Name: spec.Name, Labels: maps.Clone(spec.Labels), Mounts: spec.Mounts}
+	f.objects[id] = Object{Kind: KindService, ID: id, Name: spec.Name, Labels: maps.Clone(spec.Labels), Mounts: spec.Mounts,
+		Constraints: spec.Constraints, Replicas: spec.Replicas}
 	f.specs[id] = spec
 	return id, nil
 }
@@ -152,4 +153,32 @@ func (f *fakeDocker) ListByLabel(_ context.Context, kind ObjectKind, key, value 
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, nil
+}
+
+func (f *fakeDocker) CreateVolume(_ context.Context, spec VolumeSpec) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record("create-volume %s", spec.Name)
+	if err := f.takeFail(); err != nil {
+		return err
+	}
+	f.objects[spec.Name] = Object{Kind: KindVolume, ID: spec.Name, Name: spec.Name, Labels: maps.Clone(spec.Labels), Mountpoint: spec.Device}
+	return nil
+}
+
+func (f *fakeDocker) UpdateService(_ context.Context, id string, spec ServiceSpec) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record("update-service %s", id)
+	if err := f.takeFail(); err != nil {
+		return err
+	}
+	o, ok := f.objects[id]
+	if !ok || o.Kind != KindService {
+		return ErrObjectNotFound
+	}
+	o.Labels, o.Mounts, o.Constraints, o.Replicas = maps.Clone(spec.Labels), spec.Mounts, spec.Constraints, spec.Replicas
+	f.objects[id] = o
+	f.specs[id] = spec
+	return nil
 }

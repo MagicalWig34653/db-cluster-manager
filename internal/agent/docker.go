@@ -38,6 +38,19 @@ type Object struct {
 	Labels     map[string]string `json:"labels,omitempty"`
 	Mountpoint string            `json:"mountpoint,omitempty"` // volumes only
 	Mounts     []Mount           `json:"mounts,omitempty"`     // services only
+	// Constraints and Replicas describe a service's placement and scale;
+	// update-service compares them to refuse changes it must not make.
+	Constraints []string `json:"constraints,omitempty"` // services only
+	Replicas    uint64   `json:"replicas,omitempty"`    // replicated services only
+}
+
+// VolumeSpec describes a local Docker volume whose data lives in the host
+// directory Device (driver local, options type=none, o=bind). The directory
+// must already exist.
+type VolumeSpec struct {
+	Name   string
+	Labels map[string]string
+	Device string
 }
 
 // Mount is a service mount.
@@ -135,6 +148,12 @@ type DockerAPI interface {
 	RemoveService(ctx context.Context, id string) error
 	ScaleService(ctx context.Context, id string, replicas uint64) error
 	RemoveVolume(ctx context.Context, id string) error
+	// CreateVolume creates the volume. Creating a volume that already exists
+	// with the same options succeeds (Docker semantics).
+	CreateVolume(ctx context.Context, spec VolumeSpec) error
+	// UpdateService replaces the service's spec. Implementations read the
+	// current version themselves and fail if it changed concurrently.
+	UpdateService(ctx context.Context, id string, spec ServiceSpec) error
 	Inspect(ctx context.Context, kind ObjectKind, id string) (Object, error)
 	ListByLabel(ctx context.Context, kind ObjectKind, key, value string) ([]Object, error)
 }

@@ -168,10 +168,48 @@ type wireVolume struct {
 	Name       string            `json:"Name"`
 	Mountpoint string            `json:"Mountpoint"`
 	Labels     map[string]string `json:"Labels"`
+	Options    map[string]string `json:"Options"`
 }
 
+// object reports the host directory that holds the volume's data as the
+// mountpoint. For a volume created by CreateVolume (local driver, bind
+// option) that is the device directory, not the daemon's own _data path.
 func (v wireVolume) object(k agent.ObjectKind) agent.Object {
-	return agent.Object{Kind: k, ID: v.Name, Name: v.Name, Labels: v.Labels, Mountpoint: v.Mountpoint}
+	mp := v.Mountpoint
+	if v.Options["type"] == "none" && v.Options["device"] != "" && strings.Contains(","+v.Options["o"]+",", ",bind,") {
+		mp = v.Options["device"]
+	}
+	return agent.Object{Kind: k, ID: v.Name, Name: v.Name, Labels: v.Labels, Mountpoint: mp}
+}
+
+// CreateVolume calls POST /volumes/create for a local volume that bind-mounts
+// the host directory spec.Device (DriverOpts type=none, o=bind, device=...).
+// The daemon answers 201 with the volume, also when a volume of that name
+// and the same options exists; the answer must name the requested volume.
+func (c *Client) CreateVolume(ctx context.Context, spec agent.VolumeSpec) error {
+	if !objectID.MatchString(spec.Name) {
+		return fmt.Errorf("%w: volume name %q", ErrInvalidArgument, spec.Name)
+	}
+	if spec.Device == "" || !strings.HasPrefix(spec.Device, "/") {
+		return fmt.Errorf("%w: volume device %q must be an absolute path", ErrInvalidArgument, spec.Device)
+	}
+	body := struct {
+		Name       string            `json:"Name"`
+		Driver     string            `json:"Driver"`
+		DriverOpts map[string]string `json:"DriverOpts"`
+		Labels     map[string]string `json:"Labels,omitempty"`
+	}{
+		Name: spec.Name, Driver: "local", Labels: spec.Labels,
+		DriverOpts: map[string]string{"type": "none", "o": "bind", "device": spec.Device},
+	}
+	var resp wireVolume
+	if err := c.do(ctx, http.MethodPost, "/volumes/create", nil, body, &resp, true); err != nil {
+		return err
+	}
+	if resp.Name != spec.Name {
+		return fmt.Errorf("%w: dockerclient: create volume %q: response names %q", agent.ErrOutcomeUnknown, spec.Name, resp.Name)
+	}
+	return nil
 }
 
 type wireContainer struct {

@@ -13,31 +13,23 @@ import (
 	"github.com/MagicalWig34653/db-cluster-manager/internal/orchestrate"
 )
 
-// Proposed agent command kinds that galera plans need but internal/agent does
-// not implement yet. The real agent executor rejects them as
-// agent.ErrInvalidCommand, which the runner records as a Failed step (no
-// retry, no effect). They exist so plans translate completely and the
-// contract gap stays visible.
+// Agent command kinds and argument types that galera plans use beyond the
+// generic ones. They are implemented by internal/agent; the names stay here
+// as aliases for the plan translation.
 const (
-	// KindCreateVolume creates the local named volume (args: CreateVolumeArgs).
-	KindCreateVolume agent.Kind = "create-volume"
+	// KindCreateVolume creates the node's local volume (args: CreateVolumeArgs).
+	KindCreateVolume = agent.KindCreateVolume
 	// KindUpdateService replaces an owned service's spec (args: UpdateServiceArgs).
-	KindUpdateService agent.Kind = "update-service"
+	KindUpdateService = agent.KindUpdateService
 )
 
 // CreateVolumeArgs are the arguments of KindCreateVolume.
-type CreateVolumeArgs struct {
-	Volume     string `json:"volume"`
-	VolumeRoot string `json:"volume_root"`
-}
+type CreateVolumeArgs = agent.CreateVolumeArgs
 
 // UpdateServiceArgs are the arguments of KindUpdateService. The service is
 // named, because a service created earlier in the same operation has no ID
 // at planning time.
-type UpdateServiceArgs struct {
-	ServiceName string            `json:"service_name"`
-	Spec        agent.ServiceSpec `json:"spec"`
-}
+type UpdateServiceArgs = agent.UpdateServiceArgs
 
 // GaleraBindings supply the facts a plan does not contain.
 type GaleraBindings struct {
@@ -112,7 +104,13 @@ func convertStep(p galera.Plan, gs galera.Step, b GaleraBindings) (Step, error) 
 	var args any
 	switch gs.Kind {
 	case galera.StepCreateVolume:
-		s.Command, args = KindCreateVolume, CreateVolumeArgs{Volume: gs.Volume, VolumeRoot: root()}
+		labels := map[string]string{agent.LabelCluster: p.ClusterID}
+		for _, n := range p.Nodes {
+			if n.Slot == gs.Slot && n.Volume == gs.Volume {
+				labels[agent.LabelNode] = n.NodeUUID
+			}
+		}
+		s.Command, args = KindCreateVolume, CreateVolumeArgs{Volume: gs.Volume, VolumeRoot: root(), Labels: labels}
 	case galera.StepInitIdentity:
 		tok := b.TokenIDs[gs.Slot]
 		if tok == "" {
