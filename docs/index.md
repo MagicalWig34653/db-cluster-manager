@@ -15,6 +15,7 @@ title: Galera Cluster Manager
 - [Development, documentation and Claude Code handover](ENTWICKLUNG.md)
 - [Claude Code bootstrap](handoffs/CLAUDE-START.md)
 - [Execution workplan](WORKPLAN.md)
+- [Installation and packaging](INSTALL.md)
 - [Go and monorepo decision](decisions/0002-go-monorepo.md)
 - [Current status](STATUS.md)
 - [Decision records](decisions/0001-product-direction.md)
