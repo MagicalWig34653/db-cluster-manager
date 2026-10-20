@@ -1,7 +1,7 @@
 # ADR 0003: Manager metadata replication, coordination and fencing
 
 Date: 2026-10-19
-Status: Proposed; prototype evidence is in-process only (see the end of this document). Not accepted for production.
+Status: Proposed; prototype evidence is in-process and loopback-process only, no VMs (see the end of this document). Not accepted for production.
 
 ## Context
 
@@ -49,9 +49,19 @@ Do not build custom consensus. Three replicas alone are not proof of HA; the exp
 
 First prototype step (no VMs, no Docker): three in-process or loopback-process replicas with injected partitions, a simulated agent that enforces term checks, and tests for the scenarios above. VM-based runs wait for the lab controls of W04.
 
-## Prototype evidence (in-process, no VMs)
+## Prototype evidence (in-process and loopback processes, no VMs)
 
 Library choice and comparison: [0003-evidence-library-evaluation.md](0003-evidence-library-evaluation.md). Chosen for the prototype: `github.com/hashicorp/raft` v1.8.0 (in-memory stores, in-memory transport wrapped with a switchable partition matrix). Executed on the development host: `go test -race -count=3 ./...` passed for `internal/fencing`, `internal/opjournal` and `internal/metastore`.
+
+Persistence extension (branch `roadmap/metastore-persist`): `Config.DataDir` selects disk storage with `github.com/hashicorp/raft-boltdb/v2` v2.4.2 (MPL-2.0; bbolt v1.4.1, MIT) for log and stable state plus raft's file snapshot store; `Config.BindAddr` selects raft's plain TCP transport (no TLS). `cmd/metad` runs one node as a process with an unauthenticated loopback HTTP harness for VM experiments. Executed on the development host (go1.27.1 darwin/arm64): `go test -race -count=3 ./internal/... ./cmd/...` passed.
+
+| Scenario | Test | Observed result |
+| --- | --- | --- |
+| Three TCP nodes on loopback commit, take file snapshots, commit more; all stop and restart from disk | `TestTCPClusterRestartsFromDisk` | Each node's term after restart (read before any new election) is not lower than before the stop; after `Barrier` the leader's journal is byte-identical to the pre-stop journal; all nodes converge; ownership fencing still applies |
+| TCP leader stopped; two nodes continue; old leader restarted from disk | `TestTCPLeaderRestartConverges` | Higher term elected; commits continue; the restarted node converges to the identical journal and term; the old term is rejected with `ErrNotOwner` |
+| New leader trusts its journal only after a barrier | `TestBarrierMakesNewLeaderJournalComplete`, `TestBarrierOnFollowerReturnsErrNotLeader` | After `Barrier` the journal holds all 25 committed operations without waiting. With the barrier call removed, the same check failed in 19 of 20 runs (20 of 20 with `-race`): the lag is real. Followers get `ErrNotLeader` |
+| Three `metad` processes, SIGTERM, restart | `cmd/metad` `TestThreeProcessesRestartFromDisk` | Writes via HTTP on the leader succeed, followers answer 503 `not_leader`; after a full stop and restart the unfinished operation and its `running` step are restored and the term did not decrease |
+| Snapshot size | `TestFSMSnapshotHoldsStateNotHistory`, `internal/opjournal` `TestSnapshotSizeTracksStateNotHistory` | 600 further commands on one operation do not grow the snapshot beyond the changed state fields |
 
 | Scenario | Test | Observed result |
 | --- | --- | --- |
@@ -63,9 +73,10 @@ Library choice and comparison: [0003-evidence-library-evaluation.md](0003-eviden
 
 Findings that change the design:
 
-- `Apply` on a leader that lost its quorum returns "apply outcome unknown", not "not leader", because the entry might still commit. Callers must treat this as unknown completion and reconcile.
+- `Apply` on a leader that lost its quorum returns "apply outcome unknown" (`metastore.ErrOutcomeUnknown`), not "not leader", because the entry might still commit. Callers must treat this as unknown completion and reconcile.
 - The state machine does not compare `Command.Term` with the term at commit time. Fencing relies on the agent-side guard and on the issuer passing the current term. Whether the state machine should enforce this too is open.
-- Journal reads are local and may lag; a new leader needs a barrier before it trusts its journal. Not implemented.
-- The snapshot is a replay of applied commands (the journal has no export API) and grows without bound; restore replaces the journal object.
+- Journal reads are local and may lag; a new leader must call `Node.Barrier` before it trusts its journal. Implemented and tested (see above); without it the lag was observed in most runs.
+- The snapshot is the journal's own state export (`opjournal.Journal.Snapshot`, versioned JSON of all operations); restore replaces the journal object. Its size follows the journal state, not the command history. Operations are never removed from the journal, so it still grows with the number of operations ever begun; compaction of finished operations is open.
+- Bootstrapping a running node (`Raft.BootstrapCluster`) raced with AppendEntries from peers that had already elected a leader ("bootstrap only works on new clusters" in one of three TCP runs). The node now bootstraps its stores before Raft starts (`raft.BootstrapCluster`) and skips bootstrap when state exists, so restarted nodes may keep the flag.
 
-Limitations: persistence is in memory only; transport is in-process; no real network, agent mTLS, enrollment, secret handling or restore-from-backup flow was exercised; resource use was not measured; AGPL-3.0-only/MPL-2.0 compatibility was read from licence text only, without legal review. The VM-based confirmation belongs to W05 after the lab controls of W04.
+Limitations: persistence is now on local disk, but fsync loss, disk-full and corrupted files were not tested (a second node on the same data directory fails on the bbolt lock: `TestSecondNodeOnSameDataDirFails`, same process only); the TCP transport has no TLS or peer authentication; the `metad` HTTP endpoint is an unauthenticated test harness; no membership change after bootstrap; only loopback, no real network between hosts; no agent mTLS, enrollment, secret handling or restore-from-backup flow was exercised; resource use was not measured; AGPL-3.0-only/MPL-2.0 compatibility was read from licence text only, without legal review. The VM-based confirmation belongs to W05 after the lab controls of W04.

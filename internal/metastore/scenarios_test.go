@@ -313,6 +313,9 @@ func TestScenarioMajorityLoss(t *testing.T) {
 		t.Fatal("Apply without quorum returned nil, want an error")
 	}
 	t.Logf("Apply without quorum: %v", err)
+	if !errors.Is(err, ErrOutcomeUnknown) && !errors.Is(err, ErrNotLeader) {
+		t.Fatalf("Apply without quorum: got %v, want ErrOutcomeUnknown or ErrNotLeader", err)
+	}
 	assertUnchanged(t, []*Node{survivor}, "op-lost")
 
 	waitFor(t, waitTimeout, "survivor to step down", func() bool { return !survivor.IsLeader() })
