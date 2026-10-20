@@ -52,6 +52,15 @@ E1 and E2 ran on three Lima VMs (Swarm, pinned Galera services, sentinel). Confi
 
 Dependencies added overall: hashicorp/raft and raft-boltdb (MPL-2.0), bbolt (MIT), go-webauthn and transitive modules (BSD/MIT/Apache); no legal review.
 
+## Second batch of building blocks
+
+- `internal/runner`: operation executor with leader checks, barrier, unknown-outcome handling, per-resource locks, conversion of Galera plans; runs a 3-node create plan against real `agent.Executor` instances with a fake Docker and an in-process Raft cluster. Operation definitions and pause state are not replicated; there is no real Galera health checker.
+- `internal/agent` gained `create-volume` and `update-service` (and `internal/dockerclient` the matching calls); `start-db` still expects a path-style mount source and would refuse a volume-name mount from the Galera builder.
+- `internal/api`: setup, passkey login, sessions, recovery endpoints, CSRF via strict Origin check, deny-by-default authorization with audit, resource endpoints behind interfaces, OpenAPI checked against routes. Mounted by `cmd/manager` only with `-config` enabling auth. State is in memory (lost on restart); no real inventory store; passkeys tested with a software authenticator only.
+- `internal/proxy` + `cmd/proxy`: L4 MariaDB proxy with routing, draining, TLS termination (MySQL in-protocol upgrade), hot cert reload. The Galera status probe is a stub, so only `assume-synced` mode works. Never tested against a real MariaDB or client connector.
+- `internal/dbadmin`: SQL generation, grants, planning and argv builders for dump/load, tested against a recording fake only.
+- Packaging: `deploy/Dockerfile`, `compose.yaml`, `stack.yaml`, `release.yml`, offline bundle script, `docs/INSTALL.md`. The image was never built, the release workflow never run; `scripts/check_deploy.py` is static only.
+
 ## Next action
 
 Continue W05 (see WORKPLAN). The first working version must be validated locally before the user's Swarm trial. Most R1 scope (cluster creation through the manager, backups, TLS, passkeys, UI flows, notifications, restore, packaging) is not started.
