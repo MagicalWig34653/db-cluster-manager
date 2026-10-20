@@ -34,7 +34,9 @@ Known gaps: no persistence, real transport, mTLS/enrollment, secrets, read barri
 
 ## W05 progress
 
-E1 and E2 ran on three Lima VMs (Swarm, pinned Galera services, sentinel). Confirmed: pinned restart, no rescheduling on host loss, safe rejoin, minority refuses writes. Refuted: Swarm alone protects against an empty volume (a marker guard is required), and a datadir marker survives SST. Details in ADR 0004. Not yet covered: real agent, multi-manager failover on VMs, proxy/VIP, full-cluster outage, AMD64. P0 exit gates are therefore NOT met.
+E1, E2 and E3 ran on Lima VMs (arm64 only). E1/E2: Swarm with pinned Galera services, host loss/return, empty-volume trap (a marker guard is required), minority partition. E3: three `bin/metad` processes over the lab network - leader process kill, leader VM force-stop, partition via iptables, restart of all nodes from disk, majority loss. Observed once each: election 1.6-2.4 s, commit latency p50 1.4 ms / p99 4.3 ms (3 nodes, ~300 commits), old-term writes rejected by the term guard, no committed write from the isolated leader, no term decreased after full restart. Details: `tests/p0/results/`, ADR 0003/0004.
+
+Findings that change the design: under heavy host load (load average ~800) elections and `limactl shell` calls slowed down and a script hit a stale leader, so the product needs tuned timeouts and a controller that re-resolves the leader and retries. Lima forwards guest loopback ports to the host loopback, so unauthenticated lab harness endpoints were reachable on the host. Not tested: Raft snapshot restore on VMs, membership changes, TLS, asymmetric partitions, backup restore, the real `internal/agent` over a network, proxy/VIP, full-cluster outage, AMD64, resource exhaustion. The P0 exit gates are NOT met.
 
 ## Building blocks (library level, tested, not yet integrated into the manager)
 
