@@ -32,7 +32,6 @@
 // production. Authenticated manager-agent transport (outbound agent
 // connections with mTLS, enrollment, rotation and revocation) is future work.
 //
-// Not implemented here: a real Docker client (DockerAPI is an interface with
-// a test fake only), reconciliation of in-doubt steps, and compaction of the
-// step record.
+// The Docker Engine client lives in internal/dockerclient. Not implemented
+// here: reconciliation of in-doubt steps and compaction of the step record.
 package agent
