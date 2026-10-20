@@ -1,0 +1,1625 @@
+
+## Step 0: build (host)
+
+### go version
+
+```
+$ go version
+go version go1.27.1 darwin/arm64
+(exit 0)
+```
+
+### build bin/lab
+
+```
+$ go build -o bin/lab ./cmd/lab
+(exit 0)
+```
+
+### cross-compile metad linux/arm64
+
+```
+$ env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o <tmp> ./cmd/metad
+(exit 0)
+```
+
+### cross-compile e3agent linux/arm64 (lab only)
+
+```
+$ env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o <tmp> ./tests/p0/e3agent
+(exit 0)
+```
+
+### binaries
+
+```
+$ sh -c cd '<tmp>' && file metad e3agent | sed 's/, BuildID[^,]*//' && shasum -a 256 metad e3agent && ls -l metad e3agent | awk '{print $5, $9}'
+metad:   ELF 64-bit LSB executable, ARM aarch64, version 1 (SYSV), statically linked, Go BuildID=j0YBpJo4prpk7vFyvSsE/atYlcwF9FZbPw2ZUjIfE/G_3Qmjc-zUYhQXnbjt4M/7dd8_iFmRKhX3j9o0R-Z, with debug_info, not stripped
+e3agent: ELF 64-bit LSB executable, ARM aarch64, version 1 (SYSV), statically linked, Go BuildID=_Sy105pZAD74oQucVaNU/_sBWRBWfopP8tMqFJRs_/h3uEbIAjNJukZHATY5O-/nZc-QjbfnWT-ARvPgPgu, with debug_info, not stripped
+786d6a5b28554df673687f4ed5b75f2501362a8b3be62b7db802b7dba897024a  metad
+f8e08478f5e0ed374ba6daea8c472c1caea6a9d54c7937de38f7c1638be7b452  e3agent
+3836596 e3agent
+11781969 metad
+(exit 0)
+```
+
+### git revision
+
+```
+$ git rev-parse --short HEAD
+2851a4d
+(exit 0)
+```
+
+
+## Step 1: lab VMs
+
+### host free disk before apply
+
+```
+$ host_free_disk
+host free disk (/System/Volumes/Data): 91Gi of 926Gi
+(exit 0)
+```
+
+### bin/lab status before
+
+```
+$ <repo>/bin/lab status
+host:
+  logical CPUs: 14
+  RAM: 48.0 GiB
+budget:
+  lab CPU limit: 7
+  lab RAM limit: 16.0 GiB
+  lab disk limit: 100.0 GiB
+manifest .lab/manifest.json:
+  (empty)
+inventory:
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+unrelated (never touched):
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+(exit 0)
+```
+
+### shared Lima user-v2 state before (recorded, not touched)
+
+```
+$ sh -c ls "$HOME/.lima/_networks/user-v2" 2>/dev/null || echo absent; ps -axo pid,command | grep "[l]imactl usernet" | sed "s/ -p .*//" || echo "no usernet daemon"
+leases.json
+usernet.user-v2.stderr.log
+usernet.user-v2.stdout.log
+ 6914 /opt/homebrew/bin/limactl usernet
+(exit 0)
+```
+
+### bin/lab apply -apply -vms 3 -cpus 2 -ram 2 -disk 10 -network lima:user-v2
+
+```
+$ <repo>/bin/lab apply -apply -vms 3 -cpus 2 -ram 2 -disk 10 -network lima:user-v2
+pre-snapshot:
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+executing actions:
+  # create Lima VM dbcm-lab-m1 (2 CPUs, 2 GiB RAM, 10 GiB disk, template docker, network lima:user-v2 (shared Lima state, not owned))
+  limactl create --name=dbcm-lab-m1 --cpus=2 --memory=2 --disk=10 --tty=false --network=lima:user-v2 template:docker
+  # start Lima VM dbcm-lab-m1
+  limactl start --tty=false dbcm-lab-m1
+  # create Lima VM dbcm-lab-m2 (2 CPUs, 2 GiB RAM, 10 GiB disk, template docker, network lima:user-v2 (shared Lima state, not owned))
+  limactl create --name=dbcm-lab-m2 --cpus=2 --memory=2 --disk=10 --tty=false --network=lima:user-v2 template:docker
+  # start Lima VM dbcm-lab-m2
+  limactl start --tty=false dbcm-lab-m2
+  # create Lima VM dbcm-lab-m3 (2 CPUs, 2 GiB RAM, 10 GiB disk, template docker, network lima:user-v2 (shared Lima state, not owned))
+  limactl create --name=dbcm-lab-m3 --cpus=2 --memory=2 --disk=10 --tty=false --network=lima:user-v2 template:docker
+  # start Lima VM dbcm-lab-m3
+  limactl start --tty=false dbcm-lab-m3
+post-snapshot diff:
+  added: lima:dbcm-lab-m1, lima:dbcm-lab-m2, lima:dbcm-lab-m3
+  removed: (none)
+(exit 0)
+```
+
+### host free disk after apply
+
+```
+$ host_free_disk
+host free disk (/System/Volumes/Data): 89Gi of 926Gi
+(exit 0)
+```
+
+
+## Step 1b: guest facts and binaries
+
+### limactl list
+
+```
+$ limactl list
+NAME                         STATUS     SSH                VMTYPE    ARCH       CPUS    MEMORY    DISK     DIR
+dbcm-lab-m1                  Running    127.0.0.1:54540    vz        aarch64    2       2GiB      10GiB    ~/.lima/dbcm-lab-m1
+dbcm-lab-m2                  Running    127.0.0.1:55907    vz        aarch64    2       2GiB      10GiB    ~/.lima/dbcm-lab-m2
+dbcm-lab-m3                  Running    127.0.0.1:57881    vz        aarch64    2       2GiB      10GiB    ~/.lima/dbcm-lab-m3
+thermoctl-e2e-basestation    Stopped    127.0.0.1:55325    vz        aarch64    2       3GiB      8GiB     ~/.lima/thermoctl-e2e-basestation
+thermoctl-test-vm            Stopped    127.0.0.1:50429    vz        aarch64    4       4GiB      20GiB    ~/.lima/thermoctl-test-vm
+(exit 0)
+```
+
+### facts dbcm-lab-m1
+
+```
+$ vm_sh dbcm-lab-m1 
+			echo "hostname: $(hostname)"; echo "arch: $(uname -m) kernel: $(uname -r)"
+			grep PRETTY_NAME /etc/os-release; echo "nproc: $(nproc)"; free -m | head -2; df -h / | tail -1
+			ip -4 -o addr show | awk "{print \$2, \$4}"
+			echo "time sync: $(timedatectl show -p NTPSynchronized --value 2>/dev/null) $(systemctl is-active chrony systemd-timesyncd 2>/dev/null | tr "\n" " ")"
+			echo "iptables: $(sudo iptables -V)"; echo "curl: $(curl -V | head -1)"
+hostname: lima-dbcm-lab-m1
+arch: aarch64 kernel: 7.0.0-28-generic
+PRETTY_NAME="Ubuntu 26.04 LTS"
+nproc: 2
+               total        used        free      shared  buff/cache   available
+Mem:            1950         500         244           1        1300        1450
+/dev/vda1       8.7G  2.9G  5.8G  34% /
+lo 127.0.0.1/8
+eth0 192.168.104.1/24
+docker0 172.17.0.1/16
+time sync: yes active inactive 
+iptables: iptables v1.8.11 (nf_tables)
+curl: curl 8.18.0 (aarch64-unknown-linux-gnu) libcurl/8.18.0 OpenSSL/3.5.5 zlib/1.3.1 brotli/1.2.0 zstd/1.5.7 libidn2/2.3.8 libpsl/0.21.2 libssh2/1.11.1 nghttp2/1.68.0 librtmp/2.3 mit-krb5/1.22.1 OpenLDAP/2.6.10
+(exit 0)
+```
+
+### facts dbcm-lab-m2
+
+```
+$ vm_sh dbcm-lab-m2 
+			echo "hostname: $(hostname)"; echo "arch: $(uname -m) kernel: $(uname -r)"
+			grep PRETTY_NAME /etc/os-release; echo "nproc: $(nproc)"; free -m | head -2; df -h / | tail -1
+			ip -4 -o addr show | awk "{print \$2, \$4}"
+			echo "time sync: $(timedatectl show -p NTPSynchronized --value 2>/dev/null) $(systemctl is-active chrony systemd-timesyncd 2>/dev/null | tr "\n" " ")"
+			echo "iptables: $(sudo iptables -V)"; echo "curl: $(curl -V | head -1)"
+hostname: lima-dbcm-lab-m2
+arch: aarch64 kernel: 7.0.0-28-generic
+PRETTY_NAME="Ubuntu 26.04 LTS"
+nproc: 2
+               total        used        free      shared  buff/cache   available
+Mem:            1950         499         247           1        1297        1450
+/dev/vda1       8.7G  2.9G  5.8G  34% /
+lo 127.0.0.1/8
+eth0 192.168.104.3/24
+docker0 172.17.0.1/16
+time sync: yes active inactive 
+iptables: iptables v1.8.11 (nf_tables)
+curl: curl 8.18.0 (aarch64-unknown-linux-gnu) libcurl/8.18.0 OpenSSL/3.5.5 zlib/1.3.1 brotli/1.2.0 zstd/1.5.7 libidn2/2.3.8 libpsl/0.21.2 libssh2/1.11.1 nghttp2/1.68.0 librtmp/2.3 mit-krb5/1.22.1 OpenLDAP/2.6.10
+(exit 0)
+```
+
+### facts dbcm-lab-m3
+
+```
+$ vm_sh dbcm-lab-m3 
+			echo "hostname: $(hostname)"; echo "arch: $(uname -m) kernel: $(uname -r)"
+			grep PRETTY_NAME /etc/os-release; echo "nproc: $(nproc)"; free -m | head -2; df -h / | tail -1
+			ip -4 -o addr show | awk "{print \$2, \$4}"
+			echo "time sync: $(timedatectl show -p NTPSynchronized --value 2>/dev/null) $(systemctl is-active chrony systemd-timesyncd 2>/dev/null | tr "\n" " ")"
+			echo "iptables: $(sudo iptables -V)"; echo "curl: $(curl -V | head -1)"
+hostname: lima-dbcm-lab-m3
+arch: aarch64 kernel: 7.0.0-28-generic
+PRETTY_NAME="Ubuntu 26.04 LTS"
+nproc: 2
+               total        used        free      shared  buff/cache   available
+Mem:            1950         560         182           1        1302        1389
+/dev/vda1       8.7G  2.9G  5.8G  34% /
+lo 127.0.0.1/8
+eth0 192.168.104.4/24
+docker0 172.17.0.1/16
+time sync: yes active inactive 
+iptables: iptables v1.8.11 (nf_tables)
+curl: curl 8.18.0 (aarch64-unknown-linux-gnu) libcurl/8.18.0 OpenSSL/3.5.5 zlib/1.3.1 brotli/1.2.0 zstd/1.5.7 libidn2/2.3.8 libpsl/0.21.2 libssh2/1.11.1 nghttp2/1.68.0 librtmp/2.3 mit-krb5/1.22.1 OpenLDAP/2.6.10
+(exit 0)
+```
+
+19:24:33Z user-v2 addresses: m1=192.168.104.1 m2=192.168.104.3 m3=192.168.104.4
+Raft peers: `m1=192.168.104.1:7101,m2=192.168.104.3:7101,m3=192.168.104.4:7101`
+
+### VM-to-VM reachability over user-v2 (from m1)
+
+```
+$ vm_sh dbcm-lab-m1 for a in 192.168.104.3 192.168.104.4; do ping -c2 -W2 $a | tail -1; done
+rtt min/avg/max/mdev = 0.268/0.321/0.374/0.053 ms
+rtt min/avg/max/mdev = 0.310/0.344/0.379/0.034 ms
+(exit 0)
+```
+
+### copy binaries into dbcm-lab-m1
+
+```
+$ sh -c limactl copy '<tmp>' 'dbcm-lab-m1:/tmp/dbcm-e3-metad' && limactl copy '<tmp>' 'dbcm-lab-m1:/tmp/dbcm-e3agent' && limactl copy '<tmp>' 'dbcm-lab-m1:/tmp/dbcm-e3-watch' && limactl copy '<tmp>' 'dbcm-lab-m1:/tmp/dbcm-e3-lat' && limactl copy '<tmp>' 'dbcm-lab-m1:/tmp/dbcm-e3-res'
+(exit 0)
+```
+
+### install binaries in dbcm-lab-m1
+
+```
+$ vm_sh dbcm-lab-m1 for f in dbcm-e3-metad dbcm-e3agent dbcm-e3-watch dbcm-e3-lat dbcm-e3-res; do sudo install -m 0755 /tmp/$f /usr/local/bin/$f; done; sha256sum /usr/local/bin/dbcm-e3-metad /usr/local/bin/dbcm-e3agent | cut -c1-16
+786d6a5b28554df6
+f8e08478f5e0ed37
+(exit 0)
+```
+
+### copy binaries into dbcm-lab-m2
+
+```
+$ sh -c limactl copy '<tmp>' 'dbcm-lab-m2:/tmp/dbcm-e3-metad' && limactl copy '<tmp>' 'dbcm-lab-m2:/tmp/dbcm-e3agent' && limactl copy '<tmp>' 'dbcm-lab-m2:/tmp/dbcm-e3-watch' && limactl copy '<tmp>' 'dbcm-lab-m2:/tmp/dbcm-e3-lat' && limactl copy '<tmp>' 'dbcm-lab-m2:/tmp/dbcm-e3-res'
+(exit 0)
+```
+
+### install binaries in dbcm-lab-m2
+
+```
+$ vm_sh dbcm-lab-m2 for f in dbcm-e3-metad dbcm-e3agent dbcm-e3-watch dbcm-e3-lat dbcm-e3-res; do sudo install -m 0755 /tmp/$f /usr/local/bin/$f; done; sha256sum /usr/local/bin/dbcm-e3-metad /usr/local/bin/dbcm-e3agent | cut -c1-16
+786d6a5b28554df6
+f8e08478f5e0ed37
+(exit 0)
+```
+
+### copy binaries into dbcm-lab-m3
+
+```
+$ sh -c limactl copy '<tmp>' 'dbcm-lab-m3:/tmp/dbcm-e3-metad' && limactl copy '<tmp>' 'dbcm-lab-m3:/tmp/dbcm-e3agent' && limactl copy '<tmp>' 'dbcm-lab-m3:/tmp/dbcm-e3-watch' && limactl copy '<tmp>' 'dbcm-lab-m3:/tmp/dbcm-e3-lat' && limactl copy '<tmp>' 'dbcm-lab-m3:/tmp/dbcm-e3-res'
+(exit 0)
+```
+
+### install binaries in dbcm-lab-m3
+
+```
+$ vm_sh dbcm-lab-m3 for f in dbcm-e3-metad dbcm-e3agent dbcm-e3-watch dbcm-e3-lat dbcm-e3-res; do sudo install -m 0755 /tmp/$f /usr/local/bin/$f; done; sha256sum /usr/local/bin/dbcm-e3-metad /usr/local/bin/dbcm-e3agent | cut -c1-16
+786d6a5b28554df6
+f8e08478f5e0ed37
+(exit 0)
+```
+
+### host loopback listeners on metad/sentinel ports before start
+
+```
+$ sh -c lsof -nP -iTCP:18101-18103 -iTCP:18080 -sTCP:LISTEN || echo none
+COMMAND  PID      USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME
+ssh     6966 <user>   10u  IPv4 0x482985f5ccc9c58f      0t0  TCP *:18080 (LISTEN)
+none
+(exit 0)
+```
+
+
+## Step 2: three metad processes form a Raft group
+
+host load average (1/5/15 min): { 9.15 29.44 30.65 }
+
+### start metad on m1
+
+```
+$ start_metad 1
+started m1
+(exit 0)
+```
+
+### start metad on m2
+
+```
+$ start_metad 2
+started m2
+(exit 0)
+```
+
+### start metad on m3
+
+```
+$ start_metad 3
+started m3
+(exit 0)
+```
+
+19:24:40Z wait ok after 3s: a leader is elected
+initial election: 3 s (2 s polling resolution, includes process start)
+
+19:24:40Z wait ok after 0s: all nodes agree on leader and term
+### state m1
+
+```
+$ curl 127.0.0.1:18101/state   (inside dbcm-lab-m1)
+{"id":"m1","leader":false,"leader_id":"m2","term":2,"barrier":false,"unfinished":[]}
+```
+
+### state m2
+
+```
+$ curl 127.0.0.1:18102/state   (inside dbcm-lab-m2)
+{"id":"m2","leader":true,"leader_id":"m2","term":2,"barrier":false,"unfinished":[]}
+```
+
+### state m3
+
+```
+$ curl 127.0.0.1:18103/state   (inside dbcm-lab-m3)
+{"id":"m3","leader":false,"leader_id":"m2","term":2,"barrier":false,"unfinished":[]}
+```
+
+**Result:** initial cluster: leader m2, term 2, all three nodes agree
+
+19:24:40Z RESULT: initial cluster: leader m2, term 2, all three nodes agree
+### metad unit and listeners (m1)
+
+```
+$ vm_sh dbcm-lab-m1 systemctl status --no-pager dbcm-e3-metad | head -8; sudo ss -ltnp | grep -E 'dbcm-e3|:7101|:1810' || true
+● dbcm-e3-metad.service - [systemd-run] /usr/local/bin/dbcm-e3-metad -id m1 -bind 192.168.104.1:7101 -data /var/lib/dbcm-e3/metad -http 127.0.0.1:18101 -peers m1=192.168.104.1:7101,m2=192.168.104.3:7101,m3=192.168.104.4:7101 -bootstrap
+     Loaded: loaded (/run/systemd/transient/dbcm-e3-metad.service; transient)
+  Transient: yes
+     Active: active (running) since Tue 2026-10-20 21:24:37 CEST; 2s ago
+ Invocation: 51fb834e74ef4bf591648d9b95a0cd14
+   Main PID: 29421 (dbcm-e3-metad)
+      Tasks: 7 (limit: 2102)
+     Memory: 1.9M (peak: 1.9M)
+LISTEN 0      4096       127.0.0.1:18101      0.0.0.0:*    users:(("dbcm-e3-metad",pid=29421,fd=8))               
+LISTEN 0      4096   192.168.104.1:7101       0.0.0.0:*    users:(("dbcm-e3-metad",pid=29421,fd=7))               
+(exit 0)
+```
+
+### follower rejects writes (m3)
+
+```
+$ post 3 {"Kind":"begin","OpID":"op-probe","OpKind":"e3","Steps":["x"],"Term":1}
+{"error":"metastore: not leader","code":"not_leader","leader_id":"m2","leader_address":"192.168.104.3:7101"}
+ HTTP503(exit 0)
+```
+
+### host loopback listeners on metad ports while running (Lima port forwarding)
+
+```
+$ sh -c lsof -nP -iTCP:18101-18103 -sTCP:LISTEN || echo none
+COMMAND   PID      USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME
+limactl 22046 <user>   11u  IPv4 0xc8aa8119d27e647e      0t0  TCP 127.0.0.1:18101 (LISTEN)
+limactl 23135 <user>    8u  IPv4 0xee51be1272358989      0t0  TCP 127.0.0.1:18102 (LISTEN)
+limactl 24123 <user>    8u  IPv4 0x25501c0dc8b10bd1      0t0  TCP 127.0.0.1:18103 (LISTEN)
+(exit 0)
+```
+
+
+## Step 2b: unrelated sentinel (nginx on m3) and agent
+
+### enable rootful docker on m3 (template default is rootless)
+
+```
+$ vm_sh dbcm-lab-m3 
+		sudo systemctl unmask containerd.service docker.service docker.socket >/dev/null 2>&1
+		sudo systemctl enable --now containerd.service docker.socket docker.service >/dev/null 2>&1
+		echo "rootful docker: $(systemctl is-active docker.service)"; sudo docker version --format "server {{.Server.Version}}"
+rootful docker: active
+server 29.9.1
+(exit 0)
+```
+
+### start sentinel container
+
+```
+$ vm_sh dbcm-lab-m3 sudo docker run -d --name dbcm-e3-sentinel --label dbcm.test=sentinel --restart=no -p 127.0.0.1:18080:80 nginx:1.27-alpine
+Unable to find image 'nginx:1.27-alpine' locally
+1.27-alpine: Pulling from library/nginx
+9994ea1088e3: Pulling fs layer
+d3282d7e6b76: Pulling fs layer
+6e771e15690e: Pulling fs layer
+c60e446e49a0: Pulling fs layer
+e6557c42ebea: Pulling fs layer
+1ab010a06338: Pulling fs layer
+a4ce1202d746: Pulling fs layer
+37aca2470cda: Pulling fs layer
+d3282d7e6b76: Download complete
+9994ea1088e3: Download complete
+6e771e15690e: Download complete
+c60e446e49a0: Download complete
+e6557c42ebea: Download complete
+1ab010a06338: Download complete
+a4ce1202d746: Download complete
+37aca2470cda: Download complete
+d3282d7e6b76: Pull complete
+6e771e15690e: Pull complete
+c60e446e49a0: Pull complete
+e6557c42ebea: Pull complete
+1ab010a06338: Pull complete
+a4ce1202d746: Pull complete
+37aca2470cda: Pull complete
+5988adaa992c: Download complete
+707735927b67: Download complete
+9994ea1088e3: Pull complete
+Digest: sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
+Status: Downloaded newer image for nginx:1.27-alpine
+fc3aa45a6af9a352b2ea6a6d9d1a35202c750cb20a8ac7387a8e9e74c399a7ef
+(exit 0)
+```
+
+19:24:44Z wait ok after 0s: sentinel answers
+### sentinel image
+
+```
+$ vm_sh dbcm-lab-m3 sudo docker image inspect --format '{{.RepoTags}} {{.RepoDigests}} {{.Architecture}}' nginx:1.27-alpine
+[nginx:1.27-alpine] [nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10] arm64
+(exit 0)
+```
+
+### sentinel snapshot before
+
+```
+fc3aa45a6af9a352b2ea6a6d9d1a35202c750cb20a8ac7387a8e9e74c399a7ef sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10 2026-10-20T19:24:44.614418746Z restarts=0 running=true fb47468a2cd3953c7131431991afcc6a2703f14640520102eea0a685a7e8d6de 
+```
+
+### agent: initial highest term
+
+```
+$ dbcm-e3agent highest   (inside dbcm-lab-m3)
+highest=0
+(exit 0)
+```
+
+19:24:44Z agent initial highest term: highest=0 (exit 0)
+
+## Step 3: commit latency and resource use (3 nodes)
+
+host load average (1/5/15 min): { 8.58 28.99 30.48 }
+
+### metad idle (30 s window)
+
+```
+m1: pid=29421 cpu=0.57% of one vCPU over 30s, cpu_total=0.20s, rss=9.5MiB, peak_rss=9.5MiB, threads=7, data_dir=32KiB
+m2: pid=29407 cpu=1.87% of one vCPU over 30s, cpu_total=0.64s, rss=12.1MiB, peak_rss=12.1MiB, threads=8, data_dir=32KiB
+m3: pid=29371 cpu=0.53% of one vCPU over 30s, cpu_total=0.18s, rss=9.0MiB, peak_rss=9.0MiB, threads=7, data_dir=32KiB
+```
+
+### metad during the latency run (10 s window)
+
+```
+m1: pid=29421 cpu=1.40% of one vCPU over 10s, cpu_total=0.34s, rss=13.1MiB, peak_rss=13.1MiB, threads=8, data_dir=164KiB
+m2: pid=29407 cpu=2.80% of one vCPU over 10s, cpu_total=0.92s, rss=13.2MiB, peak_rss=13.2MiB, threads=8, data_dir=164KiB
+m3: pid=29371 cpu=1.50% of one vCPU over 10s, cpu_total=0.33s, rss=13.3MiB, peak_rss=13.3MiB, threads=8, data_dir=164KiB
+```
+
+### commit latency, 3 nodes, leader m2 term 2
+
+```
+http 200: 300
+commits=300 wall=1347ms throughput=223/s min=0.90ms p50=1.41ms p90=2.29ms p99=4.32ms max=8.15ms (curl time_total, loopback, sequential)
+```
+
+**Result:** commit latency 3 nodes: commits=300 wall=1347ms throughput=223/s min=0.90ms p50=1.41ms p90=2.29ms p99=4.32ms max=8.15ms (curl time_total, loopback, sequential)
+
+19:25:25Z RESULT: commit latency 3 nodes: commits=300 wall=1347ms throughput=223/s min=0.90ms p50=1.41ms p90=2.29ms p99=4.32ms max=8.15ms (curl time_total, loopback, sequential)
+### VM memory after load
+
+```
+$ sh -c for n in 1 2 3; do limactl shell --workdir / dbcm-lab-m$n -- sh -c 'echo $(hostname): $(free -m | awk "/Mem/{print \$3\" MiB used of \"\$2}")'; done
+lima-dbcm-lab-m1: 519 MiB used of 1950
+lima-dbcm-lab-m2: 523 MiB used of 1950
+lima-dbcm-lab-m3: 631 MiB used of 1950
+(exit 0)
+```
+
+
+## Step 4 (a): leader process killed (SIGKILL) mid-operation
+
+host load average (1/5/15 min): { 14.00 27.56 29.88 }
+
+leader m2, term 2; survivors: 1 3 
+
+### a: begin op-a
+
+```
+$ POST 127.0.0.1:18102/apply on m2: {"Kind":"begin","OpID":"op-a","OpKind":"e3","Steps":["s1","s2","s3","hold"],"Term":2}
+{"ok":true,"term":2}
+ HTTP200
+(host-observed 75 ms incl. limactl shell)
+```
+
+19:25:25Z a: begin op-a -> HTTP200
+### a: start s1
+
+```
+$ POST 127.0.0.1:18102/apply on m2: {"Kind":"start","OpID":"op-a","Term":2,"StepID":"s1"}
+{"ok":true,"term":2}
+ HTTP200
+(host-observed 71 ms incl. limactl shell)
+```
+
+19:25:25Z a: start s1 -> HTTP200
+### agent: a: exec s1
+
+```
+$ dbcm-e3agent exec -term 2 -op op-a -step s1   (inside dbcm-lab-m3)
+EXECUTED op-a/s1 term=2 (highest=2, executions recorded=1)
+(exit 0)
+```
+
+19:25:25Z agent a: exec s1: EXECUTED op-a/s1 term=2 (highest=2, executions recorded=1) (exit 0)
+### a: finish s1
+
+```
+$ POST 127.0.0.1:18102/apply on m2: {"Kind":"finish","OpID":"op-a","Term":2,"StepID":"s1","Result":"succeeded"}
+{"ok":true,"term":2}
+ HTTP200
+(host-observed 75 ms incl. limactl shell)
+```
+
+19:25:26Z a: finish s1 -> HTTP200
+### a: start s2 (then the leader dies before the agent call)
+
+```
+$ POST 127.0.0.1:18102/apply on m2: {"Kind":"start","OpID":"op-a","Term":2,"StepID":"s2"}
+{"ok":true,"term":2}
+ HTTP200
+(host-observed 74 ms incl. limactl shell)
+```
+
+19:25:26Z a: start s2 (then the leader dies before the agent call) -> HTTP200
+clock offset m2: 56448 us (round trip 1333 us)
+clock offset m1: -4230 us (round trip 1491 us)
+clock offset m3: 6059 us (round trip 1357 us)
+### survivor watchers after SIGKILL of m2
+
+```
+-- watcher on m1 (VM clock ns, leader leader_id term):
+1792524326615804705 false id=m2 2
+1792524330028413505 false id= 2
+1792524330337113726 false id=m3 3
+MATCH
+-- watcher on m3 (VM clock ns, leader leader_id term):
+1792524326625484580 false id=m2 2
+1792524330334769118 true id=m3 3
+MATCH
+```
+
+**Result:** (a) SIGKILL of leader m2 (term 2): new leader m3 term 3 known on a survivor 2183 ms after the kill (VM clocks corrected by measured offsets)
+
+19:25:30Z RESULT: (a) SIGKILL of leader m2 (term 2): new leader m3 term 3 known on a survivor 2183 ms after the kill (VM clocks corrected by measured offsets)
+### new leader journal after barrier (before adopt)
+
+```
+$ curl 127.0.0.1:18103/state?barrier=1   (inside dbcm-lab-m3)
+{"id":"m3","leader":true,"leader_id":"m3","term":3,"barrier":true,"unfinished":[{"ID":"op-a","Owner":2,"Steps":["s1=succeeded/1","s2=running/1","s3=pending/0","hold=pending/0"]}]}
+```
+
+### a: new leader adopts op-a
+
+```
+$ POST 127.0.0.1:18103/apply on m3: {"Kind":"adopt","OpID":"op-a","Term":3}
+{"ok":true,"term":3}
+ HTTP200
+(host-observed 73 ms incl. limactl shell)
+```
+
+19:25:30Z a: new leader adopts op-a -> HTTP200
+op-a after adopt: `owner=3 s1=succeeded/1 s2=unknown/1 s3=pending/0 hold=pending/0`
+
+**Result:** (a) after adopt the interrupted step is unknown: owner=3 s1=succeeded/1 s2=unknown/1 s3=pending/0 hold=pending/0
+
+19:25:30Z RESULT: (a) after adopt the interrupted step is unknown: owner=3 s1=succeeded/1 s2=unknown/1 s3=pending/0 hold=pending/0
+### agent: a: reconcile s2 (query live state)
+
+```
+$ dbcm-e3agent query -op op-a -step s2   (inside dbcm-lab-m3)
+NOT-EXECUTED op-a/s2
+(exit 0)
+```
+
+19:25:30Z agent a: reconcile s2 (query live state): NOT-EXECUTED op-a/s2 (exit 0)
+### a (retry by m3): start s2
+
+```
+$ POST 127.0.0.1:18103/apply on m3: {"Kind":"start","OpID":"op-a","Term":3,"StepID":"s2"}
+{"ok":true,"term":3}
+ HTTP200
+(host-observed 74 ms incl. limactl shell)
+```
+
+19:25:30Z a (retry by m3): start s2 -> HTTP200
+### agent: a (retry by m3): exec s2
+
+```
+$ dbcm-e3agent exec -term 3 -op op-a -step s2   (inside dbcm-lab-m3)
+EXECUTED op-a/s2 term=3 (highest=3, executions recorded=2)
+(exit 0)
+```
+
+19:25:30Z agent a (retry by m3): exec s2: EXECUTED op-a/s2 term=3 (highest=3, executions recorded=2) (exit 0)
+### a (retry by m3): finish s2
+
+```
+$ POST 127.0.0.1:18103/apply on m3: {"Kind":"finish","OpID":"op-a","Term":3,"StepID":"s2","Result":"succeeded"}
+{"ok":true,"term":3}
+ HTTP200
+(host-observed 76 ms incl. limactl shell)
+```
+
+19:25:31Z a (retry by m3): finish s2 -> HTTP200
+### a: start s3
+
+```
+$ POST 127.0.0.1:18103/apply on m3: {"Kind":"start","OpID":"op-a","Term":3,"StepID":"s3"}
+{"ok":true,"term":3}
+ HTTP200
+(host-observed 76 ms incl. limactl shell)
+```
+
+19:25:31Z a: start s3 -> HTTP200
+### agent: a: exec s3
+
+```
+$ dbcm-e3agent exec -term 3 -op op-a -step s3   (inside dbcm-lab-m3)
+EXECUTED op-a/s3 term=3 (highest=3, executions recorded=3)
+(exit 0)
+```
+
+19:25:31Z agent a: exec s3: EXECUTED op-a/s3 term=3 (highest=3, executions recorded=3) (exit 0)
+### a: finish s3
+
+```
+$ POST 127.0.0.1:18103/apply on m3: {"Kind":"finish","OpID":"op-a","Term":3,"StepID":"s3","Result":"succeeded"}
+{"ok":true,"term":3}
+ HTTP200
+(host-observed 73 ms incl. limactl shell)
+```
+
+19:25:31Z a: finish s3 -> HTTP200
+op-a after retry: `owner=3 s1=succeeded/1 s2=succeeded/2 s3=succeeded/1 hold=pending/0`
+
+**Result:** (a) s2 retried by the new leader (attempt 2) and the operation continued: owner=3 s1=succeeded/1 s2=succeeded/2 s3=succeeded/1 hold=pending/0
+
+19:25:31Z RESULT: (a) s2 retried by the new leader (attempt 2) and the operation continued: owner=3 s1=succeeded/1 s2=succeeded/2 s3=succeeded/1 hold=pending/0
+### a: old term 2 rejected by the journal
+
+```
+$ POST 127.0.0.1:18103/apply on m3: {"Kind":"start","OpID":"op-a","Term":2,"StepID":"hold"}
+{"error":"opjournal: term does not own operation: got 2, owner 3","code":"not_owner"}
+ HTTP409
+(host-observed 74 ms incl. limactl shell)
+```
+
+19:25:31Z a: old term 2 rejected by the journal -> HTTP409
+**Result:** (a) command with the old term 2 on the new leader: 409 not_owner
+
+19:25:31Z RESULT: (a) command with the old term 2 on the new leader: 409 not_owner
+### agent: a: old term 2 rejected by the agent
+
+```
+$ dbcm-e3agent exec -term 2 -op op-a -step hold   (inside dbcm-lab-m3)
+REJECT op-a/hold term=2: fencing: stale term: got 2, highest 3
+(exit 3)
+```
+
+19:25:31Z agent a: old term 2 rejected by the agent: REJECT op-a/hold term=2: fencing: stale term: got 2, highest 3 (exit 3)
+**Result:** (a) agent rejected old term 2 after admitting 3
+
+19:25:31Z RESULT: (a) agent rejected old term 2 after admitting 3
+### restart killed metad on m2
+
+```
+$ start_metad 2
+started m2
+(exit 0)
+```
+
+19:25:33Z wait ok after 2s: m2 converged after restart
+**Result:** (a) restarted m2 converged (same leader, term and unfinished journal after 2 s)
+
+19:25:33Z RESULT: (a) restarted m2 converged (same leader, term and unfinished journal after 2 s)
+### m2 after restart
+
+```
+$ curl 127.0.0.1:18102/state   (inside dbcm-lab-m2)
+{"id":"m2","leader":false,"leader_id":"m3","term":3,"barrier":false,"unfinished":[{"ID":"op-a","Owner":3,"Steps":["s1=succeeded/1","s2=succeeded/2","s3=succeeded/1","hold=pending/0"]}]}
+```
+
+
+## Step 5 (b): leader VM force-stopped mid-operation
+
+host load average (1/5/15 min): { 13.20 27.17 29.72 }
+
+19:25:34Z leader is m3 (or unknown); restarting its metad to move leadership
+### stop metad on m3 (SIGTERM) to move leadership
+
+```
+$ stop_metad 3
+m3 unit: inactive
+(exit 0)
+```
+
+19:25:38Z wait ok after 4s: leader among m1/m2
+### start metad on m3
+
+```
+$ start_metad 3
+started m3
+(exit 0)
+```
+
+19:25:41Z wait ok after 3s: m3 converged
+leader m2, term 4; survivors: 1 3 
+
+### b: begin op-b
+
+```
+$ POST 127.0.0.1:18102/apply on m2: {"Kind":"begin","OpID":"op-b","OpKind":"e3","Steps":["s1","s2","hold"],"Term":4}
+{"ok":true,"term":4}
+ HTTP200
+(host-observed 74 ms incl. limactl shell)
+```
+
+19:25:41Z b: begin op-b -> HTTP200
+### b: start s1
+
+```
+$ POST 127.0.0.1:18102/apply on m2: {"Kind":"start","OpID":"op-b","Term":4,"StepID":"s1"}
+{"ok":true,"term":4}
+ HTTP200
+(host-observed 72 ms incl. limactl shell)
+```
+
+19:25:41Z b: start s1 -> HTTP200
+### agent: b: exec s1
+
+```
+$ dbcm-e3agent exec -term 4 -op op-b -step s1   (inside dbcm-lab-m3)
+EXECUTED op-b/s1 term=4 (highest=4, executions recorded=4)
+(exit 0)
+```
+
+19:25:41Z agent b: exec s1: EXECUTED op-b/s1 term=4 (highest=4, executions recorded=4) (exit 0)
+### b: finish s1
+
+```
+$ POST 127.0.0.1:18102/apply on m2: {"Kind":"finish","OpID":"op-b","Term":4,"StepID":"s1","Result":"succeeded"}
+{"ok":true,"term":4}
+ HTTP200
+(host-observed 71 ms incl. limactl shell)
+```
+
+19:25:41Z b: finish s1 -> HTTP200
+### b: start s2
+
+```
+$ POST 127.0.0.1:18102/apply on m2: {"Kind":"start","OpID":"op-b","Term":4,"StepID":"s2"}
+{"ok":true,"term":4}
+ HTTP200
+(host-observed 74 ms incl. limactl shell)
+```
+
+19:25:41Z b: start s2 -> HTTP200
+### agent: b: exec s2 (the finish never gets committed)
+
+```
+$ dbcm-e3agent exec -term 4 -op op-b -step s2   (inside dbcm-lab-m3)
+EXECUTED op-b/s2 term=4 (highest=4, executions recorded=5)
+(exit 0)
+```
+
+19:25:41Z agent b: exec s2 (the finish never gets committed): EXECUTED op-b/s2 term=4 (highest=4, executions recorded=5) (exit 0)
+clock offset m1: -4249 us (round trip 1312 us)
+clock offset m3: 5777 us (round trip 1325 us)
+### limactl stop --force dbcm-lab-m2
+
+```
+$ limactl stop --force dbcm-lab-m2
+time="2026-10-20T21:25:43+02:00" level=info msg="Sending SIGKILL to the vz driver process 23135"
+time="2026-10-20T21:25:43+02:00" level=info msg="Sending SIGKILL to the host agent process 23135"
+time="2026-10-20T21:25:43+02:00" level=info msg="Removing *.pid *.sock *.tmp under `~/.lima/dbcm-lab-m2`"
+time="2026-10-20T21:25:43+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m2/ha.pid`"
+time="2026-10-20T21:25:43+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m2/ha.sock`"
+time="2026-10-20T21:25:43+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m2/ssh.sock`"
+time="2026-10-20T21:25:43+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m2/vz.pid`"
+(exit 0)
+```
+
+### survivor watchers after forced stop of dbcm-lab-m2
+
+```
+-- watcher on m1 (VM clock ns, leader leader_id term):
+1792524342014126305 false id=m2 4
+1792524345081632899 true id=m1 5
+MATCH
+-- watcher on m3 (VM clock ns, leader leader_id term):
+1792524342024885972 false id=m2 4
+1792524344773646261 false id= 4
+1792524345085765700 false id=m1 5
+MATCH
+```
+
+**Result:** (b) forced stop of dbcm-lab-m2 (leader, term 4): new leader m1 term 5 known 1593 ms after the stop command was issued (host clock)
+
+19:25:45Z RESULT: (b) forced stop of dbcm-lab-m2 (leader, term 4): new leader m1 term 5 known 1593 ms after the stop command was issued (host clock)
+### b: new leader adopts op-b
+
+```
+$ POST 127.0.0.1:18101/apply on m1: {"Kind":"adopt","OpID":"op-b","Term":5}
+{"ok":true,"term":5}
+ HTTP200
+(host-observed 72 ms incl. limactl shell)
+```
+
+19:25:45Z b: new leader adopts op-b -> HTTP200
+op-b after adopt: `owner=5 s1=succeeded/1 s2=unknown/1 hold=pending/0`
+
+**Result:** (b) after adopt the interrupted step is unknown: owner=5 s1=succeeded/1 s2=unknown/1 hold=pending/0
+
+19:25:45Z RESULT: (b) after adopt the interrupted step is unknown: owner=5 s1=succeeded/1 s2=unknown/1 hold=pending/0
+### agent: b: reconcile s2 (query live state)
+
+```
+$ dbcm-e3agent query -op op-b -step s2   (inside dbcm-lab-m3)
+EXECUTED op-b/s2 term=4
+(exit 0)
+```
+
+19:25:45Z agent b: reconcile s2 (query live state): EXECUTED op-b/s2 term=4 (exit 0)
+### b (retry by m1): start s2
+
+```
+$ POST 127.0.0.1:18101/apply on m1: {"Kind":"start","OpID":"op-b","Term":5,"StepID":"s2"}
+{"ok":true,"term":5}
+ HTTP200
+(host-observed 70 ms incl. limactl shell)
+```
+
+19:25:45Z b (retry by m1): start s2 -> HTTP200
+### agent: b (retry by m1): exec s2 is idempotent
+
+```
+$ dbcm-e3agent exec -term 5 -op op-b -step s2   (inside dbcm-lab-m3)
+ALREADY op-b/s2 executed under term=4; not executed again (highest=5)
+(exit 0)
+```
+
+19:25:45Z agent b (retry by m1): exec s2 is idempotent: ALREADY op-b/s2 executed under term=4; not executed again (highest=5) (exit 0)
+**Result:** (b) s2 executed once (under term 4); the retry under term 5 did not execute it again
+
+19:25:45Z RESULT: (b) s2 executed once (under term 4); the retry under term 5 did not execute it again
+### b (retry by m1): finish s2
+
+```
+$ POST 127.0.0.1:18101/apply on m1: {"Kind":"finish","OpID":"op-b","Term":5,"StepID":"s2","Result":"succeeded"}
+{"ok":true,"term":5}
+ HTTP200
+(host-observed 71 ms incl. limactl shell)
+```
+
+19:25:45Z b (retry by m1): finish s2 -> HTTP200
+op-b after retry: `owner=5 s1=succeeded/1 s2=succeeded/2 hold=pending/0`
+
+### agent: b: old term 4 rejected by the agent
+
+```
+$ dbcm-e3agent exec -term 4 -op op-b -step hold   (inside dbcm-lab-m3)
+REJECT op-b/hold term=4: fencing: stale term: got 4, highest 5
+(exit 3)
+```
+
+19:25:45Z agent b: old term 4 rejected by the agent: REJECT op-b/hold term=4: fencing: stale term: got 4, highest 5 (exit 3)
+**Result:** (b) agent rejected old term 4
+
+19:25:45Z RESULT: (b) agent rejected old term 4
+### limactl start dbcm-lab-m2
+
+```
+$ limactl start --tty=false --timeout 6m dbcm-lab-m2
+time="2026-10-20T21:25:45+02:00" level=info msg="Using the existing instance `dbcm-lab-m2`"
+time="2026-10-20T21:25:45+02:00" level=info msg="Starting the instance `dbcm-lab-m2` with internal VM driver `vz`"
+time="2026-10-20T21:25:46+02:00" level=info msg="[hostagent] hostagent socket created at ~/.lima/dbcm-lab-m2/ha.sock"
+time="2026-10-20T21:25:46+02:00" level=info msg="[hostagent] Starting VZ (hint: to watch the boot progress, see `~/.lima/dbcm-lab-m2/serial*.log`)"
+time="2026-10-20T21:25:46+02:00" level=info msg="[hostagent] [VZ] - vm state change: running"
+time="2026-10-20T21:25:50+02:00" level=info msg="[hostagent] Started vsock forwarder: 127.0.0.1:59483 -> vsock:22 on VM"
+time="2026-10-20T21:25:50+02:00" level=info msg="[hostagent] Detected SSH server is listening on the vsock port; changed 127.0.0.1:59483 to proxy for the vsock port"
+time="2026-10-20T21:25:51+02:00" level=info msg="SSH Local Port: 59483"
+time="2026-10-20T21:25:51+02:00" level=info msg="[hostagent] Waiting for the essential requirement 1 of 3: `ssh`"
+time="2026-10-20T21:25:51+02:00" level=info msg="[hostagent] The essential requirement 1 of 3 is satisfied"
+time="2026-10-20T21:25:51+02:00" level=info msg="[hostagent] Waiting for the essential requirement 2 of 3: `user session is ready for ssh`"
+time="2026-10-20T21:25:51+02:00" level=info msg="[hostagent] The essential requirement 2 of 3 is satisfied"
+time="2026-10-20T21:25:51+02:00" level=info msg="[hostagent] Waiting for the essential requirement 3 of 3: `Explicitly start ssh ControlMaster`"
+time="2026-10-20T21:25:52+02:00" level=info msg="[hostagent] The essential requirement 3 of 3 is satisfied"
+time="2026-10-20T21:25:52+02:00" level=info msg="[hostagent] Waiting for the optional requirement 1 of 1: `user probe 1/1`"
+time="2026-10-20T21:25:52+02:00" level=info msg="[hostagent] Forwarding `/run/user/501/docker.sock` (guest) to `~/.lima/dbcm-lab-m2/sock/docker.sock` (host)"
+time="2026-10-20T21:25:52+02:00" level=info msg="[hostagent] Guest agent is running"
+time="2026-10-20T21:25:52+02:00" level=info msg="[hostagent] Time sync: guest agent is alive, starting time synchronization"
+time="2026-10-20T21:25:52+02:00" level=info msg="[hostagent] Not forwarding TCP 127.0.0.53:53"
+time="2026-10-20T21:25:52+02:00" level=info msg="[hostagent] Not forwarding TCP 0.0.0.0:22"
+time="2026-10-20T21:25:52+02:00" level=info msg="[hostagent] Not forwarding TCP 127.0.0.54:53"
+time="2026-10-20T21:25:52+02:00" level=info msg="[hostagent] Not forwarding TCP [::]:22"
+time="2026-10-20T21:25:52+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.54:53"
+time="2026-10-20T21:25:52+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.53:53"
+time="2026-10-20T21:25:52+02:00" level=info msg="[hostagent] Not forwarding UDP 192.168.104.3:68"
+time="2026-10-20T21:25:52+02:00" level=info msg="[hostagent] Forwarding UDP from 0.0.0.0:5353 to 127.0.0.1:5353"
+time="2026-10-20T21:25:52+02:00" level=info msg="[hostagent] Forwarding UDP from 127.0.0.1:323 to 127.0.0.1:323"
+time="2026-10-20T21:25:52+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-20T21:25:52+02:00" level=info msg="[hostagent] Forwarding UDP from [::]:5353 to 127.0.0.1:5353"
+time="2026-10-20T21:25:52+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-20T21:25:52+02:00" level=info msg="[hostagent] Not forwarding UDP 0.0.0.0:323"
+time="2026-10-20T21:25:52+02:00" level=info msg="[hostagent] Forwarding UDP from [::1]:323 to 127.0.0.1:323"
+time="2026-10-20T21:25:52+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:323"
+time="2026-10-20T21:25:52+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-20T21:25:52+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-20T21:25:52+02:00" level=info msg="[hostagent] Not forwarding UDP 0.0.0.0:323"
+time="2026-10-20T21:25:52+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:323"
+time="2026-10-20T21:25:52+02:00" level=info msg="[hostagent] The optional requirement 1 of 1 is satisfied"
+time="2026-10-20T21:25:52+02:00" level=info msg="[hostagent] Waiting for the guest agent to be running"
+time="2026-10-20T21:25:52+02:00" level=info msg="[hostagent] Waiting for the final requirement 1 of 1: `boot scripts must have finished`"
+time="2026-10-20T21:25:52+02:00" level=info msg="[hostagent] The final requirement 1 of 1 is satisfied"
+time="2026-10-20T21:25:52+02:00" level=info msg="READY. Run `limactl shell dbcm-lab-m2` to open the shell."
+time="2026-10-20T21:25:52+02:00" level=info msg="Message from the instance `dbcm-lab-m2`:"
+To run `docker` on the host (assumes docker-cli is installed), run the following commands:
+------
+docker context create lima-dbcm-lab-m2 --docker "host=unix://~/.lima/dbcm-lab-m2/sock/docker.sock"
+docker context use lima-dbcm-lab-m2
+docker run hello-world
+------
+(exit 0)
+```
+
+user-v2 address of dbcm-lab-m2 unchanged after restart: 192.168.104.3
+
+### metad unit after VM restart (transient unit, not started at boot)
+
+```
+$ vm_sh dbcm-lab-m2 systemctl is-active dbcm-e3-metad || true; sudo ls -la /var/lib/dbcm-e3/metad
+inactive
+total 176
+drwxr-xr-x 3 root root   4096 Oct 20 21:24 .
+drwxr-xr-x 3 root root   4096 Oct 20 21:24 ..
+-rw------- 1 root root 262144 Oct 20 21:25 raft.db
+drwxr-xr-x 2 root root   4096 Oct 20 21:25 snapshots
+(exit 0)
+```
+
+### start metad on m2 after VM restart
+
+```
+$ start_metad 2
+started m2
+(exit 0)
+```
+
+19:25:55Z wait ok after 3s: m2 converged after VM restart
+**Result:** (b) m2 restarted from its data dir after the forced stop and converged (3 s)
+
+19:25:55Z RESULT: (b) m2 restarted from its data dir after the forced stop and converged (3 s)
+### m2 after VM restart
+
+```
+$ curl 127.0.0.1:18102/state   (inside dbcm-lab-m2)
+{"id":"m2","leader":false,"leader_id":"m1","term":5,"barrier":false,"unfinished":[{"ID":"op-a","Owner":3,"Steps":["s1=succeeded/1","s2=succeeded/2","s3=succeeded/1","hold=pending/0"]},{"ID":"op-b","Owner":5,"Steps":["s1=succeeded/1","s2=succeeded/2","hold=pending/0"]}]}
+```
+
+
+## Step 6 (c): leader VM partitioned (iptables inside the VM)
+
+host load average (1/5/15 min): { 10.69 25.68 29.13 }
+
+leader m1, term 5; majority: 2 3 
+
+### c: begin op-c
+
+```
+$ POST 127.0.0.1:18101/apply on m1: {"Kind":"begin","OpID":"op-c","OpKind":"e3","Steps":["s1","s2","s3"],"Term":5}
+{"ok":true,"term":5}
+ HTTP200
+(host-observed 75 ms incl. limactl shell)
+```
+
+19:25:55Z c: begin op-c -> HTTP200
+### c: start s1
+
+```
+$ POST 127.0.0.1:18101/apply on m1: {"Kind":"start","OpID":"op-c","Term":5,"StepID":"s1"}
+{"ok":true,"term":5}
+ HTTP200
+(host-observed 71 ms incl. limactl shell)
+```
+
+19:25:55Z c: start s1 -> HTTP200
+### agent: c: exec s1
+
+```
+$ dbcm-e3agent exec -term 5 -op op-c -step s1   (inside dbcm-lab-m3)
+EXECUTED op-c/s1 term=5 (highest=5, executions recorded=6)
+(exit 0)
+```
+
+19:25:55Z agent c: exec s1: EXECUTED op-c/s1 term=5 (highest=5, executions recorded=6) (exit 0)
+### c: finish s1
+
+```
+$ POST 127.0.0.1:18101/apply on m1: {"Kind":"finish","OpID":"op-c","Term":5,"StepID":"s1","Result":"succeeded"}
+{"ok":true,"term":5}
+ HTTP200
+(host-observed 71 ms incl. limactl shell)
+```
+
+19:25:55Z c: finish s1 -> HTTP200
+SSH_CONNECTION inside dbcm-lab-m1: `UNKNOWN 65535 UNKNOWN 65535`
+
+### arm 600 s heal timer inside dbcm-lab-m1
+
+```
+$ vm_sh dbcm-lab-m1 
+		printf '%s\n' 'iptables -D INPUT -j DBCM-E3 2>/dev/null' 'iptables -D OUTPUT -j DBCM-E3 2>/dev/null' 			'iptables -F DBCM-E3 2>/dev/null' 'iptables -X DBCM-E3 2>/dev/null' 'exit 0' | sudo tee /run/dbcm-e3-heal.sh >/dev/null
+		sudo systemd-run --quiet --unit dbcm-e3-heal --on-active=600 /bin/sh /run/dbcm-e3-heal.sh && echo armed
+armed
+(exit 0)
+```
+
+clock offset m1: -4199 us (round trip 1474 us)
+clock offset m2: 240402 us (round trip 1433 us)
+clock offset m3: 5582 us (round trip 1528 us)
+### partition rules inside dbcm-lab-m1
+
+```
+-N DBCM-E3
+-A INPUT -j DBCM-E3
+-A OUTPUT -j DBCM-E3
+-A DBCM-E3 -s 192.168.104.3/32 -j DROP
+-A DBCM-E3 -d 192.168.104.3/32 -j DROP
+-A DBCM-E3 -s 192.168.104.4/32 -j DROP
+-A DBCM-E3 -d 192.168.104.4/32 -j DROP
+```
+
+### c: isolated old leader tries to commit start s2 (term 5)
+
+```
+$ POST 127.0.0.1:18101/apply on m1: {"Kind":"start","OpID":"op-c","Term":5,"StepID":"s2"}
+{"error":"metastore: apply outcome unknown: leadership lost while committing log","code":"outcome_unknown"}
+ HTTP504
+(host-observed 453 ms incl. limactl shell)
+```
+
+19:25:58Z c: isolated old leader tries to commit start s2 (term 5) -> HTTP504
+### watchers after the partition (majority: newleader, m1: stepdown)
+
+```
+-- watcher on m2 (VM clock ns, leader leader_id term):
+1792524356622735171 false id=m1 5
+1792524360479000598 false id= 5
+1792524360611215926 false id=m3 6
+MATCH
+-- watcher on m3 (VM clock ns, leader leader_id term):
+1792524356389284269 false id=m1 5
+1792524360625244307 true id=m3 6
+MATCH
+-- watcher on m1 (VM clock ns, leader leader_id term):
+1792524356379910587 true id=m1 5
+1792524358552887107 false id= 5
+MATCH
+```
+
+**Result:** (c) partition of dbcm-lab-m1: majority leader m3 term 6 after 2385 ms; isolated m1 stopped reporting leader after 572 ms
+
+19:26:00Z RESULT: (c) partition of dbcm-lab-m1: majority leader m3 term 6 after 2385 ms; isolated m1 stopped reporting leader after 572 ms
+### c: isolated old leader retries start s2 (term 5)
+
+```
+$ POST 127.0.0.1:18101/apply on m1: {"Kind":"start","OpID":"op-c","Term":5,"StepID":"s2"}
+{"error":"metastore: not leader","code":"not_leader"}
+ HTTP503
+(host-observed 83 ms incl. limactl shell)
+```
+
+19:26:00Z c: isolated old leader retries start s2 (term 5) -> HTTP503
+**Result:** (c) isolated old leader refuses commits: {"error":"metastore: not leader","code":"not_leader"}
+ HTTP503
+
+19:26:00Z RESULT: (c) isolated old leader refuses commits: {"error":"metastore: not leader","code":"not_leader"}
+ HTTP503
+### c: new leader adopts op-c
+
+```
+$ POST 127.0.0.1:18103/apply on m3: {"Kind":"adopt","OpID":"op-c","Term":6}
+{"ok":true,"term":6}
+ HTTP200
+(host-observed 90 ms incl. limactl shell)
+```
+
+19:26:01Z c: new leader adopts op-c -> HTTP200
+### c (majority m3): start s2
+
+```
+$ POST 127.0.0.1:18103/apply on m3: {"Kind":"start","OpID":"op-c","Term":6,"StepID":"s2"}
+{"ok":true,"term":6}
+ HTTP200
+(host-observed 85 ms incl. limactl shell)
+```
+
+19:26:01Z c (majority m3): start s2 -> HTTP200
+### agent: c (majority m3): exec s2
+
+```
+$ dbcm-e3agent exec -term 6 -op op-c -step s2   (inside dbcm-lab-m3)
+EXECUTED op-c/s2 term=6 (highest=6, executions recorded=7)
+(exit 0)
+```
+
+19:26:01Z agent c (majority m3): exec s2: EXECUTED op-c/s2 term=6 (highest=6, executions recorded=7) (exit 0)
+### c (majority m3): finish s2
+
+```
+$ POST 127.0.0.1:18103/apply on m3: {"Kind":"finish","OpID":"op-c","Term":6,"StepID":"s2","Result":"succeeded"}
+{"ok":true,"term":6}
+ HTTP200
+(host-observed 81 ms incl. limactl shell)
+```
+
+19:26:01Z c (majority m3): finish s2 -> HTTP200
+### agent: c: isolated old leader's command (term 5) reaches the agent
+
+```
+$ dbcm-e3agent exec -term 5 -op op-c -step s3   (inside dbcm-lab-m3)
+REJECT op-c/s3 term=5: fencing: stale term: got 5, highest 6
+(exit 3)
+```
+
+19:26:01Z agent c: isolated old leader's command (term 5) reaches the agent: REJECT op-c/s3 term=5: fencing: stale term: got 5, highest 6 (exit 3)
+**Result:** (c) agent rejected the isolated old leader's command with term 5 (highest 6)
+
+19:26:01Z RESULT: (c) agent rejected the isolated old leader's command with term 5 (highest 6)
+### commit latency, 2 of 3 nodes (m1 isolated), leader m3
+
+```
+http 200: 150
+commits=150 wall=694ms throughput=216/s min=0.90ms p50=1.38ms p90=2.24ms p99=3.85ms max=5.13ms (curl time_total, loopback, sequential)
+```
+
+**Result:** (c) majority keeps committing: commits=150 wall=694ms throughput=216/s min=0.90ms p50=1.38ms p90=2.24ms p99=3.85ms max=5.13ms (curl time_total, loopback, sequential)
+
+19:26:02Z RESULT: (c) majority keeps committing: commits=150 wall=694ms throughput=216/s min=0.90ms p50=1.38ms p90=2.24ms p99=3.85ms max=5.13ms (curl time_total, loopback, sequential)
+### isolated m1 (local view, no barrier)
+
+```
+$ curl 127.0.0.1:18101/state   (inside dbcm-lab-m1)
+{"id":"m1","leader":false,"leader_id":"","term":5,"barrier":false,"unfinished":[{"ID":"op-a","Owner":3,"Steps":["s1=succeeded/1","s2=succeeded/2","s3=succeeded/1","hold=pending/0"]},{"ID":"op-b","Owner":5,"Steps":["s1=succeeded/1","s2=succeeded/2","hold=pending/0"]},{"ID":"op-c","Owner":5,"Steps":["s1=succeeded/1","s2=pending/0","s3=pending/0"]}]}
+```
+
+term of the isolated node after ~4 s: 5 (pre-vote keeps it from inflating the term?)
+
+**Result:** (c) isolated node term while partitioned: 5 (was 5, majority 6)
+
+19:26:02Z RESULT: (c) isolated node term while partitioned: 5 (was 5, majority 6)
+### isolated node log (last raft lines)
+
+```
+$ vm_sh dbcm-lab-m1 sudo journalctl -u dbcm-e3-metad --no-pager -o cat | grep -iE 'heartbeat timeout|candidate|pre-vote|entering|failed to contact|stepping down|lost leadership|leadership' | tail -15
+2026-10-20T21:25:59.947+0200 [INFO]  raft: entering candidate state: node="Node at 192.168.104.1:7101 [Candidate]" term=6
+2026-10-20T21:25:59.947+0200 [DEBUG] raft: asking for pre-vote: term=6 from=m2 address=192.168.104.3:7101
+2026-10-20T21:25:59.947+0200 [DEBUG] raft: asking for pre-vote: term=6 from=m3 address=192.168.104.4:7101
+2026-10-20T21:25:59.947+0200 [DEBUG] raft: pre-vote received: from=m1 term=6 tally=0
+2026-10-20T21:25:59.947+0200 [DEBUG] raft: pre-vote granted: from=m1 term=6 tally=1
+2026-10-20T21:26:01.299+0200 [INFO]  raft: entering candidate state: node="Node at 192.168.104.1:7101 [Candidate]" term=6
+2026-10-20T21:26:01.299+0200 [DEBUG] raft: asking for pre-vote: term=6 from=m2 address=192.168.104.3:7101
+2026-10-20T21:26:01.299+0200 [DEBUG] raft: asking for pre-vote: term=6 from=m3 address=192.168.104.4:7101
+2026-10-20T21:26:01.299+0200 [DEBUG] raft: pre-vote received: from=m1 term=6 tally=0
+2026-10-20T21:26:01.299+0200 [DEBUG] raft: pre-vote granted: from=m1 term=6 tally=1
+2026-10-20T21:26:02.336+0200 [INFO]  raft: entering candidate state: node="Node at 192.168.104.1:7101 [Candidate]" term=6
+2026-10-20T21:26:02.336+0200 [DEBUG] raft: asking for pre-vote: term=6 from=m2 address=192.168.104.3:7101
+2026-10-20T21:26:02.336+0200 [DEBUG] raft: asking for pre-vote: term=6 from=m3 address=192.168.104.4:7101
+2026-10-20T21:26:02.336+0200 [DEBUG] raft: pre-vote received: from=m1 term=6 tally=0
+2026-10-20T21:26:02.336+0200 [DEBUG] raft: pre-vote granted: from=m1 term=6 tally=1
+(exit 0)
+```
+
+### heal partition inside dbcm-lab-m1
+
+```
+$ vm_sh dbcm-lab-m1 sudo sh /run/dbcm-e3-heal.sh; sudo systemctl stop dbcm-e3-heal.timer 2>/dev/null; echo remaining DBCM-E3 rules: $(sudo iptables -S | grep -c DBCM-E3 || true)
+remaining DBCM-E3 rules: 0
+(exit 0)
+```
+
+19:26:04Z wait ok after 2s: old leader converged after heal
+**Result:** (c) healed m1 converged to leader m3, term 6 (2 s)
+
+19:26:04Z RESULT: (c) healed m1 converged to leader m3, term 6 (2 s)
+op-c after heal: `owner=6 s1=succeeded/1 s2=succeeded/1 s3=pending/0`
+
+**Result:** (c) the isolated start of s2 never committed (s2 attempts 1, by the majority): owner=6 s1=succeeded/1 s2=succeeded/1 s3=pending/0
+
+19:26:04Z RESULT: (c) the isolated start of s2 never committed (s2 attempts 1, by the majority): owner=6 s1=succeeded/1 s2=succeeded/1 s3=pending/0
+### m1 after heal
+
+```
+$ curl 127.0.0.1:18101/state   (inside dbcm-lab-m1)
+{"id":"m1","leader":false,"leader_id":"m3","term":6,"barrier":false,"unfinished":[{"ID":"op-a","Owner":3,"Steps":["s1=succeeded/1","s2=succeeded/2","s3=succeeded/1","hold=pending/0"]},{"ID":"op-b","Owner":5,"Steps":["s1=succeeded/1","s2=succeeded/2","hold=pending/0"]},{"ID":"op-c","Owner":6,"Steps":["s1=succeeded/1","s2=succeeded/1","s3=pending/0"]}]}
+```
+
+
+## Step 7 (d): all three processes restarted from their data directories
+
+host load average (1/5/15 min): { 10.14 25.07 28.87 }
+
+19:26:04Z capturing state before the full restart
+before: leader m3, terms m1=6 m2=6 m3=6, unfinished sha256 7ea7fbdbfdbcadb0, 3 ops
+
+19:26:05Z state captured
+### stop metad on m1 (SIGTERM)
+
+```
+$ stop_metad 1
+m1 unit: inactive
+(exit 0)
+```
+
+### stop metad on m2 (SIGTERM)
+
+```
+$ stop_metad 2
+m2 unit: inactive
+(exit 0)
+```
+
+### stop metad on m3 (SIGTERM)
+
+```
+$ stop_metad 3
+m3 unit: inactive
+(exit 0)
+```
+
+### start metad on m1
+
+```
+$ start_metad 1
+started m1
+(exit 0)
+```
+
+### start metad on m2
+
+```
+$ start_metad 2
+started m2
+(exit 0)
+```
+
+### start metad on m3
+
+```
+$ start_metad 3
+started m3
+(exit 0)
+```
+
+19:26:05Z wait ok after 0s: m1 answers
+19:26:06Z wait ok after 1s: m2 answers
+19:26:06Z wait ok after 0s: m3 answers
+terms read right after restart: m1=6 m2=6 m3=6
+
+**Result:** (d) after restarting all three, no term decreased (m1 6->6, m2 6->6, m3 6->6)
+
+19:26:06Z RESULT: (d) after restarting all three, no term decreased (m1 6->6, m2 6->6, m3 6->6)
+19:26:08Z wait ok after 2s: leader after full restart
+election after full restart: 2 s (2 s polling)
+
+**Result:** (d) journal restored: the leader's unfinished operations after the barrier are identical (3 ops, leader m1 term 7)
+
+19:26:08Z RESULT: (d) journal restored: the leader's unfinished operations after the barrier are identical (3 ops, leader m1 term 7)
+19:26:08Z wait ok after 0s: all converged after full restart
+### leader after full restart
+
+```
+$ curl 127.0.0.1:18101/state   (inside dbcm-lab-m1)
+{"id":"m1","leader":true,"leader_id":"m1","term":7,"barrier":false,"unfinished":[{"ID":"op-a","Owner":3,"Steps":["s1=succeeded/1","s2=succeeded/2","s3=succeeded/1","hold=pending/0"]},{"ID":"op-b","Owner":5,"Steps":["s1=succeeded/1","s2=succeeded/2","hold=pending/0"]},{"ID":"op-c","Owner":6,"Steps":["s1=succeeded/1","s2=succeeded/1","s3=pending/0"]}]}
+```
+
+### data directories
+
+```
+$ sh -c for n in 1 2 3; do limactl shell --workdir / dbcm-lab-m$n -- sudo sh -c 'echo $(hostname): $(du -sh /var/lib/dbcm-e3/metad | cut -f1); ls -la /var/lib/dbcm-e3/metad /var/lib/dbcm-e3/metad/snapshots | grep -v total'; done
+lima-dbcm-lab-m1: 236K
+/var/lib/dbcm-e3/metad:
+drwxr-xr-x 3 root root   4096 Oct 20 21:24 .
+drwxr-xr-x 3 root root   4096 Oct 20 21:24 ..
+-rw------- 1 root root 262144 Oct 20 21:26 raft.db
+drwxr-xr-x 2 root root   4096 Oct 20 21:26 snapshots
+
+/var/lib/dbcm-e3/metad/snapshots:
+drwxr-xr-x 2 root root 4096 Oct 20 21:26 .
+drwxr-xr-x 3 root root 4096 Oct 20 21:24 ..
+lima-dbcm-lab-m2: 236K
+/var/lib/dbcm-e3/metad:
+drwxr-xr-x 3 root root   4096 Oct 20 21:24 .
+drwxr-xr-x 3 root root   4096 Oct 20 21:24 ..
+-rw------- 1 root root 262144 Oct 20 21:26 raft.db
+drwxr-xr-x 2 root root   4096 Oct 20 21:26 snapshots
+
+/var/lib/dbcm-e3/metad/snapshots:
+drwxr-xr-x 2 root root 4096 Oct 20 21:26 .
+drwxr-xr-x 3 root root 4096 Oct 20 21:24 ..
+lima-dbcm-lab-m3: 236K
+/var/lib/dbcm-e3/metad:
+drwxr-xr-x 3 root root   4096 Oct 20 21:24 .
+drwxr-xr-x 4 root root   4096 Oct 20 21:24 ..
+-rw------- 1 root root 262144 Oct 20 21:26 raft.db
+drwxr-xr-x 2 root root   4096 Oct 20 21:26 snapshots
+
+/var/lib/dbcm-e3/metad/snapshots:
+drwxr-xr-x 2 root root 4096 Oct 20 21:26 .
+drwxr-xr-x 3 root root 4096 Oct 20 21:24 ..
+(exit 0)
+```
+
+### metad after full restart (10 s window)
+
+```
+m1: pid=31520 cpu=2.20% of one vCPU over 10s, cpu_total=0.26s, rss=12.1MiB, peak_rss=12.1MiB, threads=8, data_dir=236KiB
+m2: pid=3287 cpu=0.70% of one vCPU over 10s, cpu_total=0.09s, rss=11.8MiB, peak_rss=11.8MiB, threads=7, data_dir=236KiB
+m3: pid=32659 cpu=0.50% of one vCPU over 10s, cpu_total=0.07s, rss=12.1MiB, peak_rss=12.1MiB, threads=7, data_dir=236KiB
+```
+
+
+## Step 8 (e): majority loss (two VMs force-stopped)
+
+host load average (1/5/15 min): { 9.29 24.15 28.48 }
+
+leader before: m1 term 7; survivor: m3
+
+### limactl stop --force dbcm-lab-m1
+
+```
+$ limactl stop --force dbcm-lab-m1
+time="2026-10-20T21:26:19+02:00" level=info msg="Sending SIGKILL to the vz driver process 22046"
+time="2026-10-20T21:26:19+02:00" level=info msg="Sending SIGKILL to the host agent process 22046"
+time="2026-10-20T21:26:19+02:00" level=info msg="Removing *.pid *.sock *.tmp under `~/.lima/dbcm-lab-m1`"
+time="2026-10-20T21:26:19+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m1/ha.pid`"
+time="2026-10-20T21:26:19+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m1/ha.sock`"
+time="2026-10-20T21:26:19+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m1/ssh.sock`"
+time="2026-10-20T21:26:19+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m1/vz.pid`"
+(exit 0)
+```
+
+### limactl stop --force dbcm-lab-m2
+
+```
+$ limactl stop --force dbcm-lab-m2
+time="2026-10-20T21:26:19+02:00" level=info msg="Sending SIGKILL to the vz driver process 28473"
+time="2026-10-20T21:26:19+02:00" level=info msg="Sending SIGKILL to the host agent process 28473"
+time="2026-10-20T21:26:19+02:00" level=info msg="Removing *.pid *.sock *.tmp under `~/.lima/dbcm-lab-m2`"
+time="2026-10-20T21:26:19+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m2/ha.pid`"
+time="2026-10-20T21:26:19+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m2/ha.sock`"
+time="2026-10-20T21:26:19+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m2/ssh.sock`"
+time="2026-10-20T21:26:19+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m2/vz.pid`"
+(exit 0)
+```
+
+### survivor m3 after majority loss (local read)
+
+```
+$ curl 127.0.0.1:18103/state   (inside dbcm-lab-m3)
+{"id":"m3","leader":false,"leader_id":"","term":7,"barrier":false,"unfinished":[{"ID":"op-a","Owner":3,"Steps":["s1=succeeded/1","s2=succeeded/2","s3=succeeded/1","hold=pending/0"]},{"ID":"op-b","Owner":5,"Steps":["s1=succeeded/1","s2=succeeded/2","hold=pending/0"]},{"ID":"op-c","Owner":6,"Steps":["s1=succeeded/1","s2=succeeded/1","s3=pending/0"]}]}
+```
+
+### e: survivor refuses a new operation
+
+```
+$ POST 127.0.0.1:18103/apply on m3: {"Kind":"begin","OpID":"op-e","OpKind":"e3","Steps":["x"],"Term":7}
+{"error":"metastore: not leader","code":"not_leader"}
+ HTTP503
+(host-observed 67 ms incl. limactl shell)
+```
+
+19:26:24Z e: survivor refuses a new operation -> HTTP503
+**Result:** (e) write on the survivor after majority loss: {"error":"metastore: not leader","code":"not_leader"}
+ HTTP503
+
+19:26:24Z RESULT: (e) write on the survivor after majority loss: {"error":"metastore: not leader","code":"not_leader"}
+ HTTP503
+### e: survivor refuses again (10 s after loss)
+
+```
+$ POST 127.0.0.1:18103/apply on m3: {"Kind":"begin","OpID":"op-e","OpKind":"e3","Steps":["x"],"Term":7}
+{"error":"metastore: not leader","code":"not_leader"}
+ HTTP503
+(host-observed 67 ms incl. limactl shell)
+```
+
+19:26:29Z e: survivor refuses again (10 s after loss) -> HTTP503
+**Result:** (e) second write attempt: HTTP503
+
+19:26:29Z RESULT: (e) second write attempt: HTTP503
+**Result:** (e) local reads still work on the survivor: {"leader":false,"leader_id":"","term":7,"ops":3}
+
+19:26:29Z RESULT: (e) local reads still work on the survivor: {"leader":false,"leader_id":"","term":7,"ops":3}
+### barrier read on the survivor (expected 503)
+
+```
+$ vm_exec dbcm-lab-m3 curl -s -m 10 -w  HTTP%{http_code} http://127.0.0.1:18103/state?barrier=1
+{"error":"metastore: not leader","code":"not_leader"}
+ HTTP503(exit 0)
+```
+
+### agent: e: agent state readable
+
+```
+$ dbcm-e3agent highest   (inside dbcm-lab-m3)
+highest=6
+(exit 0)
+```
+
+19:26:29Z agent e: agent state readable: highest=6 (exit 0)
+### survivor raft log (last lines)
+
+```
+$ vm_sh dbcm-lab-m3 sudo journalctl -u dbcm-e3-metad --no-pager -o cat | grep -iE 'candidate|pre-vote|entering|failed to contact|election' | tail -8
+2026-10-20T21:26:28.197+0200 [DEBUG] raft: pre-vote received: from=m3 term=8 tally=0
+2026-10-20T21:26:28.197+0200 [DEBUG] raft: pre-vote granted: from=m3 term=8 tally=1
+2026-10-20T21:26:29.685+0200 [WARN]  raft: Election timeout reached, restarting election
+2026-10-20T21:26:29.686+0200 [INFO]  raft: entering candidate state: node="Node at 192.168.104.4:7101 [Candidate]" term=8
+2026-10-20T21:26:29.686+0200 [DEBUG] raft: asking for pre-vote: term=8 from=m1 address=192.168.104.1:7101
+2026-10-20T21:26:29.686+0200 [DEBUG] raft: asking for pre-vote: term=8 from=m2 address=192.168.104.3:7101
+2026-10-20T21:26:29.686+0200 [DEBUG] raft: pre-vote received: from=m3 term=8 tally=0
+2026-10-20T21:26:29.686+0200 [DEBUG] raft: pre-vote granted: from=m3 term=8 tally=1
+(exit 0)
+```
+
+### survivor metad without quorum (10 s window)
+
+```
+m3: pid=32659 cpu=0.10% of one vCPU over 10s, cpu_total=0.09s, rss=12.5MiB, peak_rss=12.5MiB, threads=7, data_dir=236KiB
+```
+
+
+## Step 9: sentinel comparison
+
+### sentinel snapshot after
+
+```
+before: fc3aa45a6af9a352b2ea6a6d9d1a35202c750cb20a8ac7387a8e9e74c399a7ef sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10 2026-10-20T19:24:44.614418746Z restarts=0 running=true fb47468a2cd3953c7131431991afcc6a2703f14640520102eea0a685a7e8d6de 
+after:  fc3aa45a6af9a352b2ea6a6d9d1a35202c750cb20a8ac7387a8e9e74c399a7ef sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10 2026-10-20T19:24:44.614418746Z restarts=0 running=true fb47468a2cd3953c7131431991afcc6a2703f14640520102eea0a685a7e8d6de 
+```
+
+**Result:** sentinel unchanged (container, image, start time, restarts, response hash)
+
+19:26:40Z RESULT: sentinel unchanged (container, image, start time, restarts, response hash)
+### unrelated entries before cleanup
+
+```
+$ lab_status_unrelated
+unrelated (never touched):
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+(exit 0)
+```
+
+
+## Conclusions recorded by the script
+
+- initial cluster: leader m2, term 2, all three nodes agree
+- commit latency 3 nodes: commits=300 wall=1347ms throughput=223/s min=0.90ms p50=1.41ms p90=2.29ms p99=4.32ms max=8.15ms (curl time_total, loopback, sequential)
+- (a) SIGKILL of leader m2 (term 2): new leader m3 term 3 known on a survivor 2183 ms after the kill (VM clocks corrected by measured offsets)
+- (a) after adopt the interrupted step is unknown: owner=3 s1=succeeded/1 s2=unknown/1 s3=pending/0 hold=pending/0
+- (a) s2 retried by the new leader (attempt 2) and the operation continued: owner=3 s1=succeeded/1 s2=succeeded/2 s3=succeeded/1 hold=pending/0
+- (a) command with the old term 2 on the new leader: 409 not_owner
+- (a) agent rejected old term 2 after admitting 3
+- (a) restarted m2 converged (same leader, term and unfinished journal after 2 s)
+- (b) forced stop of dbcm-lab-m2 (leader, term 4): new leader m1 term 5 known 1593 ms after the stop command was issued (host clock)
+- (b) after adopt the interrupted step is unknown: owner=5 s1=succeeded/1 s2=unknown/1 hold=pending/0
+- (b) s2 executed once (under term 4); the retry under term 5 did not execute it again
+- (b) agent rejected old term 4
+- (b) m2 restarted from its data dir after the forced stop and converged (3 s)
+- (c) partition of dbcm-lab-m1: majority leader m3 term 6 after 2385 ms; isolated m1 stopped reporting leader after 572 ms
+- (c) isolated old leader refuses commits: {"error":"metastore: not leader","code":"not_leader"}
+ HTTP503
+- (c) agent rejected the isolated old leader's command with term 5 (highest 6)
+- (c) majority keeps committing: commits=150 wall=694ms throughput=216/s min=0.90ms p50=1.38ms p90=2.24ms p99=3.85ms max=5.13ms (curl time_total, loopback, sequential)
+- (c) isolated node term while partitioned: 5 (was 5, majority 6)
+- (c) healed m1 converged to leader m3, term 6 (2 s)
+- (c) the isolated start of s2 never committed (s2 attempts 1, by the majority): owner=6 s1=succeeded/1 s2=succeeded/1 s3=pending/0
+- (d) after restarting all three, no term decreased (m1 6->6, m2 6->6, m3 6->6)
+- (d) journal restored: the leader's unfinished operations after the barrier are identical (3 ops, leader m1 term 7)
+- (e) write on the survivor after majority loss: {"error":"metastore: not leader","code":"not_leader"}
+ HTTP503
+- (e) second write attempt: HTTP503
+- (e) local reads still work on the survivor: {"leader":false,"leader_id":"","term":7,"ops":3}
+- sentinel unchanged (container, image, start time, restarts, response hash)
+
+
+## Scoped cleanup
+
+### bin/lab cleanup -apply
+
+```
+$ <repo>/bin/lab cleanup -apply
+pre-snapshot:
+  colima:default
+  lima:dbcm-lab-m1
+  lima:dbcm-lab-m2
+  lima:dbcm-lab-m3
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+unrelated (must survive):
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+executing actions:
+  # stop Lima VM dbcm-lab-m1
+  limactl stop --force dbcm-lab-m1
+  # delete Lima VM dbcm-lab-m1
+  limactl delete --force dbcm-lab-m1
+  # stop Lima VM dbcm-lab-m2
+  limactl stop --force dbcm-lab-m2
+  # delete Lima VM dbcm-lab-m2
+  limactl delete --force dbcm-lab-m2
+  # stop Lima VM dbcm-lab-m3
+  limactl stop --force dbcm-lab-m3
+  # delete Lima VM dbcm-lab-m3
+  limactl delete --force dbcm-lab-m3
+post-snapshot diff:
+  added: (none)
+  removed: lima:dbcm-lab-m1, lima:dbcm-lab-m2, lima:dbcm-lab-m3
+unrelated resources intact (3)
+(exit 0)
+```
+
+### bin/lab status after cleanup
+
+```
+$ <repo>/bin/lab status
+host:
+  logical CPUs: 14
+  RAM: 48.0 GiB
+budget:
+  lab CPU limit: 7
+  lab RAM limit: 16.0 GiB
+  lab disk limit: 100.0 GiB
+manifest .lab/manifest.json:
+  (empty)
+inventory:
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+unrelated (never touched):
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+(exit 0)
+```
+
+### limactl list after cleanup
+
+```
+$ limactl list
+NAME                         STATUS     SSH                VMTYPE    ARCH       CPUS    MEMORY    DISK     DIR
+thermoctl-e2e-basestation    Stopped    127.0.0.1:55325    vz        aarch64    2       3GiB      8GiB     ~/.lima/thermoctl-e2e-basestation
+thermoctl-test-vm            Stopped    127.0.0.1:50429    vz        aarch64    4       4GiB      20GiB    ~/.lima/thermoctl-test-vm
+(exit 0)
+```
+
+### host free disk after cleanup
+
+```
+$ host_free_disk
+host free disk (/System/Volumes/Data): 91Gi of 926Gi
+(exit 0)
+```
+
+### Lima user-v2 usernet daemons after cleanup (recorded, not touched)
+
+```
+$ sh -c ps -axo pid,command | grep "[l]imactl usernet" | sed "s/ -p .*//" || echo none
+ 6914 /opt/homebrew/bin/limactl usernet
+(exit 0)
+```
+
+### shared Lima user-v2 state directory after cleanup (recorded, not touched)
+
+```
+$ sh -c ls "$HOME/.lima/_networks/user-v2" 2>/dev/null || echo absent
+leases.json
+usernet.user-v2.stderr.log
+usernet.user-v2.stdout.log
+(exit 0)
+```
+
+19:26:41Z E3 finished with exit 0 (log: tests/p0/results/e3-manager-failover.log)

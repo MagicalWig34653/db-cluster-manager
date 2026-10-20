@@ -92,6 +92,44 @@ func TestPlanCreateFractionalGiB(t *testing.T) {
 	}
 }
 
+func TestPlanCreateUserV2Network(t *testing.T) {
+	s := spec("dbcm-lab-m1")
+	s.Network = UserV2Network
+	m := &Manifest{Version: 1}
+	actions, err := PlanCreate(testBudget(), m, []VMSpec{s})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{
+		{"limactl", "create", "--name=dbcm-lab-m1", "--cpus=2", "--memory=4", "--disk=20", "--tty=false", "--network=lima:user-v2", "template:docker"},
+		{"limactl", "start", "--tty=false", "dbcm-lab-m1"},
+	}
+	if got := commands(actions); !reflect.DeepEqual(got, want) {
+		t.Fatalf("argv mismatch:\n got %q\nwant %q", got, want)
+	}
+	if !strings.Contains(actions[0].Describe, "lima:user-v2") {
+		t.Errorf("describe lacks the network: %q", actions[0].Describe)
+	}
+	// Only the VM is an owned resource; the shared network is not recorded.
+	if r := actions[0].Resource; r == nil || r.Kind != "lima-vm" || r.Spec == nil || r.Spec.Network != UserV2Network {
+		t.Fatalf("bad resource %+v", r)
+	}
+	if err := Execute(context.Background(), &fakeRunner{}, m, actions, func() error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if len(m.Resources) != 1 || m.Resources[0].Kind != "lima-vm" {
+		t.Fatalf("manifest must hold only the VM, got %+v", m.Resources)
+	}
+	cleanup := commands(PlanCleanup(m))
+	wantCleanup := [][]string{
+		{"limactl", "stop", "--force", "dbcm-lab-m1"},
+		{"limactl", "delete", "--force", "dbcm-lab-m1"},
+	}
+	if !reflect.DeepEqual(cleanup, wantCleanup) {
+		t.Fatalf("cleanup must not touch the shared network: got %q", cleanup)
+	}
+}
+
 func TestPlanCreateRejects(t *testing.T) {
 	owned := &Manifest{Version: 1}
 	if err := owned.Add(Resource{Kind: "lima-vm", Name: "dbcm-lab-m1", Spec: &VMSpec{Name: "dbcm-lab-m1", CPUs: 2, RAMBytes: 4 << 30, DiskBytes: 20 << 30}}); err != nil {
@@ -99,6 +137,10 @@ func TestPlanCreateRejects(t *testing.T) {
 	}
 	big := spec("dbcm-lab-m1")
 	big.RAMBytes = 17 << 30
+	shared := spec("dbcm-lab-m1")
+	shared.Network = "lima:shared"
+	injected := spec("dbcm-lab-m1")
+	injected.Network = "lima:user-v2 --plain"
 	cases := []struct {
 		name  string
 		m     *Manifest
@@ -115,6 +157,8 @@ func TestPlanCreateRejects(t *testing.T) {
 		{"duplicate in specs", &Manifest{Version: 1}, []VMSpec{spec("dbcm-lab-m1"), spec("dbcm-lab-m1")}},
 		{"already in manifest", owned, []VMSpec{spec("dbcm-lab-m1")}},
 		{"empty", &Manifest{Version: 1}, nil},
+		{"unsupported network", &Manifest{Version: 1}, []VMSpec{shared}},
+		{"network with extra text", &Manifest{Version: 1}, []VMSpec{injected}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -38,7 +38,16 @@ type VMSpec struct {
 	CPUs      int
 	RAMBytes  uint64
 	DiskBytes uint64
+	// Network is an additional Lima network attached at creation. Empty
+	// keeps Lima's default user-mode network only; the only other accepted
+	// value is UserV2Network.
+	Network string `json:",omitempty"`
 }
+
+// UserV2Network is Lima's documented user-mode network with VM-to-VM
+// connectivity. Its daemon and state directory are shared Lima state, not
+// lab-owned resources: the lab attaches VMs to it but never removes it.
+const UserV2Network = "lima:user-v2"
 
 // Budget enforces the combined lab resource ceiling on a host.
 type Budget struct{ Host Host }

@@ -149,6 +149,30 @@ func TestPlanDefaults(t *testing.T) {
 	}
 }
 
+func TestPlanUserV2Network(t *testing.T) {
+	withCPUs(t, 14)
+	f := newFake()
+	code, out, errOut := runLab(t, f, "plan", "-manifest", manifestPath(t), "-network", "lima:user-v2")
+	if code != 0 {
+		t.Fatalf("exit %d, stderr %q", code, errOut)
+	}
+	lines := commandLines(out, "limactl ")
+	want := "limactl create --name=dbcm-lab-m1 --cpus=2 --memory=4 --disk=20 --tty=false --network=lima:user-v2 template:docker"
+	if len(lines) != 6 || lines[0] != want || lines[1] != "limactl start --tty=false dbcm-lab-m1" {
+		t.Fatalf("unexpected commands:\n%s", out)
+	}
+	for _, bad := range []string{"lima:shared", "vzNAT", "user-v2", "lima:user-v2,lima:shared"} {
+		f := newFake()
+		code, _, _ := runLab(t, f, "plan", "-manifest", manifestPath(t), "-network", bad)
+		if code != 2 {
+			t.Errorf("-network %q: exit %d, want 2", bad, code)
+		}
+		if f.hasCallPrefix("limactl") {
+			t.Errorf("-network %q caused limactl calls %q", bad, f.joinedCalls())
+		}
+	}
+}
+
 func TestPlanRAMBudgetExceeded(t *testing.T) {
 	withCPUs(t, 14)
 	f := newFake()
