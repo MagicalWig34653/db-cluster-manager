@@ -36,17 +36,21 @@ Known gaps: no persistence, real transport, mTLS/enrollment, secrets, read barri
 
 E1 and E2 ran on three Lima VMs (Swarm, pinned Galera services, sentinel). Confirmed: pinned restart, no rescheduling on host loss, safe rejoin, minority refuses writes. Refuted: Swarm alone protects against an empty volume (a marker guard is required), and a datadir marker survives SST. Details in ADR 0004. Not yet covered: real agent, multi-manager failover on VMs, proxy/VIP, full-cluster outage, AMD64. P0 exit gates are therefore NOT met.
 
-## Building blocks added after E2 (library level, not integrated)
+## Building blocks (library level, tested, not yet integrated into the manager)
 
-All have unit tests; `go vet ./...` and `go test -race ./...` pass on `main` for every package.
+`go vet ./...` and `go test -race ./...` pass for every package on this branch. None of the packages below is wired into `cmd/manager`, which still serves only health, version and the prototype UI. Everything marked "fake" or "canned" has not run against the real thing.
 
-- `internal/metastore` + `cmd/metad`: disk-backed Raft (raft-boltdb), TCP transport without TLS, read barrier, bounded snapshot; `bin/metad` is an unauthenticated lab harness. Verified on loopback only.
-- `internal/agent`: fenced, idempotent command executor with identity-marker guard and ownership allow-list; only a fake Docker API, no real client, no mTLS, loopback-only lab transport.
-- `internal/orchestrate`: converts `galera.ServiceSpec` into `agent.ServiceSpec` (milli-CPU to NanoCPUs, duration to ns). The agent spec and `internal/dockerclient` now carry hostname, networks, endpoint mode, secret references and stop grace period; the executor only lets a spec reference allow-listed, installation-labelled networks and secrets and pins them to the checked IDs. Verified with a stub Engine API (field names from the v1.47 reference), not yet against a real Swarm.
-- `internal/routing`: writer selection with hysteresis and drain plans; no proxy, VIP or connection handling.
-- `internal/authz`, `internal/recovery`: permission model, recovery codes and tokens, sessions, all in memory; no WebAuthn, no persistence, no HTTP layer.
+- `internal/metastore` + `cmd/metad`: disk-backed Raft (raft-boltdb), TCP without TLS, read barrier, bounded snapshot; `bin/metad` is an unauthenticated lab harness.
+- `internal/agent`: fenced, idempotent executor, identity-marker guard, ownership allow-list (including referenced networks/secrets), lab HTTP transport (loopback, unauthenticated).
+- `internal/dockerclient`: Docker Engine API client (v1.47 field names checked against the reference); tested against canned JSON only. `cmd/agent` runs the agent with it.
+- `internal/galera`: service specs, placement with stated precedence, create/replacement plans that never bypass quorum, full-outage diagnosis, health model; `internal/orchestrate`: conversion to agent specs. Only the lab-proven parts come from E1/E2; `--wsrep-recover`, non-default datadir layout and 5-node clusters are untested.
+- `internal/routing`: writer selection with hysteresis and drain plans (no proxy/VIP).
+- `internal/authz`, `internal/recovery`, `internal/passkey` (go-webauthn v0.18.2, BSD-3-Clause, ADR 0005): permissions, recovery codes/tokens, sessions, passkey ceremonies tested with a software authenticator; no real browser or hardware authenticator; all in memory.
+- `internal/backup`: encrypted manager-config backups, local and in-memory backends, retention, restore inspection; SFTP/S3 backends are stubs (ErrNotImplemented).
+- `internal/certs`: internal CA, renewal logic, imported-certificate validation, deny list; ACME DNS-01 is only an interface.
+- `internal/notify`: event log, rules, UI/webhook (SSRF-protected)/email channels; in memory.
 
-None of these is wired into `cmd/manager` yet; the manager still serves only health, version and the prototype UI. Dependencies added: hashicorp/raft and raft-boltdb (MPL-2.0), bbolt (MIT); no legal review.
+Dependencies added overall: hashicorp/raft and raft-boltdb (MPL-2.0), bbolt (MIT), go-webauthn and transitive modules (BSD/MIT/Apache); no legal review.
 
 ## Next action
 
