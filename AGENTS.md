@@ -41,7 +41,10 @@ Automatic single-node replacement must not bypass quorum/recovery rules. Full-cl
 - `bin/lab apply [same flags] --apply` — creates the planned VMs with pre/post inventory snapshots; without `--apply` it is a dry run.
 - `bin/lab cleanup` — preview of the manifest-scoped teardown; `bin/lab cleanup --apply` executes it and fails if an unrelated entry disappeared.
 
-See `docs/TESTING.md` ("Lab commands"). No VM has been created yet; `apply --apply` and `cleanup --apply` have not been run against a real host. Add and document real commands when creating them; never report unexecuted checks as passing. SvelteKit 3 is configured through the `sveltekit(...)` Vite plugin in `web/vite.config.ts`; there is no `svelte.config.js`. GitHub workflows `docs-check`, `pages` ran successfully; `build` ran successfully.
+- `tests/p0/e1-swarm-galera.sh`, `tests/p0/e2-host-loss.sh` — recorded lab experiments; each creates and removes its own `dbcm-lab-` VMs (needs `bin/lab`).
+- `bin/metad` — unauthenticated lab test harness for one metastore node (`cmd/metad/README.md`); never ship it as product API.
+
+See `docs/TESTING.md` ("Lab commands"). `apply --apply` and `cleanup --apply` were run against the real host for the lab VMs only (W04, E1, E2). Add and document real commands when creating them; never report unexecuted checks as passing. SvelteKit 3 is configured through the `sveltekit(...)` Vite plugin in `web/vite.config.ts`; there is no `svelte.config.js`. GitHub workflows `docs-check`, `pages` ran successfully; `build` ran successfully.
 
 ## Publication
 

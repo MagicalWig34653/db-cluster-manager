@@ -36,9 +36,20 @@ Known gaps: no persistence, real transport, mTLS/enrollment, secrets, read barri
 
 E1 and E2 ran on three Lima VMs (Swarm, pinned Galera services, sentinel). Confirmed: pinned restart, no rescheduling on host loss, safe rejoin, minority refuses writes. Refuted: Swarm alone protects against an empty volume (a marker guard is required), and a datadir marker survives SST. Details in ADR 0004. Not yet covered: real agent, multi-manager failover on VMs, proxy/VIP, full-cluster outage, AMD64. P0 exit gates are therefore NOT met.
 
+## Building blocks added after E2 (library level, not integrated)
+
+All have unit tests; `go vet ./...` and `go test -race ./...` pass on `main` for every package.
+
+- `internal/metastore` + `cmd/metad`: disk-backed Raft (raft-boltdb), TCP transport without TLS, read barrier, bounded snapshot; `bin/metad` is an unauthenticated lab harness. Verified on loopback only.
+- `internal/agent`: fenced, idempotent command executor with identity-marker guard and ownership allow-list; only a fake Docker API, no real client, no mTLS, loopback-only lab transport.
+- `internal/routing`: writer selection with hysteresis and drain plans; no proxy, VIP or connection handling.
+- `internal/authz`, `internal/recovery`: permission model, recovery codes and tokens, sessions, all in memory; no WebAuthn, no persistence, no HTTP layer.
+
+None of these is wired into `cmd/manager` yet; the manager still serves only health, version and the prototype UI. Dependencies added: hashicorp/raft and raft-boltdb (MPL-2.0), bbolt (MIT); no legal review.
+
 ## Next action
 
-Continue W05 (see WORKPLAN). The first working version must be validated locally before the user's Swarm trial.
+Continue W05 (see WORKPLAN). The first working version must be validated locally before the user's Swarm trial. Most R1 scope (cluster creation through the manager, backups, TLS, passkeys, UI flows, notifications, restore, packaging) is not started.
 
 ## Verification and limits
 

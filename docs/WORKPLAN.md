@@ -20,4 +20,4 @@ For the active task, maintain: objective, changed files/contracts, executed chec
 
 ## Current next action
 
-W05 continued: E3 three-manager failover on VMs using the real `internal/metastore` with persistent storage and a real transport (requires implementing both first), E4 proxy/VIP routing, E5 full-cluster outage. Before E3, decide whether `bin/lab` should own the user-v2 network and the rootful-Docker switch. Implement missing product pieces (agent, persistence) via small plans under `docs/superpowers/plans/`.
+W05 continued: E3 three-manager failover on VMs with `bin/metad` (three processes on three lab VMs, leader loss, partition, restart from disk), then wire a real Docker client into `internal/agent` (E4 agent deployment as a Swarm service), then proxy/VIP and full-cluster outage experiments. Decide whether `bin/lab` owns the user-v2 network and the rootful-Docker switch before E3. Building blocks that exist but are NOT integrated into the manager: `internal/agent`, `internal/routing`, `internal/authz`, `internal/recovery`, `internal/metastore`. R1 (W06) cannot start until the P0 gates are met.
