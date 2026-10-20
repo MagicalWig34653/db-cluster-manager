@@ -58,6 +58,8 @@ func gib(b uint64) string {
 // already recorded in the manifest), requires valid lab names that are
 // neither duplicated nor already recorded, and returns two actions per VM:
 // `limactl create` (which records the VM) followed by `limactl start`.
+// A spec with Network set adds `--network=<Network>` to the create; the
+// network itself is not recorded and never removed by PlanCleanup.
 func PlanCreate(b Budget, m *Manifest, specs []VMSpec) ([]Action, error) {
 	if len(specs) == 0 {
 		return nil, errors.New("lab: no VM specs given")
@@ -74,6 +76,9 @@ func PlanCreate(b Budget, m *Manifest, specs []VMSpec) ([]Action, error) {
 			return nil, fmt.Errorf("lab: duplicate VM name %q", s.Name)
 		}
 		seen[s.Name] = true
+		if s.Network != "" && s.Network != UserV2Network {
+			return nil, fmt.Errorf("lab: VM %q: unsupported network %q (only %q)", s.Name, s.Network, UserV2Network)
+		}
 		if _, ok := m.Find("lima-vm", s.Name); ok {
 			return nil, fmt.Errorf("lab: VM %q is already recorded in the manifest", s.Name)
 		}
@@ -91,16 +96,22 @@ func PlanCreate(b Budget, m *Manifest, specs []VMSpec) ([]Action, error) {
 	actions := make([]Action, 0, 2*len(specs))
 	for _, s := range specs {
 		spec := s
+		argv := []string{"limactl", "create",
+			"--name=" + s.Name,
+			"--cpus=" + strconv.Itoa(s.CPUs),
+			"--memory=" + gib(s.RAMBytes),
+			"--disk=" + gib(s.DiskBytes),
+			"--tty=false"}
+		net := ""
+		if s.Network != "" {
+			argv = append(argv, "--network="+s.Network)
+			net = ", network " + s.Network + " (shared Lima state, not owned)"
+		}
+		argv = append(argv, "template:docker")
 		actions = append(actions,
 			Action{
-				Describe: fmt.Sprintf("create Lima VM %s (%d CPUs, %s GiB RAM, %s GiB disk, template docker)", s.Name, s.CPUs, gib(s.RAMBytes), gib(s.DiskBytes)),
-				Command: []string{"limactl", "create",
-					"--name=" + s.Name,
-					"--cpus=" + strconv.Itoa(s.CPUs),
-					"--memory=" + gib(s.RAMBytes),
-					"--disk=" + gib(s.DiskBytes),
-					"--tty=false",
-					"template:docker"},
+				Describe: fmt.Sprintf("create Lima VM %s (%d CPUs, %s GiB RAM, %s GiB disk, template docker%s)", s.Name, s.CPUs, gib(s.RAMBytes), gib(s.DiskBytes), net),
+				Command:  argv,
 				Resource: &Resource{Kind: "lima-vm", Name: s.Name, Spec: &spec},
 			},
 			Action{

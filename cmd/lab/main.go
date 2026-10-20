@@ -25,8 +25,8 @@ var cpuCount = runtime.NumCPU
 
 const usage = `usage:
   lab status  [-manifest PATH]
-  lab plan    [-manifest PATH] [-vms N] [-cpus C] [-ram GiB] [-disk GiB]
-  lab apply   [-manifest PATH] [-vms N] [-cpus C] [-ram GiB] [-disk GiB] [--apply]
+  lab plan    [-manifest PATH] [-vms N] [-cpus C] [-ram GiB] [-disk GiB] [-network lima:user-v2]
+  lab apply   [-manifest PATH] [-vms N] [-cpus C] [-ram GiB] [-disk GiB] [-network lima:user-v2] [--apply]
   lab cleanup [-manifest PATH] [--apply]
 
 Without --apply, apply and cleanup only print what they would do.`
@@ -140,6 +140,7 @@ func cmdCreate(ctx context.Context, name string, args []string, stdout, stderr i
 	cpus := fs.Int("cpus", 2, "vCPUs per VM")
 	ram := fs.Int("ram", 4, "RAM per VM in GiB")
 	disk := fs.Int("disk", 20, "disk per VM in GiB")
+	network := fs.String("network", "", "additional Lima network attached at creation; only "+lab.UserV2Network+" (shared Lima state, never removed by lab)")
 	var apply *bool
 	if name == "apply" {
 		apply = fs.Bool("apply", false, "execute the plan (otherwise dry run)")
@@ -149,6 +150,10 @@ func cmdCreate(ctx context.Context, name string, args []string, stdout, stderr i
 	}
 	if *vms < 1 || *cpus < 1 || *ram < 1 || *disk < 1 {
 		fmt.Fprintln(stderr, "lab: -vms, -cpus, -ram and -disk must be positive")
+		return 2
+	}
+	if *network != "" && *network != lab.UserV2Network {
+		fmt.Fprintf(stderr, "lab: -network %q is not supported (only %q)\n", *network, lab.UserV2Network)
 		return 2
 	}
 	host, err := detectHost(ctx, r)
@@ -168,6 +173,7 @@ func cmdCreate(ctx context.Context, name string, args []string, stdout, stderr i
 			CPUs:      *cpus,
 			RAMBytes:  uint64(*ram) << 30,
 			DiskBytes: uint64(*disk) << 30,
+			Network:   *network,
 		}
 	}
 	actions, err := lab.PlanCreate(lab.Budget{Host: host}, m, specs)

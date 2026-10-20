@@ -1,7 +1,7 @@
 # ADR 0003: Manager metadata replication, coordination and fencing
 
 Date: 2026-10-19
-Status: Proposed; prototype evidence is in-process and loopback-process only, no VMs (see the end of this document). Not accepted for production.
+Status: Proposed; prototype evidence is in-process and loopback-process, plus one lab VM run (E3, see the end of this document). Not accepted for production.
 
 ## Context
 
@@ -80,3 +80,33 @@ Findings that change the design:
 - Bootstrapping a running node (`Raft.BootstrapCluster`) raced with AppendEntries from peers that had already elected a leader ("bootstrap only works on new clusters" in one of three TCP runs). The node now bootstraps its stores before Raft starts (`raft.BootstrapCluster`) and skips bootstrap when state exists, so restarted nodes may keep the flag.
 
 Limitations: persistence is now on local disk, but fsync loss, disk-full and corrupted files were not tested (a second node on the same data directory fails on the bbolt lock: `TestSecondNodeOnSameDataDirFails`, same process only); the TCP transport has no TLS or peer authentication; the `metad` HTTP endpoint is an unauthenticated test harness; no membership change after bootstrap; only loopback, no real network between hosts; no agent mTLS, enrollment, secret handling or restore-from-backup flow was exercised; resource use was not measured; AGPL-3.0-only/MPL-2.0 compatibility was read from licence text only, without legal review. The VM-based confirmation belongs to W05 after the lab controls of W04.
+
+### Evidence (lab VMs, 2026-10-20)
+
+Source: [E3 results](../../tests/p0/results/e3-manager-failover.md), script `tests/p0/e3-manager-failover.sh`.
+
+Setup:
+
+- Three `dbcm-lab-` Lima VMs (arm64, 2 vCPU / 2 GiB each) created through `bin/lab apply -network lima:user-v2`.
+- One `metad` process per VM (linux/arm64 cross-compiled; raft library defaults: 1 s heartbeat and election timeout, pre-vote on) forming a Raft group over the user-v2 network.
+- The test script acts as the controller.
+- A lab-only simulated agent (`tests/p0/e3agent`, using `internal/fencing.Guard`) and an unrelated nginx sentinel run on the third VM.
+- One recorded run; every figure is a single sample.
+
+| Claim | Result on VMs |
+| --- | --- |
+| Leader lost mid-operation: new leader adopts, interrupted step becomes `unknown`, is retried, no step runs twice unsafely | **Confirmed** for leader process `SIGKILL` (new leader known after 2.2 s) and leader VM power-off (1.6 s). In the power-off case the step had already executed; the retry hit the agent's idempotency record and did not execute again |
+| Partitioned old leader cannot commit and its old term is rejected by the agent | **Confirmed**: isolated leader stepped down after 0.57 s; its write returned `504 outcome_unknown`, then `503`; nothing committed; agent rejected term 5 after admitting 6 |
+| Majority continues; healed old leader converges | **Confirmed**: new leader after 2.4 s, 150 further commits; healed node converged to the same journal and term within 2 s |
+| Pre-vote keeps an isolated node from inflating the term | **Confirmed** (observed, not a prior claim): the isolated node and the quorum-less survivor kept their terms |
+| Restart from data directories restores journal and terms | **Confirmed** for all three stopped with SIGTERM, one node after `SIGKILL`, and one node after a VM power cut |
+| Majority loss: metadata read-only, no new operations, served workloads unaffected | **Confirmed**: writes and barrier reads `503`, local reads work, sentinel unchanged |
+| Resource use within budget | **Measured**: 9-13 MiB RSS and under 3 % of one vCPU per replica; commit latency p50 1.4 ms / p99 4.3 ms (sequential, loopback HTTP) |
+| Behavior under host CPU starvation | **Refuted as stable with default timeouts**: one run under unrelated host load (load average about 800) had unprovoked leader changes, and a controller holding a 30 s old leader got `503`. Timeout tuning and leader re-resolution are needed |
+| Restored old metadata is fenced (ADR item 5) | **Untested** |
+| Snapshot restore on VMs, membership change, TLS/authenticated transports, asymmetric partitions, real manager controller and real agent | **Untested** (no snapshot was taken: about 480 commits are below the default threshold) |
+
+Findings for the design:
+
+- Lima forwards guest loopback listeners to host loopback by default, so the unauthenticated harness was reachable on host `127.0.0.1:18101-18103`.
+- A VM clock was off by about 240 ms right after a power cut and restart.
