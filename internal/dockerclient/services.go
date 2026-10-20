@@ -16,13 +16,15 @@ import (
 
 // Wire types for the Swarm service endpoints (API v1.47 definitions
 // ServiceSpec, TaskSpec, TaskSpec.ContainerSpec, Mount, Limit,
-// ResourceObject, ServiceCreateResponse, Service).
+// ResourceObject, NetworkAttachmentConfig, EndpointSpec,
+// ServiceCreateResponse, Service).
 
 type wireServiceSpec struct {
 	Name         string            `json:"Name"`
 	Labels       map[string]string `json:"Labels,omitempty"`
 	TaskTemplate wireTaskSpec      `json:"TaskTemplate"`
 	Mode         wireServiceMode   `json:"Mode"`
+	EndpointSpec *wireEndpointSpec `json:"EndpointSpec,omitempty"`
 }
 
 type wireTaskSpec struct {
@@ -30,15 +32,48 @@ type wireTaskSpec struct {
 	Resources     *wireResources     `json:"Resources,omitempty"`
 	RestartPolicy *wireRestartPolicy `json:"RestartPolicy,omitempty"`
 	Placement     *wirePlacement     `json:"Placement,omitempty"`
+	// Networks in TaskSpec, not the ServiceSpec.Networks deprecated since
+	// API v1.44.
+	Networks []wireNetworkAttachment `json:"Networks,omitempty"`
 }
 
 type wireContainerSpec struct {
-	Image   string            `json:"Image"`
-	Labels  map[string]string `json:"Labels,omitempty"`
-	Command []string          `json:"Command,omitempty"`
-	Args    []string          `json:"Args,omitempty"`
-	Env     []string          `json:"Env,omitempty"`
-	Mounts  []wireMount       `json:"Mounts,omitempty"`
+	Image           string            `json:"Image"`
+	Labels          map[string]string `json:"Labels,omitempty"`
+	Command         []string          `json:"Command,omitempty"`
+	Args            []string          `json:"Args,omitempty"`
+	Hostname        string            `json:"Hostname,omitempty"`
+	Env             []string          `json:"Env,omitempty"`
+	Mounts          []wireMount       `json:"Mounts,omitempty"`
+	StopGracePeriod int64             `json:"StopGracePeriod,omitempty"` // nanoseconds
+	Secrets         []wireSecretRef   `json:"Secrets,omitempty"`
+}
+
+// wireSecretRef is an item of TaskSpec.ContainerSpec.Secrets. The daemon
+// identifies the secret by SecretID; SecretName must be its name.
+type wireSecretRef struct {
+	File       wireSecretFile `json:"File"`
+	SecretID   string         `json:"SecretID"`
+	SecretName string         `json:"SecretName"`
+}
+
+type wireSecretFile struct {
+	Name string `json:"Name"`
+	UID  string `json:"UID"`
+	GID  string `json:"GID"`
+	Mode uint32 `json:"Mode"`
+}
+
+// secretFileMode is the mode of a secret file, as the Docker CLI uses by
+// default: readable, root-owned.
+const secretFileMode = 0o444
+
+type wireNetworkAttachment struct {
+	Target string `json:"Target"` // network name or ID
+}
+
+type wireEndpointSpec struct {
+	Mode string `json:"Mode,omitempty"`
 }
 
 type wireMount struct {
@@ -101,18 +136,33 @@ type wireService struct {
 
 // toWireSpec converts an agent spec. Service labels are also set on the
 // container spec so the service's containers carry the ownership labels.
-func toWireSpec(s agent.ServiceSpec) wireServiceSpec {
+// secrets are the resolved s.Secrets in the same order.
+func toWireSpec(s agent.ServiceSpec, secrets []agent.Object) wireServiceSpec {
 	w := wireServiceSpec{
 		Name:   s.Name,
 		Labels: maps.Clone(s.Labels),
 		TaskTemplate: wireTaskSpec{ContainerSpec: wireContainerSpec{
-			Image:   s.Image,
-			Labels:  maps.Clone(s.Labels),
-			Command: s.Command,
-			Args:    s.Args,
-			Env:     s.Env,
+			Image:           s.Image,
+			Labels:          maps.Clone(s.Labels),
+			Command:         s.Command,
+			Args:            s.Args,
+			Hostname:        s.Hostname,
+			Env:             s.Env,
+			StopGracePeriod: s.StopGracePeriodNS,
 		}},
 		Mode: wireServiceMode{Replicated: &wireReplicated{Replicas: s.Replicas}},
+	}
+	for _, n := range s.Networks {
+		w.TaskTemplate.Networks = append(w.TaskTemplate.Networks, wireNetworkAttachment{Target: n})
+	}
+	if s.EndpointMode != "" {
+		w.EndpointSpec = &wireEndpointSpec{Mode: s.EndpointMode}
+	}
+	for _, sec := range secrets {
+		w.TaskTemplate.ContainerSpec.Secrets = append(w.TaskTemplate.ContainerSpec.Secrets, wireSecretRef{
+			File:     wireSecretFile{Name: sec.Name, UID: "0", GID: "0", Mode: secretFileMode},
+			SecretID: sec.ID, SecretName: sec.Name,
+		})
 	}
 	for _, m := range s.Mounts {
 		w.TaskTemplate.ContainerSpec.Mounts = append(w.TaskTemplate.ContainerSpec.Mounts,
@@ -158,20 +208,64 @@ func validateSpec(s agent.ServiceSpec) error {
 			return fmt.Errorf("%w: restart condition %q", ErrInvalidArgument, rp.Condition)
 		}
 	}
+	switch s.EndpointMode {
+	case "", agent.EndpointModeVIP, agent.EndpointModeDNSRR:
+	default:
+		return fmt.Errorf("%w: endpoint mode %q", ErrInvalidArgument, s.EndpointMode)
+	}
+	if s.StopGracePeriodNS < 0 {
+		return fmt.Errorf("%w: negative stop grace period", ErrInvalidArgument)
+	}
+	for _, refs := range [][]string{s.Networks, s.Secrets} {
+		for _, r := range refs {
+			if !objectID.MatchString(r) {
+				return fmt.Errorf("%w: network or secret reference %q", ErrInvalidArgument, r)
+			}
+		}
+	}
 	return nil
 }
 
+// resolveSecrets inspects each referenced secret: the API needs both its ID
+// and its name, and the name is also the file name below /run/secrets.
+// Two references to the same file name are refused.
+func (c *Client) resolveSecrets(ctx context.Context, refs []string) ([]agent.Object, error) {
+	out := make([]agent.Object, 0, len(refs))
+	seen := map[string]bool{}
+	for _, ref := range refs {
+		obj, err := c.Inspect(ctx, agent.KindSecret, ref)
+		if err != nil {
+			return nil, fmt.Errorf("dockerclient: secret %q: %w", ref, err)
+		}
+		if obj.ID == "" || obj.Name == "" {
+			return nil, fmt.Errorf("dockerclient: secret %q: response lacks ID or name", ref)
+		}
+		if seen[obj.Name] {
+			return nil, fmt.Errorf("%w: secret %q referenced twice", ErrInvalidArgument, obj.Name)
+		}
+		seen[obj.Name] = true
+		out = append(out, obj)
+	}
+	return out, nil
+}
+
 // CreateService calls POST /services/create and returns the new service ID.
-// A 409 (name conflict) matches ErrConflict.
+// Referenced secrets are inspected first (GET /secrets/{id}); a missing one
+// fails before anything is created. A 409 (name conflict) matches
+// ErrConflict.
 func (c *Client) CreateService(ctx context.Context, spec agent.ServiceSpec) (string, error) {
 	if err := validateSpec(spec); err != nil {
+		return "", err
+	}
+	secrets, err := c.resolveSecrets(ctx, spec.Secrets)
+	if err != nil {
 		return "", err
 	}
 	var resp struct {
 		ID       string   `json:"ID"`
 		Warnings []string `json:"Warnings"`
 	}
-	if err := c.do(ctx, http.MethodPost, "/services/create", nil, toWireSpec(spec), &resp, true); err != nil {
+	if err := c.do(ctx, http.MethodPost, "/services/create", nil, toWireSpec(spec, secrets), &resp, true); err != nil {
 		return "", err
 	}
 	if resp.ID == "" {

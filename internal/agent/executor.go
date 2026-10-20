@@ -191,6 +191,14 @@ func (e *Executor) createService(ctx context.Context, cmd Command, spec ServiceS
 	labels[LabelOpID] = cmd.OpID
 	labels[LabelStepID] = cmd.StepID
 	spec.Labels = labels
+	var res Result
+	var ok bool
+	if spec.Networks, res, ok = e.ownedRefs(ctx, KindNetwork, spec.Networks); !ok {
+		return res
+	}
+	if spec.Secrets, res, ok = e.ownedRefs(ctx, KindSecret, spec.Secrets); !ok {
+		return res
+	}
 	id, err := e.docker.CreateService(ctx, spec)
 	if err != nil {
 		return outcome(err)
@@ -309,6 +317,30 @@ func (e *Executor) owned(ctx context.Context, kind ObjectKind, id string) (Objec
 		return Object{}, outcome(err), false
 	}
 	return obj, Result{}, true
+}
+
+// ownedRefs checks the networks or secrets a service spec references. A
+// reference may be a name or an ID, so it is resolved by an inspect first;
+// the resolved object must then pass the full ownership check (ID in the
+// allow-list, kind, installation label). The returned references are the
+// checked object IDs, so the service is created against exactly the objects
+// that were checked, not against whatever a name resolves to later.
+func (e *Executor) ownedRefs(ctx context.Context, kind ObjectKind, refs []string) ([]string, Result, bool) {
+	if len(refs) == 0 {
+		return refs, Result{}, true
+	}
+	out := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		obj, err := e.docker.Inspect(ctx, kind, ref)
+		if err != nil {
+			return nil, outcome(fmt.Errorf("%s %q: %w", kind, ref, err)), false
+		}
+		if err := e.owner.Check(obj, kind); err != nil {
+			return nil, outcome(fmt.Errorf("referenced %s %q: %w", kind, ref, err)), false
+		}
+		out = append(out, obj.ID)
+	}
+	return out, Result{}, true
 }
 
 // resolveVolumeRoot resolves symlinks and re-checks that the volume root is

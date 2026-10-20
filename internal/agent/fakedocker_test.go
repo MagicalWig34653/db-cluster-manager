@@ -20,10 +20,12 @@ type fakeDocker struct {
 	failNext error
 	// onCreate runs inside CreateService before the object is stored.
 	onCreate func()
+	// specs holds the spec of every created service by ID.
+	specs map[string]ServiceSpec
 }
 
 func newFakeDocker(objs ...Object) *fakeDocker {
-	f := &fakeDocker{objects: map[string]Object{}}
+	f := &fakeDocker{objects: map[string]Object{}, specs: map[string]ServiceSpec{}}
 	for _, o := range objs {
 		f.objects[o.ID] = o
 	}
@@ -72,6 +74,7 @@ func (f *fakeDocker) CreateService(_ context.Context, spec ServiceSpec) (string,
 	f.nextID++
 	id := fmt.Sprintf("svc-new-%d", f.nextID)
 	f.objects[id] = Object{Kind: KindService, ID: id, Name: spec.Name, Labels: maps.Clone(spec.Labels), Mounts: spec.Mounts}
+	f.specs[id] = spec
 	return id, nil
 }
 
@@ -121,6 +124,15 @@ func (f *fakeDocker) Inspect(_ context.Context, kind ObjectKind, id string) (Obj
 	defer f.mu.Unlock()
 	f.record("inspect %s %s", kind, id)
 	o, ok := f.objects[id]
+	if !ok {
+		// Like Docker, networks and secrets can also be inspected by name.
+		for _, c := range f.objects {
+			if (kind == KindNetwork || kind == KindSecret) && c.Kind == kind && c.Name == id {
+				o, ok = c, true
+				break
+			}
+		}
+	}
 	if !ok {
 		return Object{}, ErrObjectNotFound
 	}

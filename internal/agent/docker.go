@@ -50,8 +50,14 @@ type Mount struct {
 
 // ServiceSpec is the subset of a Swarm service spec the agent creates.
 //
-// Command, RestartPolicy and Resources are optional additions; a spec
-// without them encodes and digests exactly as before.
+// Every field after Replicas is an optional addition and omitempty: a spec
+// that does not use them encodes and digests exactly as before (pinned by
+// TestServiceSpecEncodingStable).
+//
+// Networks and Secrets are references (name or ID) to existing Swarm
+// objects. The executor only lets a spec reference networks and secrets
+// that pass the ownership guard, and it pins each reference to the object
+// ID it checked. Secret contents never travel in a spec.
 type ServiceSpec struct {
 	Name   string            `json:"name"`
 	Image  string            `json:"image"`
@@ -65,7 +71,24 @@ type ServiceSpec struct {
 	Replicas      uint64         `json:"replicas"`
 	RestartPolicy *RestartPolicy `json:"restart_policy,omitempty"`
 	Resources     *Resources     `json:"resources,omitempty"`
+	// Hostname is the container hostname (RFC 1123).
+	Hostname string `json:"hostname,omitempty"`
+	// Networks are the networks the tasks attach to.
+	Networks []string `json:"networks,omitempty"`
+	// EndpointMode is "" (Docker default), "vip" or "dnsrr".
+	EndpointMode string `json:"endpoint_mode,omitempty"`
+	// Secrets are mounted as /run/secrets/<secret name>, root-owned, 0444.
+	Secrets []string `json:"secrets,omitempty"`
+	// StopGracePeriodNS is the time between SIGTERM and SIGKILL in
+	// nanoseconds. Zero means the Docker default.
+	StopGracePeriodNS int64 `json:"stop_grace_period_ns,omitempty"`
 }
+
+// Endpoint modes of a Swarm service.
+const (
+	EndpointModeVIP   = "vip"
+	EndpointModeDNSRR = "dnsrr"
+)
 
 // RestartPolicy is a Swarm task restart policy. Zero values mean the Docker
 // default.

@@ -42,6 +42,7 @@ All have unit tests; `go vet ./...` and `go test -race ./...` pass on `main` for
 
 - `internal/metastore` + `cmd/metad`: disk-backed Raft (raft-boltdb), TCP transport without TLS, read barrier, bounded snapshot; `bin/metad` is an unauthenticated lab harness. Verified on loopback only.
 - `internal/agent`: fenced, idempotent command executor with identity-marker guard and ownership allow-list; only a fake Docker API, no real client, no mTLS, loopback-only lab transport.
+- `internal/orchestrate`: converts `galera.ServiceSpec` into `agent.ServiceSpec` (milli-CPU to NanoCPUs, duration to ns). The agent spec and `internal/dockerclient` now carry hostname, networks, endpoint mode, secret references and stop grace period; the executor only lets a spec reference allow-listed, installation-labelled networks and secrets and pins them to the checked IDs. Verified with a stub Engine API (field names from the v1.47 reference), not yet against a real Swarm.
 - `internal/routing`: writer selection with hysteresis and drain plans; no proxy, VIP or connection handling.
 - `internal/authz`, `internal/recovery`: permission model, recovery codes and tokens, sessions, all in memory; no WebAuthn, no persistence, no HTTP layer.
 

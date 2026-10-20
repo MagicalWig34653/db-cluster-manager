@@ -121,11 +121,10 @@ type TLSOptions struct {
 	Secrets []string `json:"secrets,omitempty"`
 }
 
-// ServiceSpec is a Swarm service definition for one Galera node. It mirrors
-// agent.ServiceSpec (Name, Image, Labels, Env, Args, Mounts, Constraints,
-// Replicas) and adds the fields the lab services used that the agent's
-// DockerAPI does not take yet (hostname, network, endpoint mode, secrets,
-// restart policy, stop grace period, resources).
+// ServiceSpec is a Swarm service definition for one Galera node, in domain
+// units (time.Duration, milli-CPUs). internal/orchestrate.ToAgentSpec
+// converts it into an agent.ServiceSpec; agentcompat_test.go fails if a
+// field is added here without being converted.
 type ServiceSpec struct {
 	Name             string            `json:"name"`
 	Image            string            `json:"image"`

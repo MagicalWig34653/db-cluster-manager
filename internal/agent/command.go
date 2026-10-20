@@ -238,6 +238,21 @@ func checkArgs(args any, volumeBase string) error {
 		if a.Name == "" || a.Image == "" {
 			return invalid("service spec needs name and image")
 		}
+		switch a.EndpointMode {
+		case "", EndpointModeVIP, EndpointModeDNSRR:
+		default:
+			return invalid("endpoint_mode %q (want vip or dnsrr)", a.EndpointMode)
+		}
+		if a.StopGracePeriodNS < 0 {
+			return invalid("negative stop_grace_period_ns")
+		}
+		for _, refs := range [][]string{a.Networks, a.Secrets} {
+			for _, r := range refs {
+				if r == "" || len(r) > maxIDLen {
+					return invalid("network or secret reference must be 1..%d bytes", maxIDLen)
+				}
+			}
+		}
 	case *ServiceArgs:
 		if a.ServiceID == "" {
 			return invalid("service_id required")
