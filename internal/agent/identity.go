@@ -52,7 +52,7 @@ type markerFile struct {
 // Identity decision errors. The comments give the exit status of
 // tests/p0/marker-guard.sh for the same decision.
 var (
-	ErrIdentityNotConfigured = errors.New("agent: expected identity not configured")                        // 64
+	ErrIdentityNotConfigured = errors.New("agent: expected identity not configured")                           // 64
 	ErrForeignMarker         = errors.New("agent: identity marker belongs to another installation or cluster") // 65
 	ErrIdentityMismatch      = errors.New("agent: identity marker belongs to another node")                    // 65
 	ErrMarkerCorrupt         = errors.New("agent: identity marker unreadable or incomplete")                   // 65
