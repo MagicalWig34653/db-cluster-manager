@@ -1,0 +1,439 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+
+package galera
+
+import (
+	"cmp"
+	"errors"
+	"fmt"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+)
+
+var (
+	// ErrBadRecoveryInput reports unparsable grastate.dat or wsrep-recover
+	// output, or inconsistent diagnosis input.
+	ErrBadRecoveryInput = errors.New("galera: bad recovery input")
+	// ErrNotFullOutage reports that a node is still a live Primary member,
+	// so this is not a full-cluster outage.
+	ErrNotFullOutage = errors.New("galera: a Primary component exists; not a full outage")
+	// ErrNoCandidate reports a diagnosis without a bootstrap candidate.
+	ErrNoCandidate = errors.New("galera: no bootstrap candidate")
+)
+
+// ZeroUUID is the cluster state UUID of a node without Galera state.
+const ZeroUUID = "00000000-0000-0000-0000-000000000000"
+
+// Grastate is the content of a node's grastate.dat.
+type Grastate struct {
+	Version            string `json:"version,omitempty"`
+	UUID               string `json:"uuid"`
+	Seqno              int64  `json:"seqno"` // -1: unclean shutdown or unknown
+	SafeToBootstrap    bool   `json:"safe_to_bootstrap"`
+	HasSafeToBootstrap bool   `json:"has_safe_to_bootstrap"` // absent before grastate version 2.1
+}
+
+// Empty reports a node that holds no Galera state (for example a fresh
+// datadir whose state transfer never completed).
+func (g Grastate) Empty() bool { return g.UUID == ZeroUUID && g.Seqno < 0 }
+
+// Galera state UUIDs are RFC 4122 UUIDs of any version (time-based in
+// practice), lowercase hex.
+var stateUUIDRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+func parseSeqno(s string) (int64, error) {
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil || n < -1 {
+		return 0, fmt.Errorf("%w: seqno %q", ErrBadRecoveryInput, s)
+	}
+	return n, nil
+}
+
+// ParseGrastate parses grastate.dat ("key: value" lines, '#' comments).
+// uuid and seqno are required; safe_to_bootstrap must be 0 or 1 if present.
+func ParseGrastate(content string) (Grastate, error) {
+	var g Grastate
+	seen := map[string]bool{}
+	for line := range strings.Lines(content) {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		k, v, ok := strings.Cut(line, ":")
+		if !ok {
+			return Grastate{}, fmt.Errorf("%w: grastate line %q", ErrBadRecoveryInput, line)
+		}
+		k, v = strings.TrimSpace(k), strings.TrimSpace(v)
+		if seen[k] {
+			return Grastate{}, fmt.Errorf("%w: duplicate grastate key %q", ErrBadRecoveryInput, k)
+		}
+		seen[k] = true
+		switch k {
+		case "version":
+			g.Version = v
+		case "uuid":
+			if !stateUUIDRe.MatchString(v) {
+				return Grastate{}, fmt.Errorf("%w: grastate uuid %q", ErrBadRecoveryInput, v)
+			}
+			g.UUID = v
+		case "seqno":
+			n, err := parseSeqno(v)
+			if err != nil {
+				return Grastate{}, err
+			}
+			g.Seqno = n
+		case "safe_to_bootstrap":
+			switch v {
+			case "0", "1":
+				g.SafeToBootstrap, g.HasSafeToBootstrap = v == "1", true
+			default:
+				return Grastate{}, fmt.Errorf("%w: safe_to_bootstrap %q", ErrBadRecoveryInput, v)
+			}
+		}
+	}
+	if !seen["uuid"] || !seen["seqno"] {
+		return Grastate{}, fmt.Errorf("%w: grastate lacks uuid or seqno", ErrBadRecoveryInput)
+	}
+	return g, nil
+}
+
+// Position is a Galera state position.
+type Position struct {
+	UUID  string `json:"uuid"`
+	Seqno int64  `json:"seqno"`
+}
+
+var recoveredRe = regexp.MustCompile(`WSREP: Recovered position: ([^\s:]+):([^\s,]+)`)
+
+// ParseWsrepRecover extracts the last "WSREP: Recovered position: UUID:SEQNO"
+// line from `mariadbd --wsrep-recover` output. An optional ",GTID" suffix is
+// ignored.
+func ParseWsrepRecover(out string) (Position, error) {
+	m := recoveredRe.FindAllStringSubmatch(out, -1)
+	if len(m) == 0 {
+		return Position{}, fmt.Errorf("%w: no recovered position in wsrep-recover output", ErrBadRecoveryInput)
+	}
+	last := m[len(m)-1]
+	if !stateUUIDRe.MatchString(last[1]) {
+		return Position{}, fmt.Errorf("%w: recovered uuid %q", ErrBadRecoveryInput, last[1])
+	}
+	n, err := parseSeqno(last[2])
+	if err != nil {
+		return Position{}, err
+	}
+	return Position{UUID: last[1], Seqno: n}, nil
+}
+
+// NodeInfo is the recovery evidence for one node, collected by the agent
+// while the node is stopped. Nil fields were not available.
+type NodeInfo struct {
+	Slot      string     `json:"slot"`
+	Grastate  *Grastate  `json:"grastate,omitempty"`
+	Recovered *Position  `json:"recovered,omitempty"`
+	Health    NodeHealth `json:"health"` // last observation, if any
+}
+
+// PositionSource tells where a node position came from.
+type PositionSource string
+
+// Position sources.
+const (
+	SourceUnknown      PositionSource = "unknown"
+	SourceGrastate     PositionSource = "grastate"      // clean shutdown, seqno saved
+	SourceWsrepRecover PositionSource = "wsrep-recover" // recovered from InnoDB after a crash
+)
+
+// NodePosition is the evaluated position of one node.
+type NodePosition struct {
+	Slot            string         `json:"slot"`
+	UUID            string         `json:"uuid,omitempty"`
+	Seqno           int64          `json:"seqno"`
+	Source          PositionSource `json:"source"`
+	SafeToBootstrap bool           `json:"safe_to_bootstrap"`
+	Empty           bool           `json:"empty,omitempty"`
+}
+
+func (p NodePosition) known() bool { return p.Source != SourceUnknown && !p.Empty }
+
+// RiskKind classifies a recovery risk.
+type RiskKind string
+
+// Risk kinds.
+const (
+	RiskMissingNode           RiskKind = "missing-node"            // no evidence from the node
+	RiskUncleanShutdown       RiskKind = "unclean-shutdown"        // grastate seqno -1
+	RiskPositionUnknown       RiskKind = "position-unknown"        // no usable seqno
+	RiskRecoveredUUIDMismatch RiskKind = "recovered-uuid-mismatch" // wsrep-recover UUID differs from grastate
+	RiskDivergingUUIDs        RiskKind = "diverging-uuids"         // nodes belong to different cluster histories
+	RiskNoData                RiskKind = "no-data"                 // zero UUID: node holds no Galera state
+	RiskSafeFlagMismatch      RiskKind = "safe-flag-mismatch"      // safe_to_bootstrap on a node that is behind
+	RiskTie                   RiskKind = "tie"                     // several nodes at the highest seqno
+)
+
+// Risk is one finding the user must see before approving.
+type Risk struct {
+	Kind   RiskKind `json:"kind"`
+	Slot   string   `json:"slot,omitempty"`
+	Detail string   `json:"detail"`
+}
+
+// Diagnosis is the result of DiagnoseFullOutage. It is advice only.
+type Diagnosis struct {
+	// Candidate is the slot to bootstrap, or "" if none can be proposed.
+	Candidate string         `json:"candidate,omitempty"`
+	Positions []NodePosition `json:"positions"`
+	Reasons   []string       `json:"reasons"`
+	Risks     []Risk         `json:"risks,omitempty"`
+	// RequiresApproval is always true: full-cluster recovery needs explicit
+	// approval (A06).
+	RequiresApproval bool `json:"requires_approval"`
+	// Plan is the guided recovery plan without service specs (see
+	// RecoveryPlan); empty when there is no candidate.
+	Plan Plan `json:"plan"`
+}
+
+func evaluate(n NodeInfo) (NodePosition, []Risk) {
+	p := NodePosition{Slot: n.Slot, Seqno: -1, Source: SourceUnknown}
+	var risks []Risk
+	g := n.Grastate
+	if g == nil && n.Recovered == nil {
+		return p, []Risk{{Kind: RiskMissingNode, Slot: n.Slot, Detail: "no grastate.dat or wsrep-recover result"}}
+	}
+	if g != nil {
+		p.UUID, p.SafeToBootstrap = g.UUID, g.SafeToBootstrap
+		if g.Empty() {
+			p.Empty = true
+			d := "zero cluster UUID: the node holds no Galera state"
+			if g.SafeToBootstrap {
+				d += "; its safe_to_bootstrap: 1 is meaningless and ignored"
+			}
+			return p, []Risk{{Kind: RiskNoData, Slot: n.Slot, Detail: d}}
+		}
+		if g.Seqno >= 0 {
+			p.Seqno, p.Source = g.Seqno, SourceGrastate
+			return p, nil
+		}
+		risks = append(risks, Risk{Kind: RiskUncleanShutdown, Slot: n.Slot, Detail: "grastate seqno -1: the node did not shut down cleanly"})
+	}
+	r := n.Recovered
+	switch {
+	case r == nil:
+		risks = append(risks, Risk{Kind: RiskPositionUnknown, Slot: n.Slot, Detail: "seqno unknown; run mariadbd --wsrep-recover on this node"})
+	case r.UUID == ZeroUUID:
+		p.Empty = true
+		risks = append(risks, Risk{Kind: RiskNoData, Slot: n.Slot, Detail: "wsrep-recover found no Galera state"})
+	case g != nil && r.UUID != g.UUID:
+		risks = append(risks, Risk{Kind: RiskRecoveredUUIDMismatch, Slot: n.Slot,
+			Detail: fmt.Sprintf("wsrep-recover UUID %s differs from grastate UUID %s", r.UUID, g.UUID)})
+	case r.Seqno < 0:
+		risks = append(risks, Risk{Kind: RiskPositionUnknown, Slot: n.Slot, Detail: "wsrep-recover returned seqno -1"})
+	default:
+		p.UUID, p.Seqno, p.Source = r.UUID, r.Seqno, SourceWsrepRecover
+	}
+	if p.SafeToBootstrap && p.Source != SourceGrastate {
+		risks = append(risks, Risk{Kind: RiskSafeFlagMismatch, Slot: n.Slot, Detail: "safe_to_bootstrap: 1 without a saved seqno"})
+	}
+	return p, risks
+}
+
+// DiagnoseFullOutage evaluates the recovery evidence of every node of a
+// cluster that has no Primary component, and proposes the node to bootstrap.
+// It never executes anything and always requires approval.
+//
+// Rules:
+//   - A node's position is its grastate seqno after a clean shutdown, else
+//     the wsrep-recover position (whose UUID must match grastate), else
+//     unknown. A node with the zero UUID holds no state and is never a
+//     candidate, even with safe_to_bootstrap: 1.
+//   - No candidate is proposed if positions of fewer than a strict majority
+//     of the nodes are known, or if known positions carry different cluster
+//     UUIDs. The user must collect more evidence or decide manually.
+//   - Otherwise the candidate has the highest seqno. Ties prefer
+//     safe_to_bootstrap: 1, then the lowest slot name (equal seqno means the
+//     same committed state).
+//   - A node with safe_to_bootstrap: 1 below the highest seqno is a risk:
+//     the flag alone does not decide.
+func DiagnoseFullOutage(nodes []NodeInfo) (Diagnosis, error) {
+	if len(nodes) == 0 {
+		return Diagnosis{}, fmt.Errorf("%w: no nodes", ErrBadRecoveryInput)
+	}
+	seen := map[string]bool{}
+	for _, n := range nodes {
+		if n.Slot == "" || seen[n.Slot] {
+			return Diagnosis{}, fmt.Errorf("%w: empty or duplicate slot %q", ErrBadRecoveryInput, n.Slot)
+		}
+		seen[n.Slot] = true
+		if n.Health.InPrimary() {
+			return Diagnosis{}, fmt.Errorf("%w: %s reports Primary", ErrNotFullOutage, n.Slot)
+		}
+	}
+	d := Diagnosis{RequiresApproval: true}
+	var known []NodePosition
+	uuids := map[string][]string{}
+	for _, n := range nodes {
+		p, risks := evaluate(n)
+		d.Positions = append(d.Positions, p)
+		d.Risks = append(d.Risks, risks...)
+		if p.known() {
+			known = append(known, p)
+			uuids[p.UUID] = append(uuids[p.UUID], p.Slot)
+		}
+	}
+	majority := len(nodes)/2 + 1
+	if len(uuids) > 1 {
+		var parts []string
+		for _, u := range sortedKeys(uuids) {
+			parts = append(parts, u+": "+strings.Join(uuids[u], ","))
+		}
+		d.Risks = append(d.Risks, Risk{Kind: RiskDivergingUUIDs, Detail: "nodes hold different cluster histories (" + strings.Join(parts, "; ") + ")"})
+		d.Reasons = append(d.Reasons, "no candidate: diverging cluster UUIDs need a manual decision")
+		return d, nil
+	}
+	if len(known) < majority {
+		d.Reasons = append(d.Reasons, fmt.Sprintf("no candidate: positions known for %d of %d nodes, need %d; collect grastate.dat and wsrep-recover results first", len(known), len(nodes), majority))
+		return d, nil
+	}
+	slices.SortStableFunc(known, func(a, b NodePosition) int {
+		return cmp.Or(
+			cmp.Compare(b.Seqno, a.Seqno),
+			compareBool(b.SafeToBootstrap, a.SafeToBootstrap),
+			cmp.Compare(a.Slot, b.Slot),
+		)
+	})
+	c := known[0]
+	d.Candidate = c.Slot
+	d.Reasons = append(d.Reasons, fmt.Sprintf("%s has the highest seqno %d (source %s) of %d known positions", c.Slot, c.Seqno, c.Source, len(known)))
+	var tied []string
+	for _, p := range known[1:] {
+		if p.Seqno == c.Seqno {
+			tied = append(tied, p.Slot)
+		}
+		if p.SafeToBootstrap && p.Seqno < c.Seqno {
+			d.Risks = append(d.Risks, Risk{Kind: RiskSafeFlagMismatch, Slot: p.Slot,
+				Detail: fmt.Sprintf("safe_to_bootstrap: 1 but seqno %d is behind %s (%d)", p.Seqno, c.Slot, c.Seqno)})
+		}
+	}
+	if len(tied) > 0 {
+		if c.SafeToBootstrap {
+			d.Reasons = append(d.Reasons, "tie at seqno "+strconv.FormatInt(c.Seqno, 10)+" broken by safe_to_bootstrap: 1")
+		} else {
+			d.Risks = append(d.Risks, Risk{Kind: RiskTie, Detail: fmt.Sprintf("%s ties with %s at seqno %d; lowest slot chosen", c.Slot, strings.Join(tied, ","), c.Seqno)})
+		}
+	}
+	if len(known) < len(nodes) {
+		d.Reasons = append(d.Reasons, fmt.Sprintf("positions of %d node(s) are unknown; the candidate may not hold the latest commit", len(nodes)-len(known)))
+	}
+	if !c.SafeToBootstrap {
+		d.Reasons = append(d.Reasons, c.Slot+" has safe_to_bootstrap: 0 (normal after a crash of all nodes); the plan sets it after approval")
+	}
+	d.Plan = recoverySteps(nodes, c)
+	return d, nil
+}
+
+func compareBool(a, b bool) int {
+	switch {
+	case a == b:
+		return 0
+	case a:
+		return 1
+	}
+	return -1
+}
+
+func sortedKeys(m map[string][]string) []string {
+	ks := make([]string, 0, len(m))
+	for k := range m {
+		ks = append(ks, k)
+	}
+	slices.Sort(ks)
+	return ks
+}
+
+// recoverySteps builds the guided recovery order: stop everything, verify
+// every identity marker, mark and bootstrap the candidate, start the other
+// nodes one at a time, then drop the bootstrap flag from the candidate.
+func recoverySteps(nodes []NodeInfo, c NodePosition) Plan {
+	order := []string{c.Slot}
+	for _, n := range nodes {
+		if n.Slot != c.Slot {
+			order = append(order, n.Slot)
+		}
+	}
+	var l stepList
+	l.add(Step{Kind: StepStopAll, Note: "scale every database service of the cluster to 0 and confirm no task runs"},
+		Precondition{Kind: PreApproved})
+	for _, s := range order {
+		l.add(Step{Kind: StepVerifyIdentity, Slot: s})
+	}
+	if !c.SafeToBootstrap {
+		l.add(Step{Kind: StepMarkSafe, Slot: c.Slot, Note: "set safe_to_bootstrap: 1 in the candidate's grastate.dat"},
+			Precondition{Kind: PreNoNodeRunning})
+	}
+	l.add(Step{Kind: StepUpdateService, Slot: c.Slot, Note: "bootstrap: start with " + BootstrapFlag},
+		Precondition{Kind: PreNoNodeRunning})
+	l.add(Step{Kind: StepWaitSynced, Slot: c.Slot, ClusterSize: 1})
+	for i, s := range order[1:] {
+		l.add(Step{Kind: StepUpdateService, Slot: s, Note: "start; rejoins by IST or SST"}, synced(order[i], i+1))
+		l.add(Step{Kind: StepWaitSynced, Slot: s, ClusterSize: i + 2})
+	}
+	all := make([]Precondition, len(order))
+	for i, s := range order {
+		all[i] = synced(s, len(order))
+	}
+	l.add(Step{Kind: StepUpdateService, Slot: c.Slot, Note: "steady-state spec without " + BootstrapFlag}, all...)
+	l.add(Step{Kind: StepWaitSynced, Slot: c.Slot, ClusterSize: len(order)})
+	return Plan{Kind: PlanFullOutageRecovery, Steps: l.steps, RequiresApproval: true}
+}
+
+// RecoveryPlan attaches service specs, host IDs and node UUIDs to the
+// diagnosis plan. Node identities are unchanged: recovery restarts the
+// existing nodes on their existing volumes.
+func RecoveryPlan(d Diagnosis, c Cluster, nodes []Node) (Plan, error) {
+	if d.Candidate == "" || len(d.Plan.Steps) == 0 {
+		return Plan{}, ErrNoCandidate
+	}
+	bySlot := map[string]Node{}
+	for _, n := range nodes {
+		bySlot[n.Slot] = n
+	}
+	p := d.Plan
+	p.ClusterID, p.Cluster, p.Nodes, p.RequiresApproval = c.ClusterID, c, slices.Clone(nodes), true
+	p.Steps = slices.Clone(d.Plan.Steps)
+	for _, pos := range d.Positions {
+		if _, ok := bySlot[pos.Slot]; !ok {
+			return Plan{}, fmt.Errorf("%w: no node for slot %s", ErrBadRecoveryInput, pos.Slot)
+		}
+	}
+	for _, n := range nodes {
+		s, err := BuildServiceSpec(c, n, SpecOptions{})
+		if err != nil {
+			return Plan{}, err
+		}
+		p.Desired = append(p.Desired, s)
+	}
+	bootDone := false
+	for i := range p.Steps {
+		s := &p.Steps[i]
+		if s.Slot == "" {
+			continue
+		}
+		n, ok := bySlot[s.Slot]
+		if !ok {
+			return Plan{}, fmt.Errorf("%w: no node for slot %s", ErrBadRecoveryInput, s.Slot)
+		}
+		s.HostID, s.NodeUUID = n.HostID, n.NodeUUID
+		if s.Kind != StepUpdateService {
+			continue
+		}
+		boot := s.Slot == d.Candidate && !bootDone
+		spec, err := BuildServiceSpec(c, n, SpecOptions{Bootstrap: boot})
+		if err != nil {
+			return Plan{}, err
+		}
+		bootDone = bootDone || boot
+		s.Spec = specPtr(spec)
+	}
+	return p, nil
+}
