@@ -253,6 +253,15 @@ func New(policy Policy) *Router { return &Router{policy: policy.withDefaults()} 
 // Policy returns the effective policy.
 func (r *Router) Policy() Policy { return r.policy }
 
+// SetPolicy replaces the policy (defaults applied to zero fields) and keeps
+// the current writer, so a configuration reload does not by itself move the
+// writer. The hysteresis streak is reset because it was measured under the
+// old policy.
+func (r *Router) SetPolicy(policy Policy) {
+	r.policy = policy.withDefaults()
+	r.resetStreak()
+}
+
 // Current returns the current writer ID, empty if none.
 func (r *Router) Current() string { return r.current }
 

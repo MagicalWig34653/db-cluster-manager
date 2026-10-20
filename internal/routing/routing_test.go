@@ -392,3 +392,32 @@ func TestAllUnhealthyNoWriter(t *testing.T) {
 		}
 	}
 }
+
+func TestSetPolicyKeepsWriterAndResetsStreak(t *testing.T) {
+	r := New(Policy{Mode: WriterLowestLatency, SwitchConsecutive: 3})
+	nodes := []Node{node("a", 10), node("b", 20)}
+	if d := r.Decide(t0, nodes); d.Writer != "a" {
+		t.Fatalf("writer = %q, want a", d.Writer)
+	}
+	// b becomes much faster: one qualifying evaluation builds a streak.
+	nodes = []Node{node("a", 50), node("b", 5)}
+	r.Decide(t0, nodes)
+
+	r.SetPolicy(Policy{Mode: WriterLowestLatency, SwitchConsecutive: 2, DrainDeadline: time.Second})
+	if r.Current() != "a" {
+		t.Fatalf("SetPolicy changed current writer to %q", r.Current())
+	}
+	if got := r.Policy().DrainDeadline; got != time.Second {
+		t.Fatalf("DrainDeadline = %s, want 1s", got)
+	}
+	if got := r.Policy().StaleAfter; got != DefaultStaleAfter {
+		t.Fatalf("defaults not applied: StaleAfter = %s", got)
+	}
+	// The streak was reset, so one evaluation is not enough for 2 consecutive.
+	if d := r.Decide(t0, nodes); d.Writer != "a" || d.Changed {
+		t.Fatalf("switched after reset streak: %+v", d)
+	}
+	if d := r.Decide(t0, nodes); d.Writer != "b" || !d.Changed || d.Drain == nil || d.Drain.NodeID != "a" {
+		t.Fatalf("expected switch to b with drain of a: %+v", d)
+	}
+}
