@@ -28,7 +28,7 @@ type CredentialKind string
 
 const (
 	// CredentialPasskey is a WebAuthn credential. Its public-key material is
-	// not modelled yet; it will be added with the WebAuthn library choice.
+	// held by internal/passkey; the ID is the base64url credential ID.
 	CredentialPasskey CredentialKind = "passkey"
 	// CredentialPassword is the optional password (a recovery option).
 	CredentialPassword CredentialKind = "password"
