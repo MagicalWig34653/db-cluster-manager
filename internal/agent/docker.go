@@ -49,15 +49,50 @@ type Mount struct {
 }
 
 // ServiceSpec is the subset of a Swarm service spec the agent creates.
+//
+// Command, RestartPolicy and Resources are optional additions; a spec
+// without them encodes and digests exactly as before.
 type ServiceSpec struct {
-	Name        string            `json:"name"`
-	Image       string            `json:"image"`
-	Labels      map[string]string `json:"labels,omitempty"`
-	Env         []string          `json:"env,omitempty"`
-	Args        []string          `json:"args,omitempty"`
-	Mounts      []Mount           `json:"mounts,omitempty"`
-	Constraints []string          `json:"constraints,omitempty"`
-	Replicas    uint64            `json:"replicas"`
+	Name   string            `json:"name"`
+	Image  string            `json:"image"`
+	Labels map[string]string `json:"labels,omitempty"`
+	Env    []string          `json:"env,omitempty"`
+	// Command overrides the image entrypoint; Args are its arguments.
+	Command       []string       `json:"command,omitempty"`
+	Args          []string       `json:"args,omitempty"`
+	Mounts        []Mount        `json:"mounts,omitempty"`
+	Constraints   []string       `json:"constraints,omitempty"` // for example "node.id==abc"
+	Replicas      uint64         `json:"replicas"`
+	RestartPolicy *RestartPolicy `json:"restart_policy,omitempty"`
+	Resources     *Resources     `json:"resources,omitempty"`
+}
+
+// RestartPolicy is a Swarm task restart policy. Zero values mean the Docker
+// default.
+type RestartPolicy struct {
+	Condition   string `json:"condition,omitempty"` // "none", "on-failure" or "any"
+	DelayNS     int64  `json:"delay_ns,omitempty"`
+	MaxAttempts int64  `json:"max_attempts,omitempty"`
+	WindowNS    int64  `json:"window_ns,omitempty"`
+}
+
+// Resources are per-task resource limits and reservations.
+type Resources struct {
+	Limits       *ResourceLimits       `json:"limits,omitempty"`
+	Reservations *ResourceReservations `json:"reservations,omitempty"`
+}
+
+// ResourceLimits caps a task's resources. Zero means unlimited.
+type ResourceLimits struct {
+	NanoCPUs    int64 `json:"nano_cpus,omitempty"`
+	MemoryBytes int64 `json:"memory_bytes,omitempty"`
+	Pids        int64 `json:"pids,omitempty"`
+}
+
+// ResourceReservations are resources the scheduler reserves for a task.
+type ResourceReservations struct {
+	NanoCPUs    int64 `json:"nano_cpus,omitempty"`
+	MemoryBytes int64 `json:"memory_bytes,omitempty"`
 }
 
 // ErrObjectNotFound is returned by DockerAPI implementations when an object
@@ -69,9 +104,9 @@ var ErrObjectNotFound = errors.New("agent: docker object not found")
 // timeout. The executor records such steps as StatusUnknown.
 var ErrOutcomeUnknown = errors.New("agent: docker outcome unknown")
 
-// DockerAPI is the narrow set of Docker operations the executor uses. Only a
-// test fake implements it so far; the real Docker Engine client is future
-// work.
+// DockerAPI is the narrow set of Docker operations the executor uses. It is
+// implemented by internal/dockerclient (Docker Engine API) and by a test
+// fake.
 type DockerAPI interface {
 	CreateService(ctx context.Context, spec ServiceSpec) (id string, err error)
 	RemoveService(ctx context.Context, id string) error
