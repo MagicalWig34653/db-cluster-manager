@@ -3,8 +3,21 @@ info:
   title: DB Cluster Manager API
   version: 1.0.0
   description: >-
-    Versioned manager API (prototype). Only process-level endpoints exist;
-    no cluster operations are implemented.
+    Versioned manager API (prototype). Without an auth configuration the
+    manager serves only /health and /version. With auth enabled it adds
+    first-run setup, passkey login, sessions, recovery and authorized
+    read-only resource listings. State is held in memory only; resource
+    endpoints are backed by interfaces without real stores yet.
+
+
+    Security: sessions are opaque tokens in HttpOnly, SameSite=Strict,
+    Path=/ cookies (Secure with the __Host- prefix unless every configured
+    origin is http://localhost). Every POST must carry an Origin header that
+    exactly matches a configured passkey origin, and Sec-Fetch-Site, when
+    present, must be same-origin; otherwise 403 origin_rejected.
+    Unauthenticated failures return generic error codes only. Every state
+    change writes an audit record first; if it cannot be stored the request
+    is denied with 503.
   license:
     name: AGPL-3.0-only
     identifier: AGPL-3.0-only
@@ -16,6 +29,7 @@ paths:
       summary: Liveness of the manager process
       description: Reports only that this process serves requests, not cluster or storage health.
       operationId: getHealth
+      security: []
       responses:
         "200":
           description: Process is serving requests
@@ -30,6 +44,7 @@ paths:
     get:
       summary: Build information of the manager
       operationId: getVersion
+      security: []
       responses:
         "200":
           description: Build information
@@ -44,3 +59,510 @@ paths:
                   commit: { type: string }
                   goVersion: { type: string }
                   platform: { type: string }
+  /setup/status:
+    get:
+      summary: Whether first-run setup is still possible
+      description: >-
+        True until the first administrator exists and while the one-time
+        setup token printed at manager start is active.
+      operationId: getSetupStatus
+      security: []
+      responses:
+        "200":
+          description: Setup status
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [setupRequired]
+                properties:
+                  setupRequired: { type: boolean }
+  /setup/begin:
+    post:
+      summary: Start creating the first administrator with a passkey
+      description: >-
+        Requires the setup token. Sets a short-lived ceremony cookie that
+        binds the passkey ceremony to this browser. Setup-token guesses are
+        rate limited per client IP.
+      operationId: beginSetup
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [setupToken, accountId]
+              properties:
+                setupToken: { type: string }
+                accountId: { $ref: "#/components/schemas/AccountId" }
+                displayName: { type: string, maxLength: 128 }
+                passkeyLabel: { type: string, maxLength: 64 }
+      responses:
+        "200": { $ref: "#/components/responses/Challenge" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /setup/finish:
+    post:
+      summary: Finish creating the first administrator
+      description: >-
+        Verifies the passkey, binds the administrator role globally, enrols a
+        recovery-code set, disables setup permanently and starts a session.
+        The recovery codes are returned exactly once.
+      operationId: finishSetup
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/CeremonyFinish"
+                - type: object
+                  required: [setupToken]
+                  properties:
+                    setupToken: { type: string }
+      responses:
+        "201":
+          description: Administrator created; session cookie set
+          headers:
+            Set-Cookie: { $ref: "#/components/headers/SessionCookie" }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accountId, recoveryCodes]
+                properties:
+                  accountId: { type: string }
+                  recoveryCodes:
+                    type: [array, "null"]
+                    items: { type: string }
+                    description: Null only if code enrolment failed; codes can be generated later.
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { $ref: "#/components/responses/Error" }
+  /auth/login/begin:
+    post:
+      summary: Start a discoverable passkey login
+      description: No account name is sent, so the response cannot reveal whether an account exists.
+      operationId: beginLogin
+      security: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false }
+      responses:
+        "200": { $ref: "#/components/responses/Challenge" }
+        "403": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /auth/login/finish:
+    post:
+      summary: Finish a passkey login and start a session
+      operationId: finishLogin
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CeremonyFinish" }
+      responses:
+        "200":
+          description: Signed in; session cookie set
+          headers:
+            Set-Cookie: { $ref: "#/components/headers/SessionCookie" }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accountId]
+                properties:
+                  accountId: { type: string }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /auth/logout:
+    post:
+      summary: End the current session
+      description: >-
+        Accepts a full or a recovery session. The session ends even if the
+        audit record cannot be stored (refusing would keep a credential
+        alive); that failure is logged.
+      operationId: logout
+      responses:
+        "204": { description: Signed out; cookies cleared }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+  /auth/session:
+    get:
+      summary: Describe the current session
+      operationId: getSession
+      responses:
+        "200":
+          description: Current session
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accountId, restricted, pendingPasskeyEnrollment, createdAt]
+                properties:
+                  accountId: { type: string }
+                  restricted:
+                    type: boolean
+                    description: Recovery session that only allows passkey re-enrolment.
+                  pendingPasskeyEnrollment: { type: boolean }
+                  createdAt: { type: string, format: date-time }
+        "401": { $ref: "#/components/responses/Error" }
+  /auth/passkeys/begin:
+    post:
+      summary: Start registering a passkey on the caller's own account
+      description: Accepts a full session or a recovery session.
+      operationId: beginPasskeyRegistration
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                label: { type: string, maxLength: 64 }
+      responses:
+        "200": { $ref: "#/components/responses/Challenge" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+  /auth/passkeys/finish:
+    post:
+      summary: Finish registering a passkey
+      description: >-
+        The credential change ends every session of the account; a fresh full
+        session cookie is set. After a recovery this completes re-enrolment.
+      operationId: finishPasskeyRegistration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CeremonyFinish" }
+      responses:
+        "201":
+          description: Passkey registered; new session cookie set
+          headers:
+            Set-Cookie: { $ref: "#/components/headers/SessionCookie" }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [passkey]
+                properties:
+                  passkey: { $ref: "#/components/schemas/PasskeyInfo" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /auth/recovery/code:
+    post:
+      summary: Redeem a recovery code
+      description: >-
+        On success the account's passkeys are removed, every session ends and
+        a short recovery session cookie is set that only allows registering a
+        new passkey. Attempts are limited per client IP and account. Every
+        failure returns the same 401 body.
+      operationId: redeemRecoveryCode
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [accountId, code]
+              properties:
+                accountId: { type: string }
+                code: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/RecoveryStarted" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { $ref: "#/components/responses/Error" }
+  /auth/recovery/token:
+    post:
+      summary: Redeem a single-use recovery URL token
+      description: Same behaviour as /auth/recovery/code; tokens are issued through the manager CLI.
+      operationId: redeemRecoveryToken
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [accountId, token]
+              properties:
+                accountId: { type: string }
+                token: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/RecoveryStarted" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { $ref: "#/components/responses/Error" }
+  /swarms:
+    get:
+      summary: List Swarms the caller may read
+      operationId: listSwarms
+      responses:
+        "200":
+          description: Swarms visible to the caller
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Swarm" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /clusters:
+    get:
+      summary: List database clusters the caller may read
+      operationId: listClusters
+      responses:
+        "200":
+          description: Clusters visible to the caller
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Cluster" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /clusters/{id}:
+    get:
+      summary: Get one database cluster
+      description: A cluster the caller may not read is reported as 404, like a missing one.
+      operationId: getCluster
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: The cluster
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Cluster" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /operations:
+    get:
+      summary: List operations the caller may read
+      description: >-
+        An operation needs read on its cluster, else on its Swarm, else (manager-level)
+        read on settings.
+      operationId: listOperations
+      responses:
+        "200":
+          description: Operations visible to the caller
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Operation" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /events:
+    get:
+      summary: List events the caller may read
+      description: Located and filtered like operations.
+      operationId: listEvents
+      responses:
+        "200":
+          description: Events visible to the caller
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Event" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+security:
+  - sessionCookie: []
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: __Host-dcm_session
+      description: >-
+        Opaque session token. Named dcm_session for http://localhost
+        development. Recovery sessions use __Host-dcm_recovery and are only
+        accepted by /auth/session, /auth/logout and /auth/passkeys/*.
+  headers:
+    SessionCookie:
+      description: Session cookie (HttpOnly; SameSite=Strict; Path=/; Secure except localhost development)
+      schema: { type: string }
+  responses:
+    Error:
+      description: >-
+        Error with a coarse code only. Codes: not_found, bad_request,
+        authentication_failed, unauthenticated, forbidden,
+        passkey_enrollment_required, origin_rejected, rate_limited,
+        unavailable, setup_unavailable, internal_error,
+        request_too_large, unsupported_media_type.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    RateLimited:
+      description: Too many attempts for this client and account
+      headers:
+        Retry-After:
+          schema: { type: integer }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Challenge:
+      description: >-
+        Passkey ceremony started; options is the publicKey member for
+        navigator.credentials.create/get. Pre-authentication ceremonies set a
+        ceremony cookie.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [ceremonyId, options, expiresAt]
+            properties:
+              ceremonyId: { type: string }
+              options: { type: object }
+              expiresAt: { type: string, format: date-time }
+    RecoveryStarted:
+      description: Recovery session cookie set; register a new passkey next
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [pendingPasskeyEnrollment]
+            properties:
+              pendingPasskeyEnrollment: { type: boolean, enum: [true] }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+    AccountId:
+      type: string
+      minLength: 1
+      maxLength: 64
+      pattern: "^[A-Za-z0-9._@-]+$"
+    CeremonyFinish:
+      type: object
+      required: [ceremonyId, credential]
+      properties:
+        ceremonyId: { type: string }
+        credential:
+          type: object
+          description: PublicKeyCredential JSON (credential.toJSON()).
+    PasskeyInfo:
+      type: object
+      required: [id, accountId, rpId, createdAt, signCount, backupEligible, backupState]
+      properties:
+        id: { type: string }
+        accountId: { type: string }
+        rpId: { type: string }
+        label: { type: string }
+        createdAt: { type: string, format: date-time }
+        lastUsedAt: { type: string, format: date-time }
+        signCount: { type: integer }
+        backupEligible: { type: boolean }
+        backupState: { type: boolean }
+        attestationFormat: { type: string }
+        cloneWarnings: { type: integer }
+        lastCloneWarningAt: { type: string, format: date-time }
+    State:
+      type: string
+      enum: [healthy, degraded, unavailable, unknown]
+      description: Observed state. Missing or unrecognized observations are reported as unknown, never as healthy.
+    Swarm:
+      type: object
+      required: [id, name, state]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        state: { $ref: "#/components/schemas/State" }
+        observedAt: { type: string, format: date-time }
+    ClusterNode:
+      type: object
+      required: [id, state]
+      properties:
+        id: { type: string }
+        host: { type: string }
+        state: { $ref: "#/components/schemas/State" }
+    Cluster:
+      type: object
+      required: [id, swarm, name, state, nodes]
+      properties:
+        id: { type: string, description: Unique within the manager }
+        swarm: { type: string }
+        name: { type: string }
+        engine: { type: string }
+        state: { $ref: "#/components/schemas/State" }
+        nodes:
+          type: array
+          items: { $ref: "#/components/schemas/ClusterNode" }
+        observedAt: { type: string, format: date-time }
+    Operation:
+      type: object
+      required: [id, kind, state]
+      properties:
+        id: { type: string }
+        kind: { type: string }
+        swarm: { type: string }
+        cluster: { type: string }
+        state: { type: string, enum: [pending, running, succeeded, failed, unknown] }
+        startedAt: { type: string, format: date-time }
+        endedAt: { type: string, format: date-time }
+    Event:
+      type: object
+      required: [id, time, severity, message]
+      properties:
+        id: { type: string }
+        time: { type: string, format: date-time }
+        swarm: { type: string }
+        cluster: { type: string }
+        severity: { type: string, enum: [info, warning, critical, unknown] }
+        message: { type: string }
