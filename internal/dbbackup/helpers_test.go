@@ -74,9 +74,12 @@ type fakeTools struct {
 	failTool string // tool name that exits non-zero
 	failAt   int    // fail after writing this many bytes (with failTool)
 	noGalera bool
-	calls    [][]string
-	stdin    map[string][]byte
-	version  string
+	// lsnPrefix names the --extra-lsndir files ("" = xtrabackup_, the
+	// pre-11 names; MariaDB 11.x writes mariadb_backup_).
+	lsnPrefix string
+	calls     [][]string
+	stdin     map[string][]byte
+	version   string
 }
 
 func newFakeTools(files fstest.MapFS, payload []byte) *fakeTools {
@@ -114,10 +117,14 @@ func (f *fakeTools) Run(_ context.Context, argv []string, stdin io.Reader, stdou
 					lsn = strings.TrimPrefix(v, "/")
 				}
 			}
+			pre := f.lsnPrefix
+			if pre == "" {
+				pre = "xtrabackup_"
+			}
 			f.mu.Lock()
-			f.files[lsn+"/xtrabackup_checkpoints"] = &fstest.MapFile{Data: []byte("backup_type = full-backuped\nfrom_lsn = 0\nto_lsn = 4711\nlast_lsn = 4720\n")}
+			f.files[lsn+"/"+pre+"checkpoints"] = &fstest.MapFile{Data: []byte("backup_type = full-backuped\nfrom_lsn = 0\nto_lsn = 4711\nlast_lsn = 4720\n")}
 			if !f.noGalera {
-				f.files[lsn+"/xtrabackup_galera_info"] = &fstest.MapFile{Data: []byte("6f2b1a3c-9d8e-11ef-8a1b-0242ac120002:1234\n")}
+				f.files[lsn+"/"+pre+"galera_info"] = &fstest.MapFile{Data: []byte("6f2b1a3c-9d8e-11ef-8a1b-0242ac120002:1234\n")}
 			}
 			f.mu.Unlock()
 		}

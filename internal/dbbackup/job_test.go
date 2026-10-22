@@ -203,6 +203,25 @@ func TestBackupJobWithoutGaleraInfoWarns(t *testing.T) {
 	}
 }
 
+// TestBackupJobMariaDB11FileNames: MariaDB 11.4.13 writes
+// mariadb_backup_checkpoints and mariadb_backup_galera_info (lab E4: the
+// job failed after a complete upload looking for xtrabackup_checkpoints).
+func TestBackupJobMariaDB11FileNames(t *testing.T) {
+	key := testKey(t)
+	be := backup.NewMemBackend()
+	files := fstest.MapFS{}
+	tools := newFakeTools(files, payload(t, 100))
+	tools.lsnPrefix = "mariadb_backup_"
+	env, _ := jobEnv(t, be, key, tools, files)
+	if err := RunJob(context.Background(), physicalJobArgs(t, key), env); err != nil {
+		t.Fatal(err)
+	}
+	m, _ := readManifest(context.Background(), be, "prod-b1.xbs.dbcms")
+	if m.Checkpoints == nil || m.Checkpoints.ToLSN != 4711 || m.Galera == nil || len(m.Warnings) != 0 {
+		t.Fatalf("%+v", m)
+	}
+}
+
 func TestLogicalBackupJob(t *testing.T) {
 	key := testKey(t)
 	be := backup.NewMemBackend()

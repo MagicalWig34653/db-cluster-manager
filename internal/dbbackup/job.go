@@ -177,6 +177,27 @@ func (e JobEnv) read(p string) ([]byte, error) {
 	return fs.ReadFile(e.Files, strings.TrimPrefix(path.Clean(p), "/"))
 }
 
+// lsnFilePrefixes are the names mariabackup gives its --extra-lsndir
+// files: MariaDB 11.x writes mariadb_backup_<name> (lab E4, 11.4.13: the
+// job failed looking for xtrabackup_checkpoints), earlier versions
+// xtrabackup_<name>.
+var lsnFilePrefixes = []string{"mariadb_backup_", "xtrabackup_"}
+
+// readLSN reads the --extra-lsndir file name under either prefix.
+func (e JobEnv) readLSN(name string) ([]byte, error) {
+	var first error
+	for _, p := range lsnFilePrefixes {
+		raw, err := e.read(path.Join(e.TempDir, "lsn", p+name))
+		if err == nil {
+			return raw, nil
+		}
+		if first == nil {
+			first = err
+		}
+	}
+	return nil, first
+}
+
 // BackupArgv is the tool invocation of a backup job. The option file
 // (credentials) is always the first argument, as the tools require.
 func BackupArgv(s JobSpec, tempDir string) []string {
@@ -303,7 +324,7 @@ func runBackupJob(ctx context.Context, s JobSpec, env JobEnv, be backup.Backend)
 	}
 	m.Stream, m.Stored, m.Finished = sum, res, env.Now().UTC()
 	if m.Method == MethodPhysical {
-		raw, err := env.read(path.Join(env.TempDir, "lsn", "xtrabackup_checkpoints"))
+		raw, err := env.readLSN("checkpoints")
 		if err != nil {
 			return Manifest{}, fmt.Errorf("%w: checkpoints: %v", ErrJob, err)
 		}
@@ -312,14 +333,14 @@ func runBackupJob(ctx context.Context, s JobSpec, env JobEnv, be backup.Backend)
 			return Manifest{}, err
 		}
 		m.Checkpoints = &cp
-		if raw, err := env.read(path.Join(env.TempDir, "lsn", "xtrabackup_galera_info")); err == nil {
+		if raw, err := env.readLSN("galera_info"); err == nil {
 			gp, err := ParseGaleraInfo(string(raw))
 			if err != nil {
 				return Manifest{}, err
 			}
 			m.Galera = &gp
 		} else {
-			m.Warnings = append(m.Warnings, "xtrabackup_galera_info not found in --extra-lsndir; Galera position not recorded")
+			m.Warnings = append(m.Warnings, "galera_info not found in --extra-lsndir; Galera position not recorded")
 		}
 	}
 	if err := m.Validate(); err != nil {
