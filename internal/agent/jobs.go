@@ -287,6 +287,7 @@ func checkRunRestore(a *RunRestoreArgs, volumeBase string) error {
 func BackupJobArgs(a RunBackupArgs, dbSecretName, backendSecretName string) []string {
 	args := []string{
 		"backup",
+		"--job=" + a.JobName,
 		"--tool=" + string(a.Tool),
 		"--backup-id=" + a.BackupID,
 		"--object=" + a.Object,
@@ -309,6 +310,7 @@ func BackupJobArgs(a RunBackupArgs, dbSecretName, backendSecretName string) []st
 func RestoreJobArgs(a RunRestoreArgs, secretNames map[string]string) []string {
 	args := []string{
 		"restore",
+		"--job=" + a.JobName,
 		"--mode=" + string(a.Mode),
 		"--backup-id=" + a.BackupID,
 		"--object=" + a.Object,
