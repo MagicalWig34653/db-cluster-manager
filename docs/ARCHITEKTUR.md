@@ -73,3 +73,44 @@ Query telemetry coverage, overhead and sensitive SQL handling require a collecti
 ## Extension boundaries
 
 Separate database-engine capabilities, orchestration platform, backup transport, DNS provider and metric storage interfaces. Keep Galera recovery logic explicit. Future PostgreSQL, XtraDB and Kubernetes support must not inherit inappropriate Galera/Docker assumptions.
+
+### Broadened scope (proposed, not implemented)
+
+The owner broadened the product to a general cluster and service platform ([ADR 0012](decisions/0012-broadened-scope-platform.md), X01–X12). Everything in this subsection is a proposal; no component exists. R1 (Galera on Swarm) is unchanged and remains first.
+
+```text
+             UI (forms, wizards, plan preview, expert view, export as code)
+                                   |
+                              Manager API
+                                   |
+     +-------------+---------------+----------------+------------------+
+     |             |               |                |                  |
+ Service type   Planner /     Explainability     Build service     Provisioner
+ registry       reconciler    (plan, YAML,       (recipes,          (SSH/agent
+ (Galera, web,  (per type,    commands, diff,    BuildKit, SBOM,    host bootstrap:
+ storage, gen.  durable ops,  audit link)        scan, sign)        Swarm, K8s)
+ container,     fencing)                             |                  |
+ Traefik,          |                                 v                  |
+ registry)         |                          Registry abstraction      |
+     |             |                          (managed registry type    |
+     +------+------+                           or external e.g. ghcr;   |
+            |                                  creds as secrets)        |
+            v                                        |                  |
+   Orchestrator interface  <-------- image refs -----+                  |
+     |               |                                                  |
+  Swarm back end   Kubernetes back end (later)  <-----------------------+
+     |
+  Agents (host health, local storage, engine updates)
+```
+
+Dependency rules:
+
+- Service types depend on the orchestrator interface, never on a concrete back end. A type declares which platforms it supports.
+- The planner produces an explicit, ordered plan; the explainability component renders exactly that plan (no separate "description" path that could diverge). Executed steps are linked from the audit log (U07).
+- The build service depends on the registry abstraction only; service types reference images by digest.
+- The managed registry is itself a service type deployed through the orchestrator, so bootstrapping it must not require the registry (use upstream images or a pre-seeded offline bundle).
+- The provisioner is separate from orchestration: it creates or extends clusters; the orchestrator manages workloads on existing ones. It has its own credentials and threat model.
+- Docker engine updates run through agents as host operations, coordinated with A08 maintenance checks and the per-type quorum rules; the boundary for restarts and approvals is open ([ENTSCHEIDUNGEN.md](ENTSCHEIDUNGEN.md#open-decisions-from-the-scope-extension)).
+- Galera-specific safety (bootstrap, quorum, guided full recovery) stays explicit code behind the service-type interface; the generic reconciler must not restart or replace stateful nodes on its own.
+
+Interfaces built during R1 should keep these seams cheap (engine capabilities, orchestrator, backup transport) but R1 does not implement them generically.

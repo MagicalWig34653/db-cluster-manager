@@ -1,6 +1,8 @@
 # Galera Cluster Manager
 
-An AGPLv3, self-hosted database manager for existing Docker Swarm clusters. Working title; currently a concept, with no application implemented.
+An AGPLv3, self-hosted manager for clusters and services, starting with MariaDB Galera on existing Docker Swarm clusters. Working title; the name no longer fits the broadened scope and is under review. Early implementation; no release exists.
+
+Scope (2026-10-22, [ADR 0012](docs/decisions/0012-broadened-scope-platform.md)): Galera on Swarm is priority 1 and the first release target. Planned later, as proposals: Kubernetes and provisioning of new Swarm/Kubernetes clusters, web servers with detailed composition (for example Nginx + PHP with chosen extensions), storage protocol servers (SFTP, FTP, S3-compatible, NFS), generic containers, Traefik management, image builds with a managed or external registry, and Docker engine updates — operable through the UI with every action shown as a reviewable plan.
 
 Claude Code: read [the bootstrap handover](docs/handoffs/CLAUDE-START.md) and [execution workplan](docs/WORKPLAN.md). Git initialization and public publication by Claude are authorized.
 

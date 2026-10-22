@@ -23,7 +23,7 @@ for file in files:
             errors.append(f"{file.relative_to(ROOT)}: invalid local target {target}")
 
 requirements = re.findall(
-    r"^\| ([PADNBU]\d{2}) \|", (ROOT / "docs/KONZEPT.md").read_text(), re.M
+    r"^\| ([PADNBUX]\d{2}) \|", (ROOT / "docs/KONZEPT.md").read_text(), re.M
 )
 coverage = (ROOT / "docs/RELEASES.md").read_text().split("## Requirement coverage", 1)[1]
 covered = set()
@@ -31,12 +31,12 @@ for line in coverage.splitlines():
     if not line.startswith("| "):
         continue
     cell = line.split("|")[1]
-    for first, last in re.findall(r"([PADNBU]\d{2})–([PADNBU]\d{2})", cell):
+    for first, last in re.findall(r"([PADNBUX]\d{2})–([PADNBUX]\d{2})", cell):
         if first[0] != last[0] or int(first[1:]) > int(last[1:]):
             errors.append(f"Invalid coverage range: {first}–{last}")
             continue
         covered.update(f"{first[0]}{i:02}" for i in range(int(first[1:]), int(last[1:]) + 1))
-    covered.update(re.findall(r"[PADNBU]\d{2}", cell))
+    covered.update(re.findall(r"[PADNBUX]\d{2}", cell))
 if not requirements or len(requirements) != len(set(requirements)):
     errors.append("Requirement IDs are missing or duplicated")
 if set(requirements) != covered:

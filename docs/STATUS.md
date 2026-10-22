@@ -87,6 +87,10 @@ Test stability: three tests that flaked under parallel load were root-caused as 
 
 **Still true: nothing has run against a real Swarm with the manager, the real agent over mTLS, real mariabackup or real MariaDB behind the proxy.** All new subsystems were exercised only with fakes and loopback. Open items that block the Swarm trial: E4 (manager + agent create a Galera cluster on lab VMs), health endpoint/monitoring account inside the Galera spec (the collector needs a socket or published port that the spec does not provide yet), data-key distribution across replicas, metastore peer encryption, agent deny-list distribution, API endpoints the UI assumes (clusters create/replace/outage-diagnosis, hosts, backups, notification settings) mostly lack HTTP handlers, `cmd/manager` does not construct the monitoring service, no job image for backup tools, PITR, ACME, update workflow, drift handling, maintenance mode, migration, AMD64 evidence, bilingual user guides.
 
+## Scope broadened (2026-10-22)
+
+The owner broadened the product to a general self-hosted platform for clusters and services ([ADR 0012](decisions/0012-broadened-scope-platform.md)): Swarm/Kubernetes including provisioning, web servers with detailed composition, storage protocol servers, generic containers, Traefik, image builds with a managed or external registry and Docker engine updates, all through the UI with visible plans. Documented as requirements X01–X12, proposed phases R6–R9 and work packages W07–W10 (all PENDING). Nothing of the extension is implemented. Galera stays priority 1; W05/W06 and the R1 gates are unchanged. A09 is partly superseded by X09; the Docker update boundaries, product name and other choices are open in [ENTSCHEIDUNGEN.md](ENTSCHEIDUNGEN.md#open-decisions-from-the-scope-extension).
+
 ## Next action
 
 Continue W05 (see WORKPLAN). The first working version must be validated locally before the user's Swarm trial. Most R1 scope (cluster creation through the manager, backups, TLS, passkeys, UI flows, notifications, restore, packaging) is not started.

@@ -11,6 +11,12 @@ Status labels: READY, PENDING, IN PROGRESS, DONE, BLOCKED. Only mark DONE with r
 | W04 | DONE | Implement dedicated local lab creation/inventory/cleanup within resource budget | `bin/lab` (status/plan/apply/cleanup with ownership manifest, 47+16 unit tests with fake runner). Real cycle on 2026-10-19: one VM `dbcm-lab-m1` (2 CPU, 2 GiB, 10 GiB) created, measured (guest 2 vCPU, ~1.9 GiB RAM, Docker 29.9.1, 3.1 GiB on host disk), removed; the 3 unrelated resources (`colima:default`, 2 `thermoctl-*` VMs) were unchanged and reported intact. Limit: host free space dropped about 3.4 GB across the cycle and was not shown to be reclaimed (other host activity not ruled out) |
 | W05 | IN PROGRESS | Execute P0 Galera/agent/routing experiments | P0 acceptance gates in release plan, compatibility limits and test artifacts. Done so far: E1, E2 (see ADR 0004 evidence). Still open: real agent, three-manager failover on VMs, proxy/VIP routing, full-cluster loss, resource measurements per gate |
 | W06 | PENDING | Refine R1 work packages from evidence and implement incrementally | Traceable requirements, tests and bilingual user guides per package |
+| W07 | PENDING | R6 (proposal): service-type framework, Galera expressed as a service type without changing its safety logic, generic containers, plan preview/export/expert view, Docker engine updates after the X09 boundary decision | R6 exit gates in the release plan; no evidence yet. Starts after R1 unless the owner decides otherwise |
+| W08 | PENDING | R7 (proposal): image build service, managed/external registries, web server composer (Nginx/PHP/extensions/config) | R7 exit gates; depends on build-tool and registry decisions; no evidence yet |
+| W09 | PENDING | R8 (proposal): storage protocol servers (SFTP, FTP(S), S3-compatible, NFS) and Traefik UI management | R8 exit gates; depends on storage/Traefik scope decisions; no evidence yet |
+| W10 | PENDING | R9 (proposal): Kubernetes back end and Swarm/Kubernetes cluster provisioning | R9 exit gates; depends on Kubernetes timing decision; no evidence yet |
+
+W07–W10 come from the 2026-10-22 scope extension ([ADR 0012](decisions/0012-broadened-scope-platform.md)). They do not change the current next action; Galera/R1 (W05, W06) stays first.
 
 W03 experiments requiring VMs depend on the safe lab controls from W04. Design work can start first; do not run ad hoc experiments before ownership and cleanup are in place.
 
