@@ -34,10 +34,34 @@
 // manager prints a one-time setup token to stderr; it is needed to create the
 // first administrator through POST /api/v1/setup/begin and /finish.
 //
-// Limitations: all accounts, sessions, roles and audit records are held in
-// memory and lost on restart (a new setup token is printed each start);
-// audit records are written to the log; resource endpoints answer 503
-// because no inventory store is wired yet.
+// Without a "manager" section (prototype mode): all accounts, sessions,
+// roles and audit records are held in memory and lost on restart (a new
+// setup token is printed each start); audit records are written to the log;
+// resource endpoints answer 503 because no inventory store is wired.
+//
+// With a "manager" section the state is kept in the replicated store of
+// internal/manager (see managed.go):
+//
+//	"manager": {
+//	  "nodeId": "manager-1",
+//	  "dataDir": "/var/lib/dbcm-manager",
+//	  "bind": "127.0.0.1:7946",
+//	  "advertise": "",
+//	  "peers": [],          // empty: single-instance mode
+//	  "bootstrap": true,
+//	  "keyFile": "",        // default <dataDir>/data.key, created if missing
+//	  "labAgents": false,
+//	  "autoResume": false
+//	}
+//
+// Accounts, passkeys, sessions, recovery codes, roles and audit records then
+// survive a restart; the setup token is printed only while no administrator
+// exists. Only the metastore leader serves the API; other replicas answer
+// 503 with the X-DCM-Leader header (no forwarding). The metastore transport
+// has no TLS, and the data key must be copied to every replica out of band
+// (key provisioning is not solved). A command-line hook to issue a recovery
+// URL (-print-recovery-url) does not exist: URL tokens live in the leader's
+// memory and no local admin channel to the running process exists yet.
 package main
 
 import (
@@ -76,6 +100,9 @@ type authConfig struct {
 
 type fileConfig struct {
 	Auth authConfig `json:"auth"`
+	// Manager enables the replicated control-plane state (managed.go).
+	// Without it the prototype behaviour with in-memory stores stays.
+	Manager *managerConfig `json:"manager,omitempty"`
 }
 
 func loadConfig(path string) (fileConfig, error) {
@@ -210,9 +237,30 @@ func run(args []string, getenv func(string) string, stderr io.Writer) error {
 		return err
 	}
 	log := slog.Default()
-	apiHandler, st, err := newAPIHandler(cfg, log, stderr)
-	if err != nil {
-		return err
+	var (
+		apiHandler http.Handler
+		pruner     interface{ prune() }
+	)
+	if cfg.Manager != nil {
+		rt, err := newManagedRuntime(cfg, log, stderr)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			if err := rt.Close(); err != nil {
+				log.Error("manager: close", "err", err)
+			}
+		}()
+		apiHandler, pruner = rt, rt
+	} else {
+		h, st, err := newAPIHandler(cfg, log, stderr)
+		if err != nil {
+			return err
+		}
+		apiHandler = h
+		if st != nil {
+			pruner = st
+		}
 	}
 
 	srv := &http.Server{Addr: *addr, Handler: newMux(apiHandler), ReadHeaderTimeout: 10 * time.Second}
@@ -224,7 +272,7 @@ func run(args []string, getenv func(string) string, stderr io.Writer) error {
 		defer cancel()
 		_ = srv.Shutdown(shutdownCtx)
 	}()
-	if st != nil {
+	if pruner != nil {
 		go func() {
 			t := time.NewTicker(time.Minute)
 			defer t.Stop()
@@ -233,7 +281,7 @@ func run(args []string, getenv func(string) string, stderr io.Writer) error {
 				case <-ctx.Done():
 					return
 				case <-t.C:
-					st.prune()
+					pruner.prune()
 				}
 			}
 		}()

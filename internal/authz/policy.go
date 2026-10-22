@@ -62,6 +62,7 @@ type Policy struct {
 	mu       sync.RWMutex
 	roles    map[string]Role
 	bindings []Binding
+	persist  PolicyPersister
 }
 
 // NewPolicy returns a policy containing the preset roles.
@@ -99,8 +100,9 @@ func (p *Policy) AddRole(r Role) error {
 	if _, ok := p.roles[r.Name]; ok {
 		return fmt.Errorf("%w: %s", ErrRoleExists, r.Name)
 	}
+	pr, pb := p.saveLocked()
 	p.roles[r.Name] = cloneRole(r)
-	return nil
+	return p.commitLocked(pr, pb)
 }
 
 // Role returns a copy of the named role.
@@ -126,6 +128,7 @@ func (p *Policy) RemoveRole(name string) ([]Binding, error) {
 	if r.Preset {
 		return nil, ErrPresetImmutable
 	}
+	pr, pb := p.saveLocked()
 	delete(p.roles, name)
 	var kept, removed []Binding
 	for _, b := range p.bindings {
@@ -136,6 +139,9 @@ func (p *Policy) RemoveRole(name string) ([]Binding, error) {
 		}
 	}
 	p.bindings = kept
+	if err := p.commitLocked(pr, pb); err != nil {
+		return nil, err
+	}
 	return removed, nil
 }
 
@@ -161,8 +167,9 @@ func (p *Policy) Bind(b Binding) error {
 			return ErrBindingExists
 		}
 	}
+	pr, pb := p.saveLocked()
 	p.bindings = append(p.bindings, b)
-	return nil
+	return p.commitLocked(pr, pb)
 }
 
 // Unbind removes a binding.
@@ -171,8 +178,9 @@ func (p *Policy) Unbind(b Binding) error {
 	defer p.mu.Unlock()
 	for i, x := range p.bindings {
 		if x == b {
+			pr, pb := p.saveLocked()
 			p.bindings = append(p.bindings[:i:i], p.bindings[i+1:]...)
-			return nil
+			return p.commitLocked(pr, pb)
 		}
 	}
 	return ErrUnknownBinding

@@ -1,0 +1,12 @@
+{
+  "format": 1,
+  "updated": "2026-10-22",
+  "docker": [
+    {
+      "versions": "29.",
+      "status": "tested",
+      "note": "Docker Engine 29.9.1 on the arm64 Lima lab VMs (experiments E1-E3, 2026-10-19/20)"
+    }
+  ],
+  "recommended": "29.9.1"
+}

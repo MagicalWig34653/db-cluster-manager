@@ -169,6 +169,8 @@ type CodeVerifier struct {
 	entries map[string]*codeEntry
 	limiter *Limiter
 	now     Clock
+	persist CodePersister
+	onErr   func(error)
 }
 
 // NewCodeVerifier returns a verifier. now may be nil for time.Now.
@@ -199,13 +201,24 @@ func (v *CodeVerifier) Enroll(userID string, set CodeSet) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.set = CodeSet{CreatedAt: set.CreatedAt, Codes: append([]HashedCode(nil), set.Codes...)}
+	if p, onErr := v.persister(); p != nil {
+		if err := p.PutCodes(userID, CodeSet{CreatedAt: e.set.CreatedAt, Codes: append([]HashedCode(nil), e.set.Codes...)}); err != nil && onErr != nil {
+			onErr(fmt.Errorf("recovery: persist recovery codes: %w", err))
+		}
+	}
 }
 
 // Revoke removes a user's code set.
 func (v *CodeVerifier) Revoke(userID string) {
 	v.mu.Lock()
-	defer v.mu.Unlock()
 	delete(v.entries, userID)
+	p, onErr := v.persist, v.onErr
+	v.mu.Unlock()
+	if p != nil {
+		if err := p.DeleteCodes(userID); err != nil && onErr != nil {
+			onErr(fmt.Errorf("recovery: persist recovery code revocation: %w", err))
+		}
+	}
 }
 
 // Remaining returns the number of unused codes of a user.
@@ -253,6 +266,13 @@ func (v *CodeVerifier) Verify(userID, code string) error {
 			return err
 		}
 		return fmt.Errorf("recovery: verify code: %w", err)
+	}
+	// The consumed code must stay consumed after a reload: fail closed if
+	// that cannot be recorded (the code is consumed in memory either way).
+	if p, _ := v.persister(); p != nil {
+		if err := p.PutCodes(userID, CodeSet{CreatedAt: e.set.CreatedAt, Codes: append([]HashedCode(nil), e.set.Codes...)}); err != nil {
+			return fmt.Errorf("recovery: persist consumed code: %w", err)
+		}
 	}
 	v.limiter.Succeed(key)
 	return nil
