@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -526,4 +527,21 @@ func TestMapCommandError(t *testing.T) {
 	if MapCommandError(other) != other || MapCommandError(nil) != nil {
 		t.Fatal("unknown errors must pass through")
 	}
+}
+
+// TestBackupSourceGatePassesWithBackend: lab E4 found every backup paused
+// at check-source ("job CPU and memory demand required") because the
+// re-check lacked the job demand the planning used. With a backend the
+// gate now passes and the job is started.
+func TestBackupSourceGatePassesWithBackend(t *testing.T) {
+	env := newBackupEnv(t, true)
+	rc := env.svc.cfg.Checker.(*RoutingChecker)
+	rc.Backup = &dbbackup.Checker{Backend: env.be}
+	ref, err := env.b.StartBackup(context.Background(), adminSubject, "clu-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "run-backup sent", func() bool {
+		return slices.ContainsFunc(env.commandsFor(ref.ID), func(c agent.Command) bool { return c.Kind == agent.KindRunBackup })
+	})
 }
