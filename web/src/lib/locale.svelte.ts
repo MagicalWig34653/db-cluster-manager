@@ -1,4 +1,4 @@
-import { detectLocale, isLocale, translate, type Locale, type MessageKey } from './i18n';
+import { detectLocale, isLocale, translate, type Locale, type MessageKey, type Params } from './i18n';
 
 const STORAGE_KEY = 'locale';
 
@@ -29,4 +29,4 @@ export const locale = {
 	}
 };
 
-export const t = (key: MessageKey) => translate(current, key);
+export const t = (key: MessageKey, params?: Params) => translate(current, key, params);
