@@ -70,6 +70,13 @@ export interface Cluster {
 	automationPolicy?: string;
 }
 
+/** Mirrors api.OperationApproval: digest binds an approval to the stored operation definition. */
+export interface OperationApproval {
+	digest: string;
+	approvedBy?: string;
+	approvedAt?: string;
+}
+
 export interface Operation {
 	id: string;
 	kind: string;
@@ -78,6 +85,10 @@ export interface Operation {
 	state: OperationState;
 	startedAt?: string;
 	endedAt?: string;
+	/** Present only for operations that wait for an explicit approval. */
+	approval?: OperationApproval;
+	/** The runner's short status reason (for example the unmet precondition of a pause). */
+	reason?: string;
 }
 
 export interface ManagerEvent {
@@ -146,10 +157,16 @@ export const knownCodes = [
 	'policy_conflict',
 	'settings_incomplete',
 	'cluster_exists',
+	'busy',
+	'approval_mismatch',
 	'not_leader'
 ] as const;
 export type KnownCode = (typeof knownCodes)[number];
 const isKnownCode = (v: unknown): v is KnownCode => isStr(v) && (knownCodes as readonly string[]).includes(v);
+
+const leaderRE = /^[A-Za-z0-9._:[\]-]{1,255}$/;
+/** A leader hint is shown only when it looks like host[:port]; anything else is dropped. */
+export const leaderHint = (v: unknown): string | undefined => (isStr(v) && leaderRE.test(v) ? v : undefined);
 
 export class ApiError extends Error {
 	constructor(
@@ -158,7 +175,9 @@ export class ApiError extends Error {
 		/** Seconds from Retry-After on 429, if given. */
 		readonly retryAfter?: number,
 		/** Allowlisted coarse server code (see knownCodes); never arbitrary server text. */
-		readonly code?: KnownCode
+		readonly code?: KnownCode,
+		/** Optional leader address of a not_leader answer; only host[:port]-shaped values are kept. */
+		readonly leader?: string
 	) {
 		super(`API error: ${kind} (${status})`);
 		this.name = 'ApiError';
@@ -231,6 +250,10 @@ export const isCluster: Guard<Cluster> = (v): v is Cluster =>
 	optDate(v.lastVerifiedRestoreAt) &&
 	optStr(v.automationPolicy);
 
+const digestRE = /^[0-9a-f]{64}$/;
+export const isApproval = (v: unknown): v is OperationApproval =>
+	isObj(v) && isStr(v.digest) && digestRE.test(v.digest) && optStr(v.approvedBy) && optDate(v.approvedAt);
+
 export const isOperation: Guard<Operation> = (v): v is Operation =>
 	isObj(v) &&
 	isStr(v.id) &&
@@ -239,7 +262,9 @@ export const isOperation: Guard<Operation> = (v): v is Operation =>
 	optStr(v.cluster) &&
 	isOperationState(v.state) &&
 	optDate(v.startedAt) &&
-	optDate(v.endedAt);
+	optDate(v.endedAt) &&
+	(v.approval === undefined || isApproval(v.approval)) &&
+	optStr(v.reason);
 
 export const isEvent: Guard<ManagerEvent> = (v): v is ManagerEvent =>
 	isObj(v) &&
@@ -280,14 +305,13 @@ const listOf =
 const isAny = (_v: unknown): _v is unknown => true;
 
 // ---------------------------------------------------------------------------
-// Proposed contract (not in api/openapi.yaml yet). Field names align with
-// internal/manager (HostRecord, CreateClusterRequest) and internal/galera
-// (Resources, PlacementPolicy, Diagnosis); see docs/DESIGN.md.
+// Command and monitoring contract (api/openapi.yaml, internal/api). Field
+// names follow internal/api, internal/metrics and internal/galera.
 
 export const enrollments = ['discovered', 'enrolled', 'revoked'] as const;
 export type Enrollment = (typeof enrollments)[number];
 
-/** Mirrors manager.HostRecord (JSON names), plus proposed agentVersion/lastSeen. */
+/** Mirrors api.Host. */
 export interface Host {
 	swarm: string;
 	nodeId: string;
@@ -301,10 +325,8 @@ export interface Host {
 	nanoCpus?: number;
 	memoryBytes?: number;
 	observedAt?: string;
-	/** Proposed. */
-	agentVersion?: string;
-	/** Proposed. */
-	lastSeen?: string;
+	/** An agent certificate is recorded for the host; says nothing about reachability. */
+	agentIdentity?: boolean;
 }
 
 /** Mirrors galera.ResourceAmount. */
@@ -351,44 +373,118 @@ export interface Diagnosis {
 
 export interface BackupSummary {
 	cluster: string;
+	swarm?: string;
 	policy?: string;
 	lastBackupAt?: string;
+	lastBackupId?: string;
 	lastVerifiedRestoreAt?: string;
+	nextRunAt?: string;
 }
 
-export type PanelKind = 'line' | 'stat';
+/** Mirrors api.InspectionInput. */
+export interface InspectionInput {
+	cluster: string;
+	backup?: string;
+	/** Explicitly approved Swarm node; free disk is not observed, so the UI always asks for one. */
+	host?: string;
+	ttlMinutes?: number;
+}
+
+/** Mirrors api.InspectionStarted. The password is returned only in this response. */
+export interface InspectionStarted {
+	id: string;
+	kind: string;
+	session: string;
+	backup: string;
+	host: string;
+	service: string;
+	port: number;
+	expiresAt: string;
+	approval: OperationApproval;
+	inspectionAccount: string;
+	inspectionPassword: string;
+}
+
+/** Mirrors api.AgentDeployment. */
+export interface AgentDeployment {
+	serviceId?: string;
+	created: boolean;
+	labeled: string[];
+	unlabeled: string[];
+	failed: string[];
+}
+
+export const panelKinds = ['line', 'stat', 'table'] as const;
+export type PanelKind = (typeof panelKinds)[number];
+export const metricFuncs = ['last', 'avg', 'min', 'max', 'sum', 'count', 'rate', 'quantile'] as const;
+export type MetricFunc = (typeof metricFuncs)[number];
+
+/** Mirrors metrics.Panel; x/y/w/h are grid cells on a 24-column grid. */
 export interface Panel {
 	id: string;
-	kind: PanelKind;
 	title: string;
-	query: string;
-	unit?: string;
+	kind: PanelKind;
+	/** Series selector, for example `name{label="v"}`. */
+	selector: string;
+	func: string;
+	windowSeconds: number;
+	stepSeconds: number;
+	quantile?: number;
+	x: number;
+	y: number;
+	w: number;
+	h: number;
 }
+/** Mirrors api.DashboardInput. */
 export interface DashboardInput {
-	name: string;
+	title: string;
 	shared: boolean;
 	panels: Panel[];
 }
+/** Mirrors metrics.Dashboard. Templates and other users' dashboards are read-only. */
 export interface Dashboard extends DashboardInput {
 	id: string;
-	owner?: string;
-	updatedAt?: string;
+	owner: string;
+	template?: boolean;
 }
 
+export const dashboardIdRE = /^[A-Za-z0-9._-]{1,64}$/;
+
+/** Mirrors api.QueryRequest; start and end are milliseconds since the epoch. */
 export interface MetricsQuery {
-	query: string;
-	from: string;
-	to: string;
-	/** Step in seconds. */
-	step: number;
+	selector: string;
+	start: number;
+	end: number;
+	stepSeconds: number;
+	windowSeconds?: number;
+	func?: string;
+	quantile?: number;
 }
-/** points are [unixSeconds, value|null]; null (or a missing step) is a gap. */
+export const pointStates = ['ok', 'no_data', 'unavailable'] as const;
+export type PointState = (typeof pointStates)[number];
+/** One step: v is a number only when state is "ok"; t is in milliseconds. */
+export interface MetricPoint {
+	t: number;
+	v: number | null;
+	state: PointState;
+}
 export interface MetricSeries {
-	labels?: Record<string, string>;
-	points: [number, number | null][];
+	labels: Record<string, string>;
+	points: MetricPoint[];
+}
+/** An interval that could not be read (milliseconds). */
+export interface MetricGap {
+	from: number;
+	to: number;
+	reason: string;
 }
 export interface MetricsResult {
+	start: number;
+	end: number;
+	stepSeconds: number;
+	windowSeconds: number;
 	series: MetricSeries[];
+	gaps: MetricGap[];
 }
 
 /** Notification severities include "error" (api/openapi.yaml Notification). */
@@ -433,10 +529,26 @@ export const isHost: Guard<Host> = (v): v is Host =>
 	optNum(v.nanoCpus) &&
 	optNum(v.memoryBytes) &&
 	optDate(v.observedAt) &&
-	optStr(v.agentVersion) &&
-	optDate(v.lastSeen);
+	(v.agentIdentity === undefined || isBool(v.agentIdentity));
 
-const isOperationRef = (v: unknown): v is { id: string; kind?: string } => isObj(v) && isStr(v.id) && optStr(v.kind);
+export const isOperationRef = (v: unknown): v is { id: string; kind?: string } => isObj(v) && isStr(v.id) && optStr(v.kind);
+
+export const isInspectionStarted = (v: unknown): v is InspectionStarted =>
+	isObj(v) &&
+	isStr(v.id) &&
+	isStr(v.kind) &&
+	isStr(v.session) &&
+	isStr(v.backup) &&
+	isStr(v.host) &&
+	isStr(v.service) &&
+	isNum(v.port) &&
+	isDate(v.expiresAt) &&
+	isApproval(v.approval) &&
+	isStr(v.inspectionAccount) &&
+	isStr(v.inspectionPassword);
+
+export const isAgentDeployment = (v: unknown): v is AgentDeployment =>
+	isObj(v) && optStr(v.serviceId) && isBool(v.created) && strArray(v.labeled) && strArray(v.unlabeled) && strArray(v.failed);
 
 export const isDiagnosis: Guard<Diagnosis> = (v): v is Diagnosis =>
 	isObj(v) &&
@@ -449,30 +561,64 @@ export const isDiagnosis: Guard<Diagnosis> = (v): v is Diagnosis =>
 	isBool(v.requires_approval);
 
 export const isBackupSummary: Guard<BackupSummary> = (v): v is BackupSummary =>
-	isObj(v) && isStr(v.cluster) && optStr(v.policy) && optDate(v.lastBackupAt) && optDate(v.lastVerifiedRestoreAt);
+	isObj(v) &&
+	isStr(v.cluster) &&
+	optStr(v.swarm) &&
+	optStr(v.policy) &&
+	optDate(v.lastBackupAt) &&
+	optStr(v.lastBackupId) &&
+	optDate(v.lastVerifiedRestoreAt) &&
+	optDate(v.nextRunAt);
 
 const isPanel = (v: unknown): v is Panel =>
-	isObj(v) && isStr(v.id) && oneOf(['line', 'stat'] as const)(v.kind) && isStr(v.title) && isStr(v.query) && optStr(v.unit);
+	isObj(v) &&
+	isStr(v.id) &&
+	isStr(v.title) &&
+	oneOf(panelKinds)(v.kind) &&
+	isStr(v.selector) &&
+	isStr(v.func) &&
+	isNum(v.windowSeconds) &&
+	isNum(v.stepSeconds) &&
+	optNum(v.quantile) &&
+	isNum(v.x) &&
+	isNum(v.y) &&
+	isNum(v.w) &&
+	isNum(v.h);
 
 export const isDashboard: Guard<Dashboard> = (v): v is Dashboard =>
 	isObj(v) &&
 	isStr(v.id) &&
-	isStr(v.name) &&
+	isStr(v.title) &&
+	isStr(v.owner) &&
 	isBool(v.shared) &&
-	optStr(v.owner) &&
-	optDate(v.updatedAt) &&
+	(v.template === undefined || isBool(v.template)) &&
 	Array.isArray(v.panels) &&
 	v.panels.every(isPanel);
 
+const isMetricPoint = (p: unknown): p is MetricPoint =>
+	isObj(p) &&
+	isNum(p.t) &&
+	oneOf(pointStates)(p.state) &&
+	// A value exists exactly for state "ok"; anything else is an explicit gap.
+	(p.state === 'ok' ? isNum(p.v) : p.v === null);
+
 export const isMetricsResult: Guard<MetricsResult> = (v): v is MetricsResult =>
 	isObj(v) &&
+	isNum(v.start) &&
+	isNum(v.end) &&
+	isNum(v.stepSeconds) &&
+	isNum(v.windowSeconds) &&
 	Array.isArray(v.series) &&
 	v.series.every(
 		(s) =>
 			isObj(s) &&
+			isObj(s.labels) &&
+			Object.values(s.labels).every(isStr) &&
 			Array.isArray(s.points) &&
-			s.points.every((p) => Array.isArray(p) && p.length === 2 && isNum(p[0]) && (p[1] === null || isNum(p[1])))
-	);
+			s.points.every(isMetricPoint)
+	) &&
+	Array.isArray(v.gaps) &&
+	v.gaps.every((g) => isObj(g) && isNum(g.from) && isNum(g.to) && isStr(g.reason));
 
 export const isNotification: Guard<AppNotification> = (v): v is AppNotification =>
 	isObj(v) &&
@@ -499,6 +645,11 @@ export const isNotificationSettings: Guard<NotificationSettings> = (v): v is Not
 
 export type FetchFn = typeof fetch;
 
+/** A fresh ID for a new dashboard; always matches dashboardIdRE. */
+export function newDashboardId(): string {
+	return `d-${crypto.randomUUID()}`;
+}
+
 export function createClient(fetchFn: FetchFn) {
 	async function call<T>(method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, guard: Guard<T>, body?: unknown): Promise<T> {
 		const init: RequestInit = {
@@ -515,9 +666,11 @@ export function createClient(fetchFn: FetchFn) {
 		}
 		if (!res.ok) {
 			let code: string | undefined;
+			let leader: string | undefined;
 			try {
 				const b: unknown = await res.json();
 				if (isObj(b) && isStr(b.error)) code = b.error;
+				if (isObj(b)) leader = leaderHint(b.leader);
 			} catch {
 				// non-JSON error body: classify by status only
 			}
@@ -526,7 +679,8 @@ export function createClient(fetchFn: FetchFn) {
 				classify(res.status, code),
 				res.status,
 				Number.isFinite(ra) && ra > 0 ? ra : undefined,
-				isKnownCode(code) ? code : undefined
+				isKnownCode(code) ? code : undefined,
+				code === 'not_leader' ? leader : undefined
 			);
 		}
 		if (res.status === 204) {
@@ -582,12 +736,8 @@ export function createClient(fetchFn: FetchFn) {
 		operations: () => items(call('GET', '/operations', listOf(isOperation))),
 		events: () => items(call('GET', '/events', listOf(isEvent))),
 
-		// --- Endpoints below were the UI's assumed contract (docs/DESIGN.md).
-		// Hosts, cluster commands, backups, notifications and notification
-		// settings are now in api/openapi.yaml with these shapes. Dashboards
-		// and metric queries still differ from the manager's contract
-		// (title/selector panels, point objects with state) and need a UI
-		// change. 404/503 are shown as "API not available".
+		// --- Command and monitoring endpoints (api/openapi.yaml). 404/503
+		// without a coarse code are shown as "API not available".
 		hosts: () => items(call('GET', '/hosts', listOf(isHost))),
 		createCluster: (req: CreateClusterRequest) => call('POST', '/clusters', isOperationRef, req),
 		replaceNode: (cluster: string, slot: string) =>
@@ -600,18 +750,30 @@ export function createClient(fetchFn: FetchFn) {
 		outageDiagnosis: (cluster: string) =>
 			call('GET', `/clusters/${encodeURIComponent(cluster)}/outage-diagnosis`, isDiagnosis),
 		backups: () => items(call('GET', '/backups', listOf(isBackupSummary))),
-		inspectRestore: (req: { cluster: string; backup?: string }) =>
-			call('POST', '/restores/inspect', isObj as Guard<Record<string, unknown>>, req),
+		inspectRestore: (req: InspectionInput) => call('POST', '/restores/inspect', isInspectionStarted, req),
 		dashboards: () => items(call('GET', '/dashboards', listOf(isDashboard))),
+		/** Updates with PUT /dashboards/{id}; without an id creates with POST /dashboards/{newId} (client-chosen ID). */
 		saveDashboard: (d: DashboardInput, id?: string) =>
 			id
 				? call('PUT', `/dashboards/${encodeURIComponent(id)}`, isDashboard, d)
-				: call('POST', '/dashboards', isDashboard, d),
+				: call('POST', `/dashboards/${encodeURIComponent(newDashboardId())}`, isDashboard, d),
 		deleteDashboard: (id: string) => call('DELETE', `/dashboards/${encodeURIComponent(id)}`, isAny),
 		queryMetrics: (req: MetricsQuery) => call('POST', '/metrics/query', isMetricsResult, req),
 		notifications: () => items(call('GET', '/notifications', listOf(isNotification))),
 		markNotification: (id: string, action: 'read' | 'ack') =>
 			call('POST', `/notifications/${encodeURIComponent(id)}/${action}`, isAny, {}),
+		connectSwarm: (req: { name: string; dockerHost: string }) => call('POST', '/swarms', isSwarm, req),
+		syncSwarm: (id: string) => call('POST', `/swarms/${encodeURIComponent(id)}/sync`, isAny, {}),
+		deployAgents: (id: string) =>
+			call('POST', `/swarms/${encodeURIComponent(id)}/agents/deploy`, isAgentDeployment, {}),
+		/** Enroll or revoke the agent of a host (the path takes the Swarm node ID). */
+		setEnrollment: (nodeId: string, action: 'enroll' | 'revoke') =>
+			call('POST', `/hosts/${encodeURIComponent(nodeId)}/${action}`, isHost, {}),
+		resumeOperation: (id: string) => call('POST', `/operations/${encodeURIComponent(id)}/resume`, isOperationRef, {}),
+		abortOperation: (id: string) => call('POST', `/operations/${encodeURIComponent(id)}/abort`, isOperationRef, {}),
+		/** The digest is the one of the displayed approval; the manager refuses a mismatch. */
+		approveOperation: (id: string, digest: string) =>
+			call('POST', `/operations/${encodeURIComponent(id)}/approve`, isApproval, { digest }),
 		notificationSettings: () => call('GET', '/settings/notifications', isNotificationSettings),
 		saveNotificationSettings: (s: NotificationSettingsInput) =>
 			call('PUT', '/settings/notifications', isNotificationSettings, s)

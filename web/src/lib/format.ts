@@ -1,5 +1,5 @@
-import { ApiError } from './api';
-import type { MessageKey } from './i18n';
+import { ApiError, type KnownCode } from './api';
+import type { MessageKey, Params } from './i18n';
 import { CeremonyError, type CeremonyFailure } from './webauthn';
 
 /** Relative age such as "3 minutes ago"; undefined input or invalid dates yield undefined. */
@@ -36,8 +36,25 @@ export function newestFirst<T>(items: readonly T[], time: (item: T) => string | 
 		.map((e) => e.item);
 }
 
-/** Message for an API error; uses only the coarse classification, never server text. */
-export function errorMessage(e: ApiError): { key: MessageKey; params?: Record<string, number> } {
+const codeKeys: Record<KnownCode, MessageKey> = {
+	requires_guided_recovery: 'codeGuidedRecovery',
+	no_capacity: 'codeNoCapacity',
+	policy_conflict: 'codePolicyConflict',
+	settings_incomplete: 'codeSettingsIncomplete',
+	cluster_exists: 'codeClusterExists',
+	busy: 'codeBusy',
+	approval_mismatch: 'codeApprovalMismatch',
+	not_leader: 'codeNotLeader'
+};
+
+/**
+ * Message for an API error; uses only the coarse classification and the
+ * allowlisted code, never server text. A not_leader leader hint is shown only
+ * when it was accepted by the client as host[:port].
+ */
+export function errorMessage(e: ApiError): { key: MessageKey; params?: Params } {
+	if (e.code === 'not_leader' && e.leader) return { key: 'codeNotLeaderAt', params: { leader: e.leader } };
+	if (e.code) return { key: codeKeys[e.code] };
 	switch (e.kind) {
 		case 'unauthenticated':
 			return { key: 'errUnauthenticated' };
@@ -85,7 +102,7 @@ export function recoveryLinkParams(url: URL): { account?: string; token?: string
 	return { account: pick('account') || undefined, token: pick('token') || undefined };
 }
 
-export type Failure = { key: MessageKey; params?: Record<string, number> };
+export type Failure = { key: MessageKey; params?: Params };
 
 /** Localized failure for a passkey flow: browser ceremony errors or API errors. */
 export function failureOf(e: unknown): Failure {
