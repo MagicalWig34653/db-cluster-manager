@@ -123,7 +123,9 @@ func TestMTLSServerRejectsClients(t *testing.T) {
 	expiredPKI := env.ca
 	cases := map[string]func() *tls.Certificate{
 		"no client certificate": func() *tls.Certificate { return &tls.Certificate{} },
-		"wrong CA":              func() *tls.Certificate { return other.issue(t, certs.KindClient, "manager", time.Hour, certs.ManagerURI("inst")) },
+		"wrong CA": func() *tls.Certificate {
+			return other.issue(t, certs.KindClient, "manager", time.Hour, certs.ManagerURI("inst"))
+		},
 		"expired": func() *tls.Certificate {
 			saved := expiredPKI.now
 			expiredPKI.now = time.Now().Add(-3 * time.Hour)
