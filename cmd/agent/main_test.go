@@ -22,12 +22,12 @@ import (
 )
 
 func TestParseFlags(t *testing.T) {
-	base := []string{"-listen", "127.0.0.1:7070", "-state", "/var/lib/a", "-installation", "inst-1", "-volume-base", "/srv/dbcm"}
+	base := []string{"-insecure-lab", "-listen", "127.0.0.1:7070", "-state", "/var/lib/a", "-installation", "inst-1", "-volume-base", "/srv/dbcm"}
 	o, err := parseFlags(base)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if o.listen != "127.0.0.1:7070" || o.docker != "unix:///var/run/docker.sock" || o.stateDir != "/var/lib/a" || o.installation != "inst-1" || o.volumeBase != "/srv/dbcm" {
+	if !o.insecureLab || o.listen != "127.0.0.1:7070" || o.docker != "unix:///var/run/docker.sock" || o.stateDir != "/var/lib/a" || o.installation != "inst-1" || o.volumeBase != "/srv/dbcm" {
 		t.Fatalf("parsed %+v", o)
 	}
 	if o, err := parseFlags([]string{"-version"}); err != nil || !o.showVersion {
@@ -47,7 +47,7 @@ func TestParseFlags(t *testing.T) {
 		return append(out, k, v)
 	}
 	bad := map[string][]string{
-		"missing listen":       base[2:],
+		"missing listen":       append([]string{"-insecure-lab"}, base[3:]...),
 		"missing state":        with("-state", ""),
 		"missing installation": with("-installation", ""),
 		"missing volume base":  with("-volume-base", ""),
@@ -128,7 +128,7 @@ func startAgent(t *testing.T, docker string) (string, func() error) {
 	t.Helper()
 	state := filepath.Join(t.TempDir(), "state")
 	volBase := t.TempDir()
-	o, err := parseFlags([]string{"-listen", "127.0.0.1:0", "-docker", docker, "-state", state, "-installation", "inst-1", "-volume-base", volBase})
+	o, err := parseFlags([]string{"-insecure-lab", "-listen", "127.0.0.1:0", "-docker", docker, "-state", state, "-installation", "inst-1", "-volume-base", volBase})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +215,7 @@ func TestRunFailsWithoutDocker(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(dir)
-	o, err := parseFlags([]string{"-listen", "127.0.0.1:0", "-docker", "unix://" + filepath.Join(dir, "none.sock"),
+	o, err := parseFlags([]string{"-insecure-lab", "-listen", "127.0.0.1:0", "-docker", "unix://" + filepath.Join(dir, "none.sock"),
 		"-state", filepath.Join(dir, "state"), "-installation", "inst-1", "-volume-base", dir})
 	if err != nil {
 		t.Fatal(err)
@@ -228,7 +228,7 @@ func TestRunFailsWithoutDocker(t *testing.T) {
 func TestRunRejectsMissingVolumeBase(t *testing.T) {
 	dir := t.TempDir()
 	// Never the real daemon socket: point -docker at a path that does not exist.
-	o, err := parseFlags([]string{"-listen", "127.0.0.1:0", "-docker", "unix://" + filepath.Join(dir, "none.sock"),
+	o, err := parseFlags([]string{"-insecure-lab", "-listen", "127.0.0.1:0", "-docker", "unix://" + filepath.Join(dir, "none.sock"),
 		"-state", filepath.Join(dir, "state"), "-installation", "i", "-volume-base", filepath.Join(dir, "missing")})
 	if err != nil {
 		t.Fatal(err)
