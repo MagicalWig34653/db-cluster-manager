@@ -129,10 +129,10 @@ func TestCreatePlanEndToEndOnMetastoreCluster(t *testing.T) {
 	first := c.leader("")
 	oldTerm := first.Term()
 	joiner := p.Nodes[1].HostID
-	agents[joiner].addFault("07-create-service-n2", dropResponse)
+	agents[joiner].addFault("09-create-service-n2", dropResponse)
 	var once sync.Once
 	agents[joiner].before = func(cmd agent.Command) {
-		if cmd.StepID == "07-create-service-n2" {
+		if cmd.StepID == "09-create-service-n2" {
 			once.Do(func() { c.kill(first.ID()) })
 		}
 	}
@@ -155,8 +155,8 @@ func TestCreatePlanEndToEndOnMetastoreCluster(t *testing.T) {
 		t.Fatalf("second leader: err %v status %s (%s)", err, v2.Status, v2.Reason)
 	}
 	effects := countEffects(agents)
-	if len(effects) != 10 {
-		t.Errorf("%d distinct effects, want 10: %v", len(effects), effects)
+	if len(effects) != 13 {
+		t.Errorf("%d distinct effects, want 13: %v", len(effects), effects)
 	}
 	for e, n := range effects {
 		if n != 1 {
@@ -166,7 +166,7 @@ func TestCreatePlanEndToEndOnMetastoreCluster(t *testing.T) {
 	// The lost-answer step was queried under the same IDs by the new term.
 	var queried bool
 	for _, cmd := range agents[joiner].Received() {
-		if cmd.StepID == "07-create-service-n2" && cmd.Term == second.Term() {
+		if cmd.StepID == "09-create-service-n2" && cmd.Term == second.Term() {
 			queried = true
 		}
 	}

@@ -118,6 +118,24 @@ func convertStep(p galera.Plan, gs galera.Step, b GaleraBindings) (Step, error) 
 		}
 		s.Command, args = agent.KindInitIdentity, agent.InitIdentityArgs{VolumeRoot: root(), Token: agent.NewIdentityToken{
 			TokenID: tok, Identity: agent.Identity{InstallationID: b.InstallationID, ClusterID: p.ClusterID, NodeUUID: gs.NodeUUID}}}
+	case galera.StepInitVolumeDirs:
+		if gs.Owner == nil {
+			return Step{}, fmt.Errorf("%w: init-volume-dirs without owner", ErrInvalidOperation)
+		}
+		s.Command, args = agent.KindInitVolumeDirs, agent.InitVolumeDirsArgs{VolumeRoot: root(),
+			Expected: agent.Identity{InstallationID: b.InstallationID, ClusterID: p.ClusterID, NodeUUID: gs.NodeUUID},
+			UID:      gs.Owner.UID, GID: gs.Owner.GID}
+	case galera.StepExecSQL:
+		if gs.SQL == nil {
+			return Step{}, fmt.Errorf("%w: exec-sql without template", ErrInvalidOperation)
+		}
+		// The agent connects as root with the cluster's root password secret,
+		// which its own service must mount (ADR 0011).
+		s.Command, args = agent.KindExecSQL, agent.ExecSQLArgs{VolumeRoot: root(),
+			Expected: agent.Identity{InstallationID: b.InstallationID, ClusterID: p.ClusterID, NodeUUID: gs.NodeUUID},
+			Template: string(gs.SQL.Template), User: gs.SQL.User, Host: gs.SQL.Host,
+			RequireSSL: gs.SQL.RequireSSL, Logical: gs.SQL.Logical,
+			PasswordSecret: gs.SQL.PasswordSecret, AdminSecret: p.Cluster.RootPasswordSecret}
 	case galera.StepCreateService:
 		if gs.Spec == nil {
 			return Step{}, fmt.Errorf("%w: create-service without spec", ErrInvalidOperation)

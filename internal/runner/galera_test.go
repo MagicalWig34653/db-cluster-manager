@@ -92,7 +92,7 @@ func TestFromGaleraPlanCreate(t *testing.T) {
 	}
 	want := []string{}
 	for range 3 {
-		want = append(want, "create-volume", "init-identity", "create-service", "")
+		want = append(want, "create-volume", "init-identity", "init-volume-dirs", "create-service", "")
 	}
 	want = append(want, "update-service", "")
 	if !slices.Equal(kinds, want) {
@@ -109,24 +109,24 @@ func TestFromGaleraPlanCreate(t *testing.T) {
 	}
 	// The bootstrap node is created with the bootstrap flag, the update drops it.
 	var spec agent.ServiceSpec
-	if err := json.Unmarshal(op.Steps[2].Args, &spec); err != nil {
+	if err := json.Unmarshal(op.Steps[3].Args, &spec); err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Contains(spec.Args, galera.BootstrapFlag) {
 		t.Errorf("bootstrap create without flag: %v", spec.Args)
 	}
 	var upd UpdateServiceArgs
-	if err := json.Unmarshal(op.Steps[12].Args, &upd); err != nil {
+	if err := json.Unmarshal(op.Steps[15].Args, &upd); err != nil {
 		t.Fatal(err)
 	}
 	if slices.Contains(upd.Spec.Args, galera.BootstrapFlag) || upd.ServiceName != "dbcm-shop-n1" {
 		t.Errorf("update args %+v", upd)
 	}
 	// Joiner n2 waits for n1 synced at size 1; wait-synced is a gate.
-	if c := op.Steps[6].Preconditions; !slices.Contains(c, Condition{Kind: CondNodeSynced, Target: "n1", ClusterSize: 1}) {
+	if c := op.Steps[8].Preconditions; !slices.Contains(c, Condition{Kind: CondNodeSynced, Target: "n1", ClusterSize: 1}) {
 		t.Errorf("n2 create preconditions %+v", c)
 	}
-	if g := op.Steps[3]; g.Command != "" || !slices.Contains(g.Preconditions, Condition{Kind: CondNodeSynced, Target: "n1", ClusterSize: 1}) {
+	if g := op.Steps[4]; g.Command != "" || !slices.Contains(g.Preconditions, Condition{Kind: CondNodeSynced, Target: "n1", ClusterSize: 1}) {
 		t.Errorf("wait gate %+v", g)
 	}
 }
@@ -179,7 +179,7 @@ func TestFromGaleraPlanReplacement(t *testing.T) {
 	for _, s := range op.Steps {
 		kinds = append(kinds, string(s.Command))
 	}
-	want := []string{"remove-service", "", "create-volume", "init-identity", "", "create-service", ""}
+	want := []string{"remove-service", "", "create-volume", "init-identity", "init-volume-dirs", "", "create-service", ""}
 	if !slices.Equal(kinds, want) {
 		t.Errorf("commands %q want %q", kinds, want)
 	}
@@ -261,10 +261,10 @@ func TestCreatePlanEndToEndWithFakes(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Lose one answer mid-way and fail over to m2 during the joiner n3.
-	h.agents[p.Nodes[1].HostID].addFault("07-create-service-n2", dropResponse)
+	h.agents[p.Nodes[1].HostID].addFault("09-create-service-n2", dropResponse)
 	var once sync.Once
 	h.agents[p.Nodes[2].HostID].before = func(cmd agent.Command) {
-		if cmd.StepID == "09-create-volume-n3" {
+		if cmd.StepID == "11-create-volume-n3" {
 			once.Do(func() { h.meta.elect("m2", false) })
 		}
 	}
@@ -285,15 +285,65 @@ func TestCreatePlanEndToEndWithFakes(t *testing.T) {
 			t.Errorf("effect %s executed %d times", e, n)
 		}
 	}
-	if n := len(countEffects(h.agents)); n != 10 {
-		t.Errorf("%d distinct effects; want 10 agent commands", n)
+	if n := len(countEffects(h.agents)); n != 13 {
+		t.Errorf("%d distinct effects; want 13 agent commands", n)
 	}
 	for _, c := range h.agents[p.Nodes[2].HostID].Received() {
-		if c.StepID == "11-create-service-n3" && c.Term != 2 {
+		if c.StepID == "14-create-service-n3" && c.Term != 2 {
 			t.Errorf("n3 created under term %d", c.Term)
 		}
 	}
-	if !strings.HasPrefix(v2.Kind, "galera/") || len(v2.Steps) != 14 {
+	if !strings.HasPrefix(v2.Kind, "galera/") || len(v2.Steps) != 17 {
 		t.Errorf("view %s %d", v2.Kind, len(v2.Steps))
+	}
+}
+
+// TestFromGaleraPlanAccounts: the bootstrap account steps become exec-sql
+// commands on the bootstrap host that name templates and secrets only; the
+// agent connects with the cluster's root password secret.
+func TestFromGaleraPlanAccounts(t *testing.T) {
+	c := testGaleraCluster()
+	c.Accounts = galera.Accounts{MonitorSecret: "dbcm-inst-monitor-pw", BackupSecret: "dbcm-inst-backup-pw"}
+	p, err := galera.PlanCreate(galera.Topology{Cluster: c, Size: 3,
+		Resources: galera.Resources{Limits: galera.ResourceAmount{MilliCPU: 1000, MemoryBytes: 2 * gib}},
+		NewUUID:   seqUUIDs("00000000")}, testHosts("h1", "h2", "h3"), galera.PlacementPolicy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	op, err := FromGaleraPlan(p, createBindings("op-acc"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []agent.ExecSQLArgs
+	for _, s := range op.Steps {
+		if s.Command != agent.KindExecSQL {
+			continue
+		}
+		if s.Target != p.Nodes[0].HostID {
+			t.Errorf("exec-sql on %s, want bootstrap host %s", s.Target, p.Nodes[0].HostID)
+		}
+		var a agent.ExecSQLArgs
+		if err := json.Unmarshal(s.Args, &a); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(s.Args), "IDENTIFIED") || strings.Contains(string(s.Args), "GRANT") {
+			t.Errorf("SQL text in exec-sql args: %s", s.Args)
+		}
+		got = append(got, a)
+	}
+	if len(got) != 2 {
+		t.Fatalf("exec-sql steps %d", len(got))
+	}
+	m, b := got[0], got[1]
+	if m.Template != "create-monitor-user" || m.User != "dbcm_monitor" || m.Host != "localhost" || m.PasswordSecret != "dbcm-inst-monitor-pw" ||
+		m.AdminSecret != "dbcm-shop-root-pw" || m.Expected.NodeUUID != p.Nodes[0].NodeUUID || m.VolumeRoot != "/var/lib/dbcm/volumes/"+p.Nodes[0].Volume {
+		t.Errorf("monitor args %+v", m)
+	}
+	if b.Template != "create-backup-user" || b.User != "dbcm_backup" || b.Host != "%" || b.PasswordSecret != "dbcm-inst-backup-pw" {
+		t.Errorf("backup args %+v", b)
+	}
+	var dirs agent.InitVolumeDirsArgs
+	if err := json.Unmarshal(op.Steps[2].Args, &dirs); err != nil || dirs.UID != 999 || dirs.GID != 999 || dirs.Expected.ClusterID != "clu-1" {
+		t.Errorf("init-volume-dirs args %+v (%v)", dirs, err)
 	}
 }

@@ -50,7 +50,10 @@ type Server struct {
 	TLSConfig *tls.Config // non-nil: SSL is offered
 
 	// behaviour
-	Mode     string            // "" normal, "silent" (no greeting), "garbage" (junk after auth), "badrows"
+	Mode string // "" normal, "silent" (no greeting), "garbage" (junk after auth), "badrows"
+	// FailOn makes a query containing it fail with an error that echoes the
+	// query, as MariaDB's syntax errors quote the statement.
+	FailOn   string
 	vars     map[string]string // answered for SHOW GLOBAL STATUS
 	Accepted atomic.Int32
 	Queries  atomic.Int32
@@ -61,6 +64,9 @@ func New(t *testing.T, user, password string, vars map[string]string, opts ...fu
 	t.Helper()
 	return listen(t, "tcp", "127.0.0.1:0", user, password, vars, opts...)
 }
+
+// WithFailOn sets Server.FailOn before the server starts serving.
+func WithFailOn(substr string) func(*Server) { return func(s *Server) { s.FailOn = substr } }
 
 // NewUnix is New on a unix socket at path.
 func NewUnix(t *testing.T, path, user, password string, vars map[string]string, opts ...func(*Server)) *Server {
@@ -217,7 +223,9 @@ func (f *Server) handle(c net.Conn) {
 			case f.QueryLog <- q:
 			default:
 			}
-			if strings.HasPrefix(strings.ToUpper(q), "SHOW GLOBAL STATUS") {
+			if f.FailOn != "" && strings.Contains(q, f.FailOn) {
+				_ = writePkt(rw, 1, errPacket(1064, "42000", "You have an error in your SQL syntax near '"+q+"'"))
+			} else if strings.HasPrefix(strings.ToUpper(q), "SHOW GLOBAL STATUS") {
 				f.sendStatus(rw)
 			} else {
 				_ = writePkt(rw, 1, []byte{0, 0, 0, 2, 0, 0, 0})

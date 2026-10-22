@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -181,6 +182,40 @@ func TestCollectHealthArgsAndConfig(t *testing.T) {
 	writeRaw(t, outside, "")
 	wantStatus(t, f.mustDo(1, "h", "link", KindCollectHealth, CollectHealthArgs{Socket: link}), StatusRefused, CodeInvalidPath)
 	wantStatus(t, f.mustDo(1, "h", "missing", KindCollectHealth, CollectHealthArgs{Socket: filepath.Join(f.base, "none.sock")}), StatusRefused, CodeInvalidPath)
+}
+
+// The Galera spec's socket (galera.SocketPath inside the container) is
+// <volume root>/DefaultSocket on the host; collect-health accepts exactly
+// that path and refuses it when run/ is redirected out of the volume base.
+func TestCollectHealthGaleraSocketPath(t *testing.T) {
+	f := newFixture(t)
+	st := &fakeStatus{vars: map[string]string{"wsrep_ready": "ON"}}
+	f.withStatus(st)
+	root := f.volume("galera-1")
+	if galera.VolumeTarget+"/"+DefaultSocket != galera.SocketPath {
+		t.Fatalf("DefaultSocket %q does not map to the spec's %q", DefaultSocket, galera.SocketPath)
+	}
+	gs := galeraSpec(t, "galera-1")
+	if !slices.Contains(gs.Args, "--socket="+galera.SocketPath) {
+		t.Fatalf("spec args lack the socket: %v", gs.Args)
+	}
+	sock := filepath.Join(root, DefaultSocket)
+	writeRaw(t, sock, "")
+	wantStatus(t, f.mustDo(1, "h", "ok", KindCollectHealth, CollectHealthArgs{Socket: sock}), StatusSucceeded, "")
+
+	// run/ replaced by a link to a directory outside the base.
+	outside := filepath.Join(f.dir, "elsewhere")
+	writeRaw(t, filepath.Join(outside, "mysqld.sock"), "")
+	if err := os.RemoveAll(filepath.Join(root, "run")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "run")); err != nil {
+		t.Fatal(err)
+	}
+	wantStatus(t, f.mustDo(1, "h", "redirected", KindCollectHealth, CollectHealthArgs{Socket: sock}), StatusRefused, CodeInvalidPath)
+	if len(st.calls) != 1 {
+		t.Fatalf("queried a redirected socket: %v", st.calls)
+	}
 }
 
 const grastate = "# GALERA saved state\nversion: 2.1\nuuid:    6b1f8a4c-1f3e-11ef-9c6e-7a1b2c3d4e5f\nseqno:   1234\nsafe_to_bootstrap: 1\n"

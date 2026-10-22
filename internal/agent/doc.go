@@ -25,6 +25,10 @@
 //   - Destructive or start operations on database volumes verify the identity
 //     marker first. An empty volume is accepted only through a single-use
 //     "new identity" token issued by the manager.
+//   - init-volume-dirs and exec-sql (ADR 0011) verify the marker first.
+//     exec-sql accepts only allow-listed SQL templates with structured
+//     arguments (internal/dbadmin) and reads passwords from the agent's own
+//     secret mount; results and the step record hold redacted statements.
 //
 // Transport: Handle is transport-agnostic. mtls.go serves it over mutually
 // authenticated TLS 1.3 (ADR 0010; enrollment and renewal live in

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/MagicalWig34653/db-cluster-manager/internal/agent"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/dbadmin"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/galera"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/orchestrate"
 )
@@ -66,6 +67,15 @@ func TestAgentCompatibility(t *testing.T) {
 		{galera.LabelCluster, agent.LabelCluster},
 		{galera.LabelNode, agent.LabelNode},
 		{galera.MarkerFileName, agent.MarkerFileName},
+		{galera.SocketRelPath, agent.DefaultSocket},
+		{galera.DataDirName, agent.DefaultDataDir},
+		{string(galera.StepInitVolumeDirs), string(agent.KindInitVolumeDirs)},
+		{string(galera.StepExecSQL), string(agent.KindExecSQL)},
+		{string(galera.SQLCreateMonitorUser), dbadmin.TemplateCreateMonitorUser},
+		{string(galera.SQLCreateBackupUser), dbadmin.TemplateCreateBackupUser},
+		{string(galera.SQLSetRootPassword), dbadmin.TemplateSetRootPassword},
+		{galera.VolumeTarget, agent.JobVolumeTarget},
+		{galera.DataDir, agent.JobDataDir},
 	}
 	for _, p := range pairs {
 		if p[0] != p[1] {

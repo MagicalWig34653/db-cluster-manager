@@ -60,6 +60,11 @@ func TestParseFlags(t *testing.T) {
 		"stray argument":       append(append([]string{}, base...), "extra"),
 		"unknown flag":         append(append([]string{}, base...), "-nope"),
 		"bad lab host id":      with("-host-id", "n1 x"),
+		"relative secrets dir": with("-db-secrets-dir", "secrets"),
+		"unclean secrets dir":  with("-db-secrets-dir", "/run/secrets/../x"),
+	}
+	if o.secretsDir != "/run/secrets" {
+		t.Errorf("default secrets dir %q", o.secretsDir)
 	}
 	if o, err := parseFlags(with("-host-id", "n1")); err != nil || o.hostID != "n1" {
 		t.Fatalf("lab host id: %+v, %v", o, err)

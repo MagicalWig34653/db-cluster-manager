@@ -95,7 +95,7 @@ func TestPlanReplacementCreatesNewIdentity(t *testing.T) {
 	for _, s := range p.Steps {
 		kinds = append(kinds, string(s.Kind))
 	}
-	want := []string{"remove-service", "retain-volume", "create-volume", "init-identity", "verify-donor", "create-service", "wait-synced"}
+	want := []string{"remove-service", "retain-volume", "create-volume", "init-identity", "init-volume-dirs", "verify-donor", "create-service", "wait-synced"}
 	if !slices.Equal(kinds, want) {
 		t.Fatalf("steps = %v, want %v", kinds, want)
 	}
@@ -107,7 +107,10 @@ func TestPlanReplacementCreatesNewIdentity(t *testing.T) {
 	if init.NodeUUID != nn.NodeUUID || init.Volume != nn.Volume || init.HostID != "spare" {
 		t.Errorf("init = %+v", init)
 	}
-	cs := p.Steps[5]
+	if dirs := p.Steps[4]; dirs.NodeUUID != nn.NodeUUID || dirs.Volume != nn.Volume || dirs.HostID != "spare" || dirs.Owner == nil {
+		t.Errorf("init-volume-dirs = %+v", dirs)
+	}
+	cs := p.Steps[6]
 	if cs.Spec.Bootstrap() || cs.Spec.Labels[LabelNode] != nn.NodeUUID || cs.Spec.Constraints[0] != "node.id==spare" {
 		t.Errorf("create spec = %+v", cs.Spec)
 	}
@@ -120,8 +123,8 @@ func TestPlanReplacementCreatesNewIdentity(t *testing.T) {
 	if !hasPre(p.Steps[0], Precondition{Kind: PreQuorum, ClusterSize: 2}) {
 		t.Errorf("remove preconditions = %v", p.Steps[0].Preconditions)
 	}
-	if p.Steps[6].ClusterSize != 3 {
-		t.Errorf("wait size = %d", p.Steps[6].ClusterSize)
+	if p.Steps[7].ClusterSize != 3 {
+		t.Errorf("wait size = %d", p.Steps[7].ClusterSize)
 	}
 	for _, d := range p.Desired {
 		if err := d.ValidateSteadyState(); err != nil {

@@ -64,9 +64,9 @@ func TestPlanCreateOrdering(t *testing.T) {
 		got = append(got, string(s.Kind)+":"+s.Slot)
 	}
 	want := []string{
-		"create-volume:n1", "init-identity:n1", "create-service:n1", "wait-synced:n1",
-		"create-volume:n2", "init-identity:n2", "create-service:n2", "wait-synced:n2",
-		"create-volume:n3", "init-identity:n3", "create-service:n3", "wait-synced:n3",
+		"create-volume:n1", "init-identity:n1", "init-volume-dirs:n1", "create-service:n1", "wait-synced:n1",
+		"create-volume:n2", "init-identity:n2", "init-volume-dirs:n2", "create-service:n2", "wait-synced:n2",
+		"create-volume:n3", "init-identity:n3", "init-volume-dirs:n3", "create-service:n3", "wait-synced:n3",
 		"update-service:n1", "wait-synced:n1",
 	}
 	if !slices.Equal(got, want) {
@@ -137,6 +137,19 @@ func TestPlanCreateOrdering(t *testing.T) {
 		if s.NodeUUID == "" || s.Volume == "" || s.HostID == "" {
 			t.Errorf("init step lacks identity: %+v", s)
 		}
+	}
+	// init-volume-dirs follows init-identity of the same node and carries
+	// the identity (the agent verifies the marker first) and the owner.
+	for _, s := range stepsOf(p, StepInitVolumeDirs) {
+		if s.NodeUUID == "" || s.Volume == "" || s.HostID == "" || s.Owner == nil || *s.Owner != (DirOwner{UID: DefaultDBUID, GID: DefaultDBGID}) {
+			t.Errorf("init-volume-dirs step %+v (owner %+v)", s, s.Owner)
+		}
+	}
+	if len(stepsOf(p, StepExecSQL)) != 0 {
+		t.Error("exec-sql steps without configured accounts")
+	}
+	if !slices.ContainsFunc(p.Warnings, func(w string) bool { return strings.Contains(w, "monitoring account") }) {
+		t.Errorf("no warning about the missing monitoring account: %v", p.Warnings)
 	}
 	if !slices.Equal(p.Cluster.Members, []string{"n1", "n2", "n3"}) {
 		t.Errorf("members = %v", p.Cluster.Members)
@@ -347,6 +360,49 @@ func TestPlanCreateDefaultUUIDSource(t *testing.T) {
 }
 
 func hasPre(s Step, want Precondition) bool { return slices.Contains(s.Preconditions, want) }
+
+// TestPlanCreateBootstrapAccounts: with accounts configured, the monitoring
+// and backup accounts are created on the bootstrap node once it is Synced
+// at size 1 and before the first joiner (joiners receive them by SST).
+func TestPlanCreateBootstrapAccounts(t *testing.T) {
+	topo := testTopology(3)
+	topo.Cluster.DBUID, topo.Cluster.DBGID = 1001, 1001
+	topo.Cluster.Accounts = Accounts{MonitorSecret: "dbcm-inst-monitor-pw", BackupSecret: "dbcm-inst-backup-pw", BackupLogical: true}
+	p, err := PlanCreate(topo, threeHosts(), PlacementPolicy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, s := range p.Steps[:8] {
+		got = append(got, string(s.Kind)+":"+s.Slot)
+	}
+	want := []string{"create-volume:n1", "init-identity:n1", "init-volume-dirs:n1", "create-service:n1", "wait-synced:n1",
+		"exec-sql:n1", "exec-sql:n1", "create-volume:n2"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("steps %v\nwant %v", got, want)
+	}
+	mon, bak := p.Steps[5], p.Steps[6]
+	if mon.SQL == nil || *mon.SQL != (SQLStep{Template: SQLCreateMonitorUser, User: DefaultMonitorUser, Host: "localhost", PasswordSecret: "dbcm-inst-monitor-pw"}) {
+		t.Errorf("monitor step %+v", mon.SQL)
+	}
+	if bak.SQL == nil || *bak.SQL != (SQLStep{Template: SQLCreateBackupUser, User: DefaultBackupUser, Host: "%", PasswordSecret: "dbcm-inst-backup-pw", Logical: true}) {
+		t.Errorf("backup step %+v", bak.SQL)
+	}
+	for _, s := range []Step{mon, bak} {
+		if s.NodeUUID != p.Nodes[0].NodeUUID || s.Volume != p.Nodes[0].Volume || s.HostID != p.Nodes[0].HostID {
+			t.Errorf("exec-sql step not bound to the bootstrap node: %+v", s)
+		}
+		if !hasPre(s, synced("n1", 1)) {
+			t.Errorf("exec-sql step %s does not require n1 Synced at size 1", s.ID)
+		}
+	}
+	if o := stepsOf(p, StepInitVolumeDirs)[0].Owner; *o != (DirOwner{UID: 1001, GID: 1001}) {
+		t.Errorf("owner %+v", o)
+	}
+	if slices.ContainsFunc(p.Warnings, func(w string) bool { return strings.Contains(w, "monitoring account") }) {
+		t.Errorf("unexpected warning %v", p.Warnings)
+	}
+}
 
 func stepsOf(p Plan, k StepKind) []Step {
 	var out []Step

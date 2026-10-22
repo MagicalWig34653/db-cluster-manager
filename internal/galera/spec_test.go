@@ -4,6 +4,7 @@ package galera
 
 import (
 	"errors"
+	"path"
 	"slices"
 	"strings"
 	"testing"
@@ -76,6 +77,7 @@ func TestBuildServiceSpecSteadyState(t *testing.T) {
 	}
 	wantArgs := []string{
 		"--datadir=/dbcm/data",
+		"--socket=/dbcm/run/mysqld.sock",
 		"--wsrep_on=ON",
 		"--wsrep_provider=/usr/lib/galera/libgalera_smm.so",
 		"--wsrep_cluster_name=shop",
@@ -176,7 +178,7 @@ func TestBuildServiceSpecTLSPlaceholder(t *testing.T) {
 	if !slices.Contains(spec.Args, "--ssl_cert=/run/secrets/c") || !slices.Contains(spec.Secrets, "c") {
 		t.Errorf("TLS not passed through: args=%v secrets=%v", spec.Args, spec.Secrets)
 	}
-	for _, bad := range []string{BootstrapFlag, "--wsrep_cluster_address=gcomm://", "--datadir=/tmp", "--wsrep_on=OFF"} {
+	for _, bad := range []string{BootstrapFlag, "--wsrep_cluster_address=gcomm://", "--datadir=/tmp", "--wsrep_on=OFF", "--socket=/tmp/x.sock"} {
 		c.TLS = TLSOptions{Args: []string{bad}}
 		if _, err := BuildServiceSpec(c, testNode("n2"), SpecOptions{}); !errors.Is(err, ErrInvalidSpec) {
 			t.Errorf("TLS arg %q accepted: %v", bad, err)
@@ -210,6 +212,70 @@ func TestBuildServiceSpecValidation(t *testing.T) {
 				t.Fatalf("err = %v, want ErrInvalidSpec", err)
 			}
 		})
+	}
+}
+
+// The monitoring endpoint is the unix socket inside the node volume: the
+// agent reaches it on the host at <volume root>/run/mysqld.sock. It must
+// not be in the datadir (SST empties the datadir) and not at the volume
+// root (only root writes there, so the marker stays protected).
+func TestSocketInsideVolumeOutsideDatadir(t *testing.T) {
+	if SocketPath != VolumeTarget+"/"+SocketRelPath || RunDir != VolumeTarget+"/"+RunDirName {
+		t.Errorf("socket %q / run dir %q not below %q", SocketPath, RunDir, VolumeTarget)
+	}
+	if strings.HasPrefix(SocketPath, DataDir+"/") || path.Dir(SocketPath) == VolumeTarget {
+		t.Errorf("socket %q must be in its own directory below the volume, not in the datadir", SocketPath)
+	}
+	if DataDir != VolumeTarget+"/"+DataDirName {
+		t.Errorf("datadir %q", DataDir)
+	}
+	if DefaultDBUID != 999 || DefaultDBGID != 999 {
+		t.Errorf("default database owner %d:%d, want 999:999 (mysql in mariadb:11.4.13)", DefaultDBUID, DefaultDBGID)
+	}
+	c := testCluster()
+	if u, g := c.DBOwner(); u != DefaultDBUID || g != DefaultDBGID {
+		t.Errorf("default owner %d:%d", u, g)
+	}
+	c.DBUID, c.DBGID = 1001, 1002
+	if u, g := c.DBOwner(); u != 1001 || g != 1002 {
+		t.Errorf("configured owner %d:%d", u, g)
+	}
+}
+
+func TestClusterAccountValidation(t *testing.T) {
+	ok := testCluster()
+	ok.Accounts = Accounts{MonitorSecret: "dbcm-inst-monitor-pw", BackupSecret: "dbcm-inst-backup-pw"}
+	if _, err := BuildServiceSpec(ok, testNode("n1"), SpecOptions{}); err != nil {
+		t.Fatalf("valid accounts rejected: %v", err)
+	}
+	cases := map[string]func(*Cluster){
+		"root uid":         func(c *Cluster) { c.DBUID = 0; c.DBGID = 5 },
+		"negative gid":     func(c *Cluster) { c.DBGID = -1 },
+		"huge uid":         func(c *Cluster) { c.DBUID = 1 << 31 },
+		"bad monitor user": func(c *Cluster) { c.Accounts.MonitorUser = "dbcm monitor" },
+		"bad monitor host": func(c *Cluster) { c.Accounts.MonitorHost = "a'b" },
+		"bad backup user":  func(c *Cluster) { c.Accounts.BackupUser = "root;--" },
+		"bad secret":       func(c *Cluster) { c.Accounts.BackupSecret = "../etc/shadow" },
+		"user without pw":  func(c *Cluster) { c.Accounts = Accounts{MonitorUser: "dbcm_monitor"} },
+		"same user twice": func(c *Cluster) {
+			c.Accounts.MonitorUser, c.Accounts.BackupUser = "x", "x"
+			c.Accounts.MonitorHost, c.Accounts.BackupHost = "%", "%"
+		},
+		"root as monitor": func(c *Cluster) { c.Accounts.MonitorUser = "root" },
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			c := ok
+			mutate(&c)
+			if _, err := BuildServiceSpec(c, testNode("n1"), SpecOptions{}); !errors.Is(err, ErrInvalidSpec) {
+				t.Fatalf("err = %v, want ErrInvalidSpec", err)
+			}
+		})
+	}
+	// Defaults: least-privilege accounts named as in ADR 0008/0011.
+	a := Accounts{MonitorSecret: "m", BackupSecret: "b"}.withDefaults()
+	if a.MonitorUser != DefaultMonitorUser || a.MonitorHost != "localhost" || a.BackupUser != DefaultBackupUser || a.BackupHost != "%" {
+		t.Errorf("defaults %+v", a)
 	}
 }
 

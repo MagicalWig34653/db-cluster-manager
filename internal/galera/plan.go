@@ -44,7 +44,42 @@ const (
 	StepStopAll        StepKind = "stop-all"        // ensure no database task of the cluster runs
 	StepVerifyIdentity StepKind = "verify-identity" // agent verifies the marker before a start
 	StepMarkSafe       StepKind = "mark-safe-to-bootstrap"
+	// StepInitVolumeDirs creates data/ and run/ on the new volume, owned by
+	// the database user, after the agent verified the new marker (agent
+	// KindInitVolumeDirs).
+	StepInitVolumeDirs StepKind = "init-volume-dirs"
+	// StepExecSQL runs one allow-listed SQL template on the node through
+	// its unix socket (agent KindExecSQL).
+	StepExecSQL StepKind = "exec-sql"
 )
+
+// DirOwner is the numeric owner of the database directories.
+type DirOwner struct {
+	UID int `json:"uid"`
+	GID int `json:"gid"`
+}
+
+// SQLTemplate names an allow-listed statement template (rendered by
+// internal/dbadmin, executed by the agent).
+type SQLTemplate string
+
+// SQL templates.
+const (
+	SQLCreateMonitorUser SQLTemplate = "create-monitor-user"
+	SQLCreateBackupUser  SQLTemplate = "create-backup-user"
+	SQLSetRootPassword   SQLTemplate = "set-root-password"
+)
+
+// SQLStep is the structured input of an exec-sql step. Passwords are named
+// by Swarm secret, never included.
+type SQLStep struct {
+	Template       SQLTemplate `json:"template"`
+	User           string      `json:"user,omitempty"`
+	Host           string      `json:"host,omitempty"`
+	PasswordSecret string      `json:"password_secret"`
+	RequireSSL     bool        `json:"require_ssl,omitempty"`
+	Logical        bool        `json:"logical,omitempty"`
+}
 
 // PreconditionKind names a condition that must hold before a step starts.
 type PreconditionKind string
@@ -82,6 +117,8 @@ type Step struct {
 	Volume        string         `json:"volume,omitempty"`
 	ClusterSize   int            `json:"cluster_size,omitempty"` // wait-synced: expected size
 	Spec          *ServiceSpec   `json:"spec,omitempty"`
+	Owner         *DirOwner      `json:"owner,omitempty"` // init-volume-dirs
+	SQL           *SQLStep       `json:"sql,omitempty"`   // exec-sql
 	Preconditions []Precondition `json:"preconditions,omitempty"`
 	Note          string         `json:"note,omitempty"`
 }
@@ -185,6 +222,38 @@ func synced(slot string, size int) Precondition {
 
 func specPtr(s ServiceSpec) *ServiceSpec { return &s }
 
+func ownerOf(c Cluster) *DirOwner {
+	uid, gid := c.DBOwner()
+	return &DirOwner{UID: uid, GID: gid}
+}
+
+// addNewVolume appends the steps that prepare a new node volume: create it,
+// write the new identity marker, then create the database directories.
+func (l *stepList) addNewVolume(c Cluster, n Node) {
+	l.add(Step{Kind: StepCreateVolume, Slot: n.Slot, HostID: n.HostID, Volume: n.Volume})
+	l.add(Step{Kind: StepInitIdentity, Slot: n.Slot, HostID: n.HostID, NodeUUID: n.NodeUUID, Volume: n.Volume})
+	l.add(Step{Kind: StepInitVolumeDirs, Slot: n.Slot, HostID: n.HostID, NodeUUID: n.NodeUUID, Volume: n.Volume, Owner: ownerOf(c),
+		Note: "data/ and run/ owned by the database user; the volume root and the marker stay root-owned"})
+}
+
+// accountSteps returns the exec-sql steps for the configured accounts.
+func accountSteps(c Cluster, n Node) []Step {
+	a := c.Accounts.withDefaults()
+	var out []Step
+	if c.Accounts.MonitorSecret != "" {
+		out = append(out, Step{Kind: StepExecSQL, Slot: n.Slot, HostID: n.HostID, NodeUUID: n.NodeUUID, Volume: n.Volume,
+			SQL:  &SQLStep{Template: SQLCreateMonitorUser, User: a.MonitorUser, Host: a.MonitorHost, PasswordSecret: c.Accounts.MonitorSecret, RequireSSL: a.MonitorRequireSSL},
+			Note: "least-privilege monitoring account (USAGE only); replicated to joiners"})
+	}
+	if c.Accounts.BackupSecret != "" {
+		out = append(out, Step{Kind: StepExecSQL, Slot: n.Slot, HostID: n.HostID, NodeUUID: n.NodeUUID, Volume: n.Volume,
+			SQL: &SQLStep{Template: SQLCreateBackupUser, User: a.BackupUser, Host: a.BackupHost, PasswordSecret: c.Accounts.BackupSecret,
+				RequireSSL: a.BackupRequireSSL, Logical: a.BackupLogical},
+			Note: "backup account with the mariabackup privileges"})
+	}
+	return out
+}
+
 // PlanCreate plans a new cluster: place every node, then bootstrap the first
 // node, add joiners one at a time (each only after the previous node reports
 // Synced at the expected size), and finally replace the bootstrap node's
@@ -245,14 +314,21 @@ func PlanCreate(topo Topology, hosts []Host, policy PlacementPolicy) (Plan, erro
 		if i > 0 {
 			joinPre = []Precondition{synced(nodes[i-1].Slot, i)}
 		}
-		l.add(Step{Kind: StepCreateVolume, Slot: n.Slot, HostID: n.HostID, Volume: n.Volume})
-		l.add(Step{Kind: StepInitIdentity, Slot: n.Slot, HostID: n.HostID, NodeUUID: n.NodeUUID, Volume: n.Volume})
+		l.addNewVolume(c, n)
 		note := "joiner; state transfer from the running cluster"
 		if i == 0 {
 			note = "bootstrap node: forms the new cluster"
 		}
 		l.add(Step{Kind: StepCreateService, Slot: n.Slot, HostID: n.HostID, NodeUUID: n.NodeUUID, Spec: specPtr(spec), Note: note}, joinPre...)
 		l.add(Step{Kind: StepWaitSynced, Slot: n.Slot, HostID: n.HostID, ClusterSize: i + 1})
+		if i == 0 {
+			for _, s := range accountSteps(c, n) {
+				l.add(s, synced(n.Slot, 1))
+			}
+		}
+	}
+	if c.Accounts.MonitorSecret == "" {
+		warns = append(warns, "no monitoring account configured: health collection through the node socket will fail")
 	}
 	all := make([]Precondition, len(nodes))
 	for i, n := range nodes {
