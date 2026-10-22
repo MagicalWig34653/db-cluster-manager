@@ -490,6 +490,7 @@ func (rt *managedRuntime) commandServices(st *manager.AuthStack) commandSet {
 	ops := &manager.Operations{Svc: rt.svc, Authorizer: st.Authorizer, MaxRetries: operationRetries}
 	sw := *rt.swarms
 	sw.Svc, sw.Authorizer = rt.svc, st.Authorizer
+	ops.Swarms = &sw
 	return commandSet{
 		control:  &manager.Control{Ops: ops, Swarms: &sw},
 		backups:  &manager.Backups{Ops: ops, Swarms: &sw, Backend: rt.backend},

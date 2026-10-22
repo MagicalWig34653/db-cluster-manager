@@ -419,6 +419,10 @@ func (b *Backups) start(actor authz.Subject, clusterID, trigger string) (Operati
 	if err != nil {
 		return OperationRecord{}, err
 	}
+	if err := b.Ops.allowReferenced(&plan.Operation, c.Swarm, st.InstallationID, []string{plan.Source.HostID},
+		objectRefs{Networks: []string{c.Spec.Network}, Secrets: []string{st.Backup.DBCredentialSecret, st.Backup.BackendSecret}}); err != nil {
+		return OperationRecord{}, err
+	}
 	rec := OperationRecord{ID: opID, Kind: plan.Operation.Kind, Swarm: c.Swarm, Cluster: c.ID, RequestedBy: actor.ID,
 		RequestedAt: now, Definition: plan.Operation, Nodes: c.Nodes}
 	br := BackupRecord{ID: backupID, Cluster: c.ID, Swarm: c.Swarm, OpID: opID, Method: dbbackup.MethodPhysical,

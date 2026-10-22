@@ -51,6 +51,23 @@ type Operations struct {
 	// StepTimeout and MaxRetries are passed to every planned step.
 	StepTimeout time.Duration
 	MaxRetries  int
+	// Swarms, if set, resolves the operator-provided objects an operation
+	// references so the agents can be told to allow them (allowrefs.go).
+	Swarms *Swarms
+}
+
+// nodeHosts returns the host IDs of nodes.
+func nodeHosts(nodes []galera.Node) []string {
+	out := make([]string, 0, len(nodes))
+	for _, n := range nodes {
+		out = append(out, n.HostID)
+	}
+	return out
+}
+
+// clusterRefs are the operator-provided objects a cluster's services use.
+func clusterRefs(c galera.Cluster) objectRefs {
+	return objectRefs{Networks: []string{c.Network}, Secrets: append([]string{c.RootPasswordSecret}, c.TLS.Secrets...)}
 }
 
 func (o *Operations) leadership() (*Leadership, error) {
@@ -193,6 +210,9 @@ func (o *Operations) CreateCluster(actor authz.Subject, req CreateClusterRequest
 		StepTimeout: o.StepTimeout, MaxRetries: o.MaxRetries,
 	})
 	if err != nil {
+		return OperationRecord{}, err
+	}
+	if err := o.allowReferenced(&op, req.Swarm, st.InstallationID, nodeHosts(plan.Nodes), clusterRefs(plan.Cluster)); err != nil {
 		return OperationRecord{}, err
 	}
 	now := o.Svc.cfg.Now()
@@ -370,6 +390,9 @@ func (o *Operations) ReplaceNode(actor authz.Subject, clusterID, slot string) (O
 		StepTimeout: o.StepTimeout, MaxRetries: o.MaxRetries,
 	})
 	if err != nil {
+		return OperationRecord{}, err
+	}
+	if err := o.allowReferenced(&op, c.Swarm, st.InstallationID, nodeHosts(plan.Nodes), clusterRefs(plan.Cluster)); err != nil {
 		return OperationRecord{}, err
 	}
 	rec := OperationRecord{ID: opID, Kind: op.Kind, Swarm: c.Swarm, Cluster: c.ID, RequestedBy: actor.ID,
