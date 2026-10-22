@@ -28,6 +28,8 @@ type Connector interface {
 	// SetNodeLabel changes one dbcm.* node label ("" removes it).
 	SetNodeLabel(ctx context.Context, nodeID, key, value string) error
 	CreateGlobalService(ctx context.Context, spec agent.ServiceSpec) (string, error)
+	// CreateSecret creates a dbcm-* Swarm secret.
+	CreateSecret(ctx context.Context, name string, labels map[string]string, data []byte) (string, error)
 	ListByLabel(ctx context.Context, kind agent.ObjectKind, key, value string) ([]agent.Object, error)
 }
 

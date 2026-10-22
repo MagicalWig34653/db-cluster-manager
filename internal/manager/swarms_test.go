@@ -20,6 +20,8 @@ type memConn struct {
 	nodes    []dockerclient.Node
 	labels   map[string]map[string]string
 	services []agent.Object
+	secrets  map[string][]byte
+	specs    []agent.ServiceSpec
 	fail     error
 }
 
@@ -39,7 +41,15 @@ func (m *memConn) SetNodeLabel(_ context.Context, id, k, v string) error {
 }
 func (m *memConn) CreateGlobalService(_ context.Context, s agent.ServiceSpec) (string, error) {
 	m.services = append(m.services, agent.Object{ID: "agent-svc", Labels: s.Labels})
+	m.specs = append(m.specs, s)
 	return "agent-svc", nil
+}
+func (m *memConn) CreateSecret(_ context.Context, name string, _ map[string]string, data []byte) (string, error) {
+	if m.secrets == nil {
+		m.secrets = map[string][]byte{}
+	}
+	m.secrets[name] = data
+	return "sec-" + name, nil
 }
 func (m *memConn) ListByLabel(context.Context, agent.ObjectKind, string, string) ([]agent.Object, error) {
 	return m.services, nil

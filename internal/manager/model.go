@@ -29,6 +29,10 @@ const (
 	CollPasskeys         = "passkeys"          // key: credential ID (sealed)
 	CollPolicy           = "policy"            // key: PolicyKey
 	CollAudit            = "audit"             // key: time-ordered record ID
+
+	CollPKI          = "pki"           // key: PKIKeyAgentCA (sealed)
+	CollEnrollTokens = "enroll-tokens" // key: token ID (digest only)
+	CollRevocations  = "revocations"   // key: certificate serial (hex)
 )
 
 // Singleton keys.
@@ -101,9 +105,18 @@ type HostRecord struct {
 	Enrollment Enrollment `json:"enrollment"`
 	EnrolledAt time.Time  `json:"enrolledAt,omitzero"`
 	Spare      bool       `json:"spare,omitempty"`
+	// Addr is the node's Swarm address (an IP); the mTLS agent listens on
+	// it in the host network namespace.
+	Addr string `json:"addr,omitempty"`
 	// AgentURL is the lab HTTP endpoint of the host's agent (no TLS, no
-	// authentication). Agent identity and transport are lab-grade.
+	// authentication); used only by LabAgentDirectory.
 	AgentURL string `json:"agentUrl,omitempty"`
+	// AgentSerial is the serial (hex) of the agent certificate issued at
+	// enrollment or the last renewal: the host's agent identity. Empty
+	// means the agent has not enrolled (or its identity was revoked).
+	AgentSerial     string    `json:"agentSerial,omitempty"`
+	AgentNotAfter   time.Time `json:"agentNotAfter,omitzero"`
+	AgentIdentityAt time.Time `json:"agentIdentityAt,omitzero"`
 	// AgentServiceID is the agent global service that serves this host.
 	AgentServiceID string `json:"agentServiceId,omitempty"`
 }
@@ -120,17 +133,21 @@ type NodeObservation struct {
 // ClusterRecord is the desired state of one database cluster plus its last
 // observations.
 type ClusterRecord struct {
-	ID        string                     `json:"id"`
-	Swarm     string                     `json:"swarm"`
-	Name      string                     `json:"name"`
-	Engine    string                     `json:"engine"` // "mariadb-galera"
-	Spec      galera.Cluster             `json:"spec"`
-	Size      int                        `json:"size"`
-	Resources galera.Resources           `json:"resources"`
-	Placement galera.PlacementPolicy     `json:"placement"`
-	Nodes     []galera.Node              `json:"nodes"`
-	ServiceID map[string]string          `json:"serviceIds,omitempty"` // slot -> Swarm service ID once known
-	Health    map[string]NodeObservation `json:"health,omitempty"`
+	ID        string                 `json:"id"`
+	Swarm     string                 `json:"swarm"`
+	Name      string                 `json:"name"`
+	Engine    string                 `json:"engine"` // "mariadb-galera"
+	Spec      galera.Cluster         `json:"spec"`
+	Size      int                    `json:"size"`
+	Resources galera.Resources       `json:"resources"`
+	Placement galera.PlacementPolicy `json:"placement"`
+	Nodes     []galera.Node          `json:"nodes"`
+	ServiceID map[string]string      `json:"serviceIds,omitempty"` // slot -> Swarm service ID once known
+	// MonitorPorts maps a slot to a database port published on its host;
+	// health is then collected over 127.0.0.1:<port> instead of the socket
+	// in the node's volume (Settings.MonitorSocket).
+	MonitorPorts map[string]int             `json:"monitorPorts,omitempty"`
+	Health       map[string]NodeObservation `json:"health,omitempty"`
 	// LastKnownSize is the size of the last Primary component recorded.
 	LastKnownSize int `json:"lastKnownSize"`
 	// AutoReplace enables automatic replacement (A02); the quorum rules of
@@ -150,7 +167,13 @@ type Settings struct {
 	VolumeBase string `json:"volumeBase"`
 	// AgentImage is the agent service image (pin by digest).
 	AgentImage string `json:"agentImage,omitempty"`
+	// MonitorSocket is the database's unix socket relative to a node's
+	// volume root, used by health collection (default DefaultMonitorSocket).
+	MonitorSocket string `json:"monitorSocket,omitempty"`
 }
+
+// DefaultMonitorSocket is the default Settings.MonitorSocket.
+const DefaultMonitorSocket = "run/mysqld.sock"
 
 // OperationRecord stores an operation's definition (needed by a new leader
 // to take it over) and its latest runner view (for the UI).
@@ -162,9 +185,13 @@ type OperationRecord struct {
 	RequestedBy string           `json:"requestedBy"`
 	RequestedAt time.Time        `json:"requestedAt"`
 	Definition  runner.Operation `json:"definition"`
-	View        *runner.View     `json:"view,omitempty"`
-	UpdatedAt   time.Time        `json:"updatedAt,omitzero"`
-	EndedAt     time.Time        `json:"endedAt,omitzero"`
+	// Nodes are the plan's node identities (for a replacement the new
+	// node of the replaced slot), used to resolve health checks while the
+	// operation runs.
+	Nodes     []galera.Node `json:"nodes,omitempty"`
+	View      *runner.View  `json:"view,omitempty"`
+	UpdatedAt time.Time     `json:"updatedAt,omitzero"`
+	EndedAt   time.Time     `json:"endedAt,omitzero"`
 }
 
 // EventRecord is one stored event.

@@ -81,3 +81,41 @@ func TestCreateGlobalService(t *testing.T) {
 		t.Fatalf("body %s", body)
 	}
 }
+
+func TestNodesManagerAddressFallback(t *testing.T) {
+	f := newFakeDaemon(t)
+	f.route("GET /v1.47/nodes", reply{status: 200, body: `[{"ID":"m","Spec":{"Role":"manager"},"Status":{"State":"ready","Addr":"0.0.0.0"},` +
+		`"ManagerStatus":{"Leader":true,"Addr":"10.0.0.4:2377"}},{"ID":"w","Spec":{"Role":"worker"},"Status":{"State":"ready","Addr":"10.0.0.5"}}]`})
+	nodes, err := f.client(Options{}).Nodes(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if nodes[0].Addr != "10.0.0.4" || nodes[1].Addr != "10.0.0.5" {
+		t.Fatalf("addresses %q %q", nodes[0].Addr, nodes[1].Addr)
+	}
+}
+
+func TestCreateSecret(t *testing.T) {
+	f := newFakeDaemon(t)
+	f.route("POST /v1.47/secrets/create", reply{status: 201, body: `{"ID":"sec-1"}`})
+	c := f.client(Options{})
+	id, err := c.CreateSecret(context.Background(), "dbcm-agent-token-x", map[string]string{"dbcm.installation": "i"}, []byte("tok"))
+	if err != nil || id != "sec-1" {
+		t.Fatalf("id %q err %v", id, err)
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(f.last().Body), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["Name"] != "dbcm-agent-token-x" || body["Data"] != "dG9r" || body["Labels"].(map[string]any)["dbcm.installation"] != "i" {
+		t.Fatalf("body %v", body)
+	}
+	for _, bad := range []struct {
+		name string
+		data []byte
+	}{{"other", []byte("x")}, {"dbcm-x", nil}} {
+		if _, err := c.CreateSecret(context.Background(), bad.name, nil, bad.data); !errors.Is(err, ErrInvalidArgument) {
+			t.Errorf("%q: %v", bad.name, err)
+		}
+	}
+}
