@@ -51,6 +51,9 @@ type Config struct {
 	// Inventory and Activity back the resource endpoints.
 	Inventory Inventory
 	Activity  Activity
+	// Monitoring backs dashboards, metric queries and notifications. Nil
+	// answers those endpoints with 503.
+	Monitoring Monitoring
 	// RecoveryCodeIterations is passed to recovery.GenerateCodes; 0 selects
 	// the default.
 	RecoveryCodeIterations int
@@ -177,6 +180,26 @@ func (s *server) endpoints() []endpoint {
 		},
 		{method: "GET", path: "/operations", access: accessFiltered, handle: s.handleOperations},
 		{method: "GET", path: "/events", access: accessFiltered, handle: s.handleEvents},
+
+		{method: "GET", path: "/dashboards", access: accessFiltered, handle: s.handleDashboards},
+		{
+			method: "POST", path: "/dashboards/{id}", access: accessPermission,
+			action: authz.ActionCreate, resolve: s.resolveNewDashboard, handle: s.handleDashboardCreate,
+		},
+		{
+			method: "PUT", path: "/dashboards/{id}", access: accessPermission,
+			action: authz.ActionUpdate, resolve: s.resolveDashboard, hideDenied: true, handle: s.handleDashboardUpdate,
+		},
+		{
+			method: "DELETE", path: "/dashboards/{id}", access: accessPermission,
+			action: authz.ActionDelete, resolve: s.resolveDashboard, hideDenied: true, handle: s.handleDashboardDelete,
+		},
+		{method: "POST", path: "/metrics/query", access: accessFiltered, handle: s.handleMetricsQuery},
+		{method: "GET", path: "/notifications", access: accessFiltered, handle: s.handleNotifications},
+		{
+			method: "POST", path: "/notifications/{id}/ack", access: accessPermission,
+			action: authz.ActionOperate, resolve: s.resolveNotification, hideDenied: true, handle: s.handleNotificationAck,
+		},
 	}
 }
 
@@ -377,6 +400,8 @@ func (s *server) writeServiceError(w http.ResponseWriter, r *http.Request, err e
 	switch {
 	case errors.Is(err, ErrNotFound):
 		writeError(w, http.StatusNotFound, errNotFound)
+	case errors.Is(err, ErrConflict):
+		writeError(w, http.StatusConflict, errConflict)
 	default:
 		s.log.Error("api: resource service failed", "path", r.URL.Path, "err", err)
 		writeError(w, http.StatusServiceUnavailable, errUnavailable)

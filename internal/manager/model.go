@@ -21,6 +21,7 @@ const (
 	CollSettings   = "settings"   // key: SettingsKey
 	CollOperations = "operations" // key: operation ID
 	CollEvents     = "events"     // key: time-ordered event ID
+	CollDashboards = "dashboards" // key: dashboard ID
 
 	CollAccounts         = "accounts"          // key: account ID
 	CollSessions         = "sessions"          // key: token digest (sealed)
@@ -150,6 +151,9 @@ type Settings struct {
 	VolumeBase string `json:"volumeBase"`
 	// AgentImage is the agent service image (pin by digest).
 	AgentImage string `json:"agentImage,omitempty"`
+	// Monitoring configures metric retention, the disk budget, alert rules
+	// and notification channels. Zero values select the documented defaults.
+	Monitoring MonitoringSettings `json:"monitoring,omitzero"`
 }
 
 // OperationRecord stores an operation's definition (needed by a new leader
