@@ -94,6 +94,9 @@ func (p *AgentPKI) now() time.Time {
 	return time.Now()
 }
 
+// Installation returns the configured installation ID.
+func (p *AgentPKI) Installation() (string, error) { return p.installation() }
+
 func (p *AgentPKI) installation() (string, error) {
 	st, ok, err := Get[Settings](p.Store, CollSettings, SettingsKey)
 	if err != nil {

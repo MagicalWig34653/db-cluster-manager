@@ -83,7 +83,7 @@ func (e *enrollServer) SignAgent(ctx context.Context, host string, csr *x509.Cer
 	return e.ca.SignCSR(ctx, csr, certs.Request{Kind: certs.KindPeer, CommonName: host, IPs: []net.IP{net.IPv4(127, 0, 0, 1)},
 		URIs: []*url.URL{certs.AgentURI("inst-1", host)}, Validity: time.Hour})
 }
-func (e *enrollServer) CABundlePEM() []byte        { return e.ca.CertificatePEM() }
+func (e *enrollServer) CABundlePEM() []byte       { return e.ca.CertificatePEM() }
 func (e *enrollServer) ClientCAs() *x509.CertPool { return e.ca.Pool() }
 func (e *enrollServer) ConsumeToken(_ context.Context, plain, host string, _ net.IP) error {
 	e.mu.Lock()

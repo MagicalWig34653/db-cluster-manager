@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -60,10 +61,21 @@ func static(c *tls.Certificate) func() (*tls.Certificate, error) {
 type mtlsEnv struct {
 	ca      *pki
 	addr    string
+	mu      sync.Mutex
 	revoked map[string]bool
 }
 
-func (e *mtlsEnv) isRevoked(sn *big.Int) bool { return e.revoked[sn.Text(16)] }
+func (e *mtlsEnv) isRevoked(sn *big.Int) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.revoked[sn.Text(16)]
+}
+
+func (e *mtlsEnv) revoke(serial string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.revoked[serial] = true
+}
 
 // startMTLS serves the fixture executor with an agent certificate for host
 // "node1" of installation "inst".
@@ -161,7 +173,7 @@ func TestMTLSServerRejectsRevokedManager(t *testing.T) {
 	f := newFixture(t)
 	env := startMTLS(t, f.exec)
 	mgr := env.ca.issue(t, certs.KindClient, "manager", time.Hour, certs.ManagerURI("inst"))
-	env.revoked[mgr.Leaf.SerialNumber.Text(16)] = true
+	env.revoke(mgr.Leaf.SerialNumber.Text(16))
 	c := env.client(t, mgr, env.ca, certs.AgentURI("inst", "node1"))
 	if _, err := c.Handle(context.Background(), inspectCmd(t, "s1")); err == nil {
 		t.Fatal("revoked manager certificate accepted")
@@ -199,14 +211,13 @@ func TestMTLSClientRejectsRevokedAgent(t *testing.T) {
 	// Revoke every serial except the manager's: the agent certificate is
 	// the only other one presented.
 	c.HTTP.CloseIdleConnections()
-	env.revoked = map[string]bool{}
 	cs, err := tls.Dial("tcp", env.addr, &tls.Config{InsecureSkipVerify: true, Certificates: []tls.Certificate{*mgr}, MinVersion: tls.VersionTLS13}) //nolint:gosec // test inspects the presented cert
 	if err != nil {
 		t.Fatal(err)
 	}
 	agentSerial := cs.ConnectionState().PeerCertificates[0].SerialNumber.Text(16)
 	_ = cs.Close()
-	env.revoked[agentSerial] = true
+	env.revoke(agentSerial)
 	if _, err := c.Handle(context.Background(), inspectCmd(t, "s2")); err == nil || !errors.Is(err, certs.ErrRevoked) && !strings.Contains(err.Error(), "revoked") {
 		t.Fatalf("revoked agent accepted: %v", err)
 	}

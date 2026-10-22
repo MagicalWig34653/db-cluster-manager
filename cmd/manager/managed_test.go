@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/tls"
 	"net"
 	"net/http"
 	"strings"
@@ -12,6 +13,8 @@ import (
 
 	"github.com/MagicalWig34653/db-cluster-manager/internal/api"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/authz"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/certs"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/manager"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/recovery"
 )
 
@@ -125,3 +128,57 @@ func TestManagerSectionValidation(t *testing.T) {
 }
 
 func newProto() http.Handler { return api.NewHandler() }
+
+func TestManagedModeAgentTransport(t *testing.T) {
+	dir := t.TempDir()
+	enrollAddr := freeLoopback(t)
+	at := map[string]any{"enrollListen": enrollAddr, "managerUrl": "https://" + enrollAddr}
+	cfg, err := loadConfig(writeConfig(t, map[string]any{"manager": map[string]any{"dataDir": dir, "bind": freeLoopback(t), "agentTransport": at}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt, err := newManagedRuntime(cfg, quietLog(), &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close()
+	waitUntil(t, "leadership", rt.svc.IsLeader)
+	// The enrollment certificate needs the installation ID.
+	if _, err := manager.Put(rt.svc.Store(), manager.CollSettings, manager.SettingsKey, manager.Settings{InstallationID: "inst-1", VolumeBase: "/srv/dbcm"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS13}} //nolint:gosec // probing only
+	c := &http.Client{Transport: tr, Timeout: 5 * time.Second}
+	var resp *http.Response
+	waitUntil(t, "enrollment endpoint", func() bool {
+		r, err := c.Post("https://"+enrollAddr+"/v1/agent/enroll", "application/json", strings.NewReader("{}"))
+		if err != nil {
+			return false
+		}
+		resp = r
+		return true
+	})
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("empty enrollment request = %d", resp.StatusCode)
+	}
+	if cs := resp.TLS; cs == nil || cs.Version != tls.VersionTLS13 || !certs.HasURI(cs.PeerCertificates[0], certs.ManagerURI("inst-1")) {
+		t.Fatalf("enrollment TLS %+v", cs)
+	}
+
+	for name, m := range map[string]map[string]any{
+		"lab and mtls": {"dataDir": t.TempDir(), "bind": "127.0.0.1:0", "labAgents": true, "agentTransport": at},
+		"no listen":    {"dataDir": t.TempDir(), "bind": "127.0.0.1:0", "agentTransport": map[string]any{"managerUrl": "https://x:1"}},
+		"http url":     {"dataDir": t.TempDir(), "bind": "127.0.0.1:0", "agentTransport": map[string]any{"enrollListen": "127.0.0.1:0", "managerUrl": "http://x:1"}},
+		"bad ip":       {"dataDir": t.TempDir(), "bind": "127.0.0.1:0", "agentTransport": map[string]any{"enrollListen": "127.0.0.1:0", "managerUrl": "https://x:1", "serverIps": []string{"nope"}}},
+	} {
+		cfg, err := loadConfig(writeConfig(t, map[string]any{"manager": m}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rt, err := newManagedRuntime(cfg, quietLog(), &bytes.Buffer{}); err == nil {
+			_ = rt.Close()
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}
