@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/MagicalWig34653/db-cluster-manager/internal/galera"
 )
 
 // Kind names a command.
@@ -53,7 +55,20 @@ const (
 	// KindAllowObjects adds manager inventory IDs to the allow-list (args:
 	// AllowObjectsArgs). Objects still need the installation label.
 	KindAllowObjects Kind = "allow-objects"
+	// KindCollectHealth reads the wsrep status of the local database node
+	// through the configured StatusQuerier (args: CollectHealthArgs).
+	// Read-only: admitted by fencing, never recorded in the step record.
+	KindCollectHealth Kind = "collect-health"
+	// KindReadGrastate verifies the volume identity and reads the node's
+	// grastate.dat, confined to the volume root (args: ReadGrastateArgs).
+	// Read-only like KindCollectHealth.
+	KindReadGrastate Kind = "read-grastate"
 )
+
+// ReadOnly reports kinds without effect. They pass the fencing guard like
+// every command but are not recorded: a re-sent read returns a fresh
+// observation, and frequent polling does not grow the state file.
+func ReadOnly(k Kind) bool { return k == KindCollectHealth || k == KindReadGrastate }
 
 // Command is one fenced instruction from the manager leader.
 type Command struct {
@@ -129,6 +144,39 @@ type AllowObjectsArgs struct {
 	IDs []string `json:"ids"`
 }
 
+// CollectHealthArgs are the arguments of KindCollectHealth. Exactly one
+// endpoint is given: Address, a loopback IP literal with port (a database
+// port published on this host), or Socket, the absolute path of the
+// database's unix socket below the volume base.
+type CollectHealthArgs struct {
+	Address string `json:"address,omitempty"`
+	Socket  string `json:"socket,omitempty"`
+}
+
+// HealthOutput is the output of KindCollectHealth: the wsrep_% variables of
+// SHOW GLOBAL STATUS.
+type HealthOutput struct {
+	Status map[string]string `json:"status"`
+}
+
+// ReadGrastateArgs are the arguments of KindReadGrastate. DataDir is the
+// datadir relative to the volume root (default "data", galera.DataDir).
+type ReadGrastateArgs struct {
+	VolumeRoot string   `json:"volume_root"`
+	Expected   Identity `json:"expected"`
+	DataDir    string   `json:"data_dir,omitempty"`
+}
+
+// GrastateOutput is the output of KindReadGrastate. Present is false when
+// the file does not exist. Content is the raw file; Grastate is set when it
+// parses, ParseError otherwise.
+type GrastateOutput struct {
+	Present    bool             `json:"present"`
+	Content    string           `json:"content,omitempty"`
+	Grastate   *galera.Grastate `json:"grastate,omitempty"`
+	ParseError string           `json:"parse_error,omitempty"`
+}
+
 // Status is the outcome class of an executed step.
 type Status string
 
@@ -160,6 +208,8 @@ const (
 	CodeIO                    Code = "io-error"
 	CodeInDoubt               Code = "in-doubt"
 	CodeImmutable             Code = "immutable-field"
+	CodeDBUnavailable         Code = "db-unavailable"
+	CodeNotConfigured         Code = "not-configured"
 )
 
 // Result is the recorded outcome of one step.
@@ -231,6 +281,10 @@ func decodeCommand(cmd Command, volumeBase string) (decoded, error) {
 		args = &CreateVolumeArgs{}
 	case KindUpdateService:
 		args = &UpdateServiceArgs{}
+	case KindCollectHealth:
+		args = &CollectHealthArgs{}
+	case KindReadGrastate:
+		args = &ReadGrastateArgs{}
 	default:
 		return decoded{}, invalid("unknown kind %q", cmd.Kind)
 	}
@@ -311,6 +365,22 @@ func checkArgs(args any, volumeBase string) error {
 		if a.ObjectKind == "" {
 			return invalid("object_kind required")
 		}
+	case *CollectHealthArgs:
+		switch {
+		case (a.Address == "") == (a.Socket == ""):
+			return invalid("exactly one of address and socket required")
+		case a.Address != "":
+			if !loopbackHostPort(a.Address) {
+				return invalid("address %q must be a loopback IP literal with port", a.Address)
+			}
+		default:
+			return checkVolumeRoot(a.Socket, volumeBase)
+		}
+	case *ReadGrastateArgs:
+		if a.DataDir != "" && !filepath.IsLocal(a.DataDir) {
+			return invalid("data_dir %q must be a local relative path", a.DataDir)
+		}
+		return checkVolumeRoot(a.VolumeRoot, volumeBase)
 	case *AllowObjectsArgs:
 		if len(a.IDs) == 0 {
 			return invalid("ids required")

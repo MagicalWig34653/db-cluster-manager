@@ -89,14 +89,24 @@ func NewLabServer(h Handler) *http.Server {
 // It is an unauthenticated lab transport; see the comment at the top of this
 // file.
 func NewLabHTTPHandler(h Handler) http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc(LabCommandPath, func(w http.ResponseWriter, r *http.Request) {
+	return newCommandHandler(h, func(r *http.Request) string {
 		if !loopbackHostPort(r.RemoteAddr) {
-			writeLab(w, http.StatusForbidden, labResponse{Error: &labError{httpCodeForbidden, "peer is not loopback"}})
-			return
+			return "peer is not loopback"
 		}
 		if !loopbackHostHeader(r.Host) {
-			writeLab(w, http.StatusForbidden, labResponse{Error: &labError{httpCodeForbidden, "Host header is not a loopback address"}})
+			return "Host header is not a loopback address"
+		}
+		return ""
+	})
+}
+
+// newCommandHandler serves POST LabCommandPath. peer returns a non-empty
+// reason to refuse the request with 403 before anything is decoded.
+func newCommandHandler(h Handler, peer func(*http.Request) string) http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc(LabCommandPath, func(w http.ResponseWriter, r *http.Request) {
+		if reason := peer(r); reason != "" {
+			writeLab(w, http.StatusForbidden, labResponse{Error: &labError{httpCodeForbidden, reason}})
 			return
 		}
 		if r.Method != http.MethodPost {
@@ -154,19 +164,24 @@ func writeLab(w http.ResponseWriter, status int, body labResponse) {
 	_ = json.NewEncoder(w).Encode(body)
 }
 
-// LabClient sends commands to a lab HTTP endpoint. It implements Handler. A
-// transport error means unknown completion: the caller must re-send the same
-// (OpID, StepID) to learn the outcome, never a new step.
-type LabClient struct {
-	BaseURL string // for example "http://127.0.0.1:7070"
+// Client sends commands to an agent command endpoint: the lab HTTP endpoint
+// (BaseURL http://, HTTP nil) or the mTLS endpoint (NewMTLSClient). It
+// implements Handler. A transport error means unknown completion: the
+// caller must re-send the same (OpID, StepID) to learn the outcome, never a
+// new step.
+type Client struct {
+	BaseURL string // for example "http://127.0.0.1:7070" or "https://10.0.0.5:7443"
 	HTTP    *http.Client
 }
 
-var _ Handler = (*LabClient)(nil)
+// LabClient is the name of Client used with the lab transport.
+type LabClient = Client
+
+var _ Handler = (*Client)(nil)
 
 // Handle implements Handler over HTTP. Server-side rejections are mapped back
 // to ErrInvalidCommand, fencing.ErrStaleTerm, ErrStepConflict and ErrPersist.
-func (c *LabClient) Handle(ctx context.Context, cmd Command) (Result, error) {
+func (c *Client) Handle(ctx context.Context, cmd Command) (Result, error) {
 	body, err := json.Marshal(cmd)
 	if err != nil {
 		return Result{}, fmt.Errorf("agent: encode command: %w", err)

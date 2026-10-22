@@ -171,7 +171,8 @@ func (op Operation) stepIDs() []string {
 // changes state and is treated as destructive.
 func Idempotent(k agent.Kind) bool {
 	switch k {
-	case agent.KindInspect, agent.KindListOwned, agent.KindVerifyIdentity, agent.KindAllowObjects:
+	case agent.KindInspect, agent.KindListOwned, agent.KindVerifyIdentity, agent.KindAllowObjects,
+		agent.KindCollectHealth, agent.KindReadGrastate:
 		return true
 	}
 	return false
