@@ -220,8 +220,14 @@ type SyncReconciler struct {
 // Name implements Reconciler.
 func (r SyncReconciler) Name() string { return "swarm-sync" }
 
-// Run implements Reconciler.
-func (r SyncReconciler) Run(ctx context.Context, _ *Leadership) error {
+// Run implements Reconciler. A Swarms without Svc uses the leadership's
+// Service.
+func (r SyncReconciler) Run(ctx context.Context, l *Leadership) error {
+	sw := *r.Swarms
+	if sw.Svc == nil {
+		sw.Svc = l.svc
+	}
+	r.Swarms = &sw
 	iv := r.Interval
 	if iv <= 0 {
 		iv = 30 * time.Second
