@@ -178,7 +178,7 @@ func MapCommandError(err error) error {
 		sentinel = api.ErrNoCapacity
 	case errors.Is(err, galera.ErrPolicyConflict):
 		sentinel = api.ErrPolicyConflict
-	case errors.Is(err, ErrSettingsIncomplete), errors.Is(err, ErrNoInstallation), errors.Is(err, errNoDial):
+	case errors.Is(err, ErrSettingsIncomplete), errors.Is(err, ErrNoInstallation), errors.Is(err, errNoDial), errors.Is(err, ErrNoServiceHost):
 		sentinel = api.ErrSettingsIncomplete
 	case errors.Is(err, ErrClusterExists):
 		sentinel = api.ErrClusterExists

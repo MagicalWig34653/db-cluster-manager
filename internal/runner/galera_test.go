@@ -359,3 +359,42 @@ func TestExecSQLIsIdempotent(t *testing.T) {
 		t.Fatal("create-service must not be blindly retried")
 	}
 }
+
+// TestFromGaleraPlanServiceHost: Swarm service commands go to the service
+// host (a Swarm manager node, lab E4); node-local steps stay on the node.
+func TestFromGaleraPlanServiceHost(t *testing.T) {
+	p, err := galera.PlanCreate(galera.Topology{Cluster: testGaleraCluster(), Size: 3,
+		Resources: galera.Resources{Limits: galera.ResourceAmount{MilliCPU: 1000, MemoryBytes: 2 * gib}},
+		NewUUID:   seqUUIDs("00000000")}, testHosts("h1", "h2", "h3"), galera.PlacementPolicy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := createBindings("op-svc")
+	b.ServiceHost = "mgr"
+	op, err := FromGaleraPlan(p, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostOf := map[string]string{}
+	for _, gs := range p.Steps {
+		hostOf[gs.ID] = gs.HostID
+	}
+	services := 0
+	for _, s := range op.Steps {
+		switch s.Command {
+		case agent.KindCreateService, KindUpdateService:
+			services++
+			if s.Target != "mgr" {
+				t.Errorf("%s on %s, want the service host", s.ID, s.Target)
+			}
+		case "":
+		default:
+			if s.Target != hostOf[s.ID] {
+				t.Errorf("%s on %s, want its node host %s", s.ID, s.Target, hostOf[s.ID])
+			}
+		}
+	}
+	if services != 4 {
+		t.Fatalf("service steps %d, want 3 creates and 1 update", services)
+	}
+}

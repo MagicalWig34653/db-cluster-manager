@@ -45,6 +45,17 @@ func TestCreateClusterAllowsReferencedObjects(t *testing.T) {
 		agent.KindSecret:  {{ID: "sec-id-9", Name: "dbcm-shop-root-pw", Labels: map[string]string{agent.LabelInstallation: "other"}}},
 	}}
 	ops.Swarms = &Swarms{Dial: func(string) (swarm.Connector, error) { return conn, nil }}
+	// Service commands need an enrolled Swarm manager node with an agent
+	// identity (lab E4: workers cannot create services).
+	if _, err := ops.CreateCluster(adminSubject, createReq()); !errors.Is(err, ErrNoServiceHost) {
+		t.Fatalf("without a manager node: %v", err)
+	}
+	if _, _, err := Update(l.Store(), CollHosts, HostKey("sw1", "h2"), func(h HostRecord, _ bool) (HostRecord, error) {
+		h.Role, h.AgentSerial = "manager", "0a"
+		return h, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := ops.CreateCluster(adminSubject, createReq()); !errors.Is(err, ErrUnknownReference) {
 		t.Fatalf("secret of another installation accepted: %v", err)
 	}
@@ -68,6 +79,18 @@ func TestCreateClusterAllowsReferencedObjects(t *testing.T) {
 	slices.Sort(hosts)
 	if !slices.Equal(hosts, []string{"h1", "h2", "h3"}) || steps[3].Command == agent.KindAllowObjects {
 		t.Fatalf("allow steps for %v, next %s", hosts, steps[3].Command)
+	}
+	for _, s := range steps {
+		switch s.Command {
+		case agent.KindCreateService, "update-service":
+			if s.Target != "h2" {
+				t.Errorf("service step %s on %s, want the manager node h2", s.ID, s.Target)
+			}
+		case agent.KindCreateVolume, agent.KindInitIdentity, agent.KindInitVolumeDirs:
+			if s.Target == "" {
+				t.Errorf("node step %s without host", s.ID)
+			}
+		}
 	}
 	if !errors.Is(MapCommandError(ErrUnknownReference), api.ErrInvalidInput) {
 		t.Fatal("unknown reference not mapped to invalid input")

@@ -46,6 +46,13 @@ type GaleraBindings struct {
 	// StepTimeout and MaxRetries apply to every step.
 	StepTimeout time.Duration
 	MaxRetries  int
+	// ServiceHost is the host ID of the agent that runs the Swarm service
+	// commands (create-, update- and remove-service): a Swarm manager node,
+	// because only managers accept service changes. Lab E4: a worker's
+	// agent cannot create services and does not even see the overlay
+	// network. Empty keeps each step on its node's host (a Swarm whose
+	// hosts are all managers).
+	ServiceHost string
 }
 
 // Condition kinds produced from galera preconditions (evaluated by a Checker).
@@ -162,6 +169,12 @@ func convertStep(p galera.Plan, gs galera.Step, b GaleraBindings) (Step, error) 
 	if s.Command == "" {
 		s.Target = ""
 		return s, nil
+	}
+	switch gs.Kind {
+	case galera.StepCreateService, galera.StepUpdateService, galera.StepRemoveService:
+		if b.ServiceHost != "" {
+			s.Target = b.ServiceHost
+		}
 	}
 	if s.Target == "" {
 		return Step{}, fmt.Errorf("%w: step without host", ErrInvalidOperation)
