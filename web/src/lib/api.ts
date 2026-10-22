@@ -40,6 +40,17 @@ export interface ClusterNode {
 	id: string;
 	host?: string;
 	state: State;
+	/** Proposed field (cluster/health work): "primary", "donor", "joiner", "arbitrator" ... Unknown when absent. */
+	role?: string;
+	/** Proposed field: time of the last health observation of this node. */
+	observedAt?: string;
+}
+
+/** Proposed field of Cluster: client endpoint (e.g. proxy VIP or service name). */
+export interface Endpoint {
+	name?: string;
+	host: string;
+	port: number;
 }
 
 export interface Cluster {
@@ -50,6 +61,11 @@ export interface Cluster {
 	state: State;
 	nodes: ClusterNode[];
 	observedAt?: string;
+	/** Proposed optional fields; absent means "not reported", never "none". */
+	endpoints?: Endpoint[];
+	lastBackupAt?: string;
+	lastVerifiedRestoreAt?: string;
+	automationPolicy?: string;
 }
 
 export interface Operation {
@@ -118,12 +134,29 @@ export type ErrorKind =
 	| 'invalid_response'
 	| 'network';
 
+/**
+ * Coarse codes of the (not yet documented) write endpoints that the UI turns
+ * into explanations. Anything else is dropped so server text is never kept.
+ */
+export const knownCodes = [
+	'requires_guided_recovery',
+	'no_capacity',
+	'policy_conflict',
+	'settings_incomplete',
+	'cluster_exists',
+	'not_leader'
+] as const;
+export type KnownCode = (typeof knownCodes)[number];
+const isKnownCode = (v: unknown): v is KnownCode => isStr(v) && (knownCodes as readonly string[]).includes(v);
+
 export class ApiError extends Error {
 	constructor(
 		readonly kind: ErrorKind,
 		readonly status: number,
 		/** Seconds from Retry-After on 429, if given. */
-		readonly retryAfter?: number
+		readonly retryAfter?: number,
+		/** Allowlisted coarse server code (see knownCodes); never arbitrary server text. */
+		readonly code?: KnownCode
 	) {
 		super(`API error: ${kind} (${status})`);
 		this.name = 'ApiError';
@@ -176,7 +209,10 @@ export const isSwarm: Guard<Swarm> = (v): v is Swarm =>
 	isObj(v) && isStr(v.id) && isStr(v.name) && isState(v.state) && optDate(v.observedAt);
 
 export const isClusterNode: Guard<ClusterNode> = (v): v is ClusterNode =>
-	isObj(v) && isStr(v.id) && optStr(v.host) && isState(v.state);
+	isObj(v) && isStr(v.id) && optStr(v.host) && isState(v.state) && optStr(v.role) && optDate(v.observedAt);
+
+const isEndpoint: Guard<Endpoint> = (v): v is Endpoint =>
+	isObj(v) && optStr(v.name) && isStr(v.host) && typeof v.port === 'number';
 
 export const isCluster: Guard<Cluster> = (v): v is Cluster =>
 	isObj(v) &&
@@ -187,7 +223,11 @@ export const isCluster: Guard<Cluster> = (v): v is Cluster =>
 	isState(v.state) &&
 	Array.isArray(v.nodes) &&
 	v.nodes.every(isClusterNode) &&
-	optDate(v.observedAt);
+	optDate(v.observedAt) &&
+	(v.endpoints === undefined || (Array.isArray(v.endpoints) && v.endpoints.every(isEndpoint))) &&
+	optDate(v.lastBackupAt) &&
+	optDate(v.lastVerifiedRestoreAt) &&
+	optStr(v.automationPolicy);
 
 export const isOperation: Guard<Operation> = (v): v is Operation =>
 	isObj(v) &&
@@ -238,12 +278,223 @@ const listOf =
 const isAny = (_v: unknown): _v is unknown => true;
 
 // ---------------------------------------------------------------------------
+// Proposed contract (not in api/openapi.yaml yet). Field names align with
+// internal/manager (HostRecord, CreateClusterRequest) and internal/galera
+// (Resources, PlacementPolicy, Diagnosis); see docs/DESIGN.md.
+
+export const enrollments = ['discovered', 'enrolled', 'revoked'] as const;
+export type Enrollment = (typeof enrollments)[number];
+
+/** Mirrors manager.HostRecord (JSON names), plus proposed agentVersion/lastSeen. */
+export interface Host {
+	swarm: string;
+	nodeId: string;
+	hostname?: string;
+	role?: string;
+	availability?: string;
+	state?: string;
+	engineVersion?: string;
+	enrollment: Enrollment;
+	spare?: boolean;
+	nanoCpus?: number;
+	memoryBytes?: number;
+	observedAt?: string;
+	/** Proposed. */
+	agentVersion?: string;
+	/** Proposed. */
+	lastSeen?: string;
+}
+
+/** Mirrors galera.ResourceAmount. */
+export interface ResourceAmount {
+	milli_cpu?: number;
+	memory_bytes?: number;
+}
+
+/** Mirrors manager.CreateClusterRequest. */
+export interface CreateClusterRequest {
+	swarm: string;
+	name: string;
+	size: number;
+	image: string;
+	network: string;
+	rootPasswordSecret: string;
+	gcacheSize?: string;
+	resources: { limits: ResourceAmount; reservations: ResourceAmount };
+	placement: { allowlist?: string[]; excluded?: string[]; preferred?: string[]; reserve: ResourceAmount };
+	autoReplace?: boolean;
+}
+
+export interface Risk {
+	kind: string;
+	slot?: string;
+	detail: string;
+}
+
+export interface NodePosition {
+	slot: string;
+	source: string;
+	seqno?: number;
+	uuid?: string;
+}
+
+/** Mirrors galera.Diagnosis (advice only; requires_approval is always true). */
+export interface Diagnosis {
+	candidate?: string;
+	positions: NodePosition[];
+	reasons: string[];
+	risks?: Risk[];
+	requires_approval: boolean;
+}
+
+export interface BackupSummary {
+	cluster: string;
+	policy?: string;
+	lastBackupAt?: string;
+	lastVerifiedRestoreAt?: string;
+}
+
+export type PanelKind = 'line' | 'stat';
+export interface Panel {
+	id: string;
+	kind: PanelKind;
+	title: string;
+	query: string;
+	unit?: string;
+}
+export interface DashboardInput {
+	name: string;
+	shared: boolean;
+	panels: Panel[];
+}
+export interface Dashboard extends DashboardInput {
+	id: string;
+	owner?: string;
+	updatedAt?: string;
+}
+
+export interface MetricsQuery {
+	query: string;
+	from: string;
+	to: string;
+	/** Step in seconds. */
+	step: number;
+}
+/** points are [unixSeconds, value|null]; null (or a missing step) is a gap. */
+export interface MetricSeries {
+	labels?: Record<string, string>;
+	points: [number, number | null][];
+}
+export interface MetricsResult {
+	series: MetricSeries[];
+}
+
+export interface AppNotification {
+	id: string;
+	time: string;
+	severity: Severity;
+	message: string;
+	cluster?: string;
+	read: boolean;
+	acknowledged: boolean;
+}
+
+export interface NotificationSettings {
+	webhook: { enabled: boolean; url?: string; secretSet: boolean };
+	email: { enabled: boolean; recipients: string[] };
+}
+/** The webhook secret is write-only: sent only when changed, never returned. */
+export interface NotificationSettingsInput {
+	webhook: { enabled: boolean; url: string; secret?: string };
+	email: { enabled: boolean; recipients: string[] };
+}
+
+const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+const optNum = (v: unknown) => v === undefined || isNum(v);
+const strArray = (v: unknown): v is string[] => Array.isArray(v) && v.every(isStr);
+
+export const isHost: Guard<Host> = (v): v is Host =>
+	isObj(v) &&
+	isStr(v.swarm) &&
+	isStr(v.nodeId) &&
+	optStr(v.hostname) &&
+	optStr(v.role) &&
+	optStr(v.availability) &&
+	optStr(v.state) &&
+	optStr(v.engineVersion) &&
+	oneOf(enrollments)(v.enrollment) &&
+	(v.spare === undefined || isBool(v.spare)) &&
+	optNum(v.nanoCpus) &&
+	optNum(v.memoryBytes) &&
+	optDate(v.observedAt) &&
+	optStr(v.agentVersion) &&
+	optDate(v.lastSeen);
+
+const isOperationRef = (v: unknown): v is { id: string; kind?: string } => isObj(v) && isStr(v.id) && optStr(v.kind);
+
+export const isDiagnosis: Guard<Diagnosis> = (v): v is Diagnosis =>
+	isObj(v) &&
+	optStr(v.candidate) &&
+	Array.isArray(v.positions) &&
+	v.positions.every((p) => isObj(p) && isStr(p.slot) && isStr(p.source) && optNum(p.seqno) && optStr(p.uuid)) &&
+	strArray(v.reasons) &&
+	(v.risks === undefined ||
+		(Array.isArray(v.risks) && v.risks.every((r) => isObj(r) && isStr(r.kind) && optStr(r.slot) && isStr(r.detail)))) &&
+	isBool(v.requires_approval);
+
+export const isBackupSummary: Guard<BackupSummary> = (v): v is BackupSummary =>
+	isObj(v) && isStr(v.cluster) && optStr(v.policy) && optDate(v.lastBackupAt) && optDate(v.lastVerifiedRestoreAt);
+
+const isPanel = (v: unknown): v is Panel =>
+	isObj(v) && isStr(v.id) && oneOf(['line', 'stat'] as const)(v.kind) && isStr(v.title) && isStr(v.query) && optStr(v.unit);
+
+export const isDashboard: Guard<Dashboard> = (v): v is Dashboard =>
+	isObj(v) &&
+	isStr(v.id) &&
+	isStr(v.name) &&
+	isBool(v.shared) &&
+	optStr(v.owner) &&
+	optDate(v.updatedAt) &&
+	Array.isArray(v.panels) &&
+	v.panels.every(isPanel);
+
+export const isMetricsResult: Guard<MetricsResult> = (v): v is MetricsResult =>
+	isObj(v) &&
+	Array.isArray(v.series) &&
+	v.series.every(
+		(s) =>
+			isObj(s) &&
+			Array.isArray(s.points) &&
+			s.points.every((p) => Array.isArray(p) && p.length === 2 && isNum(p[0]) && (p[1] === null || isNum(p[1])))
+	);
+
+export const isNotification: Guard<AppNotification> = (v): v is AppNotification =>
+	isObj(v) &&
+	isStr(v.id) &&
+	isDate(v.time) &&
+	isSeverity(v.severity) &&
+	isStr(v.message) &&
+	optStr(v.cluster) &&
+	isBool(v.read) &&
+	isBool(v.acknowledged);
+
+export const isNotificationSettings: Guard<NotificationSettings> = (v): v is NotificationSettings =>
+	isObj(v) &&
+	isObj(v.webhook) &&
+	isBool(v.webhook.enabled) &&
+	optStr(v.webhook.url) &&
+	isBool(v.webhook.secretSet) &&
+	isObj(v.email) &&
+	isBool(v.email.enabled) &&
+	strArray(v.email.recipients);
+
+// ---------------------------------------------------------------------------
 // Client
 
 export type FetchFn = typeof fetch;
 
 export function createClient(fetchFn: FetchFn) {
-	async function call<T>(method: 'GET' | 'POST', path: string, guard: Guard<T>, body?: unknown): Promise<T> {
+	async function call<T>(method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, guard: Guard<T>, body?: unknown): Promise<T> {
 		const init: RequestInit = {
 			method,
 			credentials: 'same-origin',
@@ -265,7 +516,12 @@ export function createClient(fetchFn: FetchFn) {
 				// non-JSON error body: classify by status only
 			}
 			const ra = Number(res.headers.get('Retry-After'));
-			throw new ApiError(classify(res.status, code), res.status, Number.isFinite(ra) && ra > 0 ? ra : undefined);
+			throw new ApiError(
+				classify(res.status, code),
+				res.status,
+				Number.isFinite(ra) && ra > 0 ? ra : undefined,
+				isKnownCode(code) ? code : undefined
+			);
 		}
 		if (res.status === 204) {
 			if (guard(undefined)) return undefined as T;
@@ -318,7 +574,38 @@ export function createClient(fetchFn: FetchFn) {
 		clusters: () => items(call('GET', '/clusters', listOf(isCluster))),
 		cluster: (id: string) => call('GET', `/clusters/${encodeURIComponent(id)}`, isCluster),
 		operations: () => items(call('GET', '/operations', listOf(isOperation))),
-		events: () => items(call('GET', '/events', listOf(isEvent)))
+		events: () => items(call('GET', '/events', listOf(isEvent))),
+
+		// --- Endpoints below are NOT in api/openapi.yaml yet. Shapes are the
+		// UI's documented assumptions (docs/DESIGN.md "Assumed API contract").
+		// 404/503 are shown as "API not available".
+		hosts: () => items(call('GET', '/hosts', listOf(isHost))),
+		createCluster: (req: CreateClusterRequest) => call('POST', '/clusters', isOperationRef, req),
+		replaceNode: (cluster: string, slot: string) =>
+			call(
+				'POST',
+				`/clusters/${encodeURIComponent(cluster)}/nodes/${encodeURIComponent(slot)}/replace`,
+				isOperationRef,
+				{}
+			),
+		outageDiagnosis: (cluster: string) =>
+			call('GET', `/clusters/${encodeURIComponent(cluster)}/outage-diagnosis`, isDiagnosis),
+		backups: () => items(call('GET', '/backups', listOf(isBackupSummary))),
+		inspectRestore: (req: { cluster: string; backup?: string }) =>
+			call('POST', '/restores/inspect', isObj as Guard<Record<string, unknown>>, req),
+		dashboards: () => items(call('GET', '/dashboards', listOf(isDashboard))),
+		saveDashboard: (d: DashboardInput, id?: string) =>
+			id
+				? call('PUT', `/dashboards/${encodeURIComponent(id)}`, isDashboard, d)
+				: call('POST', '/dashboards', isDashboard, d),
+		deleteDashboard: (id: string) => call('DELETE', `/dashboards/${encodeURIComponent(id)}`, isAny),
+		queryMetrics: (req: MetricsQuery) => call('POST', '/metrics/query', isMetricsResult, req),
+		notifications: () => items(call('GET', '/notifications', listOf(isNotification))),
+		markNotification: (id: string, action: 'read' | 'ack') =>
+			call('POST', `/notifications/${encodeURIComponent(id)}/${action}`, isAny, {}),
+		notificationSettings: () => call('GET', '/settings/notifications', isNotificationSettings),
+		saveNotificationSettings: (s: NotificationSettingsInput) =>
+			call('PUT', '/settings/notifications', isNotificationSettings, s)
 	};
 }
 
