@@ -34,8 +34,21 @@
 //	  "tls": {"cert_file": "proxy-chain.pem", "key_file": "proxy-key.pem"}
 //	}
 //
-// "sync": "galera" is accepted but the Galera status probe is not
-// implemented, so no node becomes usable (fail closed).
+// With "sync": "galera" the proxy reads wsrep status through a monitoring
+// account (internal/galeraprobe); only Synced nodes of a Primary component
+// are routed to, and every failure leaves a node unusable (fail closed):
+//
+//	"probe": {"liveness": "mysql-greeting", "sync": "galera", "interval": "1s", "timeout": "1s",
+//	          "monitor": {"user": "dbcm_monitor", "password_file": "monitor.pw",
+//	                      "tls": "required", "ca_file": "db-ca.pem"}}
+//
+// The monitor password is never inline: use "password_file" (re-read on
+// every probe; relative paths resolve against the configuration file) or
+// "password_env". "tls" is required: "required" verifies the node
+// certificate and refuses plaintext, "disabled" is explicit plaintext. Create
+// the account without privileges (USAGE is enough for SHOW GLOBAL STATUS):
+//
+//	CREATE USER 'dbcm_monitor'@'<proxy host>' IDENTIFIED BY '<secret>' REQUIRE SSL;
 package main
 
 import (
@@ -110,7 +123,11 @@ func run(ctx context.Context, o options, logw io.Writer, hup <-chan os.Signal, r
 	if err != nil {
 		return err
 	}
-	p, err := proxy.New(cfg, proxy.Options{Logger: log})
+	status := &monitorStatus{}
+	if err := status.apply(cfg); err != nil {
+		return err
+	}
+	p, err := proxy.New(cfg, proxy.Options{Logger: log, Status: status})
 	if err != nil {
 		return err
 	}
@@ -133,6 +150,9 @@ func run(ctx context.Context, o options, logw io.Writer, hup <-chan os.Signal, r
 			return nil
 		case <-hup:
 			next, err := proxy.LoadConfig(o.config)
+			if err == nil {
+				err = status.apply(next)
+			}
 			if err == nil {
 				err = p.Reload(next)
 			}

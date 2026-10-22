@@ -39,6 +39,11 @@ type Options struct {
 	// Prober overrides the prober built from the configuration (tests,
 	// embedding). It then also survives reloads.
 	Prober Prober
+	// Status supplies the Galera sync state for "probe.sync": "galera". It
+	// survives reloads. Without it (and without Prober) every node stays
+	// sync-unknown and nothing is routed. internal/galeraprobe provides an
+	// implementation that queries wsrep status with a monitoring account.
+	Status GaleraStatusProber
 	// Certs overrides the FileCertSource built from Config.TLS.
 	Certs CertSource
 	// Logger defaults to a discarding logger.
@@ -66,6 +71,7 @@ type nodeState struct {
 type Proxy struct {
 	log          *slog.Logger
 	customProber bool
+	status       GaleraStatusProber
 
 	mu        sync.Mutex
 	cfg       Config
@@ -114,6 +120,7 @@ func New(cfg Config, opts Options) (*Proxy, error) {
 	p := &Proxy{
 		log:          log,
 		customProber: opts.Prober != nil,
+		status:       opts.Status,
 		cfg:          cfg,
 		prober:       opts.Prober,
 		certs:        opts.Certs,
@@ -123,7 +130,7 @@ func New(cfg Config, opts Options) (*Proxy, error) {
 		kick:         make(chan struct{}, 1),
 	}
 	if p.prober == nil {
-		p.prober = proberFromConfig(cfg.Probe)
+		p.prober = proberFromConfig(cfg.Probe, p.status)
 	}
 	if cfg.TLS != nil {
 		if p.certs == nil {
@@ -137,8 +144,8 @@ func New(cfg Config, opts Options) (*Proxy, error) {
 	}
 	p.nodes = buildNodes(cfg.Nodes, nil)
 	p.ctx, p.cancel = context.WithCancel(context.Background())
-	if cfg.Probe.Sync == SyncGalera && !p.customProber {
-		log.Warn("probe.sync=galera: the Galera status probe is not implemented; every node stays in sync state unknown and no connection will be routed")
+	if cfg.Probe.Sync == SyncGalera && !p.customProber && p.status == nil {
+		log.Warn("probe.sync=galera without a Galera status source (Options.Status): every node stays in sync state unknown and no connection will be routed")
 	}
 	return p, nil
 }
@@ -320,7 +327,7 @@ func (p *Proxy) Reload(cfg Config) error {
 	p.router.SetPolicy(policy)
 	p.nodes = buildNodes(cfg.Nodes, p.nodes)
 	if !p.customProber {
-		p.prober = proberFromConfig(cfg.Probe)
+		p.prober = proberFromConfig(cfg.Probe, p.status)
 	}
 	p.log.Info("configuration reloaded", "nodes", len(cfg.Nodes), "mode", policy.Mode.String())
 	p.kickProbe()

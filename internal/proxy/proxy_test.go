@@ -5,6 +5,7 @@ package proxy
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math/rand"
 	"net"
 	"net/http"
@@ -237,7 +238,7 @@ func TestStaleProbeMakesNodeUnknown(t *testing.T) {
 	}
 }
 
-func TestGaleraSyncStubFailsClosed(t *testing.T) {
+func TestGaleraWithoutStatusSourceFailsClosed(t *testing.T) {
 	a := newFakeBackend(t, "a")
 	cfg := testConfig(node("a", a.addr()))
 	cfg.Probe.Sync = SyncGalera
@@ -248,10 +249,34 @@ func TestGaleraSyncStubFailsClosed(t *testing.T) {
 		t.Fatalf("writer %s chosen without sync state", st.Writer)
 	}
 	n := st.Nodes[0]
-	if n.Health != "healthy" || n.Sync != "unknown" || !strings.Contains(n.LastError, "not implemented") {
+	if n.Health != "healthy" || n.Sync != "unknown" || !strings.Contains(n.Detail, "no sync source") {
 		t.Fatalf("node status = %+v", n)
 	}
 	dialErr(t, p.Addr(EndpointWrite))
+}
+
+func TestGaleraStatusSourceRoutesOnlySyncedNode(t *testing.T) {
+	a := newFakeBackend(t, "a")
+	b := newFakeBackend(t, "b")
+	cfg := testConfig(node("a", a.addr()), node("b", b.addr()))
+	cfg.Probe.Sync = SyncGalera
+	src := statusByAddr{a.addr(): {LocalState: 2, LocalStateComment: "Donor/Desynced", ClusterStatus: "Primary", Ready: true},
+		b.addr(): {LocalState: 4, LocalStateComment: "Synced", ClusterStatus: "Primary", Ready: true}}
+	p := startProxy(t, cfg, Options{Status: src})
+	waitWriter(t, p, "b", 2*time.Second)
+	if n := p.Status().Nodes[0]; n.Sync == "synced" {
+		t.Fatalf("donor node a reported synced: %+v", n)
+	}
+}
+
+type statusByAddr map[string]GaleraStatus
+
+func (m statusByAddr) GaleraStatus(_ context.Context, addr string) (GaleraStatus, error) {
+	s, ok := m[addr]
+	if !ok {
+		return GaleraStatus{}, errors.New("unknown node")
+	}
+	return s, nil
 }
 
 func TestConnectionLimits(t *testing.T) {

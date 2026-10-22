@@ -90,10 +90,15 @@ type ProbeConfig struct {
 	// connect plus reading the server greeting, without authentication).
 	Liveness string `json:"liveness,omitempty"`
 	// Sync is required and selects where the Galera sync state comes from:
-	// "galera" queries wsrep status (NOT IMPLEMENTED: always unknown, so no
-	// node is ever usable) or "assume-synced", which treats every live node
-	// as synced and is only safe where something else guarantees that.
+	// "galera" queries wsrep status with the Monitor account (through
+	// Options.Status; without a source no node is ever usable) or
+	// "assume-synced", which treats every live node as synced and is only
+	// safe where something else guarantees that.
 	Sync string `json:"sync"`
+	// Monitor describes the monitoring account for "sync": "galera". The
+	// password is never part of the JSON: it comes from a file or an
+	// environment variable.
+	Monitor *MonitorConfig `json:"monitor,omitempty"`
 	// Interval between probe rounds. Default 1s.
 	Interval Duration `json:"interval,omitempty"`
 	// Timeout of one probe. Default 1s; must not exceed Interval.
@@ -101,6 +106,33 @@ type ProbeConfig struct {
 	// Samples is the number of latency samples kept per node. Default 10.
 	Samples int `json:"samples,omitempty"`
 }
+
+// MonitorConfig describes the least-privilege monitoring account used to read
+// wsrep status. Exactly one of PasswordFile and PasswordEnv is required.
+type MonitorConfig struct {
+	User string `json:"user"`
+	// PasswordFile holds the password (trailing newline trimmed); it is
+	// re-read on every probe. Relative paths resolve against the config
+	// file's directory.
+	PasswordFile string `json:"password_file,omitempty"`
+	// PasswordEnv names an environment variable holding the password.
+	PasswordEnv string `json:"password_env,omitempty"`
+	// TLS is required and either "required" (verified TLS to the node; the
+	// server must offer it) or "disabled" (plaintext).
+	TLS string `json:"tls"`
+	// CAFile is a PEM CA bundle to verify the node certificate; default is
+	// the system roots. Only for TLS "required".
+	CAFile string `json:"ca_file,omitempty"`
+	// ServerName overrides the name the node certificate is verified against;
+	// default is the host of the node address.
+	ServerName string `json:"server_name,omitempty"`
+}
+
+// Monitor TLS modes.
+const (
+	MonitorTLSRequired = "required"
+	MonitorTLSDisabled = "disabled"
+)
 
 // LimitsConfig bounds resource use per listener and connection.
 type LimitsConfig struct {
@@ -164,6 +196,14 @@ func LoadConfig(path string) (Config, error) {
 	c, err := ParseConfig(b)
 	if err != nil {
 		return Config{}, fmt.Errorf("%s: %w", path, err)
+	}
+	if m := c.Probe.Monitor; m != nil {
+		dir := filepath.Dir(path)
+		for _, p := range []*string{&m.PasswordFile, &m.CAFile} {
+			if *p != "" && !filepath.IsAbs(*p) {
+				*p = filepath.Join(dir, *p)
+			}
+		}
 	}
 	if c.TLS != nil {
 		dir := filepath.Dir(path)
@@ -287,6 +327,26 @@ func (c Config) Validate() error {
 		return fmt.Errorf("probe.sync is required: %q or %q", SyncGalera, SyncAssumeSynced)
 	default:
 		return fmt.Errorf("probe.sync %q: want %q or %q", c.Probe.Sync, SyncGalera, SyncAssumeSynced)
+	}
+	if m := c.Probe.Monitor; m != nil {
+		if c.Probe.Sync != SyncGalera {
+			return fmt.Errorf("probe.monitor is only valid with probe.sync %q", SyncGalera)
+		}
+		if m.User == "" {
+			return errors.New("probe.monitor.user is required")
+		}
+		if (m.PasswordFile == "") == (m.PasswordEnv == "") {
+			return errors.New("probe.monitor needs exactly one of password_file and password_env")
+		}
+		switch m.TLS {
+		case MonitorTLSRequired:
+		case MonitorTLSDisabled:
+			if m.CAFile != "" || m.ServerName != "" {
+				return errors.New("probe.monitor.ca_file and server_name require tls \"required\"")
+			}
+		default:
+			return fmt.Errorf("probe.monitor.tls %q: want %q or %q", m.TLS, MonitorTLSRequired, MonitorTLSDisabled)
+		}
 	}
 	if c.Probe.Timeout > c.Probe.Interval {
 		return fmt.Errorf("probe.timeout %s must not exceed probe.interval %s", c.Probe.Timeout.D(), c.Probe.Interval.D())
