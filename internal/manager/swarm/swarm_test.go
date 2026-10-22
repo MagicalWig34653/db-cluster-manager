@@ -227,3 +227,25 @@ func TestDeployAgentsMTLSValidates(t *testing.T) {
 		}
 	}
 }
+
+// TestDeployAgentsMTLSDBSecrets: further database secrets (cluster root and
+// backup passwords for exec-sql, lab E4) are mounted once each.
+func TestDeployAgentsMTLSDBSecrets(t *testing.T) {
+	c := newFakeConn()
+	d := AgentDeployment{InstallationID: "inst-1", Image: "agent@sha256:abc", VolumeBase: "/srv/dbcm", Enrolled: []string{"n1"},
+		MTLS: &AgentMTLS{ManagerURL: "https://10.0.0.4:7444", CAFingerprint: fp, TokenSecret: "dbcm-agent-enroll-inst-1-t1",
+			Token: []byte("dbcm-et1.t1.secret"), MonitorUser: "dbcm_monitor", MonitorSecret: "dbcm-monitor-pw",
+			DBSecrets: []string{"dbcm-root-pw", "dbcm-monitor-pw", "dbcm-backup-pw"}}}
+	if _, err := DeployAgents(context.Background(), c, d); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"dbcm-agent-enroll-inst-1-t1", "dbcm-monitor-pw", "dbcm-root-pw", "dbcm-backup-pw"}
+	if got := c.created[0].Secrets; !slices.Equal(got, want) {
+		t.Fatalf("secrets %v, want %v", got, want)
+	}
+	bad := *d.MTLS
+	bad.DBSecrets = []string{"../etc"}
+	if _, err := DeployAgents(context.Background(), newFakeConn(), AgentDeployment{InstallationID: "i", Image: "a", VolumeBase: "/v", MTLS: &bad}); !errors.Is(err, ErrInvalidDeployment) {
+		t.Fatalf("path-like secret name accepted: %v", err)
+	}
+}

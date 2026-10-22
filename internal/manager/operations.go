@@ -180,7 +180,8 @@ func (o *Operations) CreateCluster(actor authz.Subject, req CreateClusterRequest
 	clusterID := newID("clu")
 	plan, err := galera.PlanCreate(galera.Topology{
 		Cluster: galera.Cluster{InstallationID: st.InstallationID, ClusterID: clusterID, Name: req.Name, Image: req.Image,
-			Network: req.Network, RootPasswordSecret: req.RootPasswordSecret, GcacheSize: req.GcacheSize},
+			Network: req.Network, RootPasswordSecret: req.RootPasswordSecret, GcacheSize: req.GcacheSize,
+			Accounts: st.Accounts},
 		Size: req.Size, Resources: req.Resources,
 	}, hosts, req.Placement)
 	if err != nil {

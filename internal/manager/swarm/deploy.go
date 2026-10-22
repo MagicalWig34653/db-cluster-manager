@@ -90,6 +90,10 @@ type AgentMTLS struct {
 	// collect-health; both empty leaves health collection unconfigured.
 	MonitorUser   string
 	MonitorSecret string
+	// DBSecrets are further existing secrets the agent mounts below
+	// /run/secrets (exec-sql reads the cluster root and account passwords
+	// from there by secret name, ADR 0011).
+	DBSecrets []string
 }
 
 func (m *AgentMTLS) port() int {
@@ -129,6 +133,11 @@ func AgentSpec(d AgentDeployment) agent.ServiceSpec {
 		spec.Args = append(spec.Args, "-monitor-user", m.MonitorUser, "-monitor-password-file", "/run/secrets/"+m.MonitorSecret)
 		spec.Secrets = append(spec.Secrets, m.MonitorSecret)
 	}
+	for _, sec := range m.DBSecrets {
+		if !slices.Contains(spec.Secrets, sec) {
+			spec.Secrets = append(spec.Secrets, sec)
+		}
+	}
 	spec.Env = []string{HostIDEnv + "={{.Node.ID}}"}
 	spec.Networks = []string{HostNetwork}
 	return spec
@@ -154,6 +163,11 @@ func (d AgentDeployment) validate() error {
 			return fmt.Errorf("%w: port %d", ErrInvalidDeployment, m.Port)
 		case (m.MonitorUser == "") != (m.MonitorSecret == ""):
 			return fmt.Errorf("%w: monitor user and secret go together", ErrInvalidDeployment)
+		}
+		for _, sec := range m.DBSecrets {
+			if sec == "" || strings.ContainsAny(sec, "/\\ \t\r\n") {
+				return fmt.Errorf("%w: secret name %q", ErrInvalidDeployment, sec)
+			}
 		}
 		if _, err := certs.NormalizeFingerprint(m.CAFingerprint); err != nil {
 			return fmt.Errorf("%w: %v", ErrInvalidDeployment, err)

@@ -320,12 +320,17 @@ func PlanCreate(topo Topology, hosts []Host, policy PlacementPolicy) (Plan, erro
 			note = "bootstrap node: forms the new cluster"
 		}
 		l.add(Step{Kind: StepCreateService, Slot: n.Slot, HostID: n.HostID, NodeUUID: n.NodeUUID, Spec: specPtr(spec), Note: note}, joinPre...)
-		l.add(Step{Kind: StepWaitSynced, Slot: n.Slot, HostID: n.HostID, ClusterSize: i + 1})
 		if i == 0 {
+			// The accounts come before the bootstrap node's wait-synced: that
+			// check reads wsrep status through the monitoring account, so it
+			// could never pass before the account exists (found in lab E4
+			// preparation). exec-sql is idempotent and retried until the
+			// server accepts the root login over the socket.
 			for _, s := range accountSteps(c, n) {
-				l.add(s, synced(n.Slot, 1))
+				l.add(s)
 			}
 		}
+		l.add(Step{Kind: StepWaitSynced, Slot: n.Slot, HostID: n.HostID, ClusterSize: i + 1})
 	}
 	if c.Accounts.MonitorSecret == "" {
 		warns = append(warns, "no monitoring account configured: health collection through the node socket will fail")

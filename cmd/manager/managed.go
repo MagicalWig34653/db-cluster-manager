@@ -21,6 +21,7 @@ import (
 	"github.com/MagicalWig34653/db-cluster-manager/internal/backup"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/dbbackup"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/enroll"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/galera"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/galeraprobe"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/manager"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/manager/swarm"
@@ -62,6 +63,53 @@ type managerConfig struct {
 	Monitoring *monitoringConfig `json:"monitoring,omitempty"`
 	// Backup configures the backup subsystem on the manager side.
 	Backup *backupConfig `json:"backup,omitempty"`
+	// Settings are installation settings the leader merges into the
+	// replicated settings on every leadership start (no API sets them yet).
+	Settings *settingsConfig `json:"settings,omitempty"`
+}
+
+// settingsConfig is the "manager.settings" section (manager.ConfiguredSettings).
+type settingsConfig struct {
+	InstallationID string          `json:"installationId"`
+	VolumeBase     string          `json:"volumeBase"`
+	AgentImage     string          `json:"agentImage"`
+	MonitorSocket  string          `json:"monitorSocket"`
+	Accounts       *accountsConfig `json:"accounts,omitempty"`
+	Backup         *backupSettings `json:"backup,omitempty"`
+}
+
+// accountsConfig names the database accounts of new clusters (galera.Accounts).
+type accountsConfig struct {
+	MonitorUser   string `json:"monitorUser"`
+	MonitorSecret string `json:"monitorSecret"`
+	BackupUser    string `json:"backupUser"`
+	BackupSecret  string `json:"backupSecret"`
+	BackupLogical bool   `json:"backupLogical"`
+}
+
+// backupSettings mirrors manager.BackupSettings.
+type backupSettings struct {
+	JobImage           string `json:"jobImage"`
+	BackendSecret      string `json:"backendSecret"`
+	DBCredentialSecret string `json:"dbCredentialSecret"`
+	RecipientKey       string `json:"recipientKey"`
+	KeySecret          string `json:"keySecret"`
+	InspectionNetwork  string `json:"inspectionNetwork"`
+}
+
+func (c *settingsConfig) configured() manager.ConfiguredSettings {
+	out := manager.ConfiguredSettings{InstallationID: c.InstallationID, VolumeBase: c.VolumeBase,
+		AgentImage: c.AgentImage, MonitorSocket: c.MonitorSocket}
+	if a := c.Accounts; a != nil {
+		out.Accounts = &galera.Accounts{MonitorUser: a.MonitorUser, MonitorSecret: a.MonitorSecret,
+			BackupUser: a.BackupUser, BackupSecret: a.BackupSecret, BackupLogical: a.BackupLogical}
+	}
+	if b := c.Backup; b != nil {
+		out.Backup = &manager.BackupSettings{JobImage: b.JobImage, BackendSecret: b.BackendSecret,
+			DBCredentialSecret: b.DBCredentialSecret, RecipientKey: b.RecipientKey, KeySecret: b.KeySecret,
+			InspectionNetwork: b.InspectionNetwork}
+	}
+	return out
 }
 
 // monitoringConfig is the "manager.monitoring" section.
@@ -133,6 +181,10 @@ type agentTransportConfig struct {
 	// database monitoring credential for health collection.
 	MonitorUser   string `json:"monitorUser"`
 	MonitorSecret string `json:"monitorSecret"`
+	// DBSecrets are further existing Swarm secrets the agent service mounts
+	// (cluster root password, backup account password) so that exec-sql can
+	// read them. Mounted only when the agent service is created.
+	DBSecrets []string `json:"dbSecrets"`
 }
 
 func (a *agentTransportConfig) validate() ([]net.IP, error) {
@@ -314,7 +366,7 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 			RequireSourceAddr: !at.AllowAnySource}
 		svc.SetAgents(&manager.AgentDirectory{Store: svc.Store(), PKI: pki, Port: at.AgentPort})
 		swarms.Transport = &manager.AgentTransport{PKI: pki, ManagerURL: at.ManagerURL, Port: at.AgentPort,
-			MonitorUser: at.MonitorUser, MonitorSecret: at.MonitorSecret}
+			MonitorUser: at.MonitorUser, MonitorSecret: at.MonitorSecret, DBSecrets: at.DBSecrets}
 		es := &enroll.Server{Authority: pki, Registry: pki, Log: log, Installation: ""}
 		if rt.enroll, err = startEnrollment(at.EnrollListen, es, pki, log); err != nil {
 			_ = svc.Close()
@@ -328,6 +380,14 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 			rt.backups.Store(nil)
 			rt.setHandler(rt.notLeader())
 			return
+		}
+		if mc.Settings != nil {
+			changed, err := manager.ApplyConfiguredSettings(svc.Store(), mc.Settings.configured())
+			if err != nil {
+				log.Error("manager: configured settings not applied", "err", err)
+			} else if changed {
+				log.Info("manager: configured settings applied")
+			}
 		}
 		if !cfg.Auth.Enabled {
 			rt.setHandler(rt.proto)
@@ -411,6 +471,12 @@ func (rt *managedRuntime) leaderAPI(pk passkey.Config, keys manager.KeyProvider,
 	return h, st, nil
 }
 
+// operationRetries bounds, per step, the precondition polls and the retries
+// of idempotent agent commands (runner backoff 1 s doubling to 30 s, so
+// about 12 minutes). With the former zero value every operation paused at
+// its first wait-synced, before the new node could have started (lab E4).
+const operationRetries = 30
+
 // commandSet groups the command services of one leadership.
 type commandSet struct {
 	control  *manager.Control
@@ -421,7 +487,7 @@ type commandSet struct {
 // commandServices builds the command services on the leadership's
 // authorizer.
 func (rt *managedRuntime) commandServices(st *manager.AuthStack) commandSet {
-	ops := &manager.Operations{Svc: rt.svc, Authorizer: st.Authorizer}
+	ops := &manager.Operations{Svc: rt.svc, Authorizer: st.Authorizer, MaxRetries: operationRetries}
 	sw := *rt.swarms
 	sw.Svc, sw.Authorizer = rt.svc, st.Authorizer
 	return commandSet{

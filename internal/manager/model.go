@@ -176,6 +176,10 @@ type Settings struct {
 	MonitorSocket string `json:"monitorSocket,omitempty"`
 	// Backup configures backup jobs and inspection restores (backups.go).
 	Backup BackupSettings `json:"backup,omitzero"`
+	// Accounts are the database accounts (monitoring, backup) that the
+	// create plan sets up on every new cluster. The secrets must exist and
+	// be mounted by the agent service (ADR 0011).
+	Accounts galera.Accounts `json:"accounts,omitzero"`
 }
 
 // DefaultMonitorSocket is the default Settings.MonitorSocket: the socket the

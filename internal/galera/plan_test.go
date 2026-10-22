@@ -362,8 +362,10 @@ func TestPlanCreateDefaultUUIDSource(t *testing.T) {
 func hasPre(s Step, want Precondition) bool { return slices.Contains(s.Preconditions, want) }
 
 // TestPlanCreateBootstrapAccounts: with accounts configured, the monitoring
-// and backup accounts are created on the bootstrap node once it is Synced
-// at size 1 and before the first joiner (joiners receive them by SST).
+// and backup accounts are created on the bootstrap node right after its
+// service, before its wait-synced (which reads status through the
+// monitoring account, lab E4) and before the first joiner (joiners receive
+// them by SST).
 func TestPlanCreateBootstrapAccounts(t *testing.T) {
 	topo := testTopology(3)
 	topo.Cluster.DBUID, topo.Cluster.DBGID = 1001, 1001
@@ -376,12 +378,12 @@ func TestPlanCreateBootstrapAccounts(t *testing.T) {
 	for _, s := range p.Steps[:8] {
 		got = append(got, string(s.Kind)+":"+s.Slot)
 	}
-	want := []string{"create-volume:n1", "init-identity:n1", "init-volume-dirs:n1", "create-service:n1", "wait-synced:n1",
-		"exec-sql:n1", "exec-sql:n1", "create-volume:n2"}
+	want := []string{"create-volume:n1", "init-identity:n1", "init-volume-dirs:n1", "create-service:n1",
+		"exec-sql:n1", "exec-sql:n1", "wait-synced:n1", "create-volume:n2"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("steps %v\nwant %v", got, want)
 	}
-	mon, bak := p.Steps[5], p.Steps[6]
+	mon, bak := p.Steps[4], p.Steps[5]
 	if mon.SQL == nil || *mon.SQL != (SQLStep{Template: SQLCreateMonitorUser, User: DefaultMonitorUser, Host: "localhost", PasswordSecret: "dbcm-inst-monitor-pw"}) {
 		t.Errorf("monitor step %+v", mon.SQL)
 	}
@@ -392,8 +394,8 @@ func TestPlanCreateBootstrapAccounts(t *testing.T) {
 		if s.NodeUUID != p.Nodes[0].NodeUUID || s.Volume != p.Nodes[0].Volume || s.HostID != p.Nodes[0].HostID {
 			t.Errorf("exec-sql step not bound to the bootstrap node: %+v", s)
 		}
-		if !hasPre(s, synced("n1", 1)) {
-			t.Errorf("exec-sql step %s does not require n1 Synced at size 1", s.ID)
+		if slices.ContainsFunc(s.Preconditions, func(c Precondition) bool { return c.Kind == PreNodeSynced }) {
+			t.Errorf("exec-sql step %s waits for a node-synced check that needs the account it creates", s.ID)
 		}
 	}
 	if o := stepsOf(p, StepInitVolumeDirs)[0].Owner; *o != (DirOwner{UID: 1001, GID: 1001}) {

@@ -347,3 +347,15 @@ func TestFromGaleraPlanAccounts(t *testing.T) {
 		t.Errorf("init-volume-dirs args %+v (%v)", dirs, err)
 	}
 }
+
+// TestExecSQLIsIdempotent: the bootstrap account step is retried while the
+// new server does not accept the root login yet (lab E4); its templates are
+// idempotent statements.
+func TestExecSQLIsIdempotent(t *testing.T) {
+	if !Idempotent(agent.KindExecSQL) {
+		t.Fatal("exec-sql is not retried")
+	}
+	if Idempotent(agent.KindCreateService) {
+		t.Fatal("create-service must not be blindly retried")
+	}
+}

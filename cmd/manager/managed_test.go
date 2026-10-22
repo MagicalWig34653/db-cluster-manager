@@ -275,3 +275,40 @@ func TestManagedModeMonitoringAndBackupConfig(t *testing.T) {
 		t.Fatal("disabled monitoring runs")
 	}
 }
+
+// TestManagedModeAppliesConfiguredSettings: lab E4 found that nothing could
+// set the installation settings (every command answered
+// settings_incomplete) and that operations ran with zero retries; the
+// "settings" section is merged by the leader and command services retry.
+func TestManagedModeAppliesConfiguredSettings(t *testing.T) {
+	dir := t.TempDir()
+	cfg, err := loadConfig(writeConfig(t, map[string]any{
+		"auth": map[string]any{"enabled": true, "rpId": "db.example.test", "origins": []string{"https://db.example.test"}},
+		"manager": map[string]any{"dataDir": dir, "bind": freeLoopback(t), "settings": map[string]any{
+			"installationId": "e4", "volumeBase": "/var/lib/dbcm/volumes", "agentImage": "dbcm-agent:e4",
+			"accounts": map[string]any{"monitorUser": "dbcm_monitor", "monitorSecret": "dbcm-e4-monitor"},
+			"backup":   map[string]any{"jobImage": "dbcm-job:e4"},
+		}},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt, err := newManagedRuntime(cfg, quietLog(), &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close()
+	waitUntil(t, "leader API", func() bool { return rt.stack.Load() != nil })
+	got, ok, err := manager.Get[manager.Settings](rt.svc.Store(), manager.CollSettings, manager.SettingsKey)
+	if err != nil || !ok {
+		t.Fatalf("settings %v %v", ok, err)
+	}
+	s := got.Value
+	if s.InstallationID != "e4" || s.VolumeBase != "/var/lib/dbcm/volumes" || s.AgentImage != "dbcm-agent:e4" ||
+		s.Accounts.MonitorSecret != "dbcm-e4-monitor" || s.Backup.JobImage != "dbcm-job:e4" {
+		t.Fatalf("settings %+v", s)
+	}
+	if ops := rt.commandServices(rt.stack.Load()).control.Ops; ops.MaxRetries <= 0 {
+		t.Fatalf("operations without retries: %+v", ops)
+	}
+}
