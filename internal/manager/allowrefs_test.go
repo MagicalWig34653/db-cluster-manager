@@ -8,9 +8,11 @@ import (
 	"errors"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/MagicalWig34653/db-cluster-manager/internal/agent"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/api"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/dbbackup"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/manager/swarm"
 )
 
@@ -95,4 +97,48 @@ func TestCreateClusterAllowsReferencedObjects(t *testing.T) {
 	if !errors.Is(MapCommandError(ErrUnknownReference), api.ErrInvalidInput) {
 		t.Fatal("unknown reference not mapped to invalid input")
 	}
+}
+
+// TestInspectionAllowsReferencedObjects: lab E4 found the approved
+// inspection restore refused with not-owned (recovery key secret). The
+// inspection now starts with an allow-objects step for the inspection
+// network, the backend and key secrets and the session's init secret; the
+// step needs no approval and is covered by the approved digest.
+func TestInspectionAllowsReferencedObjects(t *testing.T) {
+	env := newBackupEnv(t, true)
+	env.completedBackup(t, "b1", env.clock.Now().Add(-time.Hour))
+	inst := map[string]string{agent.LabelInstallation: "inst-1"}
+	rc := &refConn{objs: map[agent.ObjectKind][]agent.Object{
+		agent.KindNetwork: {{ID: "net-insp", Name: "dbcm-inspect-net", Labels: inst}},
+		agent.KindSecret:  {{ID: "sec-be", Name: "dbcm-backend", Labels: inst}, {ID: "sec-key", Name: "dbcm-recovery-key", Labels: inst}},
+	}}
+	env.b.Swarms = &Swarms{Svc: env.svc, Dial: func(string) (swarm.Connector, error) { return &initSecretConn{refConn: rc}, nil }}
+	env.ops.Swarms = env.b.Swarms
+	res, err := env.b.StartInspection(context.Background(), adminSubject, api.InspectionInput{Cluster: "clu-1", Host: "h4", TTLMinutes: 30})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := opRecord(t, env.svc, res.ID)
+	first := rec.Definition.Steps[0]
+	var a agent.AllowObjectsArgs
+	if first.Command != agent.KindAllowObjects || first.Target != "h4" || json.Unmarshal(first.Args, &a) != nil ||
+		!slices.Equal(a.IDs, []string{"net-insp", "sec-be", "sec-key", "sec-init"}) {
+		t.Fatalf("first step %+v %v", first, a.IDs)
+	}
+	for _, c := range first.Preconditions {
+		if c.Kind == dbbackup.CondApproved {
+			t.Fatal("allow-objects waits for the approval")
+		}
+	}
+	if d, _ := DefinitionDigest(rec.Definition); d != res.Approval.Digest {
+		t.Fatal("approval digest does not cover the allow step")
+	}
+}
+
+// initSecretConn records the created init secret as a labelled object.
+type initSecretConn struct{ *refConn }
+
+func (c *initSecretConn) CreateSecret(_ context.Context, name string, labels map[string]string, _ []byte) (string, error) {
+	c.objs[agent.KindSecret] = append(c.objs[agent.KindSecret], agent.Object{ID: "sec-init", Name: name, Labels: labels})
+	return "sec-init", nil
 }

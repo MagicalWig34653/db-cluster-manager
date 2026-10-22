@@ -638,10 +638,6 @@ func (b *Backups) startInspection(ctx context.Context, actor authz.Subject, in a
 	if err != nil {
 		return api.InspectionStarted{}, err
 	}
-	digest, err := DefinitionDigest(plan.Operation)
-	if err != nil {
-		return api.InspectionStarted{}, err
-	}
 	password, err := dbbackup.NewInspectionPassword()
 	if err != nil {
 		return api.InspectionStarted{}, err
@@ -651,6 +647,16 @@ func (b *Backups) startInspection(ctx context.Context, actor authz.Subject, in a
 		return api.InspectionStarted{}, err
 	}
 	if err := b.createSecret(ctx, c.Swarm, initSecret, st.InstallationID, session, []byte(sql)); err != nil {
+		return api.InspectionStarted{}, err
+	}
+	// The allow-objects step is not destructive (no approval) and is part
+	// of the approved definition, so it is added before the digest.
+	if err := b.Ops.allowReferenced(&plan.Operation, c.Swarm, st.InstallationID, []string{host.ID},
+		objectRefs{Networks: []string{bs.InspectionNetwork}, Secrets: []string{bs.BackendSecret, keySecret, initSecret}}); err != nil {
+		return api.InspectionStarted{}, err
+	}
+	digest, err := DefinitionDigest(plan.Operation)
+	if err != nil {
 		return api.InspectionStarted{}, err
 	}
 	rec := OperationRecord{ID: opID, Kind: plan.Operation.Kind, Swarm: c.Swarm, Cluster: c.ID, RequestedBy: actor.ID,
