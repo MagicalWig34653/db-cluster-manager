@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectLocale, locales, messageKeys, translate } from './i18n';
+import { detectLocale, locales, messageKeys, placeholders, translate } from './i18n';
 
 describe('i18n', () => {
 	it('detects the first supported language and defaults to English', () => {
@@ -13,5 +13,16 @@ describe('i18n', () => {
 			expect(messageKeys(l)).toEqual(reference);
 			for (const k of reference) expect(translate(l, k as never)).not.toBe('');
 		}
+	});
+	it('uses the same placeholders in every locale', () => {
+		for (const k of messageKeys('en')) {
+			const ref = placeholders('en', k as never);
+			for (const l of locales) expect(placeholders(l, k as never), `${l}.${k}`).toEqual(ref);
+		}
+	});
+	it('substitutes parameters and leaves unknown placeholders visible', () => {
+		expect(translate('en', 'signedInAs', { account: 'admin' })).toBe('Signed in as admin');
+		expect(translate('de', 'nodeCount', { count: 3 })).toBe('3 Knoten');
+		expect(translate('en', 'signedInAs')).toBe('Signed in as {account}');
 	});
 });

@@ -38,3 +38,25 @@ Recovered managers first show live-state differences and require approval before
 - Archived metric retrieval displays loading, missing ranges and cache behavior transparently.
 
 Keep normal operations straightforward while exposing plans, audit and expert settings. Use text and icons alongside status colors; support keyboard navigation, focus management, contrast and reduced motion. Technical implementation details belong in diagnostics unless needed for a user decision.
+
+## R1 web UI (implemented in `web/`)
+
+Verified implementation, not the full roadmap. Routes:
+
+- Shell (`src/routes/(app)`): fixed desktop sidebar, mobile drawer (bits-ui dialog with focus trap, Escape closes), top bar with language switch and sign-out, skip link, focus moves to the page heading after client-side navigation, `prefers-reduced-motion` disables animation and transitions.
+- Pages: Overview (process health/version, swarm/cluster counts by state), Swarms, Clusters, Cluster detail, Operations (timeline, newest first), Events, Settings (language, light/dark/system, accent color, add passkey). Hosts, Databases, Backups and Dashboards, plus manager settings, show an explicit "not available yet" state.
+- Auth (`src/routes/(auth)`): `/setup` (setup token, account, passkey registration, recovery codes shown once with copy/download and confirmation), `/login` (discoverable passkey), `/recover` (recovery code), `/recover/link` (recovery URL token), `/recover/passkey` (re-enrolment in the restricted recovery session).
+
+Rules applied:
+
+- States always render as icon plus text. Unrecognized or missing values render as "Unknown", never as healthy. Missing `observedAt` renders as "freshness unknown".
+- Errors are shown by coarse class only (401, 403 with `origin_rejected` or `passkey_enrollment_required`, 404, 409, 429 with Retry-After, 503, network, invalid response); server text is never displayed. A 401 from any request returns the browser to sign-in.
+- Responses are checked by hand-written runtime guards (`src/lib/api.ts`); responses that break the contract are rejected instead of being partly shown.
+- POSTs are plain same-origin `fetch` calls; the browser adds Origin and Sec-Fetch-Site, which the manager checks. No custom CSRF token exists.
+- WebAuthn options and credentials go through `src/lib/webauthn.ts`, which uses `PublicKeyCredential.parseCreationOptionsFromJSON`, `parseRequestOptionsFromJSON` and `toJSON` when the browser has them, and otherwise falls back to an equivalent conversion that is covered by tests.
+- Language, theme and accent are stored per browser (`localStorage`). The manager has no per-user preference store yet, so U08 "per user" is only partly met.
+- Development mock mode (`npm run dev:mock`, `VITE_MOCK=1`) exists only behind `import.meta.env.DEV`. It shows a "MOCK DATA" banner, and production builds contain neither its fixtures nor the banner.
+
+Proposed, not yet backed by the CLI: recovery links have the form `/recover/link#account=<id>&token=<token>`. The fragment never reaches the server, is removed from the address bar after it is read, and the single-use token is redeemed only after an explicit click.
+
+Contract gaps (shown as "Unknown (not reported)" until `api/openapi.yaml` carries them): cluster endpoint, node roles, last verified restore and automation policy. Cluster nodes have no `role` field yet.

@@ -3,6 +3,16 @@
 	<head>
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="color-scheme" content="light dark" />
+		<title>DB Cluster Manager</title>
+		<script>
+			// Apply stored theme/accent before first paint (same keys as src/lib/theme.svelte.ts).
+			try {
+				var m = localStorage.getItem('theme'), a = localStorage.getItem('accent'), d = document.documentElement;
+				if (m === 'dark' || ((m === null || m === 'system') && matchMedia('(prefers-color-scheme: dark)').matches)) d.classList.add('dark');
+				if (a) d.dataset.accent = a;
+			} catch (e) {}
+		</script>
 		%sveltekit.head%
 	</head>
 	<body>
