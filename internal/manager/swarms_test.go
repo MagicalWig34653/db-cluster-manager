@@ -156,4 +156,6 @@ func TestLabAgentDirectoryRoutesToEnrolledHosts(t *testing.T) {
 
 type handlerFunc func(context.Context, agent.Command) (agent.Result, error)
 
-func (f handlerFunc) Handle(ctx context.Context, cmd agent.Command) (agent.Result, error) { return f(ctx, cmd) }
+func (f handlerFunc) Handle(ctx context.Context, cmd agent.Command) (agent.Result, error) {
+	return f(ctx, cmd)
+}
