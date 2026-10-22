@@ -15,9 +15,11 @@
 	import ErrorNotice from '../../../../lib/components/app/ErrorNotice.svelte';
 	import Loading from '../../../../lib/components/app/Loading.svelte';
 
-	// Assumed request: POST /api/v1/clusters with manager.CreateClusterRequest
-	// (see lib/cluster.ts buildRequest and docs/DESIGN.md). Response: { id } of the
-	// started operation. Hosts for the preflight come from GET /api/v1/hosts.
+	// POST /api/v1/clusters with api.CreateClusterRequest (lib/cluster.ts
+	// buildRequest) answers 202 { id, kind } of the started operation. Coded
+	// refusals (no_capacity, policy_conflict, settings_incomplete,
+	// cluster_exists, busy, not_leader) are mapped by errorMessage. Hosts for
+	// the preflight come from GET /api/v1/hosts.
 	const swarms = load(api.swarms);
 	const hosts = load(api.hosts);
 
@@ -25,7 +27,7 @@
 	let step = $state(0);
 	let form = $state<ClusterForm>(emptyForm());
 	let busy = $state(false);
-	let created = $state<string | undefined>();
+	let created = $state<{ id: string; kind?: string } | undefined>();
 	let submitError = $state<ReturnType<typeof asApiError> | undefined>();
 	let shown = $state(false); // show validation errors after the first attempt to proceed
 
@@ -68,20 +70,13 @@
 		busy = true;
 		submitError = undefined;
 		try {
-			created = (await api.createCluster(buildRequest(form))).id;
+			created = await api.createCluster(buildRequest(form));
 		} catch (e) {
 			submitError = asApiError(e);
 		} finally {
 			busy = false;
 		}
 	}
-	const codeText: Record<string, MessageKey> = {
-		no_capacity: 'codeNoCapacity',
-		policy_conflict: 'codePolicyConflict',
-		settings_incomplete: 'codeSettingsIncomplete',
-		cluster_exists: 'codeClusterExists',
-		not_leader: 'codeNotLeader'
-	};
 </script>
 
 {#snippet field(id: string, label: MessageKey, key: keyof ClusterForm, hint?: MessageKey, placeholder = '')}
@@ -108,9 +103,9 @@
 	<Alert.Root>
 		<Alert.Title>{t('createStarted')}</Alert.Title>
 		<Alert.Description>
-			<p>{t('createStartedBody', { id: created })}</p>
+			<p>{t('createStartedBody', { id: created.id })}</p>
 			<p class="mt-2 flex gap-4 text-sm">
-				<a class="underline underline-offset-4" href="/operations">{t('navOperations')}</a>
+				<a class="underline underline-offset-4" href="/operations#{encodeURIComponent(created.id)}">{t('navOperations')}</a>
 				<a class="underline underline-offset-4" href="/clusters">{t('navClusters')}</a>
 			</p>
 		</Alert.Description>
@@ -259,8 +254,8 @@
 				<p class="text-xs text-muted-foreground">{t('reviewHint')}</p>
 				{#if submitError}
 					<div aria-live="polite">
-						{#if submitError.code && codeText[submitError.code]}
-							<Alert.Root variant="destructive"><Alert.Description>{t(codeText[submitError.code])}</Alert.Description></Alert.Root>
+						{#if submitError.code}
+							<ErrorNotice error={submitError} />
 						{:else}
 							<ApiGate error={submitError} />
 						{/if}

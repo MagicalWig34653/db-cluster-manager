@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ApiError, createClient, isCluster, isEvent, isOperation, isSwarm, type FetchFn } from './api';
+import { ApiError, createClient, dashboardIdRE, isCluster, isEvent, isOperation, isSwarm, leaderHint, type FetchFn } from './api';
 
 type Call = { url: string; init: RequestInit };
 
@@ -147,10 +147,102 @@ describe('guards', () => {
 		await expect(server(200, {}).client.createCluster(req)).rejects.toMatchObject({ kind: 'invalid_response' });
 	});
 
-	it('rejects malformed metrics results and accepts null gaps', async () => {
-		const q = { query: 'm', from: 'a', to: 'b', step: 60 };
-		expect(await server(200, { series: [{ points: [[1, null], [2, 3]] }] }).client.queryMetrics(q)).toBeTruthy();
-		await expect(server(200, { series: [{ points: [[1, 'x']] }] }).client.queryMetrics(q)).rejects.toMatchObject({ kind: 'invalid_response' });
+	it('accepts metric points with explicit states and rejects inconsistent ones', async () => {
+		const q = { selector: 'm', start: 0, end: 1000, stepSeconds: 60 };
+		const result = (points: unknown) => ({ start: 0, end: 1000, stepSeconds: 60, windowSeconds: 60, series: [{ labels: { name: 'm' }, points }], gaps: [] });
+		const good = result([{ t: 1, v: 2, state: 'ok' }, { t: 2, v: null, state: 'no_data' }, { t: 3, v: null, state: 'unavailable' }]);
+		expect(await server(200, good).client.queryMetrics(q)).toBeTruthy();
+		for (const bad of [
+			[{ t: 1, v: 'x', state: 'ok' }],
+			[{ t: 1, v: null, state: 'ok' }],
+			[{ t: 1, v: 5, state: 'unavailable' }],
+			[{ t: 1, v: null, state: 'healthy' }],
+			[[1, null]]
+		]) {
+			await expect(server(200, result(bad)).client.queryMetrics(q)).rejects.toMatchObject({ kind: 'invalid_response' });
+		}
+	});
+
+	it('sends the metrics query with the manager field names', async () => {
+		const s = server(200, { start: 0, end: 1, stepSeconds: 60, windowSeconds: 60, series: [], gaps: [] });
+		const q = { selector: 'm{a="b"}', start: 0, end: 1, stepSeconds: 60, windowSeconds: 60, func: 'avg' };
+		await s.client.queryMetrics(q);
+		expect(s.calls[0].url).toBe('/api/v1/metrics/query');
+		expect(JSON.parse(String(s.calls[0].init.body))).toEqual(q);
+	});
+
+	const dashboard = { id: 'd1', title: 'T', owner: 'me', shared: false, panels: [{ id: 'p', title: 'P', kind: 'line', selector: 'm', func: 'last', windowSeconds: 60, stepSeconds: 60, x: 0, y: 0, w: 12, h: 6 }] };
+	it('creates dashboards with POST /dashboards/{id} and updates with PUT', async () => {
+		const c = server(201, dashboard);
+		await c.client.saveDashboard({ title: 'T', shared: false, panels: dashboard.panels as never });
+		expect(c.calls[0].init.method).toBe('POST');
+		expect(c.calls[0].url).toMatch(/^\/api\/v1\/dashboards\/d-[0-9a-f-]{36}$/);
+		expect(dashboardIdRE.test(decodeURIComponent(c.calls[0].url.split('/').pop()!))).toBe(true);
+		expect(JSON.parse(String(c.calls[0].init.body))).toEqual({ title: 'T', shared: false, panels: dashboard.panels });
+		const u = server(200, dashboard);
+		await u.client.saveDashboard({ title: 'T', shared: true, panels: [] }, 'd1');
+		expect(u.calls[0].init.method).toBe('PUT');
+		expect(u.calls[0].url).toBe('/api/v1/dashboards/d1');
+	});
+	it('rejects dashboards in the old name/query shape', async () => {
+		const old = { id: 'd', name: 'N', shared: false, panels: [{ id: 'p', kind: 'line', title: 'x', query: 'q' }] };
+		await expect(server(200, { items: [old] }).client.dashboards()).rejects.toMatchObject({ kind: 'invalid_response' });
+	});
+
+	it('keeps the new coarse codes and a plausible leader hint, drops anything else', async () => {
+		const busy = await server(409, { error: 'busy' }).client.abortOperation('o').catch((e) => e);
+		expect(busy).toMatchObject({ kind: 'conflict', code: 'busy' });
+		const mismatch = await server(409, { error: 'approval_mismatch' }).client.approveOperation('o', 'a'.repeat(64)).catch((e) => e);
+		expect(mismatch.code).toBe('approval_mismatch');
+		const lead = await server(503, { error: 'not_leader', leader: 'mgr-2.local:8443' }).client.hosts().catch((e) => e);
+		expect(lead).toMatchObject({ kind: 'unavailable', code: 'not_leader', leader: 'mgr-2.local:8443' });
+		const evil = await server(503, { error: 'not_leader', leader: '<script>alert(1)</script>' }).client.hosts().catch((e) => e);
+		expect(evil.leader).toBeUndefined();
+		expect(leaderHint('a b')).toBeUndefined();
+	});
+
+	it('approves with the digest only and validates the answer', async () => {
+		const digest = 'b'.repeat(64);
+		const s = server(200, { digest, approvedBy: 'admin', approvedAt: '2026-10-20T10:00:00Z' });
+		expect(await s.client.approveOperation('op/1', digest)).toMatchObject({ approvedBy: 'admin' });
+		expect(s.calls[0].url).toBe('/api/v1/operations/op%2F1/approve');
+		expect(JSON.parse(String(s.calls[0].init.body))).toEqual({ digest });
+		await expect(server(200, { digest: 'short' }).client.approveOperation('o', digest)).rejects.toMatchObject({ kind: 'invalid_response' });
+	});
+
+	it('validates operations with approval and reason', () => {
+		const d = 'c'.repeat(64);
+		expect(isOperation({ id: 'o', kind: 'k', state: 'pending', reason: 'waiting', approval: { digest: d } })).toBe(true);
+		expect(isOperation({ id: 'o', kind: 'k', state: 'pending', approval: { digest: 'zz' } })).toBe(false);
+	});
+
+	it('starts an inspection with an explicit host and validates the one-time password response', async () => {
+		const started = {
+			id: 'op', kind: 'inspection-restore', session: 's', backup: 'b1', host: 'n1', service: 'svc', port: 3306,
+			expiresAt: '2026-10-20T14:00:00Z', approval: { digest: 'd'.repeat(64) }, inspectionAccount: 'inspect', inspectionPassword: 'pw'
+		};
+		const s = server(202, started);
+		expect(await s.client.inspectRestore({ cluster: 'c', host: 'n1' })).toEqual(started);
+		expect(JSON.parse(String(s.calls[0].init.body))).toEqual({ cluster: 'c', host: 'n1' });
+		await expect(server(202, { ...started, inspectionPassword: undefined }).client.inspectRestore({ cluster: 'c' })).rejects.toMatchObject({ kind: 'invalid_response' });
+	});
+
+	it('calls host, Swarm and operation commands on the documented paths', async () => {
+		const h = { swarm: 's', nodeId: 'n/1', enrollment: 'enrolled' };
+		let s = server(200, h);
+		await s.client.setEnrollment('n/1', 'revoke');
+		expect(s.calls[0].url).toBe('/api/v1/hosts/n%2F1/revoke');
+		s = server(201, { id: 'sw', name: 'Prod', state: 'unknown' });
+		await s.client.connectSwarm({ name: 'Prod', dockerHost: 'unix:///var/run/docker.sock' });
+		expect(s.calls[0].url).toBe('/api/v1/swarms');
+		s = server(200, { created: true, labeled: ['a'], unlabeled: [], failed: [] });
+		expect((await s.client.deployAgents('sw')).created).toBe(true);
+		expect(s.calls[0].url).toBe('/api/v1/swarms/sw/agents/deploy');
+		await expect(server(200, { created: true }).client.deployAgents('sw')).rejects.toMatchObject({ kind: 'invalid_response' });
+		s = server(202, { id: 'o', kind: 'k' });
+		await s.client.resumeOperation('o');
+		expect(s.calls[0].url).toBe('/api/v1/operations/o/resume');
+		await expect(server(204).client.syncSwarm('sw')).resolves.toBeUndefined();
 	});
 
 	it('treats a missing endpoint as not_found, not as empty data', async () => {

@@ -7,7 +7,8 @@
 	let { error, retry }: { error: ApiError; retry?: () => void } = $props();
 	// 404/503 on an endpoint this UI knows only from its assumed contract means
 	// the manager does not offer it (yet); nothing is invented in its place.
-	const missing = $derived(error.kind === 'not_found' || error.kind === 'unavailable');
+	// A coarse code (for example not_leader) is a real answer, not a missing endpoint.
+	const missing = $derived(!error.code && (error.kind === 'not_found' || error.kind === 'unavailable'));
 </script>
 
 {#if missing}

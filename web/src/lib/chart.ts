@@ -1,22 +1,32 @@
 // Pure geometry for the hand-written SVG line chart. Missing data is never
-// interpolated: null values and holes larger than 1.5 steps split the line and
-// are reported as gap ranges so the chart can show them explicitly.
+// interpolated: points that are not "ok" (no_data, unavailable) and holes
+// larger than 1.5 steps split the line and are reported as typed gap ranges so
+// the chart can show them explicitly. All times are milliseconds, matching the
+// manager's metrics API.
 
-import type { MetricSeries } from './api';
+import type { MetricGap, MetricSeries } from './api';
 
 export interface Pt {
 	x: number;
 	y: number;
 }
+/** no_data: readable but empty; unavailable: cannot be read; missing: the step is absent from the answer. */
+export type GapKind = 'no_data' | 'unavailable' | 'missing';
+const rank: Record<GapKind, number> = { missing: 0, no_data: 1, unavailable: 2 };
+const worse = (a: GapKind | undefined, b: GapKind): GapKind => (a === undefined || rank[b] > rank[a] ? b : a);
+
 export interface GapRange {
 	x1: number;
 	x2: number;
+	kind: GapKind;
 }
 export interface ChartInput {
 	series: MetricSeries;
-	from: number; // unix seconds
+	/** Intervals the manager reported as unreadable (milliseconds). */
+	gaps?: MetricGap[];
+	from: number; // unix milliseconds
 	to: number;
-	step: number; // seconds
+	step: number; // milliseconds
 	width: number;
 	height: number;
 	pad: { l: number; r: number; t: number; b: number };
@@ -58,26 +68,35 @@ export function buildChart(input: ChartInput): Chart {
 	const innerW = Math.max(width - pad.l - pad.r, 1);
 	const innerH = Math.max(height - pad.t - pad.b, 1);
 	const xOf = (t: number) => pad.l + ((t - from) / span) * innerW;
-
-	const pts = series.points
-		.filter(([t]) => t >= from && t <= to)
-		.sort((a, b) => a[0] - b[0]);
-	const real = pts.filter((p): p is [number, number] => p[1] !== null);
-	const empty: Chart = {
-		runs: [],
-		gaps: [{ x1: xOf(from), x2: xOf(to) }],
-		yTicks: [],
-		xTicks: [],
-		yMin: 0,
-		yMax: 0,
-		hasData: false,
-		valuePoints: 0
-	};
 	const xTicks = [0, 1, 2, 3, 4].map((i) => ({ x: xOf(from + (span * i) / 4), time: from + (span * i) / 4 }));
-	if (real.length === 0) return { ...empty, xTicks };
 
-	let lo = Math.min(...real.map((p) => p[1]));
-	let hi = Math.max(...real.map((p) => p[1]));
+	const pts = series.points.filter((p) => p.t >= from && p.t <= to).sort((a, b) => a.t - b.t);
+	// Only state "ok" carries a value; the type guard also protects against a null slipping through.
+	const real = pts.filter((p): p is typeof p & { v: number } => p.state === 'ok' && p.v !== null);
+
+	// Reported unreadable intervals, clipped to the range; they are always unavailable.
+	const reported: GapRange[] = (input.gaps ?? [])
+		.filter((g) => g.to > from && g.from < to && g.to > g.from)
+		.map((g) => ({ x1: xOf(Math.max(g.from, from)), x2: xOf(Math.min(g.to, to)), kind: 'unavailable' as const }));
+
+	if (real.length === 0) {
+		// Everything is a gap; the strongest reason wins so "unavailable" is never softened to "no data".
+		const kind = pts.reduce<GapKind | undefined>((k, p) => (p.state === 'ok' ? k : worse(k, p.state)), undefined);
+		const hasReported = reported.length > 0;
+		return {
+			runs: [],
+			gaps: [{ x1: xOf(from), x2: xOf(to), kind: hasReported ? 'unavailable' : (kind ?? 'missing') }],
+			yTicks: [],
+			xTicks,
+			yMin: 0,
+			yMax: 0,
+			hasData: false,
+			valuePoints: 0
+		};
+	}
+
+	let lo = Math.min(...real.map((p) => p.v));
+	let hi = Math.max(...real.map((p) => p.v));
 	const ticks = niceTicks(lo, hi);
 	if (ticks.length > 0) {
 		lo = Math.min(lo, ticks[0]);
@@ -93,23 +112,37 @@ export function buildChart(input: ChartInput): Chart {
 	const runs: Pt[][] = [];
 	const gaps: GapRange[] = [];
 	let run: Pt[] = [];
-	let prev: number | undefined; // time of previous real point
+	let prev: number | undefined; // time of the previous real point
+	let pending: GapKind | undefined; // worst non-ok state seen since the previous real point
 	const flush = () => {
 		if (run.length) runs.push(run);
 		run = [];
 	};
-	// Leading gap.
-	if (real[0][0] - from > maxHole) gaps.push({ x1: xOf(from), x2: xOf(real[0][0]) });
-	for (const [t, v] of real) {
-		if (prev !== undefined && t - prev > maxHole) {
-			flush();
-			gaps.push({ x1: xOf(prev), x2: xOf(t) });
+	let i = 0;
+	for (const p of pts) {
+		if (p.state !== 'ok') {
+			pending = worse(pending, p.state);
+			continue;
 		}
-		run.push({ x: xOf(t), y: yOf(v) });
-		prev = t;
+		if (p.v === null) continue;
+		if (prev === undefined) {
+			// Leading gap.
+			if (pending !== undefined || p.t - from > maxHole) gaps.push({ x1: xOf(from), x2: xOf(p.t), kind: pending ?? 'missing' });
+		} else if (pending !== undefined || p.t - prev > maxHole) {
+			flush();
+			gaps.push({ x1: xOf(prev), x2: xOf(p.t), kind: pending ?? 'missing' });
+		}
+		pending = undefined;
+		run.push({ x: xOf(p.t), y: yOf(p.v) });
+		prev = p.t;
+		i++;
 	}
 	flush();
-	if (prev !== undefined && to - prev > maxHole) gaps.push({ x1: xOf(prev), x2: xOf(to) });
+	// Trailing gap: the newest steps are not "ok" or the data simply ends early.
+	if (prev !== undefined && (pending !== undefined || to - prev > maxHole)) {
+		gaps.push({ x1: xOf(prev), x2: xOf(to), kind: pending ?? 'missing' });
+	}
+	gaps.push(...reported);
 
 	return {
 		runs,
@@ -119,17 +152,47 @@ export function buildChart(input: ChartInput): Chart {
 		yMin: lo,
 		yMax: hi,
 		hasData: true,
-		valuePoints: real.length
+		valuePoints: i
 	};
 }
 
 export const pathOf = (run: Pt[]) =>
 	run.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
 
-/** Latest real value of a series, with how old it is; undefined when there is none. */
-export function latest(series: MetricSeries[]): { value: number; time: number } | undefined {
-	let best: { value: number; time: number } | undefined;
-	for (const s of series)
-		for (const [t, v] of s.points) if (v !== null && (!best || t > best.time)) best = { value: v, time: t };
-	return best;
+/**
+ * What a stat tile or table row may claim about the current value of one
+ * series. Only a recent "ok" point is a value; a newer no_data/unavailable
+ * step makes the current value unknown, and an old "ok" point is stale.
+ */
+export type CurrentValue =
+	| { kind: 'value'; value: number; time: number }
+	| { kind: 'stale'; value: number; time: number; ageMs: number }
+	| { kind: 'unavailable' }
+	| { kind: 'no_data' };
+
+export function currentValue(series: MetricSeries, end: number, stepMs: number): CurrentValue {
+	let newest: MetricSeries['points'][number] | undefined;
+	let newestOk: (typeof series.points)[number] & { v: number } | undefined;
+	let anyUnavailable = false;
+	for (const p of series.points) {
+		if (!newest || p.t > newest.t) newest = p;
+		if (p.state === 'ok' && p.v !== null && (!newestOk || p.t > newestOk.t)) newestOk = p as typeof p & { v: number };
+		if (p.state === 'unavailable') anyUnavailable = true;
+	}
+	if (!newest) return { kind: 'no_data' };
+	if (!newestOk) return { kind: anyUnavailable ? 'unavailable' : 'no_data' };
+	if (newest.t > newestOk.t) return { kind: newest.state === 'unavailable' ? 'unavailable' : 'no_data' };
+	const ageMs = end - newestOk.t;
+	return ageMs <= stepMs * 3
+		? { kind: 'value', value: newestOk.v, time: newestOk.t }
+		: { kind: 'stale', value: newestOk.v, time: newestOk.t, ageMs };
+}
+
+/** Compact text for series labels, for example `host=a, slot=n1`; empty when there are none. */
+export function labelText(labels: Record<string, string>): string {
+	return Object.entries(labels)
+		.filter(([k]) => k !== 'name')
+		.sort(([a], [b]) => (a < b ? -1 : 1))
+		.map(([k, v]) => `${k}=${v}`)
+		.join(', ');
 }
