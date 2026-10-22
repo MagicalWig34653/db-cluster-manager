@@ -7,6 +7,8 @@ import (
 	"crypto/tls"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +16,7 @@ import (
 	"github.com/MagicalWig34653/db-cluster-manager/internal/api"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/authz"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/certs"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/collect"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/manager"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/recovery"
 )
@@ -180,5 +183,95 @@ func TestManagedModeAgentTransport(t *testing.T) {
 			_ = rt.Close()
 			t.Errorf("%s: accepted", name)
 		}
+	}
+}
+
+// TestManagedModeWiresCommandServices checks that the leader API mounts the
+// command endpoints, that the monitoring service runs on the leader, and
+// that the manager's system subject is bound (alerts, scheduled backups).
+func TestManagedModeWiresCommandServices(t *testing.T) {
+	dir := t.TempDir()
+	cfg, err := loadConfig(writeConfig(t, map[string]any{
+		"auth":    map[string]any{"enabled": true, "rpId": "db.example.test", "origins": []string{"https://db.example.test"}},
+		"manager": map[string]any{"dataDir": dir, "bind": freeLoopback(t), "backup": map[string]any{"scheduleIntervalSeconds": 30}},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt, err := newManagedRuntime(cfg, quietLog(), &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close()
+	mux := newMux(rt)
+	waitUntil(t, "leader API", func() bool { return rt.stack.Load() != nil })
+	for _, p := range []string{"/api/v1/hosts", "/api/v1/backups", "/api/v1/settings/notifications", "/api/v1/clusters/c1/outage-diagnosis"} {
+		if rec := serve(t, mux, "GET", p, ""); rec.Code != http.StatusUnauthorized {
+			t.Errorf("%s = %d, want 401 (mounted, session required)", p, rec.Code)
+		}
+	}
+	st := rt.stack.Load()
+	b := st.Policy.Bindings(collect.SystemSubject)
+	if len(b) != 1 || b[0].Role != authz.RoleManagerSystem || b[0].Scope != authz.Global {
+		t.Fatalf("system bindings %+v", b)
+	}
+	if rt.backups.Load() == nil || rt.monitoring == nil {
+		t.Fatal("command services not constructed")
+	}
+	waitUntil(t, "monitoring running", func() bool { return rt.monitoring.Status().Running })
+	if _, err := os.Stat(filepath.Join(dir, "monitoring", "metrics")); err != nil {
+		t.Fatalf("metric store: %v", err)
+	}
+	if d := rt.Check(collect.SystemSubject, authz.ActionRead, authz.Resource{Type: authz.ResourceCluster, Scope: authz.ClusterScope("s", "c")}); !d.Allowed {
+		t.Fatalf("system subject cannot read: %+v", d)
+	}
+}
+
+func TestManagedModeMonitoringAndBackupConfig(t *testing.T) {
+	good := filepath.Join(t.TempDir(), "backend.json")
+	if err := os.WriteFile(good, []byte(`{"type":"dir","dir":"`+t.TempDir()+`"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bad := filepath.Join(t.TempDir(), "bad.json")
+	if err := os.WriteFile(bad, []byte(`{"type":"s3"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for name, m := range map[string]map[string]any{
+		"relative monitoring dir": {"monitoring": map[string]any{"dataDir": "metrics"}},
+		"short schedule interval": {"backup": map[string]any{"scheduleIntervalSeconds": 5}},
+		"relative backend file":   {"backup": map[string]any{"backendConfigFile": "backend.json"}},
+		"missing backend file":    {"backup": map[string]any{"backendConfigFile": filepath.Join(t.TempDir(), "none.json")}},
+		"invalid backend file":    {"backup": map[string]any{"backendConfigFile": bad}},
+	} {
+		m["dataDir"], m["bind"] = t.TempDir(), "127.0.0.1:0"
+		cfg, err := loadConfig(writeConfig(t, map[string]any{"manager": m}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rt, err := newManagedRuntime(cfg, quietLog(), &bytes.Buffer{}); err == nil {
+			_ = rt.Close()
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	if _, err := loadConfig(writeConfig(t, map[string]any{"manager": map[string]any{"backup": map[string]any{"backendFile": "x"}}})); err == nil {
+		t.Fatal("unknown backup field accepted")
+	}
+	cfg, err := loadConfig(writeConfig(t, map[string]any{"manager": map[string]any{"dataDir": t.TempDir(), "bind": freeLoopback(t),
+		"monitoring": map[string]any{"disabled": true}, "backup": map[string]any{"backendConfigFile": good}}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt, err := newManagedRuntime(cfg, quietLog(), &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close()
+	if rt.backend == nil {
+		t.Fatal("backend not opened")
+	}
+	waitUntil(t, "leadership", rt.svc.IsLeader)
+	time.Sleep(50 * time.Millisecond)
+	if rt.monitoring.Status().Running {
+		t.Fatal("disabled monitoring runs")
 	}
 }

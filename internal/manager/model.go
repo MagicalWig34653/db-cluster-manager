@@ -174,6 +174,8 @@ type Settings struct {
 	// MonitorSocket is the database's unix socket relative to a node's
 	// volume root, used by health collection (default DefaultMonitorSocket).
 	MonitorSocket string `json:"monitorSocket,omitempty"`
+	// Backup configures backup jobs and inspection restores (backups.go).
+	Backup BackupSettings `json:"backup,omitzero"`
 }
 
 // DefaultMonitorSocket is the default Settings.MonitorSocket: the socket the
@@ -193,10 +195,14 @@ type OperationRecord struct {
 	// Nodes are the plan's node identities (for a replacement the new
 	// node of the replaced slot), used to resolve health checks while the
 	// operation runs.
-	Nodes     []galera.Node `json:"nodes,omitempty"`
-	View      *runner.View  `json:"view,omitempty"`
-	UpdatedAt time.Time     `json:"updatedAt,omitzero"`
-	EndedAt   time.Time     `json:"endedAt,omitzero"`
+	Nodes []galera.Node `json:"nodes,omitempty"`
+	// ApprovalID and ApprovalDigest are set for operations whose
+	// destructive steps wait for an explicit approval (approvals.go).
+	ApprovalID     string       `json:"approvalId,omitempty"`
+	ApprovalDigest string       `json:"approvalDigest,omitempty"`
+	View           *runner.View `json:"view,omitempty"`
+	UpdatedAt      time.Time    `json:"updatedAt,omitzero"`
+	EndedAt        time.Time    `json:"endedAt,omitzero"`
 }
 
 // EventRecord is one stored event.

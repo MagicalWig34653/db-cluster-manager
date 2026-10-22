@@ -59,8 +59,20 @@
 //	    "agentPort": 7443,
 //	    "allowAnySource": false,
 //	    "monitorUser": "", "monitorSecret": ""
+//	  },
+//	  "monitoring": {       // default: enabled, metric store in <dataDir>/monitoring
+//	    "disabled": false, "dataDir": ""
+//	  },
+//	  "backup": {           // manager side of backups (ADR 0009, ADR 0011)
+//	    "backendConfigFile": "/etc/dbcm/backend.json",  // dbbackup.BackendConfig JSON
+//	    "scheduleIntervalSeconds": 60
 //	  }
 //	}
+//
+// With auth enabled, the leader also serves the command endpoints (hosts,
+// Swarms, clusters, operations, backups, notification settings; ADR 0011),
+// runs the monitoring service and the backup scheduler, and binds the
+// manager's system subject to the manager_system role.
 //
 // Accounts, passkeys, sessions, recovery codes, roles and audit records then
 // survive a restart; the setup token is printed only while no administrator

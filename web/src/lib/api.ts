@@ -391,10 +391,14 @@ export interface MetricsResult {
 	series: MetricSeries[];
 }
 
+/** Notification severities include "error" (api/openapi.yaml Notification). */
+export const notificationSeverities = ['info', 'warning', 'error', 'critical', 'unknown'] as const;
+export type NotificationSeverity = (typeof notificationSeverities)[number];
+
 export interface AppNotification {
 	id: string;
 	time: string;
-	severity: Severity;
+	severity: NotificationSeverity;
 	message: string;
 	cluster?: string;
 	read: boolean;
@@ -474,7 +478,7 @@ export const isNotification: Guard<AppNotification> = (v): v is AppNotification 
 	isObj(v) &&
 	isStr(v.id) &&
 	isDate(v.time) &&
-	isSeverity(v.severity) &&
+	oneOf(notificationSeverities)(v.severity) &&
 	isStr(v.message) &&
 	optStr(v.cluster) &&
 	isBool(v.read) &&
@@ -578,9 +582,12 @@ export function createClient(fetchFn: FetchFn) {
 		operations: () => items(call('GET', '/operations', listOf(isOperation))),
 		events: () => items(call('GET', '/events', listOf(isEvent))),
 
-		// --- Endpoints below are NOT in api/openapi.yaml yet. Shapes are the
-		// UI's documented assumptions (docs/DESIGN.md "Assumed API contract").
-		// 404/503 are shown as "API not available".
+		// --- Endpoints below were the UI's assumed contract (docs/DESIGN.md).
+		// Hosts, cluster commands, backups, notifications and notification
+		// settings are now in api/openapi.yaml with these shapes. Dashboards
+		// and metric queries still differ from the manager's contract
+		// (title/selector panels, point objects with state) and need a UI
+		// change. 404/503 are shown as "API not available".
 		hosts: () => items(call('GET', '/hosts', listOf(isHost))),
 		createCluster: (req: CreateClusterRequest) => call('POST', '/clusters', isOperationRef, req),
 		replaceNode: (cluster: string, slot: string) =>

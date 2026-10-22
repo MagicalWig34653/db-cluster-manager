@@ -114,12 +114,29 @@ func (s *server) startSession(w http.ResponseWriter, r *http.Request, accountID 
 // decodeJSON reads a JSON body into v. An empty body is accepted only when
 // allowEmpty is set. It writes the error response itself.
 func decodeJSON(w http.ResponseWriter, r *http.Request, v any, allowEmpty bool) bool {
+	if err := readJSON(r, v, allowEmpty); err != nil {
+		writeError(w, err.status, err.code)
+		return false
+	}
+	return true
+}
+
+// requestError is a client error found while reading a request. Resolvers
+// return it so writeServiceError answers with its status and code.
+type requestError struct {
+	status int
+	code   string
+}
+
+func (e *requestError) Error() string { return "api: request rejected: " + e.code }
+
+// readJSON reads a JSON body into v (unknown fields rejected, one value).
+func readJSON(r *http.Request, v any, allowEmpty bool) *requestError {
 	if r.ContentLength == 0 && allowEmpty {
-		return true
+		return nil
 	}
 	if mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || mt != "application/json" {
-		writeError(w, http.StatusUnsupportedMediaType, errUnsupportedFormat)
-		return false
+		return &requestError{http.StatusUnsupportedMediaType, errUnsupportedFormat}
 	}
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
@@ -127,19 +144,16 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, v any, allowEmpty bool) 
 		var tooLarge *http.MaxBytesError
 		switch {
 		case errors.As(err, &tooLarge):
-			writeError(w, http.StatusRequestEntityTooLarge, errRequestTooLarge)
+			return &requestError{http.StatusRequestEntityTooLarge, errRequestTooLarge}
 		case errors.Is(err, io.EOF) && allowEmpty:
-			return true
-		default:
-			writeError(w, http.StatusBadRequest, errBadRequest)
+			return nil
 		}
-		return false
+		return &requestError{http.StatusBadRequest, errBadRequest}
 	}
 	if dec.More() {
-		writeError(w, http.StatusBadRequest, errBadRequest)
-		return false
+		return &requestError{http.StatusBadRequest, errBadRequest}
 	}
-	return true
+	return nil
 }
 
 // validAccountID bounds account IDs so they are safe in limiter keys, logs

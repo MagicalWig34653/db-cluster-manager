@@ -43,10 +43,15 @@ type NotificationSettings struct {
 
 // WebhookSettings configures the signed webhook channel.
 type WebhookSettings struct {
-	URL string `json:"url"`
+	// Disabled keeps the configuration without delivering.
+	Disabled bool   `json:"disabled,omitempty"`
+	URL      string `json:"url"`
 	// SecretFile holds the HMAC key (read at start; surrounding whitespace
-	// is trimmed).
-	SecretFile   string `json:"secretFile"`
+	// is trimmed). SecretStored instead means the key was set through the
+	// API and is stored sealed in CollNotifySecrets (key "webhook");
+	// SecretFile wins when both are set.
+	SecretFile   string `json:"secretFile,omitempty"`
+	SecretStored bool   `json:"secretStored,omitempty"`
 	AllowPrivate bool   `json:"allowPrivate,omitempty"`
 	MaxRetries   int    `json:"maxRetries,omitempty"`
 }
@@ -54,13 +59,21 @@ type WebhookSettings struct {
 // EmailSettings configures the SMTP channel (STARTTLS required unless
 // AllowInsecure).
 type EmailSettings struct {
-	Addr          string   `json:"addr"`
-	From          string   `json:"from"`
-	To            []string `json:"to"`
-	Username      string   `json:"username,omitempty"`
-	PasswordFile  string   `json:"passwordFile,omitempty"`
-	AllowInsecure bool     `json:"allowInsecure,omitempty"`
+	Disabled     bool     `json:"disabled,omitempty"`
+	Addr         string   `json:"addr"`
+	From         string   `json:"from"`
+	To           []string `json:"to"`
+	Username     string   `json:"username,omitempty"`
+	PasswordFile string   `json:"passwordFile,omitempty"`
+	// PasswordStored: the SMTP password is stored sealed in
+	// CollNotifySecrets (key "email").
+	PasswordStored bool `json:"passwordStored,omitempty"`
+	AllowInsecure  bool `json:"allowInsecure,omitempty"`
 }
+
+// CollNotifySecrets holds notification secrets set through the API,
+// sealed with the data key (keys "webhook" and "email").
+const CollNotifySecrets = "notify-secrets"
 
 // Defaults of MonitoringSettings.
 const (
@@ -111,10 +124,10 @@ func (m MonitoringSettings) Validate() error {
 	if _, err := parseMinSeverity(e.Notifications.MinSeverity); err != nil {
 		errs = append(errs, err)
 	}
-	if w := e.Notifications.Webhook; w != nil && (w.URL == "" || w.SecretFile == "") {
-		errs = append(errs, errors.New("webhook needs url and secretFile"))
+	if w := e.Notifications.Webhook; w != nil && !w.Disabled && (w.URL == "" || (w.SecretFile == "" && !w.SecretStored)) {
+		errs = append(errs, errors.New("webhook needs url and a secret"))
 	}
-	if x := e.Notifications.Email; x != nil && (x.Addr == "" || x.From == "" || len(x.To) == 0) {
+	if x := e.Notifications.Email; x != nil && !x.Disabled && (x.Addr == "" || x.From == "" || len(x.To) == 0) {
 		errs = append(errs, errors.New("email needs addr, from and at least one recipient"))
 	}
 	return errors.Join(errs...)

@@ -78,6 +78,9 @@ type MonitoringConfig struct {
 	Channels []notify.Channel
 	// ReadSecret reads secret files (default os.ReadFile).
 	ReadSecret func(path string) ([]byte, error)
+	// Keys unseals notification secrets stored through the API
+	// (CollNotifySecrets); nil disables them.
+	Keys KeyProvider
 
 	// CollectInterval overrides the scrape interval of the settings (tests;
 	// the settings minimum does not apply).
@@ -344,39 +347,19 @@ func (m *Monitoring) dispatcher(set MonitoringSettings) (*notify.Dispatcher, err
 			have[c.Name()] = true
 		}
 	}
-	if w := set.Notifications.Webhook; w != nil && !have["webhook"] {
-		secret, err := m.cfg.ReadSecret(w.SecretFile)
+	if w := set.Notifications.Webhook; w != nil && !w.Disabled && !have["webhook"] {
+		ch, err := m.webhookChannel(w)
 		if err == nil {
-			var ch *notify.Webhook
-			ch, err = notify.NewWebhook(notify.WebhookConfig{
-				URL: w.URL, Secret: []byte(strings.TrimSpace(string(secret))), AllowPrivate: w.AllowPrivate,
-				MaxRetries: min2(w.MaxRetries, 5),
-			})
-			if err == nil {
-				channels, external = append(channels, ch), append(external, ch.Name())
-			}
-		}
-		if err != nil {
+			channels, external = append(channels, ch), append(external, ch.Name())
+		} else {
 			problems = append(problems, fmt.Errorf("webhook channel: %w", err))
 		}
 	}
-	if x := set.Notifications.Email; x != nil && !have["email"] {
-		cfg := notify.EmailConfig{Addr: x.Addr, From: x.From, To: x.To, Username: x.Username, AllowInsecure: x.AllowInsecure}
-		var err error
-		if x.PasswordFile != "" {
-			var pw []byte
-			if pw, err = m.cfg.ReadSecret(x.PasswordFile); err == nil {
-				cfg.Password = strings.TrimSpace(string(pw))
-			}
-		}
+	if x := set.Notifications.Email; x != nil && !x.Disabled && !have["email"] {
+		ch, err := m.emailChannel(x)
 		if err == nil {
-			var ch *notify.Email
-			ch, err = notify.NewEmail(cfg)
-			if err == nil {
-				channels, external = append(channels, ch), append(external, ch.Name())
-			}
-		}
-		if err != nil {
+			channels, external = append(channels, ch), append(external, ch.Name())
+		} else {
 			problems = append(problems, fmt.Errorf("email channel: %w", err))
 		}
 	}
@@ -392,6 +375,61 @@ func (m *Monitoring) dispatcher(set MonitoringSettings) (*notify.Dispatcher, err
 		rules = append(rules, notify.Rule{Name: "external", Match: notify.Matcher{MinSeverity: min}, Channels: external})
 	}
 	return notify.NewDispatcher(m.nlog, notify.NewRouter(rules, m.cfg.Now), m.cfg.Now, channels...), nil
+}
+
+// storedSecret reads a notification secret set through the API.
+func (m *Monitoring) storedSecret(key string) (string, error) {
+	if m.cfg.Keys == nil {
+		return "", errors.New("no data key to unseal stored secrets")
+	}
+	v, ok, err := GetSealed[string](m.svc.store, m.cfg.Keys, CollNotifySecrets, key)
+	if err != nil {
+		return "", err
+	}
+	if !ok || v == "" {
+		return "", fmt.Errorf("stored %s secret missing", key)
+	}
+	return v, nil
+}
+
+// webhookChannel builds the webhook channel of the settings.
+func (m *Monitoring) webhookChannel(w *WebhookSettings) (*notify.Webhook, error) {
+	var secret string
+	if w.SecretFile != "" {
+		b, err := m.cfg.ReadSecret(w.SecretFile)
+		if err != nil {
+			return nil, err
+		}
+		secret = strings.TrimSpace(string(b))
+	} else {
+		var err error
+		if secret, err = m.storedSecret("webhook"); err != nil {
+			return nil, err
+		}
+	}
+	return notify.NewWebhook(notify.WebhookConfig{
+		URL: w.URL, Secret: []byte(secret), AllowPrivate: w.AllowPrivate, MaxRetries: min2(w.MaxRetries, 5),
+	})
+}
+
+// emailChannel builds the email channel of the settings.
+func (m *Monitoring) emailChannel(x *EmailSettings) (*notify.Email, error) {
+	cfg := notify.EmailConfig{Addr: x.Addr, From: x.From, To: x.To, Username: x.Username, AllowInsecure: x.AllowInsecure}
+	switch {
+	case x.PasswordFile != "":
+		pw, err := m.cfg.ReadSecret(x.PasswordFile)
+		if err != nil {
+			return nil, err
+		}
+		cfg.Password = strings.TrimSpace(string(pw))
+	case x.PasswordStored:
+		pw, err := m.storedSecret("email")
+		if err != nil {
+			return nil, err
+		}
+		cfg.Password = pw
+	}
+	return notify.NewEmail(cfg)
 }
 
 func min2(a, b int) int {
@@ -615,6 +653,17 @@ func (m *Monitoring) AckNotification(_ context.Context, id, by string) error {
 	}
 	m.nlog.Append(notify.Event{Severity: notify.SeverityInfo, Kind: notify.KindPrefix + "ack", Message: "notification acknowledged",
 		Details: map[string]string{"event_id": id, "by": by}})
+	return nil
+}
+
+// MarkNotificationRead implements api.Monitoring.
+func (m *Monitoring) MarkNotificationRead(_ context.Context, id string) error {
+	if err := m.requireLeader(); err != nil {
+		return err
+	}
+	if !m.inbox.MarkRead(id) {
+		return api.ErrNotFound
+	}
 	return nil
 }
 

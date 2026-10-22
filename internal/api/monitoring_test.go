@@ -118,6 +118,18 @@ func (f *fakeMonitoring) AckNotification(_ context.Context, id, by string) error
 	return nil
 }
 
+func (f *fakeMonitoring) MarkNotificationRead(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := range f.notes {
+		if f.notes[i].ID == id {
+			f.notes[i].Read = true
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
 var panel = map[string]any{"id": "p1", "title": "Size", "kind": "line", "selector": "dcm_galera_cluster_size", "func": "last",
 	"stepSeconds": 15, "x": 0, "y": 0, "w": 6, "h": 4}
 

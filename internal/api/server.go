@@ -54,6 +54,11 @@ type Config struct {
 	// Monitoring backs dashboards, metric queries and notifications. Nil
 	// answers those endpoints with 503.
 	Monitoring Monitoring
+	// Control, Backups and Settings run commands (control.go). Nil answers
+	// their endpoints with 503.
+	Control  Control
+	Backups  Backups
+	Settings Settings
 	// RecoveryCodeIterations is passed to recovery.GenerateCodes; 0 selects
 	// the default.
 	RecoveryCodeIterations int
@@ -125,7 +130,10 @@ type endpoint struct {
 	// hideDenied answers a denial with 404, so object routes do not reveal
 	// whether an object the caller may not see exists.
 	hideDenied bool
-	handle     func(w http.ResponseWriter, r *http.Request, c *caller)
+	// hideUnreadable answers a denial with 404 only when the caller may not
+	// even read the resource, and with 403 otherwise.
+	hideUnreadable bool
+	handle         func(w http.ResponseWriter, r *http.Request, c *caller)
 }
 
 // caller is the authenticated principal of a request.
@@ -199,6 +207,84 @@ func (s *server) endpoints() []endpoint {
 		{
 			method: "POST", path: "/notifications/{id}/ack", access: accessPermission,
 			action: authz.ActionOperate, resolve: s.resolveNotification, hideDenied: true, handle: s.handleNotificationAck,
+		},
+		{
+			method: "POST", path: "/notifications/{id}/read", access: accessPermission,
+			action: authz.ActionRead, resolve: s.resolveNotification, hideDenied: true, handle: s.handleNotificationRead,
+		},
+
+		{method: "GET", path: "/hosts", access: accessFiltered, handle: s.handleHosts},
+		{
+			method: "POST", path: "/hosts/{id}/enroll", access: accessPermission,
+			action: authz.ActionUpdate, resolve: s.resolveHost, hideUnreadable: true, handle: s.handleHostEnrollment(true),
+		},
+		{
+			method: "POST", path: "/hosts/{id}/revoke", access: accessPermission,
+			action: authz.ActionUpdate, resolve: s.resolveHost, hideUnreadable: true, handle: s.handleHostEnrollment(false),
+		},
+		{
+			method: "POST", path: "/swarms", access: accessPermission,
+			action: authz.ActionCreate, resolve: s.resolveNewSwarm, handle: s.handleSwarmConnect,
+		},
+		{
+			method: "POST", path: "/swarms/{id}/sync", access: accessPermission,
+			action: authz.ActionOperate, resolve: s.resolveSwarm, hideUnreadable: true, handle: s.handleSwarmSync,
+		},
+		{
+			method: "POST", path: "/swarms/{id}/agents/deploy", access: accessPermission,
+			action: authz.ActionOperate, resolve: s.resolveSwarm, hideUnreadable: true, handle: s.handleAgentsDeploy,
+		},
+
+		{
+			method: "POST", path: "/clusters", access: accessPermission,
+			action: authz.ActionCreate, resolve: s.resolveNewCluster, handle: s.handleClusterCreate,
+		},
+		{
+			method: "POST", path: "/clusters/{id}/nodes/{slot}/replace", access: accessPermission,
+			action: authz.ActionOperate, resolve: s.resolveCluster, hideUnreadable: true, handle: s.handleNodeReplace,
+		},
+		{
+			method: "GET", path: "/clusters/{id}/outage-diagnosis", access: accessPermission,
+			action: authz.ActionRead, resolve: s.resolveCluster, hideDenied: true, handle: s.handleOutageDiagnosis,
+		},
+		{
+			method: "POST", path: "/operations/{id}/resume", access: accessPermission,
+			action: authz.ActionOperate, resolve: s.resolveOperation, hideUnreadable: true, handle: s.handleOperationControl(true),
+		},
+		{
+			method: "POST", path: "/operations/{id}/abort", access: accessPermission,
+			action: authz.ActionOperate, resolve: s.resolveOperation, hideUnreadable: true, handle: s.handleOperationControl(false),
+		},
+		{
+			method: "POST", path: "/operations/{id}/approve", access: accessPermission,
+			action: authz.ActionRestore, resolve: s.resolveOperationApproval, hideUnreadable: true, handle: s.handleOperationApprove,
+		},
+
+		{method: "GET", path: "/backups", access: accessFiltered, handle: s.handleBackups},
+		{
+			method: "PUT", path: "/clusters/{id}/backup-policy", access: accessPermission,
+			action: authz.ActionUpdate, resolve: s.resolveClusterBackups, hideUnreadable: true, handle: s.handleBackupPolicy,
+		},
+		{
+			method: "POST", path: "/clusters/{id}/backups", access: accessPermission,
+			action: authz.ActionBackup, resolve: s.resolveClusterBackups, hideUnreadable: true, handle: s.handleBackupStart,
+		},
+		{
+			method: "POST", path: "/restores/inspect", access: accessPermission,
+			action: authz.ActionRestore, resolve: s.resolveInspection, hideUnreadable: true, handle: s.handleInspectionStart,
+		},
+
+		{
+			method: "GET", path: "/settings/notifications", access: accessPermission,
+			action: authz.ActionRead, resolve: s.resolveSettings, handle: s.handleNotificationSettings,
+		},
+		{
+			method: "PUT", path: "/settings/notifications", access: accessPermission,
+			action: authz.ActionUpdate, resolve: s.resolveSettings, handle: s.handleNotificationSettingsUpdate,
+		},
+		{
+			method: "POST", path: "/settings/notifications/test", access: accessPermission,
+			action: authz.ActionOperate, resolve: s.resolveSettings, handle: s.handleNotificationTest,
 		},
 	}
 }
@@ -306,6 +392,8 @@ func (s *server) wrap(ep endpoint) http.Handler {
 					writeError(w, http.StatusServiceUnavailable, errUnavailable)
 				case ep.hideDenied:
 					writeError(w, http.StatusNotFound, errNotFound)
+				case ep.hideUnreadable && !s.cfg.Authorizer.Check(c.subject, authz.ActionRead, res).Allowed:
+					writeError(w, http.StatusNotFound, errNotFound)
 				default:
 					writeError(w, http.StatusForbidden, errForbidden)
 				}
@@ -395,13 +483,37 @@ func handleVersion(w http.ResponseWriter, _ *http.Request, _ *caller) {
 	writeJSON(w, http.StatusOK, version.Get("manager"))
 }
 
-// writeServiceError maps resource-service errors without exposing details.
+// writeServiceError maps service errors to coarse codes without exposing
+// details.
 func (s *server) writeServiceError(w http.ResponseWriter, r *http.Request, err error) {
+	var re *requestError
 	switch {
+	case errors.As(err, &re):
+		writeError(w, re.status, re.code)
 	case errors.Is(err, ErrNotFound):
 		writeError(w, http.StatusNotFound, errNotFound)
+	case errors.Is(err, ErrInvalidInput):
+		writeError(w, http.StatusBadRequest, errBadRequest)
+	case errors.Is(err, ErrForbidden):
+		writeError(w, http.StatusForbidden, errForbidden)
+	case errors.Is(err, ErrRequiresGuidedRecovery):
+		writeError(w, http.StatusConflict, errRequiresGuidedRecovery)
+	case errors.Is(err, ErrNoCapacity):
+		writeError(w, http.StatusConflict, errNoCapacity)
+	case errors.Is(err, ErrPolicyConflict):
+		writeError(w, http.StatusConflict, errPolicyConflict)
+	case errors.Is(err, ErrSettingsIncomplete):
+		writeError(w, http.StatusConflict, errSettingsIncomplete)
+	case errors.Is(err, ErrClusterExists):
+		writeError(w, http.StatusConflict, errClusterExists)
+	case errors.Is(err, ErrBusy):
+		writeError(w, http.StatusConflict, errBusy)
+	case errors.Is(err, ErrApprovalMismatch):
+		writeError(w, http.StatusConflict, errApprovalMismatch)
 	case errors.Is(err, ErrConflict):
 		writeError(w, http.StatusConflict, errConflict)
+	case errors.Is(err, ErrNotLeader):
+		writeError(w, http.StatusServiceUnavailable, errNotLeader)
 	default:
 		s.log.Error("api: resource service failed", "path", r.URL.Path, "err", err)
 		writeError(w, http.StatusServiceUnavailable, errUnavailable)
