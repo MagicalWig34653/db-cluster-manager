@@ -112,6 +112,7 @@ type wirePlacement struct {
 
 type wireServiceMode struct {
 	Replicated *wireReplicated `json:"Replicated,omitempty"`
+	Global     *struct{}       `json:"Global,omitempty"` // CreateGlobalService only
 }
 
 type wireReplicated struct {
