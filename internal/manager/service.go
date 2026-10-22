@@ -167,6 +167,16 @@ func (s *Service) OnLeadership(fn func(*Leadership)) {
 	s.hooks = append(s.hooks, fn)
 }
 
+// SetAgents replaces Config.Agents. It only has an effect before Start (an
+// agent client that needs the Service's own store is created after New).
+func (s *Service) SetAgents(a runner.AgentClient) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.started {
+		s.cfg.Agents = a
+	}
+}
+
 // Start runs the leader loop until Close.
 func (s *Service) Start() {
 	s.mu.Lock()

@@ -44,6 +44,8 @@ Design durable metadata replication, election/coordination, secret availability,
 
 Operations need durable IDs, step state, timeouts, bounded retries, idempotency and fencing against stale owners. Network loss means unknown completion, not necessarily failure. Pause/abort at safe boundaries; database changes are not universally reversible.
 
+Prototype control-plane core (`internal/manager`, verified in process and on loopback only): the metastore's Raft state machine also holds a generic versioned document store (atomic multi-document compare-and-set on a global revision, snapshotted with the journal, backward compatible with journal-only snapshots). The manager keeps swarms, hosts with enrollment state, clusters, settings, operation definitions/views, events, accounts, passkeys, sessions, recovery codes, roles/bindings and audit records there; session digests, recovery-code hashes and passkey records are sealed with AES-256-GCM using a data key from a `KeyProvider`. Key provisioning across replicas is not solved. Only the leader serves the API and runs operations; on gaining leadership it runs a barrier, takes over unfinished operations with a fresh runner and starts reconcilers, and on losing it stops them and refuses agent commands locally. Not done: request forwarding from followers, membership changes, authenticated metastore/agent transports, health collection from agents.
+
 Secure Docker access, manager/agent identity, enrollment, rotation and revocation remain design work. Outbound agent connections with mTLS are a candidate. Never assume that an unauthenticated network Docker socket is acceptable.
 
 ## Routing and certificates
