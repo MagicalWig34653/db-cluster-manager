@@ -31,8 +31,8 @@
 //     succeeds. Authenticators that always report zero (common for synced
 //     passkeys) are accepted.
 //
-// State is in memory only. HTTP handlers, persistence and replication are
-// not implemented.
+// State is in memory; persist.go defines an optional write-through
+// persistence hook (used by internal/manager for replicated storage).
 package passkey
 
 import (
@@ -152,6 +152,8 @@ type Manager struct {
 	handles  map[string][]byte // account ID -> WebAuthn user handle
 	byHandle map[string]string // string(user handle) -> account ID
 	creds    map[string]*storedCredential
+	persist  CredentialPersister
+	onErr    func(error)
 }
 
 // New validates cfg and returns a Manager. now may be nil for time.Now.
@@ -368,6 +370,16 @@ func (m *Manager) FinishRegistration(ceremonyID, binding string, response []byte
 		// than register a credential whose user handle maps elsewhere.
 		return CredentialInfo{}, fmt.Errorf("%w: user handle changed during ceremony", ErrVerificationFailed)
 	}
+	sc := &storedCredential{record: *cred, info: CredentialInfo{
+		ID: id, AccountID: p.accountID, RPID: m.cfg.RPID, Label: p.label, CreatedAt: now,
+		SignCount: cred.Authenticator.SignCount, BackupEligible: cred.Flags.BackupEligible,
+		BackupState: cred.Flags.BackupState, AttestationFormat: cred.AttestationFormat,
+	}}
+	// Key material first: the account store only lists the passkey once it
+	// can be used.
+	if err := m.putLocked(sc); err != nil {
+		return CredentialInfo{}, err
+	}
 	rc := recovery.Credential{ID: id, Kind: recovery.CredentialPasskey, Label: p.label, CreatedAt: now}
 	if p.newAccount {
 		err = m.accounts.CreateWithPasskey(p.accountID, rc)
@@ -375,13 +387,9 @@ func (m *Manager) FinishRegistration(ceremonyID, binding string, response []byte
 		err = m.accounts.AddPasskey(p.accountID, rc)
 	}
 	if err != nil {
+		m.deleteLocked(id)
 		return CredentialInfo{}, err
 	}
-	sc := &storedCredential{record: *cred, info: CredentialInfo{
-		ID: id, AccountID: p.accountID, RPID: m.cfg.RPID, Label: p.label, CreatedAt: now,
-		SignCount: cred.Authenticator.SignCount, BackupEligible: cred.Flags.BackupEligible,
-		BackupState: cred.Flags.BackupState, AttestationFormat: cred.AttestationFormat,
-	}}
 	m.creds[id] = sc
 	return sc.info, nil
 }
@@ -482,13 +490,19 @@ func (m *Manager) FinishLogin(ceremonyID, binding string, response []byte) (Logi
 	if cred.Authenticator.CloneWarning {
 		sc.info.CloneWarnings++
 		sc.info.LastCloneWarningAt = now
+		m.bestEffort(m.putLocked(sc))
 		return LoginResult{}, fmt.Errorf("%w: stored %d, received %d", ErrSignCountRegression,
 			sc.record.Authenticator.SignCount, parsed.Response.AuthenticatorData.Counter)
 	}
+	prev := *sc
 	sc.record = *cred
 	sc.info.SignCount = cred.Authenticator.SignCount
 	sc.info.BackupState = cred.Flags.BackupState
 	sc.info.LastUsedAt = now
+	if err := m.putLocked(sc); err != nil {
+		*sc = prev
+		return LoginResult{}, err
+	}
 	return LoginResult{AccountID: accountID, CredentialID: id, SignCount: sc.info.SignCount}, nil
 }
 
@@ -529,7 +543,7 @@ func (m *Manager) RemoveCredential(accountID, credentialID string) error {
 		return err
 	}
 	if !slices.Contains(ids, credentialID) {
-		delete(m.creds, credentialID)
+		m.deleteLocked(credentialID)
 		return nil
 	}
 	held := 0
@@ -544,7 +558,7 @@ func (m *Manager) RemoveCredential(accountID, credentialID string) error {
 	if err := m.accounts.RemovePasskey(accountID, credentialID); err != nil {
 		return err
 	}
-	delete(m.creds, credentialID)
+	m.deleteLocked(credentialID)
 	return nil
 }
 

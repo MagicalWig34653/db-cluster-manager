@@ -126,6 +126,7 @@ func cloneAccount(a Account) Account {
 type Accounts struct {
 	mu       sync.RWMutex
 	accounts map[string]Account
+	persist  AccountPersister
 }
 
 // NewAccounts returns an empty registry.
@@ -140,6 +141,11 @@ func (s *Accounts) Create(a Account) error {
 	defer s.mu.Unlock()
 	if _, ok := s.accounts[a.ID]; ok {
 		return ErrAccountExists
+	}
+	if s.persist != nil {
+		if err := s.persist.PutAccount(cloneAccount(a)); err != nil {
+			return fmt.Errorf("recovery: persist account: %w", err)
+		}
 	}
 	s.accounts[a.ID] = cloneAccount(a)
 	return nil
@@ -182,6 +188,11 @@ func (s *Accounts) mutate(id string, fn func(*Account) error) error {
 		return err
 	}
 	next.CredentialEpoch = a.CredentialEpoch + 1
+	if s.persist != nil {
+		if err := s.persist.PutAccount(cloneAccount(next)); err != nil {
+			return fmt.Errorf("recovery: persist account: %w", err)
+		}
+	}
 	s.accounts[id] = next
 	return nil
 }

@@ -66,6 +66,10 @@ type Sessions struct {
 	now    Clock
 	epochs EpochSource
 	byHash map[[32]byte]*Session
+
+	persist       SessionPersister
+	onErr         func(error)
+	seenPersisted map[[32]byte]time.Time // LastSeenAt last written
 }
 
 // NewSessions returns a store. epochs is required so credential changes end
@@ -74,7 +78,7 @@ func NewSessions(p SessionPolicy, epochs EpochSource, now Clock) *Sessions {
 	if now == nil {
 		now = time.Now
 	}
-	return &Sessions{policy: p, now: now, epochs: epochs, byHash: make(map[[32]byte]*Session)}
+	return &Sessions{policy: p, now: now, epochs: epochs, byHash: make(map[[32]byte]*Session), seenPersisted: map[[32]byte]time.Time{}}
 }
 
 func newSessionToken() (string, [32]byte, error) {
@@ -100,6 +104,9 @@ func (s *Sessions) Issue(userID string) (string, Session, error) {
 	defer s.mu.Unlock()
 	now := s.now()
 	sess := &Session{ID: hex.EncodeToString(d[:8]), UserID: userID, CreatedAt: now, LastSeenAt: now, Epoch: epoch}
+	if err := s.putLocked(d, *sess); err != nil {
+		return "", Session{}, err
+	}
 	s.byHash[d] = sess
 	return tok, *sess, nil
 }
@@ -114,16 +121,16 @@ func (s *Sessions) lookup(token string) ([32]byte, *Session, error) {
 	}
 	now := s.now()
 	if !now.Before(sess.CreatedAt.Add(s.policy.AbsoluteTimeout)) {
-		delete(s.byHash, d)
+		s.deleteLocked(d)
 		return d, nil, ErrSessionExpired
 	}
 	if !now.Before(sess.LastSeenAt.Add(s.policy.IdleTimeout)) {
-		delete(s.byHash, d)
+		s.deleteLocked(d)
 		return d, nil, ErrSessionIdle
 	}
 	epoch, err := s.epochs.CredentialEpoch(sess.UserID)
 	if err != nil || epoch != sess.Epoch {
-		delete(s.byHash, d)
+		s.deleteLocked(d)
 		return d, nil, ErrSessionCredentialsChanged
 	}
 	return d, sess, nil
@@ -133,11 +140,12 @@ func (s *Sessions) lookup(token string) ([32]byte, *Session, error) {
 func (s *Sessions) Validate(token string) (Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, sess, err := s.lookup(token)
+	d, sess, err := s.lookup(token)
 	if err != nil {
 		return Session{}, err
 	}
 	sess.LastSeenAt = s.now()
+	s.touchLocked(d, *sess)
 	return *sess, nil
 }
 
@@ -155,10 +163,13 @@ func (s *Sessions) Rotate(token string) (string, Session, error) {
 	if err != nil {
 		return "", Session{}, err
 	}
-	delete(s.byHash, d)
 	next := *sess
 	next.ID = hex.EncodeToString(nd[:8])
 	next.LastSeenAt = s.now()
+	if err := s.putLocked(nd, next); err != nil {
+		return "", Session{}, err
+	}
+	s.deleteLocked(d)
 	s.byHash[nd] = &next
 	return tok, next, nil
 }
@@ -167,7 +178,9 @@ func (s *Sessions) Rotate(token string) (string, Session, error) {
 func (s *Sessions) Revoke(token string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.byHash, digest(token))
+	if _, ok := s.byHash[digest(token)]; ok {
+		s.deleteLocked(digest(token))
+	}
 }
 
 // RevokeUser ends all sessions of a user and returns how many ended.
@@ -179,7 +192,7 @@ func (s *Sessions) RevokeUser(userID string) int {
 	n := 0
 	for d, sess := range s.byHash {
 		if sess.UserID == userID {
-			delete(s.byHash, d)
+			s.deleteLocked(d)
 			n++
 		}
 	}
@@ -211,7 +224,7 @@ func (s *Sessions) Prune() int {
 			!now.Before(sess.LastSeenAt.Add(s.policy.IdleTimeout))
 		epoch, err := s.epochs.CredentialEpoch(sess.UserID)
 		if expired || err != nil || epoch != sess.Epoch {
-			delete(s.byHash, d)
+			s.deleteLocked(d)
 			n++
 		}
 	}
