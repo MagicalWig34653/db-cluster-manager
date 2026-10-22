@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -167,24 +168,42 @@ func TestDrainCancelledWhenNodeReturns(t *testing.T) {
 	}
 }
 
-// TestNoFlappingWithJitter drives probe rounds directly with seeded jitter
-// around two close latencies. With the default hysteresis the writer never
-// moves; the control run without hysteresis shows the input does flap.
+// syncProbeRound is a deterministic stand-in for probeRound: it probes the
+// nodes one after another in configuration order on the calling goroutine,
+// records each result and evaluates once. probeRound itself runs the probes
+// concurrently, so the order in which results (and any shared test input)
+// are produced depends on the scheduler; tests about routing decisions on a
+// given input sequence must not depend on that.
+func syncProbeRound(p *Proxy) {
+	p.mu.Lock()
+	prober := p.prober
+	nodes := slices.Clone(p.nodes)
+	p.mu.Unlock()
+	for _, ns := range nodes {
+		p.record(ns, prober.Probe(p.ctx, ns.cfg.Address), time.Now())
+	}
+	p.mu.Lock()
+	p.evaluateLocked(time.Now())
+	p.mu.Unlock()
+}
+
+// TestNoFlappingWithJitter drives probe rounds synchronously with seeded,
+// per-node jitter around two close latencies. With the default hysteresis
+// the writer never moves; the control run without hysteresis shows the input
+// does flap. Each node has its own random source and rounds are synchronous,
+// so the latency sequence every node sees is fixed by the seed alone.
 func TestNoFlappingWithJitter(t *testing.T) {
 	run := func(margin float64, consecutive int) int {
 		pr := &scripted{}
-		var mu sync.Mutex
-		rnd := rand.New(rand.NewSource(42))
-		jitter := func(base time.Duration) func() ProbeResult {
+		jitter := func(seed int64, base time.Duration) func() ProbeResult {
+			rnd := rand.New(rand.NewSource(seed))
 			return func() ProbeResult {
-				mu.Lock()
 				j := time.Duration(rnd.Int63n(int64(4*time.Millisecond))) - 2*time.Millisecond
-				mu.Unlock()
 				return ProbeResult{Healthy: true, Sync: routing.SyncSynced, Latency: base + j}
 			}
 		}
-		pr.set("10.0.0.1:3306", jitter(10*time.Millisecond))
-		pr.set("10.0.0.2:3306", jitter(9500*time.Microsecond))
+		pr.set("10.0.0.1:3306", jitter(42, 10*time.Millisecond))
+		pr.set("10.0.0.2:3306", jitter(43, 9500*time.Microsecond))
 		cfg := testConfig(node("a", "10.0.0.1:3306"), node("b", "10.0.0.2:3306"))
 		cfg.Policy.Mode = "lowest-latency"
 		cfg.Policy.SwitchMargin = margin
@@ -195,9 +214,8 @@ func TestNoFlappingWithJitter(t *testing.T) {
 		}
 		defer p.cancel()
 		for range 300 {
-			p.probeRound(p.ctx)
+			syncProbeRound(p)
 		}
-		p.probeWG.Wait()
 		return p.Status().WriterChanges - 1 // the first selection is not a flap
 	}
 	if flaps := run(0, 0); flaps != 0 {

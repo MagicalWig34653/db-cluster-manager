@@ -250,16 +250,37 @@ func TestRestoreRejectsUnknownSnapshotFormat(t *testing.T) {
 	}
 }
 
+// putDocOnLeader writes one unconditional document through applyOnLeader and
+// returns its version. An unknown outcome is settled by reading the leader's
+// replica after a barrier: the test writes every key once with a distinct
+// value, so a present key with that value means the put committed.
+func (c *tcpCluster) putDocOnLeader(coll, key, value string) uint64 {
+	c.t.Helper()
+	op := DocOp{Collection: coll, Key: key, Value: json.RawMessage(value)}
+	present := func(n *Node) bool {
+		d, ok := n.Doc(coll, key)
+		return ok && string(d.Value) == value
+	}
+	l, err := c.applyOnLeader("put "+coll+"/"+key, func(n *Node) error {
+		_, err := n.ApplyDocs(op)
+		return err
+	}, present)
+	if err != nil {
+		c.t.Fatalf("put %s/%s on %s: %v", coll, key, l.id, err)
+	}
+	// After a successful apply or a barrier the leader has applied the put.
+	d, ok := l.Doc(coll, key)
+	if !ok {
+		c.t.Fatalf("put %s/%s: not on the settling leader %s", coll, key, l.id)
+	}
+	return d.Version
+}
+
 func TestDocsRestartFromDiskWithSnapshot(t *testing.T) {
 	c := newTCPCluster(t, 3)
-	leader := c.waitForLeader()
 	var last uint64
 	for i, v := range []string{`1`, `2`, `3`} {
-		res, err := leader.ApplyDocs(DocOp{Collection: "c", Key: string(rune('a' + i)), Value: json.RawMessage(v)})
-		if err != nil {
-			t.Fatal(err)
-		}
-		last = res[0].Version
+		last = c.putDocOnLeader("c", string(rune('a'+i)), v)
 	}
 	waitForDoc(t, c.live(), "c", "c", last)
 	for _, n := range c.live() {
@@ -267,25 +288,19 @@ func TestDocsRestartFromDiskWithSnapshot(t *testing.T) {
 			t.Fatalf("snapshot %s: %v", n.id, err)
 		}
 	}
-	res, err := leader.ApplyDocs(DocOp{Collection: "c", Key: "d", Value: json.RawMessage(`4`)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	waitForDoc(t, c.live(), "c", "d", res[0].Version)
+	dv := c.putDocOnLeader("c", "d", `4`)
+	waitForDoc(t, c.live(), "c", "d", dv)
 	for _, id := range c.ids {
 		c.stop(id)
 	}
 	for _, id := range c.ids {
 		c.start(id)
 	}
-	l := c.waitForLeader()
-	if err := l.Barrier(waitTimeout); err != nil {
-		t.Fatal(err)
-	}
+	l := c.barrierLeader()
 	if got := l.Docs("c"); len(got) != 4 {
 		t.Fatalf("after restart: %+v", got)
 	}
-	waitForDoc(t, c.live(), "c", "d", res[0].Version)
+	waitForDoc(t, c.live(), "c", "d", dv)
 }
 
 type memSink struct{ buf bytes.Buffer }
