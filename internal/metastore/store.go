@@ -25,6 +25,10 @@
 // Journal reads are local to the node and may lag behind the leader; a new
 // leader calls Node.Barrier before it trusts its journal.
 //
+// The state machine also holds a generic versioned document store with
+// atomic compare-and-set transactions (docs.go), replicated and snapshotted
+// together with the journal.
+//
 // This is a prototype (W03, extended for VM experiments). It is not
 // production hardened: no membership changes after bootstrap, no metrics, no
 // tuned snapshot thresholds, no disk-full or fsync fault testing.
@@ -59,13 +63,17 @@ var ErrOutcomeUnknown = errors.New("metastore: apply outcome unknown")
 
 // Command is one replicated change to the operation journal.
 type Command struct {
-	Kind   string          // "begin", "start", "finish", "adopt", "abort"
+	Kind   string          // "begin", "start", "finish", "adopt", "abort", KindDocs
 	OpID   string          //
 	OpKind string          // only for "begin"
 	Steps  []string        // only for "begin"
 	StepID string          // for "start", "finish"
 	Result opjournal.State // only for "finish"
 	Term   uint64          // fencing term the issuer believes it holds
+	// Docs is the transaction of a KindDocs command (see docs.go). It is
+	// omitted from the encoding of journal commands, which therefore encode
+	// exactly as before.
+	Docs []DocOp `json:",omitempty"`
 }
 
 // Transport carries Raft RPCs between nodes. It is the raft.Transport
@@ -353,26 +361,40 @@ func (n *Node) Barrier(timeout time.Duration) error {
 // is in flight, the outcome is unknown: the error wraps both
 // ErrOutcomeUnknown and the library error (for example raft.ErrLeadershipLost).
 func (n *Node) Apply(cmd Command) error {
+	res, err := n.apply(cmd)
+	if err != nil {
+		return err
+	}
+	return res.err
+}
+
+// apply replicates cmd. The returned error is a replication error; the
+// state machine's error is in applyResult.err.
+func (n *Node) apply(cmd Command) (applyResult, error) {
 	if !n.IsLeader() {
-		return ErrNotLeader
+		return applyResult{}, ErrNotLeader
 	}
 	data, err := encodeCommand(cmd)
 	if err != nil {
-		return err
+		return applyResult{}, err
 	}
 	fut := n.raft.Apply(data, n.applyTimeout)
 	if err := fut.Error(); err != nil {
 		if errors.Is(err, raft.ErrNotLeader) || errors.Is(err, raft.ErrLeadershipTransferInProgress) {
-			return fmt.Errorf("%w: %v", ErrNotLeader, err)
+			return applyResult{}, fmt.Errorf("%w: %v", ErrNotLeader, err)
 		}
-		return fmt.Errorf("%w: %w", ErrOutcomeUnknown, err)
+		return applyResult{}, fmt.Errorf("%w: %w", ErrOutcomeUnknown, err)
 	}
 	res, ok := fut.Response().(applyResult)
 	if !ok {
-		return fmt.Errorf("metastore: unexpected apply response %T", fut.Response())
+		return applyResult{}, fmt.Errorf("metastore: unexpected apply response %T", fut.Response())
 	}
-	return res.err
+	return res, nil
 }
+
+// Snapshot asks Raft to take a snapshot now (for tests and operators). It
+// returns the library error, for example raft.ErrNothingNewToSnapshot.
+func (n *Node) Snapshot() error { return n.raft.Snapshot().Error() }
 
 func encodeCommand(cmd Command) ([]byte, error) {
 	data, err := json.Marshal(cmd)
@@ -383,15 +405,33 @@ func encodeCommand(cmd Command) ([]byte, error) {
 }
 
 // applyResult is the FSM response for one log entry.
-type applyResult struct{ err error }
-
-// fsm applies commands to a journal. Snapshots are the journal's state export.
-type fsm struct {
-	mu sync.Mutex
-	j  *opjournal.Journal
+type applyResult struct {
+	err  error
+	docs []Document // KindDocs only
 }
 
-func newFSM() *fsm { return &fsm{j: opjournal.New()} }
+// fsm applies commands to a journal and a document store. Snapshots are the
+// journal's state export, wrapped in an envelope with the documents when
+// there are any (see docs.go).
+type fsm struct {
+	mu   sync.Mutex
+	j    *opjournal.Journal
+	docs *docStore
+}
+
+func newFSM() *fsm { return &fsm{j: opjournal.New(), docs: newDocStore()} }
+
+func (f *fsm) docList(coll string) []Document {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.docs.list(coll)
+}
+
+func (f *fsm) revision() uint64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.docs.rev
+}
 
 func (f *fsm) journal() *opjournal.Journal {
 	f.mu.Lock()
@@ -403,11 +443,15 @@ func (f *fsm) journal() *opjournal.Journal {
 func (f *fsm) Apply(l *raft.Log) interface{} {
 	var cmd Command
 	if err := json.Unmarshal(l.Data, &cmd); err != nil {
-		return applyResult{fmt.Errorf("metastore: decode command at index %d: %w", l.Index, err)}
+		return applyResult{err: fmt.Errorf("metastore: decode command at index %d: %w", l.Index, err)}
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return applyResult{applyTo(f.j, cmd)}
+	if cmd.Kind == KindDocs {
+		docs, err := f.docs.apply(cmd.Docs)
+		return applyResult{err: err, docs: docs}
+	}
+	return applyResult{err: applyTo(f.j, cmd)}
 }
 
 // applyTo applies cmd to j. Every opjournal error leaves j unchanged.
@@ -437,7 +481,15 @@ func (f *fsm) Snapshot() (raft.FSMSnapshot, error) {
 	if err != nil {
 		return nil, fmt.Errorf("metastore: snapshot journal: %w", err)
 	}
-	return &fsmSnapshot{data: data}, nil
+	if f.docs.empty() {
+		return &fsmSnapshot{data: data}, nil
+	}
+	rev, docs := f.docs.export()
+	env, err := json.Marshal(snapshotEnvelope{Format: snapshotFormatV2, Journal: data, Revision: rev, Docs: docs})
+	if err != nil {
+		return nil, fmt.Errorf("metastore: snapshot documents: %w", err)
+	}
+	return &fsmSnapshot{data: env}, nil
 }
 
 // Restore implements raft.FSM. It replaces the journal with the snapshot.
@@ -447,6 +499,20 @@ func (f *fsm) Restore(rc io.ReadCloser) error {
 	if err != nil {
 		return fmt.Errorf("metastore: read snapshot: %w", err)
 	}
+	docs := newDocStore()
+	if format, ok := isEnvelope(data); ok {
+		if format != snapshotFormatV2 {
+			return fmt.Errorf("metastore: unsupported snapshot format %q", format)
+		}
+		var env snapshotEnvelope
+		if err := json.Unmarshal(data, &env); err != nil {
+			return fmt.Errorf("metastore: decode snapshot: %w", err)
+		}
+		if docs, err = restoreDocStore(env.Revision, env.Docs); err != nil {
+			return err
+		}
+		data = env.Journal
+	}
 	j, err := opjournal.Restore(data)
 	if err != nil {
 		return fmt.Errorf("metastore: restore snapshot: %w", err)
@@ -454,6 +520,7 @@ func (f *fsm) Restore(rc io.ReadCloser) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.j = j
+	f.docs = docs
 	return nil
 }
 
