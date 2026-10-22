@@ -37,6 +37,9 @@ type Config struct {
 	AllowedIDs []string
 	Guard      *fencing.Guard
 	Docker     DockerAPI
+	// NodeID is this host's Swarm node ID. Backup and restore jobs are
+	// pinned to it; without it run-backup and run-restore are refused.
+	NodeID string
 }
 
 // Executor executes fenced, idempotent commands. Commands are serialized:
@@ -176,6 +179,12 @@ func (e *Executor) execute(ctx context.Context, d decoded) Result {
 		return e.createVolume(ctx, d.cmd, *a)
 	case *UpdateServiceArgs:
 		return e.updateService(ctx, *a)
+	case *RunBackupArgs:
+		return e.runBackup(ctx, d.cmd, *a)
+	case *RunRestoreArgs:
+		return e.runRestore(ctx, d.cmd, *a)
+	case *RemoveJobArgs:
+		return e.removeJob(ctx, *a)
 	case *AllowObjectsArgs:
 		for _, id := range a.IDs {
 			e.allow(id)
@@ -333,6 +342,9 @@ func (e *Executor) updateService(ctx context.Context, a UpdateServiceArgs) Resul
 		if v, has := cur.Labels[k]; has {
 			labels[k] = v
 		}
+	}
+	if cur.Labels[LabelJob] != "" {
+		return immutable("service %q is a job; jobs are not updated", a.ServiceName)
 	}
 	for _, k := range []string{LabelOpID, LabelStepID} {
 		if v, has := cur.Labels[k]; has {

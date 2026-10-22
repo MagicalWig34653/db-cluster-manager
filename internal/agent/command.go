@@ -231,6 +231,12 @@ func decodeCommand(cmd Command, volumeBase string) (decoded, error) {
 		args = &CreateVolumeArgs{}
 	case KindUpdateService:
 		args = &UpdateServiceArgs{}
+	case KindRunBackup:
+		args = &RunBackupArgs{}
+	case KindRunRestore:
+		args = &RunRestoreArgs{}
+	case KindRemoveJob:
+		args = &RemoveJobArgs{}
 	default:
 		return decoded{}, invalid("unknown kind %q", cmd.Kind)
 	}
@@ -266,10 +272,24 @@ func checkID(name, v string) error {
 func checkArgs(args any, volumeBase string) error {
 	switch a := args.(type) {
 	case *ServiceSpec:
+		if _, ok := a.Labels[LabelJob]; ok {
+			return invalid("label %s is reserved for run-backup and run-restore", LabelJob)
+		}
 		return checkSpec(*a)
+	case *RunBackupArgs:
+		return checkRunBackup(a, volumeBase)
+	case *RunRestoreArgs:
+		return checkRunRestore(a, volumeBase)
+	case *RemoveJobArgs:
+		if !jobNameRe.MatchString(a.JobName) {
+			return invalid("job_name %q", a.JobName)
+		}
 	case *UpdateServiceArgs:
 		if a.ServiceName == "" || len(a.ServiceName) > maxIDLen {
 			return invalid("service_name must be 1..%d bytes", maxIDLen)
+		}
+		if _, ok := a.Spec.Labels[LabelJob]; ok {
+			return invalid("label %s is reserved for run-backup and run-restore", LabelJob)
 		}
 		if a.Spec.Name != a.ServiceName {
 			return invalid("spec name %q differs from service_name %q", a.Spec.Name, a.ServiceName)
