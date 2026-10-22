@@ -63,6 +63,22 @@ Dependencies added overall: hashicorp/raft and raft-boltdb (MPL-2.0), bbolt (MIT
 - `internal/dbadmin`: SQL generation, grants, planning and argv builders for dump/load, tested against a recording fake only.
 - Packaging: `deploy/Dockerfile`, `compose.yaml`, `stack.yaml`, `release.yml`, offline bundle script, `docs/INSTALL.md`. The image was never built, the release workflow never run; `scripts/check_deploy.py` is static only.
 
+## Third batch (2026-10-22)
+
+- `internal/manager` + `cmd/manager`: replicated document store (Raft, CAS versions) in the metastore; embedded metastore node (single-instance = one-member group); leader-only loop with barrier and runner takeover; persistent accounts/sessions/passkeys/roles/audit (AES-GCM at rest; key provisioning across replicas unsolved); Swarm connector with a compatibility matrix seeded only with Docker 29.x; idempotent agent deployment as a global service; cluster creation/replacement/diagnosis operations. Only with a `manager` config section; the default prototype mode is unchanged. Everything runs against fakes: no real Docker/Swarm, no health collection from agents, agent endpoints are unauthenticated lab HTTP and unreachable across hosts.
+- `internal/galeraprobe` (go-sql-driver/mysql v1.10.1, MPL-2.0): wsrep status prober and runner checker; the proxy's `sync: galera` mode now works against a fake MySQL server only.
+- `internal/backup`: real S3 (own SigV4, stdlib) and SFTP (pkg/sftp) backends tested against in-process fakes only.
+- `internal/metrics`: own time-series engine (WAL, blocks, rollups, archive interface, permission-filtered queries); no collectors, no HTTP API, single node.
+- `web/`: R1 UI (shell, setup/login/recovery with passkeys, swarms/clusters/operations/events pages, German/English). Rendered once in headless Chromium with a virtual authenticator (35 scripted checks); no real authenticator, no Safari/Firefox, no screen reader. The API exposes no cluster node roles or last verified restore, so these show as unknown.
+- E3 on VMs (see W05 progress). A full verification on this tree: `go vet`, `gofmt`, `go test -race ./...` (30 packages), `npm run check/test/build`, `check_docs.py`, `check_deploy.py` all pass.
+
+### What R1 still lacks (so no Swarm trial yet)
+
+- No end-to-end run of the manager creating a Galera cluster on a real Swarm through its own API; the agent is not authenticated and not reachable across hosts; no health collection; no TLS/mTLS between manager, agents and metastore peers.
+- Manager-config backup is a library; nothing schedules it, no cluster data backup/restore (physical/logical), no PITR, no verified full restore.
+- No ACME, client-facing database TLS is only a proxy feature without certificate issuance wiring; no email/webhook wiring of `internal/notify` into the manager; no metrics collection; no drift handling, maintenance mode, spare-host workflow, update workflow, migration, or phpMyAdmin deployment beyond data structures.
+- P0 gates not met: proxy/VIP on VMs, full-cluster outage, AMD64, resource exhaustion, restart during cleanup, real agent on VMs.
+
 ## Next action
 
 Continue W05 (see WORKPLAN). The first working version must be validated locally before the user's Swarm trial. Most R1 scope (cluster creation through the manager, backups, TLS, passkeys, UI flows, notifications, restore, packaging) is not started.
