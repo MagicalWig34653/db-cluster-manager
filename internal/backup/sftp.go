@@ -212,7 +212,7 @@ func (b *SFTPBackend) op(ctx context.Context, f func(*sftp.Client) error) error 
 			return err
 		}
 		err = f(cl)
-		if err != nil && attempt == 0 && connDead(err) {
+		if err != nil && attempt == 0 && connDead(err) && !errors.Is(err, errNoRetry) {
 			b.mu.Lock()
 			if b.client == cl {
 				_ = b.reset()
@@ -226,6 +226,9 @@ func (b *SFTPBackend) op(ctx context.Context, f func(*sftp.Client) error) error 
 		return err
 	}
 }
+
+// errNoRetry marks an error after which op must not retry (a consumed stream).
+var errNoRetry = errors.New("backup: sftp: not retryable")
 
 func connDead(err error) bool {
 	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, net.ErrClosed) ||
@@ -250,6 +253,7 @@ func (b *SFTPBackend) Put(ctx context.Context, name string, r io.Reader) error {
 	var rnd [8]byte
 	_, _ = rand.Read(rnd[:])
 	tmp := b.p(".tmp-" + hex.EncodeToString(rnd[:]))
+	src := &countingReader{r: &ctxReader{ctx, r}}
 	return b.op(ctx, func(cl *sftp.Client) (err error) {
 		f, err := cl.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL)
 		if err != nil {
@@ -259,9 +263,15 @@ func (b *SFTPBackend) Put(ctx context.Context, name string, r io.Reader) error {
 			if err != nil {
 				_ = f.Close()
 				_ = cl.Remove(tmp)
+				if src.n > 0 {
+					// The stream is partly consumed: a retry would store a
+					// truncated object, so the reconnect-once logic in op
+					// must not run.
+					err = fmt.Errorf("%w: upload interrupted after %d bytes: %w", errNoRetry, src.n, err)
+				}
 			}
 		}()
-		if _, err = io.Copy(f, &ctxReader{ctx, r}); err != nil {
+		if _, err = io.Copy(f, src); err != nil {
 			return err
 		}
 		if err = f.Close(); err != nil {
