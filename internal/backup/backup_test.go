@@ -404,21 +404,3 @@ func TestDirBackendFailedPutKeepsOldAndNoTemp(t *testing.T) {
 		t.Fatalf("leftover files: %v", des)
 	}
 }
-
-func TestStubsNotImplemented(t *testing.T) {
-	ctx := context.Background()
-	for _, b := range []Backend{SFTPBackend{}, S3Backend{}} {
-		if err := b.Put(ctx, "x", strings.NewReader("")); !errors.Is(err, ErrNotImplemented) {
-			t.Fatal(err)
-		}
-		if _, err := b.Get(ctx, "x"); !errors.Is(err, ErrNotImplemented) {
-			t.Fatal(err)
-		}
-		if _, err := b.List(ctx, ""); !errors.Is(err, ErrNotImplemented) {
-			t.Fatal(err)
-		}
-		if err := b.Delete(ctx, "x"); !errors.Is(err, ErrNotImplemented) {
-			t.Fatal(err)
-		}
-	}
-}

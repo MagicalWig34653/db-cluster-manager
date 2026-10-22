@@ -19,8 +19,6 @@ import (
 var (
 	// ErrNotFound means the named object does not exist.
 	ErrNotFound = errors.New("backup: object not found")
-	// ErrNotImplemented marks backends that are documented but not built yet.
-	ErrNotImplemented = errors.New("backup: backend not implemented")
 	// ErrInvalidName rejects names that could escape a backend namespace.
 	ErrInvalidName = errors.New("backup: invalid object name")
 )
@@ -256,42 +254,7 @@ func (m *MemBackend) Delete(ctx context.Context, name string) error {
 	return nil
 }
 
-// SFTPBackend is a placeholder for the SFTP destination (B01/B07). NOT
-// IMPLEMENTED: every method returns ErrNotImplemented.
-type SFTPBackend struct{}
-
-// S3Backend is a placeholder for the S3/S3-compatible destination (B01/B07).
-// NOT IMPLEMENTED: every method returns ErrNotImplemented. Adding it needs a
-// dependency decision (see docs/ENTSCHEIDUNGEN.md).
-type S3Backend struct{}
-
-// Put implements Backend.
-func (SFTPBackend) Put(context.Context, string, io.Reader) error { return ErrNotImplemented }
-
-// Get implements Backend.
-func (SFTPBackend) Get(context.Context, string) (io.ReadCloser, error) { return nil, ErrNotImplemented }
-
-// List implements Backend.
-func (SFTPBackend) List(context.Context, string) ([]ObjectInfo, error) { return nil, ErrNotImplemented }
-
-// Delete implements Backend.
-func (SFTPBackend) Delete(context.Context, string) error { return ErrNotImplemented }
-
-// Put implements Backend.
-func (S3Backend) Put(context.Context, string, io.Reader) error { return ErrNotImplemented }
-
-// Get implements Backend.
-func (S3Backend) Get(context.Context, string) (io.ReadCloser, error) { return nil, ErrNotImplemented }
-
-// List implements Backend.
-func (S3Backend) List(context.Context, string) ([]ObjectInfo, error) { return nil, ErrNotImplemented }
-
-// Delete implements Backend.
-func (S3Backend) Delete(context.Context, string) error { return ErrNotImplemented }
-
 var (
 	_ Backend = (*DirBackend)(nil)
 	_ Backend = (*MemBackend)(nil)
-	_ Backend = SFTPBackend{}
-	_ Backend = S3Backend{}
 )
