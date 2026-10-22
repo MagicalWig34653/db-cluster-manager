@@ -60,7 +60,7 @@ TLS application-to-endpoint is the confirmed database default. Further database-
 
 One source, optional selected-database replication, and read-only copies with database-specific access. No automatic promotion. Filtering, DDL, users/grants, replication loops and compatibility require an explicit contract; this is not automatically a single stretched Galera cluster.
 
-Select physical/logical backup methods and their compatibility with individual database exports, PITR and isolated inspection. Temporary restored databases must not join production Galera membership, restart upstream replication, or expose production credentials by default. Selective restore must handle schema/dependency conflicts and target write activity.
+Select physical/logical backup methods and their compatibility with individual database exports, PITR and isolated inspection (proposed in [ADR 0009](decisions/0009-cluster-backup-method.md)). Temporary restored databases must not join production Galera membership, restart upstream replication, or expose production credentials by default. Selective restore must handle schema/dependency conflicts and target write activity.
 
 Manager backups include the configuration and secrets required for recovery, encrypted with an externally recoverable key. Restoring old metadata must first reconcile live state and fence obsolete controllers before resuming writes.
 
