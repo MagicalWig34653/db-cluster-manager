@@ -789,6 +789,16 @@ func (r *Runner) send(ctx context.Context, st *opState, spec Step, agentID strin
 // with backoff, then pauses the operation.
 func (r *Runner) awaitPreconditions(ctx context.Context, st *opState, spec Step) (bool, error) {
 	for polls := 0; ; polls++ {
+		// Waiting for preconditions is a safe boundary: nothing has been
+		// sent for this step. Lab E4: an abort requested during a long
+		// gate wait (up to MaxRetries polls) otherwise took minutes.
+		r.mu.Lock()
+		abort := st.abortReq
+		r.mu.Unlock()
+		if abort {
+			r.setStatus(st, StatusPaused, spec.ID, "abort requested while waiting for preconditions", EventPause)
+			return false, nil
+		}
 		reason := r.unmet(ctx, st, spec)
 		if reason == "" {
 			return true, nil
