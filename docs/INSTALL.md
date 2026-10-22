@@ -17,6 +17,7 @@ It serves the web UI and `GET /api/v1/health` and `GET /api/v1/version`. It stor
 | Release archives `db-cluster-manager_<version>_<os>_<arch>.tar.gz` | `.github/workflows/release.yml` on tag `v*` | linux/darwin, amd64/arm64, CGO disabled; contain `manager`, `agent`, `cli`, `deploy/`, per-binary `go version -m` listings |
 | `SHA256SUMS` | same workflow | verify with `sha256sum -c SHA256SUMS` |
 | Container image `ghcr.io/<owner>/db-cluster-manager:<version>` | same workflow, `deploy/Dockerfile` | linux/amd64 and linux/arm64; distroless, uid 65532, healthcheck via `manager -healthcheck` |
+| Job image (backup/restore) | `deploy/Dockerfile.jobs` (not in the release workflow yet) | `mariadb:11.4.13` pinned by digest plus `dbcm-job` (`cmd/dbcm-job`); runs as uid/gid 999 (the image's `mysql`); **never built so far** ([ADR 0011](decisions/0011-galera-endpoints-and-bootstrap-sql.md)) |
 | Offline bundle | `scripts/make-offline-bundle.sh` | binaries, compose/stack files, checksums, manifest, optional `docker save` image |
 
 `cmd/metad` and `cmd/lab` are test harnesses and are not shipped. There is no proxy binary yet.
@@ -88,7 +89,7 @@ Do not use `docker system prune`. Binary install: delete the extracted directory
 
 ## Image details and reproducibility
 
-- Base images are pinned by tag and digest in `deploy/Dockerfile` (resolved from the registries on 2026-10-20); refresh them deliberately.
+- Base images are pinned by tag and digest in `deploy/Dockerfile` (resolved from the registries on 2026-10-20) and `deploy/Dockerfile.jobs` (`mariadb:11.4.13`, resolved 2026-10-22); refresh them deliberately. The job image's MariaDB version must match the clusters' server image.
 - Go builds use `-trimpath`, CGO disabled, `-ldflags "-s -w -X ...Version -X ...Commit"`. Node dependencies come from `npm ci` and the lockfile.
 - Bit-for-bit reproducibility has not been verified.
 - Release workflow actions are pinned to commit SHAs. No secrets other than `GITHUB_TOKEN`; image signing/attestation and a formal SBOM format (SPDX/CycloneDX) are not done, only `go version -m` listings.

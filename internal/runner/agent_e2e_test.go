@@ -94,6 +94,13 @@ func (d *memDocker) ListByLabel(_ context.Context, kind agent.ObjectKind, key, v
 // flag must be gone from the final stored spec.
 func TestGaleraCreatePlanRunsAgainstRealExecutor(t *testing.T) {
 	p := createPlan(t)
+	// init-volume-dirs really chowns; an unprivileged test may only give the
+	// directories to its own IDs.
+	for i := range p.Steps {
+		if p.Steps[i].Kind == galera.StepInitVolumeDirs {
+			p.Steps[i].Owner = &galera.DirOwner{UID: os.Getuid(), GID: os.Getgid()}
+		}
+	}
 	root := t.TempDir()
 	hostBase := map[string]string{}
 	execs := map[string]*agent.Executor{}
@@ -162,6 +169,11 @@ func TestGaleraCreatePlanRunsAgainstRealExecutor(t *testing.T) {
 		dir := filepath.Join(hostBase[n.HostID], n.Volume)
 		if _, err := os.Stat(filepath.Join(dir, agent.MarkerFileName)); err != nil {
 			t.Errorf("node %s: no marker: %v", n.Slot, err)
+		}
+		for _, d := range []string{galera.DataDirName, galera.RunDirName} {
+			if fi, err := os.Lstat(filepath.Join(dir, d)); err != nil || !fi.IsDir() || fi.Mode().Perm() != 0o750 {
+				t.Errorf("node %s: %s not prepared: %v %v", n.Slot, d, fi, err)
+			}
 		}
 		vol := dockers[n.HostID].objects[n.Volume]
 		if vol.Labels[agent.LabelNode] != n.NodeUUID || vol.Labels[agent.LabelCluster] != "clu-1" || vol.Labels[agent.LabelInstallation] != "inst-1" {

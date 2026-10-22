@@ -69,11 +69,14 @@ func TestClusterRestorePlanInsertsRestoreBeforeFirstStart(t *testing.T) {
 	}
 	ri := slices.IndexFunc(op.Steps, func(s runner.Step) bool { return s.Command == agent.KindRunRestore })
 	ii := slices.IndexFunc(op.Steps, func(s runner.Step) bool { return s.Command == agent.KindInitIdentity })
+	di := slices.IndexFunc(op.Steps, func(s runner.Step) bool { return s.Command == agent.KindInitVolumeDirs })
 	ci := slices.IndexFunc(op.Steps, func(s runner.Step) bool { return s.Command == agent.KindCreateService })
-	if !(ii < ri && ri < ci) || op.Steps[ri+1].Command != "" || op.Steps[ri+2].Command != agent.KindRemoveJob {
+	// The job extracts into data/ as the database user, so the directories
+	// exist before it runs.
+	if !(ii < di && di+1 == ri && ri < ci) || op.Steps[ri+1].Command != "" || op.Steps[ri+2].Command != agent.KindRemoveJob {
 		t.Fatalf("order %v", order)
 	}
-	// The first start depends on the job removal, not on init-identity.
+	// The first start depends on the job removal, not on init-volume-dirs.
 	if !slices.ContainsFunc(op.Steps[ci].Preconditions, func(c runner.Condition) bool {
 		return c.Kind == runner.CondStepSucceeded && c.StepID == op.Steps[ri+2].ID
 	}) {
@@ -184,7 +187,8 @@ func TestInspectionRestoreIsIsolated(t *testing.T) {
 	}
 	sp := res.Spec
 	for _, want := range []string{"--wsrep-on=OFF", "--wsrep-provider=none", "--wsrep-cluster-address=", "--wsrep-cluster-name=inspect-s1",
-		"--port=3307", "--skip-slave-start", "--event-scheduler=OFF", "--skip-log-bin", "--init-file=/run/secrets/inspect-s1-init"} {
+		"--port=3307", "--skip-slave-start", "--event-scheduler=OFF", "--skip-log-bin", "--init-file=/run/secrets/inspect-s1-init",
+		"--socket=" + galera.SocketPath} {
 		if !slices.Contains(sp.Args, want) {
 			t.Fatalf("spec args %v lack %s", sp.Args, want)
 		}
@@ -205,6 +209,17 @@ func TestInspectionRestoreIsIsolated(t *testing.T) {
 		t.Fatalf("session %+v", s)
 	}
 	requireApprovalOnDestructive(t, res.Operation, "appr-2")
+	var cmds []string
+	for _, st := range res.Operation.Steps[:3] {
+		cmds = append(cmds, string(st.Command))
+	}
+	if !slices.Equal(cmds, []string{"create-volume", "init-identity", "init-volume-dirs"}) || res.Operation.Steps[3].Command != agent.KindRunRestore {
+		t.Fatalf("inspection prepares the volume directories before the restore job: %v", cmds)
+	}
+	var dirs agent.InitVolumeDirsArgs
+	if err := json.Unmarshal(res.Operation.Steps[2].Args, &dirs); err != nil || dirs.UID != galera.DefaultDBUID || dirs.Expected.ClusterID != "inspect-s1" {
+		t.Fatalf("init-volume-dirs args %+v (%v)", dirs, err)
+	}
 	last := res.Operation.Steps[len(res.Operation.Steps)-1]
 	if !slices.Contains(condKinds(last), CondRestoreVerified) {
 		t.Fatalf("last step %+v", last)

@@ -1,7 +1,7 @@
 """Static checks for deployment files (stdlib only; no Docker daemon needed).
 
-Checks deploy/Dockerfile, deploy/compose.yaml, deploy/stack.yaml and the
-release workflow. It is NOT a replacement for hadolint, `docker compose
+Checks deploy/Dockerfile, deploy/Dockerfile.jobs, deploy/compose.yaml,
+deploy/stack.yaml and the release workflow. It is NOT a replacement for hadolint, `docker compose
 config` or a real image build, and it does not prove the image builds.
 PyYAML is used for a real parse only if importable; otherwise a simple
 text-level structural check runs and says so.
@@ -20,7 +20,8 @@ def err(msg: str) -> None:
     errors.append(msg)
 
 
-def check_dockerfile(path: Path) -> None:
+def check_dockerfile(path: Path, required=("EXPOSE", "HEALTHCHECK")) -> list[tuple[str, str]]:
+    """Generic checks; returns the logical instructions as (OP, rest)."""
     text = path.read_text()
     # Join line continuations, drop comments.
     logical = []
@@ -37,10 +38,12 @@ def check_dockerfile(path: Path) -> None:
     args: dict[str, str] = {}
     stages: set[str] = set()
     user = None
-    seen = {"EXPOSE": False, "HEALTHCHECK": False}
+    seen = {k: False for k in required}
+    parsed: list[tuple[str, str]] = []
     for ins in logical:
         op, _, rest = ins.partition(" ")
         op = op.upper()
+        parsed.append((op, rest))
         if op == "ARG":
             k, _, v = rest.partition("=")
             args[k.strip()] = v.strip()
@@ -84,6 +87,47 @@ def check_dockerfile(path: Path) -> None:
         err(f"{path.name}: contains ':latest'")
     if not (ROOT / ".dockerignore").exists():
         err(".dockerignore is missing")
+    return parsed
+
+
+# Tools dbbackup.AllowedTools runs inside the job image.
+JOB_TOOLS = ("mariabackup", "mbstream", "mariadb-dump", "mariadb")
+
+
+def check_jobs_dockerfile(path: Path) -> None:
+    """Job image: generic checks plus the job contract (ADR 0009/0011)."""
+    parsed = check_dockerfile(path, required=("HEALTHCHECK",))
+    text = path.read_text()
+    args = {r.partition("=")[0].strip(): r.partition("=")[2].strip() for op, r in parsed if op == "ARG"}
+    base = args.get("MARIADB_IMAGE", "")
+    if not re.fullmatch(r"mariadb:\d+\.\d+\.\d+@sha256:[0-9a-f]{64}", base):
+        err(f"{path.name}: MARIADB_IMAGE must be the official mariadb image pinned by full version tag and digest (got {base!r})")
+    froms = [r for op, r in parsed if op == "FROM"]
+    if not froms or "${MARIADB_IMAGE}" not in froms[-1]:
+        err(f"{path.name}: the final stage must be built FROM ${{MARIADB_IMAGE}}")
+    entry = [r for op, r in parsed if op == "ENTRYPOINT"]
+    if not entry or "/usr/local/bin/dbcm-job" not in entry[-1]:
+        err(f"{path.name}: ENTRYPOINT must be /usr/local/bin/dbcm-job (agent.JobCommand)")
+    if "./cmd/dbcm-job" not in text or not (ROOT / "cmd/dbcm-job/main.go").exists():
+        err(f"{path.name}: must build ./cmd/dbcm-job, which must exist")
+    users = [r.strip() for op, r in parsed if op == "USER"]
+    if not users or users[-1].split(":")[0] in ("root", "0", "mysql"):
+        err(f"{path.name}: final USER must be numeric and non-root (got {users[-1] if users else None!r})")
+    elif users[-1] != "999:999":
+        err(f"{path.name}: final USER {users[-1]} differs from galera.DefaultDBUID/GID 999:999")
+    runs = " ".join(r for op, r in parsed if op == "RUN")
+    for t in JOB_TOOLS:
+        if t not in runs:
+            err(f"{path.name}: no build-time check that {t} exists")
+    gofile = (ROOT / "internal/dbbackup/job.go").read_text()
+    m = re.search(r"AllowedTools = \[\]string\{([^}]*)\}", gofile)
+    if not m or sorted(re.findall(r'"([^"]+)"', m.group(1))) != sorted(JOB_TOOLS):
+        err(f"{path.name}: JOB_TOOLS out of step with dbbackup.AllowedTools")
+    spec = (ROOT / "internal/galera/spec.go").read_text()
+    if "DefaultDBUID = 999" not in spec or "DefaultDBGID = 999" not in spec:
+        err(f"{path.name}: galera default database owner is no longer 999:999; update USER")
+    if re.search(r"(?mi)^\s*(EXPOSE|VOLUME)\b", text):
+        err(f"{path.name}: a job image publishes no port and declares no volume")
 
 
 def load_yaml(path: Path):
@@ -172,6 +216,7 @@ def check_sh(path: Path) -> None:
 
 
 check_dockerfile(ROOT / "deploy/Dockerfile")
+check_jobs_dockerfile(ROOT / "deploy/Dockerfile.jobs")
 check_compose(ROOT / "deploy/compose.yaml")
 check_stack(ROOT / "deploy/stack.yaml")
 check_workflow(ROOT / ".github/workflows/release.yml")

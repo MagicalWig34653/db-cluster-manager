@@ -119,5 +119,9 @@ var (
 	}
 )
 
+// IsProtectedUser reports whether u is a built-in system account (root,
+// mariadb.sys, mysql) that management operations never touch.
+func IsProtectedUser(u string) bool { return protectedUsers[u] }
+
 // ErrProtected is returned when an operation targets a system object.
 var ErrProtected = errors.New("dbadmin: protected system object")

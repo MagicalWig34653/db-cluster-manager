@@ -6,10 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"regexp"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/MagicalWig34653/db-cluster-manager/internal/dbadmin"
 )
 
 // Ownership labels from ADR 0004 item 1. The values equal the agent's label
@@ -24,11 +27,43 @@ const (
 // identity marker lives at the volume root and the datadir is a
 // subdirectory: E1 showed that SST deletes files inside the datadir, so a
 // marker there does not survive.
+//
+// The unix socket is the node's monitoring and administration endpoint (ADR
+// 0011): it lives in its own directory on the volume, so the agent reaches it
+// on the host at <volume root>/run/mysqld.sock without any published port.
+// It is neither in the datadir (SST empties it) nor at the volume root (only
+// root may write there, which keeps the marker out of the database's reach).
 const (
 	VolumeTarget   = "/dbcm"
-	DataDir        = VolumeTarget + "/data"
+	DataDirName    = "data"
+	DataDir        = VolumeTarget + "/" + DataDirName
+	RunDirName     = "run"
+	RunDir         = VolumeTarget + "/" + RunDirName
+	SocketRelPath  = RunDirName + "/mysqld.sock" // same as agent.DefaultSocket
+	SocketPath     = VolumeTarget + "/" + SocketRelPath
 	MarkerFileName = "dbcm-identity.json" // same as agent.MarkerFileName
 	MarkerPath     = VolumeTarget + "/" + MarkerFileName
+)
+
+// Numeric owner of the datadir and the socket directory. The official
+// mariadb image creates the mysql user with "useradd -r" (no fixed ID in the
+// Dockerfile); in mariadb:11.4.13 (index digest sha256:250e1609...) its
+// /etc/passwd entry is mysql:x:999:999 (read from the image layer, ADR 0011).
+const (
+	DefaultDBUID = 999
+	DefaultDBGID = 999
+)
+
+// Default least-privilege account names (ADR 0008, ADR 0011).
+const (
+	DefaultMonitorUser = "dbcm_monitor"
+	DefaultBackupUser  = "dbcm_backup"
+	// DefaultMonitorHost: the agent connects through the unix socket, which
+	// MariaDB reports as host "localhost".
+	DefaultMonitorHost = "localhost"
+	// DefaultBackupHost: backup jobs connect over the cluster overlay
+	// network from addresses that are not known in advance.
+	DefaultBackupHost = "%"
 )
 
 // BootstrapFlag makes mariadbd form a new cluster. It belongs only in the
@@ -192,6 +227,94 @@ type Cluster struct {
 	Members    []string   `json:"members"`
 	GcacheSize string     `json:"gcache_size,omitempty"` // default DefaultGcacheSize
 	TLS        TLSOptions `json:"tls"`
+	// DBUID and DBGID own the datadir and the socket directory; both zero
+	// selects DefaultDBUID/DefaultDBGID.
+	DBUID int `json:"db_uid,omitempty"`
+	DBGID int `json:"db_gid,omitempty"`
+	// Accounts are the manager's database accounts created after the
+	// bootstrap node is up.
+	Accounts Accounts `json:"accounts,omitzero"`
+}
+
+// DBOwner returns the effective numeric owner of the database directories.
+func (c Cluster) DBOwner() (uid, gid int) {
+	if c.DBUID == 0 && c.DBGID == 0 {
+		return DefaultDBUID, DefaultDBGID
+	}
+	return c.DBUID, c.DBGID
+}
+
+// Accounts configures the least-privilege accounts the create plan sets up
+// on the bootstrap node (Galera replicates them to the joiners). A secret
+// names the Swarm secret holding the account's password; the agent reads it
+// from its own secret mount, the password never travels in a command. An
+// empty secret omits the account.
+type Accounts struct {
+	MonitorUser       string `json:"monitor_user,omitempty"`
+	MonitorHost       string `json:"monitor_host,omitempty"`
+	MonitorSecret     string `json:"monitor_secret,omitempty"`
+	MonitorRequireSSL bool   `json:"monitor_require_ssl,omitempty"`
+	BackupUser        string `json:"backup_user,omitempty"`
+	BackupHost        string `json:"backup_host,omitempty"`
+	BackupSecret      string `json:"backup_secret,omitempty"`
+	BackupRequireSSL  bool   `json:"backup_require_ssl,omitempty"`
+	// BackupLogical also grants the read privileges mariadb-dump needs for
+	// the per-database logical export (ADR 0009).
+	BackupLogical bool `json:"backup_logical,omitempty"`
+}
+
+func (a Accounts) withDefaults() Accounts {
+	if a.MonitorUser == "" {
+		a.MonitorUser = DefaultMonitorUser
+	}
+	if a.MonitorHost == "" {
+		a.MonitorHost = DefaultMonitorHost
+	}
+	if a.BackupUser == "" {
+		a.BackupUser = DefaultBackupUser
+	}
+	if a.BackupHost == "" {
+		a.BackupHost = DefaultBackupHost
+	}
+	return a
+}
+
+func (a Accounts) validate() error {
+	if (a.MonitorUser != "" || a.MonitorHost != "" || a.MonitorRequireSSL) && a.MonitorSecret == "" {
+		return fmt.Errorf("%w: monitor account options without monitor_secret", ErrInvalidSpec)
+	}
+	if (a.BackupUser != "" || a.BackupHost != "" || a.BackupRequireSSL || a.BackupLogical) && a.BackupSecret == "" {
+		return fmt.Errorf("%w: backup account options without backup_secret", ErrInvalidSpec)
+	}
+	d := a.withDefaults()
+	check := func(kind, user, host, secret string) error {
+		if secret == "" {
+			return nil
+		}
+		if err := dbadmin.ValidateUserName(user); err != nil {
+			return fmt.Errorf("%w: %s user: %v", ErrInvalidSpec, kind, err)
+		}
+		if dbadmin.IsProtectedUser(user) {
+			return fmt.Errorf("%w: %s user %q is a system account", ErrInvalidSpec, kind, user)
+		}
+		if err := dbadmin.ValidateHost(host); err != nil {
+			return fmt.Errorf("%w: %s host: %v", ErrInvalidSpec, kind, err)
+		}
+		if !secretName.MatchString(secret) {
+			return fmt.Errorf("%w: %s secret %q", ErrInvalidSpec, kind, secret)
+		}
+		return nil
+	}
+	if err := check("monitor", d.MonitorUser, d.MonitorHost, a.MonitorSecret); err != nil {
+		return err
+	}
+	if err := check("backup", d.BackupUser, d.BackupHost, a.BackupSecret); err != nil {
+		return err
+	}
+	if a.MonitorSecret != "" && a.BackupSecret != "" && d.MonitorUser == d.BackupUser && d.MonitorHost == d.BackupHost {
+		return fmt.Errorf("%w: monitor and backup accounts must differ", ErrInvalidSpec)
+	}
+	return nil
 }
 
 // Node is one database node identity and placement.
@@ -219,6 +342,8 @@ var (
 	uuidRe    = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 	sizeRe    = regexp.MustCompile(`^[0-9]+[KMGT]?$`)
 	dockerRef = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/:@-]*$`)
+	// secretName matches agent's secret reference rule.
+	secretName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 )
 
 // ServiceName returns the Swarm service name, hostname and Galera node
@@ -228,7 +353,7 @@ func ServiceName(clusterName, slot string) string { return "dbcm-" + clusterName
 // managedArgs are the mariadbd options the builder controls. TLS pass-through
 // must not override them.
 var managedArgs = []string{
-	"datadir", "wsrep_on", "wsrep_provider", "wsrep_cluster_name", "wsrep_cluster_address",
+	"datadir", "socket", "wsrep_on", "wsrep_provider", "wsrep_cluster_name", "wsrep_cluster_address",
 	"wsrep_sst_method", "wsrep_sst_donor", "wsrep_new_cluster", "wsrep_provider_options",
 	"binlog_format", "innodb_autoinc_lock_mode",
 }
@@ -254,6 +379,11 @@ func (c Cluster) validate() error {
 		return fmt.Errorf("%w: gcache size %q", ErrInvalidSpec, c.GcacheSize)
 	case len(c.Members) == 0:
 		return fmt.Errorf("%w: no members", ErrInvalidSpec)
+	case (c.DBUID == 0) != (c.DBGID == 0), c.DBUID < 0, c.DBGID < 0, c.DBUID > math.MaxInt32, c.DBGID > math.MaxInt32:
+		return fmt.Errorf("%w: database owner %d:%d (both set to 1..%d, or both zero for the default)", ErrInvalidSpec, c.DBUID, c.DBGID, math.MaxInt32)
+	}
+	if err := c.Accounts.validate(); err != nil {
+		return err
 	}
 	seen := map[string]bool{}
 	for _, m := range c.Members {
@@ -295,7 +425,10 @@ func (n Node) validate(c Cluster) error {
 // BuildServiceSpec returns the Swarm service definition of node n in
 // cluster c. The options are the ones that worked in E1/E2, except that the
 // lab bind-mounted the datadir and the marker separately while this spec
-// mounts one named volume at its root and points --datadir into it.
+// mounts one named volume at its root and points --datadir into it, and
+// that --socket moves the unix socket onto the volume (ADR 0011; not yet run
+// in the lab). The volume's data/ and run/ directories must exist with the
+// database owner before the service starts (plan step init-volume-dirs).
 func BuildServiceSpec(c Cluster, n Node, opt SpecOptions) (ServiceSpec, error) {
 	if err := c.validate(); err != nil {
 		return ServiceSpec{}, err
@@ -319,6 +452,7 @@ func BuildServiceSpec(c Cluster, n Node, opt SpecOptions) (ServiceSpec, error) {
 	// options on to mariadb-backup, which rejected it in E1.
 	args := []string{
 		"--datadir=" + DataDir,
+		"--socket=" + SocketPath,
 		"--wsrep_on=ON",
 		"--wsrep_provider=" + galeraProvider,
 		"--wsrep_cluster_name=" + c.Name,

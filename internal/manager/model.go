@@ -176,8 +176,9 @@ type Settings struct {
 	MonitorSocket string `json:"monitorSocket,omitempty"`
 }
 
-// DefaultMonitorSocket is the default Settings.MonitorSocket.
-const DefaultMonitorSocket = "run/mysqld.sock"
+// DefaultMonitorSocket is the default Settings.MonitorSocket: the socket the
+// Galera spec places on the node volume (galera.SocketRelPath, ADR 0011).
+const DefaultMonitorSocket = galera.SocketRelPath
 
 // OperationRecord stores an operation's definition (needed by a new leader
 // to take it over) and its latest runner view (for the UI).

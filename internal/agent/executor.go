@@ -42,6 +42,11 @@ type Config struct {
 	NodeID string
 	// Status answers collect-health; nil refuses it (not-configured).
 	Status StatusQuerier
+	// SQL runs exec-sql templates; nil refuses them (not-configured).
+	SQL SQLExecutor
+	// SecretsDir is where the agent's own Swarm secrets are mounted
+	// (default SecretsDir). exec-sql reads passwords from it by secret name.
+	SecretsDir string
 }
 
 // StatusQuerier runs SHOW GLOBAL STATUS LIKE 'wsrep_%' against a local
@@ -80,6 +85,12 @@ func NewExecutor(cfg Config) (*Executor, error) {
 		return nil, errors.New("agent: DockerAPI required")
 	case !filepath.IsAbs(cfg.VolumeBase) || filepath.Clean(cfg.VolumeBase) != cfg.VolumeBase:
 		return nil, fmt.Errorf("agent: VolumeBase %q must be a clean absolute path", cfg.VolumeBase)
+	}
+	if cfg.SecretsDir == "" {
+		cfg.SecretsDir = SecretsDir
+	}
+	if !filepath.IsAbs(cfg.SecretsDir) || filepath.Clean(cfg.SecretsDir) != cfg.SecretsDir {
+		return nil, fmt.Errorf("agent: SecretsDir %q must be a clean absolute path", cfg.SecretsDir)
 	}
 	resolvedBase, err := filepath.EvalSymlinks(cfg.VolumeBase)
 	if err != nil {
@@ -223,6 +234,10 @@ func (e *Executor) execute(ctx context.Context, d decoded) Result {
 		return e.runRestore(ctx, d.cmd, *a)
 	case *RemoveJobArgs:
 		return e.removeJob(ctx, *a)
+	case *InitVolumeDirsArgs:
+		return e.initVolumeDirs(*a)
+	case *ExecSQLArgs:
+		return e.execSQL(ctx, *a)
 	case *AllowObjectsArgs:
 		for _, id := range a.IDs {
 			e.allow(id)

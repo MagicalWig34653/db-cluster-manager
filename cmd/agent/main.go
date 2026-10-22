@@ -15,7 +15,8 @@
 //	      -host-id NODE_ID (default $DBCM_HOST_ID) \
 //	      -docker unix:///var/run/docker.sock -state /var/lib/dbcm-agent \
 //	      -installation INSTALLATION-ID -volume-base /srv/dbcm \
-//	      [-monitor-user dbcm_monitor -monitor-password-file /run/secrets/PW]
+//	      [-monitor-user dbcm_monitor -monitor-password-file /run/secrets/PW] \
+//	      [-db-secrets-dir /run/secrets]
 //
 // Lab transport, only with -insecure-lab: UNAUTHENTICATED HTTP/JSON on a
 // loopback IP literal.
@@ -81,6 +82,7 @@ type options struct {
 
 	monitorUser   string
 	monitorPWFile string
+	secretsDir    string
 }
 
 func main() {
@@ -120,6 +122,7 @@ func parseFlags(args []string) (options, error) {
 	fs.StringVar(&o.hostID, "host-id", os.Getenv(hostIDEnv), "Swarm node ID of this host (default $"+hostIDEnv+")")
 	fs.StringVar(&o.monitorUser, "monitor-user", "", "database monitoring account for collect-health")
 	fs.StringVar(&o.monitorPWFile, "monitor-password-file", "", "file holding the monitoring password (a Swarm secret)")
+	fs.StringVar(&o.secretsDir, "db-secrets-dir", agent.SecretsDir, "directory of the agent's mounted Swarm secrets; exec-sql reads passwords from it by secret name")
 	if err := fs.Parse(args); err != nil {
 		return o, err
 	}
@@ -169,6 +172,9 @@ func parseFlags(args []string) (options, error) {
 	}
 	if !filepath.IsAbs(o.stateDir) {
 		return o, fmt.Errorf("-state %q must be an absolute path", o.stateDir)
+	}
+	if !filepath.IsAbs(o.secretsDir) || filepath.Clean(o.secretsDir) != o.secretsDir {
+		return o, fmt.Errorf("-db-secrets-dir %q must be a clean absolute path", o.secretsDir)
 	}
 	if !filepath.IsAbs(o.volumeBase) || filepath.Clean(o.volumeBase) != o.volumeBase {
 		return o, fmt.Errorf("-volume-base %q must be a clean absolute path", o.volumeBase)
@@ -222,6 +228,10 @@ func run(ctx context.Context, o options, logw io.Writer, ready func(addr string)
 		// Backup and restore jobs are pinned to this host's Swarm node;
 		// without a host ID run-backup and run-restore are refused.
 		NodeID: o.hostID,
+		// exec-sql (bootstrap account templates, ADR 0011) connects through
+		// the node's socket with passwords from the agent's own secrets.
+		SQL:        galeraprobe.Admin{},
+		SecretsDir: o.secretsDir,
 	}
 	if o.monitorUser != "" {
 		p, err := galeraprobe.New(galeraprobe.Config{Credentials: galeraprobe.FileCredentials{User: o.monitorUser, Path: o.monitorPWFile}})

@@ -149,9 +149,11 @@ func ClusterRestorePlan(req ClusterRestoreRequest, inv Inventory) (ClusterRestor
 	}
 	op.Kind = OpRestoreCluster
 	n1 := plan.Nodes[0]
-	at := slices.IndexFunc(op.Steps, func(s runner.Step) bool { return s.Command == agent.KindInitIdentity })
+	// The restore runs once the new volume has its identity and its
+	// database directories (the job extracts into data/ as the database user).
+	at := slices.IndexFunc(op.Steps, func(s runner.Step) bool { return s.Command == agent.KindInitVolumeDirs })
 	if at < 0 || op.Steps[at].Target != n1.HostID {
-		return ClusterRestoreResult{}, fmt.Errorf("%w: cluster plan has no init-identity step for %s", ErrInvalidRequest, n1.Slot)
+		return ClusterRestoreResult{}, fmt.Errorf("%w: cluster plan has no init-volume-dirs step for %s", ErrInvalidRequest, n1.Slot)
 	}
 	m := req.Source.Manifest
 	job := JobName(m.BackupID, "restore-"+c.Name)
@@ -172,7 +174,7 @@ func ClusterRestorePlan(req ClusterRestoreRequest, inv Inventory) (ClusterRestor
 		ins[i].Preconditions = append([]runner.Condition{{Kind: runner.CondStepSucceeded, StepID: prev}}, ins[i].Preconditions...)
 		prev = ins[i].ID
 	}
-	// The step after init-identity now waits for the job's removal.
+	// The step after init-volume-dirs now waits for the job's removal.
 	next := &op.Steps[at+1]
 	for i, pc := range next.Preconditions {
 		if pc.Kind == runner.CondStepSucceeded && pc.StepID == op.Steps[at].ID {
@@ -276,6 +278,7 @@ func InspectionServiceSpec(s InspectionSession, image, initSecret string, res ga
 		Labels: map[string]string{agent.LabelCluster: s.ClusterID, agent.LabelNode: s.NodeUUID, "dbcm.inspection": s.ID},
 		Args: []string{
 			"--datadir=" + galera.DataDir,
+			"--socket=" + galera.SocketPath,
 			"--wsrep-on=OFF",
 			"--wsrep-provider=none",
 			"--wsrep-cluster-address=",
@@ -300,7 +303,7 @@ func InspectionServiceSpec(s InspectionSession, image, initSecret string, res ga
 }
 
 // InspectionRestorePlan plans: create-volume, init-identity (inspection
-// identity), run-restore, wait, remove-job, create-service (isolated
+// identity), init-volume-dirs, run-restore, wait, remove-job, create-service (isolated
 // instance), wait for verification. All command steps need the approval.
 func InspectionRestorePlan(req InspectionRequest, inv Inventory) (InspectionResult, error) {
 	if err := req.Source.check(); err != nil {
@@ -363,6 +366,8 @@ func InspectionRestorePlan(req InspectionRequest, inv Inventory) (InspectionResu
 		Labels: map[string]string{agent.LabelCluster: sess.ClusterID, agent.LabelNode: nodeUUID, "dbcm.inspection": sess.ID}}))
 	s.add(command("init-identity", sess.HostID, agent.KindInitIdentity, agent.InitIdentityArgs{
 		VolumeRoot: sess.VolumeRoot, Token: agent.NewIdentityToken{TokenID: req.TokenID, Identity: expected}}))
+	s.add(command("init-volume-dirs", sess.HostID, agent.KindInitVolumeDirs, agent.InitVolumeDirsArgs{
+		VolumeRoot: sess.VolumeRoot, Expected: expected, UID: galera.DefaultDBUID, GID: galera.DefaultDBGID}))
 	s.add(command("restore", sess.HostID, agent.KindRunRestore, agent.RunRestoreArgs{
 		JobName: sess.JobName, Image: req.JobImage, Mode: agent.RestorePhysical, BackupID: m.BackupID, Object: m.Object,
 		ApprovalID: req.ApprovalID, SourceClusterID: req.Source.ClusterID,

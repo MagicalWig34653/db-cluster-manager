@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -63,6 +64,16 @@ const (
 	// grastate.dat, confined to the volume root (args: ReadGrastateArgs).
 	// Read-only like KindCollectHealth.
 	KindReadGrastate Kind = "read-grastate"
+	// KindInitVolumeDirs verifies the volume identity, then creates the
+	// database directories data/ and run/ below the volume root, owned by
+	// the database user (args: InitVolumeDirsArgs). The volume root and the
+	// marker are not changed.
+	KindInitVolumeDirs Kind = "init-volume-dirs"
+	// KindExecSQL verifies the volume identity, then runs one allow-listed
+	// SQL template (internal/dbadmin) through the node's unix socket on the
+	// volume (args: ExecSQLArgs). Passwords are read from the agent's secret
+	// mount; no SQL text and no password is accepted from the manager.
+	KindExecSQL Kind = "exec-sql"
 )
 
 // ReadOnly reports kinds without effect. They pass the fencing guard like
@@ -157,6 +168,41 @@ type CollectHealthArgs struct {
 // SHOW GLOBAL STATUS.
 type HealthOutput struct {
 	Status map[string]string `json:"status"`
+}
+
+// InitVolumeDirsArgs are the arguments of KindInitVolumeDirs. UID and GID
+// are the numeric database owner (1..2^31-1).
+type InitVolumeDirsArgs struct {
+	VolumeRoot string   `json:"volume_root"`
+	Expected   Identity `json:"expected"`
+	UID        int      `json:"uid"`
+	GID        int      `json:"gid"`
+}
+
+// ExecSQLArgs are the arguments of KindExecSQL. Template is one of
+// dbadmin.BootstrapTemplates; User, Host, RequireSSL and Logical are its
+// structured arguments. PasswordSecret names the secret file with the
+// password the template sets; AdminSecret the one with the password of
+// AdminUser (default "root"), the account the agent connects as. Both are
+// file names in the agent's secrets directory (Config.SecretsDir).
+type ExecSQLArgs struct {
+	VolumeRoot     string   `json:"volume_root"`
+	Expected       Identity `json:"expected"`
+	Template       string   `json:"template"`
+	User           string   `json:"user,omitempty"`
+	Host           string   `json:"host,omitempty"`
+	RequireSSL     bool     `json:"require_ssl,omitempty"`
+	Logical        bool     `json:"logical,omitempty"`
+	PasswordSecret string   `json:"password_secret"`
+	AdminUser      string   `json:"admin_user,omitempty"`
+	AdminSecret    string   `json:"admin_secret"`
+}
+
+// ExecSQLOutput is the output of KindExecSQL: the executed statements with
+// every password replaced by ***.
+type ExecSQLOutput struct {
+	Template   string   `json:"template"`
+	Statements []string `json:"statements"`
 }
 
 // ReadGrastateArgs are the arguments of KindReadGrastate. DataDir is the
@@ -291,6 +337,10 @@ func decodeCommand(cmd Command, volumeBase string) (decoded, error) {
 		args = &CollectHealthArgs{}
 	case KindReadGrastate:
 		args = &ReadGrastateArgs{}
+	case KindInitVolumeDirs:
+		args = &InitVolumeDirsArgs{}
+	case KindExecSQL:
+		args = &ExecSQLArgs{}
 	default:
 		return decoded{}, invalid("unknown kind %q", cmd.Kind)
 	}
@@ -401,6 +451,13 @@ func checkArgs(args any, volumeBase string) error {
 			return invalid("data_dir %q must be a local relative path", a.DataDir)
 		}
 		return checkVolumeRoot(a.VolumeRoot, volumeBase)
+	case *InitVolumeDirsArgs:
+		if a.UID <= 0 || a.GID <= 0 || a.UID > math.MaxInt32 || a.GID > math.MaxInt32 {
+			return invalid("uid %d / gid %d must be 1..%d (never root)", a.UID, a.GID, math.MaxInt32)
+		}
+		return checkVolumeRoot(a.VolumeRoot, volumeBase)
+	case *ExecSQLArgs:
+		return checkExecSQL(a, volumeBase)
 	case *AllowObjectsArgs:
 		if len(a.IDs) == 0 {
 			return invalid("ids required")

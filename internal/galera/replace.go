@@ -213,8 +213,7 @@ func PlanReplacement(st ClusterState, failedSlot string, pol ReplacementPolicy) 
 		Note: "Swarm keeps a pinned task Pending on a lost host; removal prevents a later unreconciled restart"}, quorum)
 	l.add(Step{Kind: StepRetainVolume, Slot: failedSlot, HostID: failed.HostID, NodeUUID: failed.NodeUUID, Volume: failed.Volume,
 		Note: "old volume kept for inspection; deletion only after explicit user approval"})
-	l.add(Step{Kind: StepCreateVolume, Slot: failedSlot, HostID: nn.HostID, Volume: nn.Volume})
-	l.add(Step{Kind: StepInitIdentity, Slot: failedSlot, HostID: nn.HostID, NodeUUID: nn.NodeUUID, Volume: nn.Volume})
+	l.addNewVolume(st.Cluster, nn)
 	l.add(Step{Kind: StepVerifyDonor, Slot: donor.Slot, HostID: donor.HostID, ClusterSize: donorSize}, synced(donor.Slot, donorSize))
 	l.add(Step{Kind: StepCreateService, Slot: failedSlot, HostID: nn.HostID, NodeUUID: nn.NodeUUID, Spec: specPtr(spec),
 		Note: "joins with a new identity; full state transfer from " + donor.Slot}, quorum, synced(donor.Slot, donorSize))

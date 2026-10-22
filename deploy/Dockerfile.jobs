@@ -1,0 +1,62 @@
+# syntax=docker/dockerfile:1
+# SPDX-License-Identifier: AGPL-3.0-only
+#
+# Backup/restore job image (ADR 0009, ADR 0011): the official MariaDB image,
+# which already ships mariadb-backup (mariabackup), mbstream, mariadb-dump
+# and mariadb in /usr/bin, plus the static dbcm-job helper. The agent runs it
+# as a one-shot Swarm service with the command /usr/local/bin/dbcm-job and
+# an argv built from an allow-list (agent.BackupJobArgs/RestoreJobArgs).
+# Build context is the repository root:
+#   docker buildx build -f deploy/Dockerfile.jobs \
+#     --platform linux/amd64,linux/arm64 \
+#     --build-arg VERSION=0.1.0 --build-arg COMMIT=$(git rev-parse --short HEAD) .
+#
+# NOT BUILT YET: no image has been built from this file; the tool presence
+# check below runs only during a real build.
+#
+# MARIADB_IMAGE is the multi-arch index of mariadb:11.4.13 resolved from the
+# Docker Hub registry API on 2026-10-22 (the same digest the lab E1 pulled as
+# mariadb:11.4). Keep it equal to the database image of the clusters the
+# jobs serve: mariabackup must match the server version.
+ARG GO_IMAGE=golang:1.27.3-alpine@sha256:f2c872bcee949b7be9c490efd02b48a8a2fbf947cdf533f1c58525ec9d8170fd
+ARG MARIADB_IMAGE=mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+
+# ---- job helper (cross-compiled on the builder's platform, CGO disabled)
+FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS build
+ARG TARGETOS=linux
+ARG TARGETARCH
+ARG VERSION=0.0.0-dev
+ARG COMMIT=unknown
+ENV CGO_ENABLED=0 GOFLAGS=-mod=readonly
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd/ ./cmd/
+COPY internal/ ./internal/
+RUN PKG=github.com/MagicalWig34653/db-cluster-manager/internal/version; \
+    GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath \
+      -ldflags "-s -w -X ${PKG}.Version=${VERSION} -X ${PKG}.Commit=${COMMIT}" \
+      -o /out/dbcm-job ./cmd/dbcm-job
+
+# ---- runtime: MariaDB tools + helper, running as the image's mysql user
+FROM ${MARIADB_IMAGE}
+ARG VERSION=0.0.0-dev
+ARG COMMIT=unknown
+LABEL org.opencontainers.image.title="db-cluster-manager-jobs" \
+      org.opencontainers.image.description="Backup and restore jobs for db-cluster-manager (mariadb-backup, mbstream, mariadb-dump, dbcm-job)" \
+      org.opencontainers.image.source="https://github.com/MagicalWig34653/db-cluster-manager" \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${COMMIT}"
+# Fail the build if a tool the job helper allow-lists is missing.
+RUN set -eu; for t in mariabackup mbstream mariadb-dump mariadb; do test -x "/usr/bin/$t"; done; \
+    test "$(id -u mysql):$(id -g mysql)" = "999:999"
+COPY --from=build /out/dbcm-job /usr/local/bin/dbcm-job
+# mysql (999:999 in this base image) owns the node's data/ directory
+# (init-volume-dirs), so a physical backup can read and a physical restore
+# can write the datadir without root.
+USER 999:999
+# One-shot job: no port, no health check.
+HEALTHCHECK NONE
+ENTRYPOINT ["/usr/local/bin/dbcm-job"]
+CMD ["-version"]
