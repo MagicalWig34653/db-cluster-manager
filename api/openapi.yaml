@@ -420,6 +420,171 @@ paths:
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
+  /dashboards:
+    get:
+      summary: List dashboards the caller may see
+      description: >-
+        Returns the caller's personal dashboards and all shared dashboards,
+        provided the caller holds dashboard read permission. Sharing grants
+        viewing of the definition only; the data shown by a panel is always
+        filtered by the viewer's own permissions (see /metrics/query).
+      operationId: listDashboards
+      responses:
+        "200":
+          description: Dashboards visible to the caller
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Dashboard" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /dashboards/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, pattern: "^[A-Za-z0-9._-]{1,64}$" }
+    post:
+      summary: Create a dashboard with the given ID
+      description: >-
+        Requires dashboard create permission; audited. The caller becomes the
+        owner. Responds 409 if the ID exists.
+      operationId: createDashboard
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DashboardInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Dashboard" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+    put:
+      summary: Replace a dashboard the caller owns
+      description: >-
+        Requires dashboard update permission; audited. Dashboards of other
+        owners, shared or not, answer 404.
+      operationId: updateDashboard
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DashboardInput" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Dashboard" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+    delete:
+      summary: Delete a dashboard the caller owns
+      description: Requires dashboard delete permission; audited.
+      operationId: deleteDashboard
+      responses:
+        "204": { description: Deleted }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /metrics/query:
+    post:
+      summary: Range query over metrics the caller may read
+      description: >-
+        Evaluates a selector over [start, end] at the given step. Only series
+        the caller may read are considered (cluster series need cluster read,
+        host series host read, swarm series swarm read, everything else
+        settings read). Every series has exactly one point per step; a point
+        is ok, no_data (readable, empty) or unavailable (expired by
+        retention, unreadable, or not answerable). Unavailable intervals are
+        also listed in gaps. Missing data is never reported as zero.
+        Metric history lives on the active manager's disk (leader only).
+      operationId: queryMetrics
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [selector, start, end, stepSeconds]
+              properties:
+                selector:
+                  type: string
+                  maxLength: 1024
+                  description: 'Metric name with optional matchers, for example dcm_galera_cluster_size{cluster="c1"}.'
+                start: { type: integer, format: int64, description: Milliseconds since the Unix epoch }
+                end: { type: integer, format: int64, description: Milliseconds since the Unix epoch }
+                stepSeconds: { type: integer, minimum: 1 }
+                windowSeconds: { type: integer, minimum: 0, description: Aggregation window; default is the step }
+                func: { type: string, enum: [last, avg, min, max, sum, count, rate, quantile], default: last }
+                quantile: { type: number, minimum: 0, maximum: 1 }
+      responses:
+        "200":
+          description: Query result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QueryResult" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /notifications:
+    get:
+      summary: List UI inbox notifications the caller may read
+      description: Located and filtered like events. Newest first.
+      operationId: listNotifications
+      parameters:
+        - name: unread
+          in: query
+          required: false
+          schema: { type: boolean }
+      responses:
+        "200":
+          description: Notifications visible to the caller
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Notification" }
+        "401": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /notifications/{id}/ack:
+    post:
+      summary: Acknowledge a notification
+      description: >-
+        Requires the operate permission on the resource the notification
+        refers to (cluster, else Swarm, else manager settings); audited.
+      operationId: ackNotification
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "204": { description: Acknowledged }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
 security:
   - sessionCookie: []
 components:
@@ -442,7 +607,7 @@ components:
         Error with a coarse code only. Codes: not_found, bad_request,
         authentication_failed, unauthenticated, forbidden,
         passkey_enrollment_required, origin_rejected, rate_limited,
-        unavailable, setup_unavailable, internal_error,
+        unavailable, setup_unavailable, internal_error, conflict,
         request_too_large, unsupported_media_type.
       content:
         application/json:
@@ -566,3 +731,94 @@ components:
         cluster: { type: string }
         severity: { type: string, enum: [info, warning, critical, unknown] }
         message: { type: string }
+    Panel:
+      type: object
+      required: [id, title, kind, selector, func, stepSeconds, x, y, w, h]
+      properties:
+        id: { type: string }
+        title: { type: string, maxLength: 200 }
+        kind: { type: string, enum: [line, stat, table] }
+        selector: { type: string }
+        func: { type: string, enum: [last, avg, min, max, sum, count, rate, quantile] }
+        windowSeconds: { type: integer, minimum: 0 }
+        stepSeconds: { type: integer, minimum: 1 }
+        quantile: { type: number, minimum: 0, maximum: 1 }
+        x: { type: integer, minimum: 0 }
+        y: { type: integer, minimum: 0 }
+        w: { type: integer, minimum: 1, maximum: 24 }
+        h: { type: integer, minimum: 1 }
+    DashboardInput:
+      type: object
+      additionalProperties: false
+      required: [title, panels]
+      properties:
+        title: { type: string, maxLength: 200 }
+        shared: { type: boolean }
+        panels:
+          type: array
+          maxItems: 100
+          items: { $ref: "#/components/schemas/Panel" }
+    Dashboard:
+      type: object
+      required: [id, title, owner, shared, panels]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        owner: { type: string }
+        shared: { type: boolean }
+        template: { type: boolean }
+        panels:
+          type: array
+          items: { $ref: "#/components/schemas/Panel" }
+    QueryResult:
+      type: object
+      required: [start, end, stepSeconds, windowSeconds, series, gaps]
+      properties:
+        start: { type: integer, format: int64, description: Aligned start in milliseconds }
+        end: { type: integer, format: int64 }
+        stepSeconds: { type: integer }
+        windowSeconds: { type: integer }
+        series:
+          type: array
+          items:
+            type: object
+            required: [labels, points]
+            properties:
+              labels:
+                type: object
+                additionalProperties: { type: string }
+                description: The metric name is returned as label "name".
+              points:
+                type: array
+                items:
+                  type: object
+                  required: [t, v, state]
+                  properties:
+                    t: { type: integer, format: int64, description: Milliseconds since the Unix epoch }
+                    v: { type: [number, "null"], description: Null unless state is ok }
+                    state: { type: string, enum: [ok, no_data, unavailable] }
+        gaps:
+          type: array
+          items:
+            type: object
+            required: [from, to, reason]
+            properties:
+              from: { type: integer, format: int64 }
+              to: { type: integer, format: int64 }
+              reason: { type: string }
+    Notification:
+      type: object
+      required: [id, time, severity, kind, message, read, acked]
+      properties:
+        id: { type: string }
+        time: { type: string, format: date-time }
+        severity: { type: string, enum: [info, warning, error, critical, unknown] }
+        kind: { type: string, description: "alert.firing, alert.resolved, alert.unknown or an operation kind" }
+        resource: { type: string }
+        message: { type: string }
+        swarm: { type: string }
+        cluster: { type: string }
+        details: { type: object, additionalProperties: { type: string } }
+        read: { type: boolean }
+        acked: { type: boolean }
+        ackedAt: { type: string, format: date-time }

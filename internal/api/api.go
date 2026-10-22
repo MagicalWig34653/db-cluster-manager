@@ -96,6 +96,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 // account, credential or check failed.
 const (
 	errNotFound          = "not_found"
+	errConflict          = "conflict"
 	errBadRequest        = "bad_request"
 	errAuthFailed        = "authentication_failed"
 	errUnauthenticated   = "unauthenticated"

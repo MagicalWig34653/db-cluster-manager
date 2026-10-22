@@ -55,6 +55,13 @@ type cluster struct {
 
 func newCluster(t *testing.T, size int, mut func(id string, c *Config)) *cluster {
 	t.Helper()
+	return newClusterWith(t, size, mut, nil)
+}
+
+// newClusterWith additionally calls post for each Service after New and
+// before Start, so hooks can be registered without racing leadership.
+func newClusterWith(t *testing.T, size int, mut func(id string, c *Config), post func(id string, s *Service)) *cluster {
+	t.Helper()
 	c := &cluster{t: t, svcs: map[string]*Service{}, closed: map[string]bool{}}
 	trs := map[string]*raft.InmemTransport{}
 	var peers []metastore.Peer
@@ -86,6 +93,9 @@ func newCluster(t *testing.T, size int, mut func(id string, c *Config)) *cluster
 			t.Fatal(err)
 		}
 		c.svcs[id] = s
+		if post != nil {
+			post(id, s)
+		}
 		s.Start()
 	}
 	t.Cleanup(func() {
