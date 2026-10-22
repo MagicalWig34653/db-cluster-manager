@@ -4,7 +4,6 @@ package proxy
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"time"
@@ -107,10 +106,6 @@ func (GreetingProber) Probe(ctx context.Context, addr string) ProbeResult {
 	return ProbeResult{Healthy: true, Latency: lat, Detail: "server " + g.ServerVersion}
 }
 
-// ErrNotImplemented is returned by stubs for functionality that does not
-// exist yet.
-var ErrNotImplemented = errors.New("not implemented")
-
 // GaleraStatus is the subset of wsrep status variables routing needs.
 type GaleraStatus struct {
 	// LocalState is wsrep_local_state (1 joining, 2 donor/desynced,
@@ -127,18 +122,6 @@ type GaleraStatus struct {
 // GaleraStatusProber reads the wsrep status of the node at addr.
 type GaleraStatusProber interface {
 	GaleraStatus(ctx context.Context, addr string) (GaleraStatus, error)
-}
-
-// MySQLGaleraStatusProber is meant to authenticate with a monitoring account
-// and run SHOW GLOBAL STATUS LIKE 'wsrep_%'. It is NOT IMPLEMENTED: the
-// proxy has no credential handling and implements no MySQL authentication.
-// GaleraStatus always returns ErrNotImplemented, so nodes probed with it
-// stay in SyncUnknown and are never routed to (fail closed).
-type MySQLGaleraStatusProber struct{}
-
-// GaleraStatus returns ErrNotImplemented.
-func (MySQLGaleraStatusProber) GaleraStatus(context.Context, string) (GaleraStatus, error) {
-	return GaleraStatus{}, fmt.Errorf("galera status probe: %w", ErrNotImplemented)
 }
 
 // SyncFromGalera maps wsrep status to a routing sync state. Only a ready
@@ -202,8 +185,10 @@ func (p NodeProber) Probe(ctx context.Context, addr string) ProbeResult {
 	return r
 }
 
-// proberFromConfig builds the configured prober.
-func proberFromConfig(pc ProbeConfig) Prober {
+// proberFromConfig builds the configured prober. status is the Galera status
+// source for "sync": "galera" (see Options.Status); when it is nil, nodes
+// stay sync-unknown and are never routed to (fail closed).
+func proberFromConfig(pc ProbeConfig, status GaleraStatusProber) Prober {
 	var live Prober = TCPProber{}
 	if pc.Liveness == LivenessMySQLGreeting {
 		live = GreetingProber{}
@@ -212,7 +197,7 @@ func proberFromConfig(pc ProbeConfig) Prober {
 	if pc.Sync == SyncAssumeSynced {
 		np.AssumeSynced = true
 	} else {
-		np.Status = MySQLGaleraStatusProber{}
+		np.Status = status
 	}
 	return np
 }

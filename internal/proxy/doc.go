@@ -32,10 +32,11 @@
 //
 // Not implemented / unverified:
 //
-//   - The Galera status probe (MySQLGaleraStatusProber) is a stub returning
-//     ErrNotImplemented: it would need monitoring credentials and MySQL
-//     authentication. With "sync": "galera" every node stays sync-unknown
-//     and nothing is routed (fail closed). "sync": "assume-synced" is the
+//   - The Galera status source is injected (Options.Status); this package
+//     has no MySQL client or credential handling. cmd/proxy wires
+//     internal/galeraprobe (monitoring account, TLS, per-probe connection).
+//     Without a source, "sync": "galera" leaves every node sync-unknown and
+//     nothing is routed (fail closed). "sync": "assume-synced" is the
 //     explicit alternative for labs and tests.
 //   - Nothing here has been tested against a real MariaDB server or real
 //     client connectors; the protocol handling is tested against fakes

@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MagicalWig34653/db-cluster-manager/internal/galeraprobe/fakemysql"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/proxy"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/version"
 )
@@ -212,4 +213,90 @@ func (s *safeBuffer) String() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.b.String()
+}
+
+func writeGaleraConfig(t *testing.T, path, a, b, monitor string) {
+	t.Helper()
+	cfg := fmt.Sprintf(`{
+  "write_listen": "127.0.0.1:0",
+  "control_listen": "127.0.0.1:0",
+  "nodes": [
+    {"id": "a", "address": %q, "role": "writer-eligible"},
+    {"id": "b", "address": %q, "role": "writer-eligible"}
+  ],
+  "policy": {"mode": "prefer-node", "preferred_id": "a", "switch_consecutive": 1, "stale_after": "2s", "drain_deadline": "100ms"},
+  "probe": {"sync": "galera", "interval": "300ms", "timeout": "300ms"%s},
+  "limits": {"shutdown_grace": "500ms"}
+}`, a, b, monitor)
+	if err := os.WriteFile(path, []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunGaleraSyncRoutesOnlySyncedNode(t *testing.T) {
+	// a is a Donor/Desynced node (preferred but unusable), b is Synced.
+	a := fakemysql.New(t, "dbcm_monitor", "pw-1", fakemysql.WithVars(fakemysql.SyncedVars(),
+		"wsrep_local_state", "2", "wsrep_local_state_comment", "Donor/Desynced"))
+	b := fakemysql.New(t, "dbcm_monitor", "pw-1", fakemysql.SyncedVars())
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "monitor.pw"), []byte("pw-1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "proxy.json")
+	writeGaleraConfig(t, path, a.Addr(), b.Addr(), `, "monitor": {"user": "dbcm_monitor", "password_file": "monitor.pw", "tls": "disabled"}`)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	ready := make(chan *proxy.Proxy, 1)
+	hup := make(chan os.Signal, 1)
+	var logs safeBuffer
+	done := make(chan error, 1)
+	go func() { done <- run(ctx, options{config: path}, &logs, hup, func(p *proxy.Proxy) { ready <- p }) }()
+	var p *proxy.Proxy
+	select {
+	case p = <-ready:
+	case err := <-done:
+		t.Fatalf("run: %v", err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("proxy did not start")
+	}
+	waitUntil(t, "writer b", func() bool { return statusWriter(t, p.ControlAddr()) == "b" })
+
+	// Rotate to a wrong password: nothing is usable any more (fail closed).
+	if err := os.WriteFile(filepath.Join(dir, "monitor.pw"), []byte("wrong\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, "no writer after bad password", func() bool { return statusWriter(t, p.ControlAddr()) == "none" })
+	if strings.Contains(logs.String(), "pw-1") || strings.Contains(logs.String(), "wrong") {
+		t.Fatalf("password in logs: %s", logs.String())
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunGaleraWithoutMonitorFails(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "proxy.json")
+	writeGaleraConfig(t, path, "127.0.0.1:1", "127.0.0.1:2", "")
+	err := run(context.Background(), options{config: path}, io.Discard, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "probe.monitor") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestMonitorConfigValidation(t *testing.T) {
+	for name, mon := range map[string]string{
+		"inline password":   `, "monitor": {"user": "u", "password": "x", "tls": "disabled"}`,
+		"no password":       `, "monitor": {"user": "u", "tls": "disabled"}`,
+		"both sources":      `, "monitor": {"user": "u", "password_file": "f", "password_env": "E", "tls": "disabled"}`,
+		"no tls choice":     `, "monitor": {"user": "u", "password_env": "E"}`,
+		"ca with plaintext": `, "monitor": {"user": "u", "password_env": "E", "tls": "disabled", "ca_file": "ca.pem"}`,
+		"no user":           `, "monitor": {"password_env": "E", "tls": "disabled"}`,
+	} {
+		path := filepath.Join(t.TempDir(), "proxy.json")
+		writeGaleraConfig(t, path, "127.0.0.1:1", "127.0.0.1:2", mon)
+		if _, err := proxy.LoadConfig(path); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
 }

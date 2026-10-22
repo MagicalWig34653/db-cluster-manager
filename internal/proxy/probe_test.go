@@ -129,8 +129,15 @@ func TestNodeProber(t *testing.T) {
 	if r := (NodeProber{Liveness: live, Status: ok}).Probe(context.Background(), "x"); r.Sync != routing.SyncSynced {
 		t.Fatalf("galera synced: %+v", r)
 	}
-	r := (NodeProber{Liveness: live, Status: MySQLGaleraStatusProber{}}).Probe(context.Background(), "x")
-	if r.Sync != routing.SyncUnknown || !errors.Is(r.Err, ErrNotImplemented) {
-		t.Fatalf("stub: %+v", r)
+	boom := errors.New("access denied")
+	r := (NodeProber{Liveness: live, Status: failingStatus{err: boom}}).Probe(context.Background(), "x")
+	if r.Sync != routing.SyncUnknown || !errors.Is(r.Err, boom) {
+		t.Fatalf("failing status source: %+v", r)
 	}
+}
+
+type failingStatus struct{ err error }
+
+func (f failingStatus) GaleraStatus(context.Context, string) (GaleraStatus, error) {
+	return GaleraStatus{}, f.err
 }
