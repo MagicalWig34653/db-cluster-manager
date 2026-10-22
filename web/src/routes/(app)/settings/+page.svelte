@@ -6,6 +6,8 @@
 	import Monitor from '@lucide/svelte/icons/monitor';
 	import CircleDashed from '@lucide/svelte/icons/circle-dashed';
 	import { api } from '../../../lib/api';
+	import { load } from '../../../lib/load.svelte';
+	import ApiGate from '../../../lib/components/app/ApiGate.svelte';
 	import { auth } from '../../../lib/auth.svelte';
 	import { dateTime, failureOf, type Failure } from '../../../lib/format';
 	import type { MessageKey } from '../../../lib/i18n';
@@ -21,6 +23,8 @@
 	import LanguageSwitch from '../../../lib/components/app/LanguageSwitch.svelte';
 	import FailureNotice from '../../../lib/components/app/FailureNotice.svelte';
 	import { cn } from '../../../lib/utils';
+
+	const version = load(api.version);
 
 	const modeIcons = { system: Monitor, light: Sun, dark: Moon };
 	const modeLabels: Record<(typeof themeModes)[number], MessageKey> = {
@@ -146,9 +150,20 @@
 			<Card.Title><h2>{t('managerSettings')}</h2></Card.Title>
 		</Card.Header>
 		<Card.Content>
-			<p class="flex items-center gap-2 text-sm text-muted-foreground">
-				<CircleDashed class="size-4" aria-hidden="true" />{t('notAvailableTitle')} — {t('notAvailableBody')}
+			{#if version.state.status === 'ok'}
+				<dl class="grid grid-cols-[8rem_1fr] gap-y-2 text-sm">
+					<dt class="text-muted-foreground">{t('version')}</dt><dd class="font-mono">{version.state.value.version}</dd>
+					<dt class="text-muted-foreground">Commit</dt><dd class="font-mono">{version.state.value.commit}</dd>
+					<dt class="text-muted-foreground">Go</dt><dd class="font-mono">{version.state.value.goVersion}</dd>
+					<dt class="text-muted-foreground">{t('platform')}</dt><dd class="font-mono">{version.state.value.platform}</dd>
+				</dl>
+			{:else if version.state.status === 'error'}
+				<ApiGate error={version.state.error} retry={version.reload} />
+			{/if}
+			<p class="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
+				<CircleDashed class="size-4" aria-hidden="true" />{t('managerSettingsEditNA')}
 			</p>
+			<p class="mt-2 text-sm"><a class="underline underline-offset-4" href="/notifications">{t('navNotifications')}</a></p>
 		</Card.Content>
 	</Card.Root>
 </div>

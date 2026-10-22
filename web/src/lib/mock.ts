@@ -64,6 +64,52 @@ const clusters = [
 ];
 fixtures['/api/v1/clusters'] = { items: clusters };
 
+const GiB = 1024 ** 3;
+fixtures['/api/v1/hosts'] = {
+	items: [
+		{ swarm: 'mock-swarm-a', nodeId: 'mock-host-1', hostname: 'mock-host-1', enrollment: 'enrolled', state: 'ready', availability: 'active', nanoCpus: 4e9, memoryBytes: 16 * GiB, agentVersion: 'mock-0.1', lastSeen: ago(1) },
+		{ swarm: 'mock-swarm-a', nodeId: 'mock-host-2', hostname: 'mock-host-2', enrollment: 'enrolled', state: 'ready', availability: 'active', nanoCpus: 4e9, memoryBytes: 8 * GiB, agentVersion: 'mock-0.1', lastSeen: ago(2) },
+		{ swarm: 'mock-swarm-a', nodeId: 'mock-host-3', hostname: 'mock-host-3', enrollment: 'enrolled', state: 'down', availability: 'active', nanoCpus: 2e9, memoryBytes: 4 * GiB },
+		{ swarm: 'mock-swarm-a', nodeId: 'mock-host-4', hostname: 'mock-host-4', enrollment: 'discovered', state: 'ready', availability: 'active' }
+	]
+};
+fixtures['/api/v1/backups'] = { items: [{ cluster: 'mock-galera', policy: 'mock: daily 02:00', lastBackupAt: ago(500) }] };
+fixtures['/api/v1/dashboards'] = {
+	items: [
+		{ id: 'mock-d1', name: 'Mock personal', shared: false, panels: [{ id: 'p1', kind: 'line', title: 'Mock queries', query: 'mock_queries', unit: '/s' }, { id: 'p2', kind: 'stat', title: 'Mock connections', query: 'mock_conn' }] },
+		{ id: 'mock-d2', name: 'Mock shared', shared: true, panels: [] }
+	]
+};
+fixtures['/api/v1/notifications'] = {
+	items: [
+		{ id: 'mock-n1', time: ago(5), severity: 'critical', message: 'Mock: node lost', cluster: 'mock-galera', read: false, acknowledged: false },
+		{ id: 'mock-n2', time: ago(90), severity: 'info', message: 'Mock: backup finished', read: true, acknowledged: true }
+	]
+};
+fixtures['/api/v1/settings/notifications'] = {
+	webhook: { enabled: true, url: 'https://example.invalid/mock', secretSet: true },
+	email: { enabled: false, recipients: [] }
+};
+fixtures['/api/v1/clusters/mock-galera/outage-diagnosis'] = {
+	candidate: 'mock-node-1',
+	positions: [{ slot: 'mock-node-1', source: 'grastate', seqno: 120 }, { slot: 'mock-node-2', source: 'unknown' }],
+	reasons: ['Mock: highest known seqno'],
+	risks: [{ kind: 'missing-node', slot: 'mock-node-3', detail: 'Mock: no evidence from this node' }],
+	requires_approval: true
+};
+
+// Mock metrics: a series with a deliberate hole so gaps are visible.
+function metrics(body: { from: string; to: string; step: number }) {
+	const from = Date.parse(body.from) / 1000;
+	const to = Date.parse(body.to) / 1000;
+	const points: [number, number | null][] = [];
+	for (let t = from, i = 0; t <= to; t += body.step, i++) {
+		if (i > 20 && i < 28) continue; // missing steps
+		points.push([t, i > 35 && i < 40 ? null : 50 + 30 * Math.sin(i / 6)]);
+	}
+	return { series: [{ points }] };
+}
+
 const json = (status: number, body: unknown) =>
 	new Response(body === undefined ? null : JSON.stringify(body), {
 		status,
@@ -76,9 +122,20 @@ export const mockFetch: typeof fetch = async (input, init) => {
 	await new Promise((r) => setTimeout(r, 150));
 	if (method === 'POST') {
 		if (url.pathname === '/api/v1/auth/logout') return new Response(null, { status: 204 });
+		let body: any = {};
+		try {
+			body = JSON.parse(String(init?.body ?? '{}'));
+		} catch {
+			// ignore
+		}
+		if (url.pathname === '/api/v1/metrics/query') return json(200, metrics(body));
+		if (url.pathname === '/api/v1/clusters') return json(202, { id: 'mock-op-new', kind: 'create-cluster' });
+		if (/\/nodes\/[^/]+\/replace$/.test(url.pathname)) return json(409, { error: 'requires_guided_recovery' });
 		// Passkey ceremonies cannot be mocked meaningfully.
 		return json(503, { error: 'unavailable' });
 	}
+	if (method === 'PUT' && url.pathname === '/api/v1/settings/notifications') return json(200, fixtures[url.pathname]);
+	if (method === 'PUT' || method === 'DELETE') return json(503, { error: 'unavailable' });
 	if (url.pathname in fixtures) return json(200, fixtures[url.pathname]);
 	const m = url.pathname.match(/^\/api\/v1\/clusters\/(.+)$/);
 	if (m) {

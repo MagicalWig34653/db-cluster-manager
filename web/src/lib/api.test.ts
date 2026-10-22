@@ -129,4 +129,31 @@ describe('guards', () => {
 		expect(isEvent({ id: 'e', time: '2026-10-20T10:00:00Z', severity: 'loud', message: 'm' })).toBe(false);
 		expect(isOperation(null)).toBe(false);
 	});
+
+	it('keeps only allowlisted coarse codes on errors', async () => {
+		const known = await server(409, { error: 'requires_guided_recovery' }).client.replaceNode('c', 'n1').catch((e) => e);
+		expect(known).toMatchObject({ kind: 'conflict', code: 'requires_guided_recovery' });
+		const other = await server(409, { error: 'secret detail' }).client.replaceNode('c', 'n1').catch((e) => e);
+		expect(other.code).toBeUndefined();
+	});
+
+	it('posts the create request as JSON and validates the operation reference', async () => {
+		const { client, calls } = server(202, { id: 'op1' });
+		const req = { swarm: 's', name: 'n', size: 3, image: 'i', network: 'x', rootPasswordSecret: 'r', resources: { limits: {}, reservations: {} }, placement: { reserve: {} } };
+		expect(await client.createCluster(req)).toEqual({ id: 'op1' });
+		expect(calls[0].url).toBe('/api/v1/clusters');
+		expect(calls[0].init.method).toBe('POST');
+		expect(JSON.parse(String(calls[0].init.body))).toEqual(req);
+		await expect(server(200, {}).client.createCluster(req)).rejects.toMatchObject({ kind: 'invalid_response' });
+	});
+
+	it('rejects malformed metrics results and accepts null gaps', async () => {
+		const q = { query: 'm', from: 'a', to: 'b', step: 60 };
+		expect(await server(200, { series: [{ points: [[1, null], [2, 3]] }] }).client.queryMetrics(q)).toBeTruthy();
+		await expect(server(200, { series: [{ points: [[1, 'x']] }] }).client.queryMetrics(q)).rejects.toMatchObject({ kind: 'invalid_response' });
+	});
+
+	it('treats a missing endpoint as not_found, not as empty data', async () => {
+		await expect(server(404, { error: 'not_found' }).client.hosts()).rejects.toMatchObject({ kind: 'not_found' });
+	});
 });

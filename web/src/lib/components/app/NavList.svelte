@@ -8,6 +8,7 @@
 	import ChartColumn from '@lucide/svelte/icons/chart-column';
 	import ListChecks from '@lucide/svelte/icons/list-checks';
 	import Activity from '@lucide/svelte/icons/activity';
+	import Bell from '@lucide/svelte/icons/bell';
 	import Settings from '@lucide/svelte/icons/settings';
 	import CircleDashed from '@lucide/svelte/icons/circle-dashed';
 	import type { MessageKey } from '../../i18n';
@@ -16,12 +17,13 @@
 		{ href: '/', label: 'navOverview', icon: LayoutDashboard, available: true },
 		{ href: '/swarms', label: 'navSwarms', icon: Boxes, available: true },
 		{ href: '/clusters', label: 'navClusters', icon: Database, available: true },
-		{ href: '/hosts', label: 'navHosts', icon: Server, available: false },
-		{ href: '/databases', label: 'navDatabases', icon: HardDrive, available: false },
-		{ href: '/backups', label: 'navBackups', icon: Archive, available: false },
-		{ href: '/dashboards', label: 'navDashboards', icon: ChartColumn, available: false },
+		{ href: '/hosts', label: 'navHosts', icon: Server, available: true },
+		{ href: '/databases', label: 'navDatabases', icon: HardDrive, available: true },
+		{ href: '/backups', label: 'navBackups', icon: Archive, available: true },
+		{ href: '/dashboards', label: 'navDashboards', icon: ChartColumn, available: true },
 		{ href: '/operations', label: 'navOperations', icon: ListChecks, available: true },
 		{ href: '/events', label: 'navEvents', icon: Activity, available: true },
+		{ href: '/notifications', label: 'navNotifications', icon: Bell, available: true },
 		{ href: '/settings', label: 'navSettings', icon: Settings, available: true }
 	];
 

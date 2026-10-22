@@ -2,6 +2,7 @@
 	import { api } from '../../../lib/api';
 	import { load } from '../../../lib/load.svelte';
 	import { t } from '../../../lib/locale.svelte';
+	import { Button } from '../../../lib/components/ui/button/index.js';
 	import * as Table from '../../../lib/components/ui/table/index.js';
 	import PageHeader from '../../../lib/components/app/PageHeader.svelte';
 	import Status from '../../../lib/components/app/Status.svelte';
@@ -12,7 +13,9 @@
 	const clusters = load(api.clusters);
 </script>
 
-<PageHeader title={t('clustersTitle')} intro={t('clustersIntro')} />
+<PageHeader title={t('clustersTitle')} intro={t('clustersIntro')}>
+	{#snippet actions()}<Button href="/clusters/new">{t('newCluster')}</Button>{/snippet}
+</PageHeader>
 
 {#if clusters.state.status === 'loading'}
 	<Loading />
