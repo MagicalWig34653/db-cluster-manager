@@ -59,7 +59,18 @@ type Server struct {
 
 func New(t *testing.T, user, password string, vars map[string]string, opts ...func(*Server)) *Server {
 	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+	return listen(t, "tcp", "127.0.0.1:0", user, password, vars, opts...)
+}
+
+// NewUnix is New on a unix socket at path.
+func NewUnix(t *testing.T, path, user, password string, vars map[string]string, opts ...func(*Server)) *Server {
+	t.Helper()
+	return listen(t, "unix", path, user, password, vars, opts...)
+}
+
+func listen(t *testing.T, network, addr, user, password string, vars map[string]string, opts ...func(*Server)) *Server {
+	t.Helper()
+	l, err := net.Listen(network, addr)
 	if err != nil {
 		t.Fatal(err)
 	}

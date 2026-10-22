@@ -26,11 +26,14 @@
 //     marker first. An empty volume is accepted only through a single-use
 //     "new identity" token issued by the manager.
 //
-// Transport: Handle is transport-agnostic. The HTTP/JSON adapter in
-// http.go is an UNAUTHENTICATED LAB TRANSPORT. It only listens on loopback
-// addresses and rejects non-loopback peers, and it must not be used in
-// production. Authenticated manager-agent transport (outbound agent
-// connections with mTLS, enrollment, rotation and revocation) is future work.
+// Transport: Handle is transport-agnostic. mtls.go serves it over mutually
+// authenticated TLS 1.3 (ADR 0010; enrollment and renewal live in
+// internal/enroll). The HTTP/JSON adapter in http.go is an UNAUTHENTICATED
+// LAB TRANSPORT: it only listens on loopback addresses, rejects
+// non-loopback peers and must not be used in production.
+//
+// Read-only kinds (collect-health, read-grastate) pass the fencing guard but
+// are not recorded in the step record.
 //
 // The Docker Engine client lives in internal/dockerclient. Not implemented
 // here: reconciliation of in-doubt steps and compaction of the step record.

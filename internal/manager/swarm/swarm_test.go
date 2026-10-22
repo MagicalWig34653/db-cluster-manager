@@ -56,7 +56,16 @@ type fakeConn struct {
 	labels   map[string]map[string]string
 	services []agent.Object
 	created  []agent.ServiceSpec
+	secrets  map[string][]byte
 	failNode string
+}
+
+func (f *fakeConn) CreateSecret(_ context.Context, name string, _ map[string]string, data []byte) (string, error) {
+	if f.secrets == nil {
+		f.secrets = map[string][]byte{}
+	}
+	f.secrets[name] = data
+	return "sec-" + name, nil
 }
 
 func newFakeConn() *fakeConn {
@@ -153,5 +162,68 @@ func TestDeployAgentsValidates(t *testing.T) {
 	}
 	if len(c.created) != 0 {
 		t.Fatal("invalid deployment created a service")
+	}
+}
+
+const fp = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+
+func TestDeployAgentsMTLSSpec(t *testing.T) {
+	c := newFakeConn()
+	d := AgentDeployment{InstallationID: "inst-1", Image: "agent@sha256:abc", VolumeBase: "/srv/dbcm", Enrolled: []string{"n1"},
+		MTLS: &AgentMTLS{ManagerURL: "https://10.0.0.4:7444", CAFingerprint: fp, TokenSecret: "dbcm-agent-enroll-inst-1-t1",
+			Token: []byte("dbcm-et1.t1.secret"), MonitorUser: "dbcm_monitor", MonitorSecret: "dbcm-monitor-pw"}}
+	res, err := DeployAgents(context.Background(), c, d)
+	if err != nil || !res.Created || res.TokenSecret != d.MTLS.TokenSecret {
+		t.Fatalf("deploy %+v %v", res, err)
+	}
+	if string(c.secrets[d.MTLS.TokenSecret]) != "dbcm-et1.t1.secret" {
+		t.Fatalf("token secret %q", c.secrets)
+	}
+	spec := c.created[0]
+	args := strings.Join(spec.Args, " ")
+	for _, want := range []string{"-listen 0.0.0.0:7443", "-manager-url https://10.0.0.4:7444", "-ca-fingerprint " + fp,
+		"-enroll-token-file /run/secrets/dbcm-agent-enroll-inst-1-t1", "-monitor-user dbcm_monitor",
+		"-monitor-password-file /run/secrets/dbcm-monitor-pw", "-installation inst-1"} {
+		if !strings.Contains(args, want) {
+			t.Errorf("args %q lack %q", args, want)
+		}
+	}
+	if strings.Contains(args, "-insecure-lab") || strings.Contains(args, "secret\"") || strings.Contains(args, "dbcm-et1") {
+		t.Fatalf("args %q", args)
+	}
+	if !slices.Equal(spec.Networks, []string{"host"}) || !slices.Equal(spec.Secrets, []string{"dbcm-agent-enroll-inst-1-t1", "dbcm-monitor-pw"}) ||
+		!slices.Equal(spec.Env, []string{"DBCM_HOST_ID={{.Node.ID}}"}) {
+		t.Fatalf("spec %+v", spec)
+	}
+	// Existing service: no second secret.
+	delete(c.secrets, d.MTLS.TokenSecret)
+	if _, err := DeployAgents(context.Background(), c, d); err != nil || len(c.secrets) != 0 {
+		t.Fatalf("redeploy created a secret: %v %v", c.secrets, err)
+	}
+}
+
+func TestDeployAgentsLabSpecIsExplicit(t *testing.T) {
+	spec := AgentSpec(AgentDeployment{InstallationID: "i", Image: "a", VolumeBase: "/v"})
+	if !strings.HasPrefix(strings.Join(spec.Args, " "), "-insecure-lab -listen 127.0.0.1:7070") || len(spec.Networks) != 0 || len(spec.Secrets) != 0 {
+		t.Fatalf("lab spec %+v", spec)
+	}
+}
+
+func TestDeployAgentsMTLSValidates(t *testing.T) {
+	good := AgentMTLS{ManagerURL: "https://m:7444", CAFingerprint: fp, TokenSecret: "dbcm-t", Token: []byte("x")}
+	for name, mod := range map[string]func(*AgentMTLS){
+		"url":         func(m *AgentMTLS) { m.ManagerURL = "http://m:7444" },
+		"fingerprint": func(m *AgentMTLS) { m.CAFingerprint = "abc" },
+		"secret name": func(m *AgentMTLS) { m.TokenSecret = "token" },
+		"token":       func(m *AgentMTLS) { m.Token = nil }, // service does not exist yet
+		"port":        func(m *AgentMTLS) { m.Port = 70000 },
+		"monitor":     func(m *AgentMTLS) { m.MonitorUser = "u" },
+	} {
+		m := good
+		mod(&m)
+		c := newFakeConn()
+		if _, err := DeployAgents(context.Background(), c, AgentDeployment{InstallationID: "i", Image: "a", VolumeBase: "/v", MTLS: &m}); !errors.Is(err, ErrInvalidDeployment) {
+			t.Errorf("%s: %v", name, err)
+		}
 	}
 }

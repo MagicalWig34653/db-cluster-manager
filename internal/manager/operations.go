@@ -201,7 +201,7 @@ func (o *Operations) CreateCluster(actor authz.Subject, req CreateClusterRequest
 		AutoReplace: req.AutoReplace, CreatedBy: actor.ID, CreatedAt: now, CreateOp: opID,
 	}
 	rec := OperationRecord{ID: opID, Kind: op.Kind, Swarm: req.Swarm, Cluster: clusterID, RequestedBy: actor.ID,
-		RequestedAt: now, Definition: op}
+		RequestedAt: now, Definition: op, Nodes: plan.Nodes}
 	if err := o.commit(rec, &cluster); err != nil {
 		return OperationRecord{}, err
 	}
@@ -372,7 +372,7 @@ func (o *Operations) ReplaceNode(actor authz.Subject, clusterID, slot string) (O
 		return OperationRecord{}, err
 	}
 	rec := OperationRecord{ID: opID, Kind: op.Kind, Swarm: c.Swarm, Cluster: c.ID, RequestedBy: actor.ID,
-		RequestedAt: o.Svc.cfg.Now(), Definition: op}
+		RequestedAt: o.Svc.cfg.Now(), Definition: op, Nodes: plan.Nodes}
 	if err := o.commit(rec, nil); err != nil {
 		return OperationRecord{}, err
 	}

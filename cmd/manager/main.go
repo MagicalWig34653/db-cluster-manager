@@ -50,8 +50,16 @@
 //	  "peers": [],          // empty: single-instance mode
 //	  "bootstrap": true,
 //	  "keyFile": "",        // default <dataDir>/data.key, created if missing
-//	  "labAgents": false,
-//	  "autoResume": false
+//	  "labAgents": false,   // unauthenticated lab agent transport
+//	  "autoResume": false,
+//	  "agentTransport": {   // mTLS agent transport with enrollment (ADR 0010)
+//	    "enrollListen": "0.0.0.0:7444",
+//	    "managerUrl": "https://10.0.0.4:7444",
+//	    "serverDns": [], "serverIps": [],
+//	    "agentPort": 7443,
+//	    "allowAnySource": false,
+//	    "monitorUser": "", "monitorSecret": ""
+//	  }
 //	}
 //
 // Accounts, passkeys, sessions, recovery codes, roles and audit records then

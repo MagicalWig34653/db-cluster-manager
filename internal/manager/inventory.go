@@ -90,12 +90,34 @@ func nodeState(h NodeObservation, fresh bool) api.State {
 	return api.StateUnknown
 }
 
+// nodeRole maps wsrep_local_state_comment of a fresh observation.
+func nodeRole(h NodeObservation, fresh bool) string {
+	if !fresh || h.Health.State == galera.HealthUnknown {
+		return api.NodeRoleUnknown
+	}
+	switch ls := h.Health.LocalState; {
+	case ls == "Synced":
+		return api.NodeRoleSynced
+	case strings.HasPrefix(ls, "Donor"):
+		return api.NodeRoleDonor
+	case strings.HasPrefix(ls, "Joining"):
+		return api.NodeRoleJoining
+	case ls == "Joined":
+		return api.NodeRoleJoined
+	case ls == "Initialized":
+		return api.NodeRoleInitialized
+	}
+	return api.NodeRoleUnknown
+}
+
 func (inv Inventory) cluster(r ClusterRecord) api.Cluster {
 	st, at := inv.observed(r.Observed)
 	c := api.Cluster{ID: r.ID, Swarm: r.Swarm, Name: r.Name, Engine: r.Engine, State: st, ObservedAt: at, Nodes: []api.ClusterNode{}}
 	for _, n := range r.Nodes {
 		h, ok := r.Health[n.Slot]
-		c.Nodes = append(c.Nodes, api.ClusterNode{ID: n.Slot, Host: n.HostID, State: nodeState(h, ok && inv.fresh(h.ObservedAt))})
+		fresh := ok && inv.fresh(h.ObservedAt)
+		c.Nodes = append(c.Nodes, api.ClusterNode{ID: n.Slot, Host: n.HostID, State: nodeState(h, fresh),
+			Role: nodeRole(h, fresh), ObservedAt: h.ObservedAt})
 	}
 	return c
 }

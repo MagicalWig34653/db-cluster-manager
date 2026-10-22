@@ -289,3 +289,24 @@ func TestCredentialErrorFailsProbe(t *testing.T) {
 		t.Fatalf("err = %v, health = %+v", err, h)
 	}
 }
+
+func TestStatusNetUnixSocket(t *testing.T) {
+	// Short path: unix socket paths are limited to about 104 bytes on macOS.
+	dir, err := os.MkdirTemp("", "gp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	sock := filepath.Join(dir, "mysqld.sock")
+	fakemysql.NewUnix(t, sock, "dbcm_monitor", testPassword, fakemysql.SyncedVars())
+	vars, err := newProber(t, nil).StatusNet(context.Background(), "unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if galera.HealthFromStatus(vars).State != galera.HealthHealthy {
+		t.Fatalf("vars %v", vars)
+	}
+	if _, err := newProber(t, nil).StatusNet(context.Background(), "udp", sock); err == nil {
+		t.Fatal("udp accepted")
+	}
+}

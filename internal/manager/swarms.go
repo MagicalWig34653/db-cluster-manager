@@ -9,8 +9,10 @@ import (
 	"maps"
 	"time"
 
+	"github.com/MagicalWig34653/db-cluster-manager/internal/agent"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/api"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/authz"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/certs"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/manager/swarm"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/metastore"
 )
@@ -26,6 +28,24 @@ type Swarms struct {
 	Matrix     swarm.Matrix
 	// Dial opens a Connector for a Swarm record's Docker host.
 	Dial func(dockerHost string) (swarm.Connector, error)
+	// Transport, if set, deploys agents with the authenticated mTLS
+	// transport (ADR 0010); nil deploys the lab transport.
+	Transport *AgentTransport
+}
+
+// AgentTransport are the mTLS deployment settings.
+type AgentTransport struct {
+	PKI *AgentPKI
+	// ManagerURL is the enrollment endpoint the agents dial.
+	ManagerURL string
+	// Port is the agents' listen port (default swarm.AgentPort).
+	Port int
+	// MonitorUser and MonitorSecret (an existing Swarm secret with the
+	// password) give agents the database monitoring credential.
+	MonitorUser, MonitorSecret string
+	// TokenTTL is the lifetime of a new enrollment token (default
+	// DefaultTokenTTL).
+	TokenTTL time.Duration
 }
 
 var errNoDial = errors.New("manager: no swarm connector configured")
@@ -103,6 +123,7 @@ func (s *Swarms) Sync(ctx context.Context, swarmID string) error {
 		h.Hostname, h.Role, h.Availability, h.State = n.Hostname, n.Role, n.Availability, n.State
 		h.EngineVersion, h.Arch, h.Labels = n.EngineVersion, n.Arch, maps.Clone(n.Labels)
 		h.NanoCPUs, h.MemoryBytes, h.ObservedAt = n.NanoCPUs, n.MemoryBytes, now
+		h.Addr = n.Addr
 		if h.Enrollment == EnrollEnrolled && n.State != "ready" {
 			state = api.StateDegraded
 		}
@@ -133,6 +154,7 @@ func (s *Swarms) SetEnrollment(actor authz.Subject, swarmID, nodeID string, enro
 	if err := s.authorize(actor, authz.ActionUpdate, authz.Resource{Type: authz.ResourceHost, Scope: authz.SwarmScope(swarmID), ID: nodeID}); err != nil {
 		return HostRecord{}, err
 	}
+	var revokedSerial string
 	h, _, err := Update(s.Svc.store, CollHosts, HostKey(swarmID, nodeID), func(h HostRecord, exists bool) (HostRecord, error) {
 		if !exists {
 			return h, fmt.Errorf("%w: host %s/%s (run Sync first)", api.ErrNotFound, swarmID, nodeID)
@@ -140,10 +162,17 @@ func (s *Swarms) SetEnrollment(actor authz.Subject, swarmID, nodeID string, enro
 		if enroll {
 			h.Enrollment, h.EnrolledAt, h.AgentURL = EnrollEnrolled, s.Svc.cfg.Now(), agentURL
 		} else {
-			h.Enrollment, h.AgentURL = EnrollRevoked, ""
+			revokedSerial = h.AgentSerial
+			h.Enrollment, h.AgentURL, h.AgentSerial, h.AgentNotAfter = EnrollRevoked, "", "", time.Time{}
 		}
 		return h, nil
 	})
+	if err != nil || revokedSerial == "" {
+		return h, err
+	}
+	// The agent identity dies with the enrollment.
+	_, err = Put(s.Svc.store, CollRevocations, revokedSerial,
+		certs.Revocation{Serial: revokedSerial, RevokedAt: s.Svc.cfg.Now(), Reason: "host enrollment revoked by " + actor.ID}, nil)
 	return h, err
 }
 
@@ -176,6 +205,7 @@ func (s *Swarms) DeployAgents(ctx context.Context, actor authz.Subject, swarmID 
 		return swarm.DeployResult{}, err
 	}
 	d := swarm.AgentDeployment{InstallationID: st.Value.InstallationID, Image: st.Value.AgentImage, VolumeBase: st.Value.VolumeBase}
+	inst := st.Value.InstallationID
 	for _, h := range hosts {
 		if h.Value.Swarm != swarmID {
 			continue
@@ -190,6 +220,13 @@ func (s *Swarms) DeployAgents(ctx context.Context, actor authz.Subject, swarmID 
 	conn, err := s.Dial(sw.Value.DockerHost)
 	if err != nil {
 		return swarm.DeployResult{}, err
+	}
+	if t := s.Transport; t != nil {
+		m, err := s.mtlsDeployment(ctx, conn, t, swarmID, inst)
+		if err != nil {
+			return swarm.DeployResult{}, err
+		}
+		d.MTLS = m
 	}
 	res, err := swarm.DeployAgents(ctx, conn, d)
 	if err != nil {
@@ -208,6 +245,35 @@ func (s *Swarms) DeployAgents(ctx context.Context, actor authz.Subject, swarmID 
 	s.Svc.recordEvent(swarmID, "", api.SeverityInfo, fmt.Sprintf("%s deployed agents: service %s, %d enrolled, %d revoked, %d failed",
 		actor.ID, res.ServiceID, len(res.Labeled), len(res.Unlabeled), len(res.Failed)))
 	return res, err
+}
+
+// mtlsDeployment prepares the transport settings. A new agent service gets
+// a new enrollment token (record stored first, plain token only in the
+// Swarm secret); for an existing service the hosts allowed by the Swarm's
+// tokens are refreshed instead.
+func (s *Swarms) mtlsDeployment(ctx context.Context, conn swarm.Connector, t *AgentTransport, swarmID, inst string) (*swarm.AgentMTLS, error) {
+	fp, err := t.PKI.CAFingerprint()
+	if err != nil {
+		return nil, err
+	}
+	m := &swarm.AgentMTLS{ManagerURL: t.ManagerURL, CAFingerprint: fp, Port: t.Port, MonitorUser: t.MonitorUser, MonitorSecret: t.MonitorSecret}
+	existing, err := conn.ListByLabel(ctx, agent.KindService, agent.LabelInstallation, inst)
+	if err != nil {
+		return nil, fmt.Errorf("swarm: list services: %w", err)
+	}
+	for _, o := range existing {
+		if o.Labels[swarm.LabelRole] == swarm.RoleAgent {
+			m.TokenSecret = "dbcm-agent-enroll-existing"
+			return m, t.PKI.RefreshTokenHosts(swarmID)
+		}
+	}
+	plain, rec, err := t.PKI.IssueEnrollmentToken(swarmID, t.TokenTTL)
+	if err != nil {
+		return nil, err
+	}
+	m.TokenSecret = "dbcm-agent-enroll-" + inst + "-" + rec.Token.ID
+	m.Token = []byte(plain)
+	return m, nil
 }
 
 // SyncReconciler observes every connected Swarm periodically while this

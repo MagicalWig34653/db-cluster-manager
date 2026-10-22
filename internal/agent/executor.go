@@ -40,6 +40,15 @@ type Config struct {
 	// NodeID is this host's Swarm node ID. Backup and restore jobs are
 	// pinned to it; without it run-backup and run-restore are refused.
 	NodeID string
+	// Status answers collect-health; nil refuses it (not-configured).
+	Status StatusQuerier
+}
+
+// StatusQuerier runs SHOW GLOBAL STATUS LIKE 'wsrep_%' against a local
+// database endpoint. network is "tcp" (address host:port) or "unix"
+// (address = socket path). Errors must not contain credentials.
+type StatusQuerier interface {
+	Status(ctx context.Context, network, address string) (map[string]string, error)
 }
 
 // Executor executes fenced, idempotent commands. Commands are serialized:
@@ -100,6 +109,9 @@ func (e *Executor) Handle(ctx context.Context, cmd Command) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	if ReadOnly(cmd.Kind) {
+		return e.handleRead(ctx, d)
+	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -140,6 +152,32 @@ func (e *Executor) Handle(ctx context.Context, cmd Command) (Result, error) {
 		rec.Result = nil
 		return res, fmt.Errorf("%w: outcome of op %q step %q: %v", ErrPersist, cmd.OpID, cmd.StepID, err)
 	}
+	return res, nil
+}
+
+// handleRead admits a read-only command under the executor lock (so a newer
+// term is never admitted in the middle of another command's effect) and
+// then runs it without the lock and without a step record.
+func (e *Executor) handleRead(ctx context.Context, d decoded) (Result, error) {
+	e.mu.Lock()
+	err := e.guard.Admit(d.cmd.Term)
+	e.mu.Unlock()
+	if err != nil {
+		return Result{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return Result{}, err
+	}
+	var res Result
+	switch a := d.args.(type) {
+	case *CollectHealthArgs:
+		res = e.collectHealth(ctx, *a)
+	case *ReadGrastateArgs:
+		res = e.readGrastate(*a)
+	default:
+		res = Result{Status: StatusFailed, Code: CodeIO, Message: "internal: unhandled read-only args type"}
+	}
+	res.OpID, res.StepID, res.Kind = d.cmd.OpID, d.cmd.StepID, d.cmd.Kind
 	return res, nil
 }
 
@@ -403,7 +441,9 @@ func (e *Executor) startDB(ctx context.Context, a StartDBArgs) Result {
 	if !ok {
 		return res
 	}
-	if !mountsVolume(svc, a.VolumeRoot) {
+	if mounted, res, ok := e.mountsVolume(ctx, svc, a.VolumeRoot); !ok {
+		return res
+	} else if !mounted {
 		return Result{Status: StatusRefused, Code: CodeVolumeMismatch,
 			Message: fmt.Sprintf("service %q has no mount at or below %s", a.ServiceID, a.VolumeRoot)}
 	}
@@ -535,14 +575,33 @@ func (e *Executor) resolveVolumeRoot(p string) (string, Result, bool) {
 	return resolved, Result{}, true
 }
 
-func mountsVolume(svc Object, root string) bool {
+// mountsVolume reports whether svc mounts the volume root. A bind mount
+// matches by path (at or below root). A volume mount names a Docker volume
+// (the Galera builder mounts the node's volume by name): it matches only
+// when that volume passes the ownership guard and its mountpoint is root.
+// A volume mount of an unowned or missing volume does not match; any other
+// failure to inspect it is returned (ok false).
+func (e *Executor) mountsVolume(ctx context.Context, svc Object, root string) (mounted bool, res Result, ok bool) {
 	for _, m := range svc.Mounts {
+		if m.Type == "volume" {
+			vol, r, owned := e.owned(ctx, KindVolume, m.Source)
+			if !owned {
+				if r.Code == CodeNotOwned || r.Code == CodeNotFound {
+					continue
+				}
+				return false, r, false
+			}
+			if vol.Mountpoint != "" && filepath.Clean(vol.Mountpoint) == root {
+				return true, Result{}, true
+			}
+			continue
+		}
 		src := filepath.Clean(m.Source)
 		if src == root || within(root, src) {
-			return true
+			return true, Result{}, true
 		}
 	}
-	return false
+	return false, Result{}, true
 }
 
 func (e *Executor) allow(id string) {

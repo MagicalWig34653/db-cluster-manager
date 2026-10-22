@@ -4,9 +4,11 @@ package dockerclient
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"maps"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -66,7 +68,8 @@ type wireNode struct {
 		Addr  string `json:"Addr"`
 	} `json:"Status"`
 	ManagerStatus *struct {
-		Leader bool `json:"Leader"`
+		Leader bool   `json:"Leader"`
+		Addr   string `json:"Addr"` // host:port of the Raft listener
 	} `json:"ManagerStatus"`
 }
 
@@ -80,6 +83,13 @@ func (w wireNode) node() Node {
 	}
 	if w.ManagerStatus != nil {
 		n.Leader = w.ManagerStatus.Leader
+		// Some engines report Status.Addr 0.0.0.0 for managers; the manager
+		// status carries the address peers reach.
+		if ip := net.ParseIP(n.Addr); n.Addr == "" || (ip != nil && ip.IsUnspecified()) {
+			if host, _, err := net.SplitHostPort(w.ManagerStatus.Addr); err == nil {
+				n.Addr = host
+			}
+		}
 	}
 	return n
 }
@@ -140,6 +150,30 @@ func (c *Client) SetNodeLabel(ctx context.Context, id, key, value string) error 
 	}
 	q := url.Values{"version": {strconv.FormatUint(n.Version.Index, 10)}}
 	return c.do(ctx, http.MethodPost, p+"/update", q, n.Spec, nil, true)
+}
+
+// CreateSecret calls POST /secrets/create and returns the new secret's ID.
+// Only dbcm.* objects are created by the manager: the name must start with
+// "dbcm-". The data never appears in errors.
+func (c *Client) CreateSecret(ctx context.Context, name string, labels map[string]string, data []byte) (string, error) {
+	if !strings.HasPrefix(name, "dbcm-") || len(data) == 0 || len(data) > 500<<10 {
+		return "", fmt.Errorf("%w: secret %q needs a dbcm- name and 1 byte..500 KiB of data", ErrInvalidArgument, name)
+	}
+	body := struct {
+		Name   string            `json:"Name"`
+		Labels map[string]string `json:"Labels,omitempty"`
+		Data   string            `json:"Data"`
+	}{Name: name, Labels: labels, Data: base64.StdEncoding.EncodeToString(data)}
+	var resp struct {
+		ID string `json:"ID"`
+	}
+	if err := c.do(ctx, http.MethodPost, "/secrets/create", nil, body, &resp, true); err != nil {
+		return "", err
+	}
+	if resp.ID == "" {
+		return "", fmt.Errorf("%w: dockerclient: create secret %q: response has no ID", agent.ErrOutcomeUnknown, name)
+	}
+	return resp.ID, nil
 }
 
 // CreateGlobalService creates a service in global mode (one task per

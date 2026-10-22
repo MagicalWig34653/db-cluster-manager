@@ -36,13 +36,15 @@ export interface Swarm {
 	observedAt?: string;
 }
 
+export type NodeRole = 'synced' | 'donor' | 'joining' | 'joined' | 'initialized' | 'unknown';
+
 export interface ClusterNode {
 	id: string;
 	host?: string;
 	state: State;
-	/** Proposed field (cluster/health work): "primary", "donor", "joiner", "arbitrator" ... Unknown when absent. */
-	role?: string;
-	/** Proposed field: time of the last health observation of this node. */
+	/** Galera role from the last fresh observation; unknown when missing or stale (absent from older managers). */
+	role?: NodeRole;
+	/** Time of the last observation, fresh or not. */
 	observedAt?: string;
 }
 

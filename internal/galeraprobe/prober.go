@@ -85,23 +85,32 @@ func (e *probeError) Is(target error) bool { return e.kind != nil && target == e
 // 'wsrep_%' and returns the variables. Every call opens and closes its own
 // connection.
 func (p *Prober) Status(ctx context.Context, addr string) (map[string]string, error) {
+	return p.StatusNet(ctx, "tcp", addr)
+}
+
+// StatusNet is Status over network "tcp" (addr host:port) or "unix" (addr
+// is the socket path), as used by the agent for its local node.
+func (p *Prober) StatusNet(ctx context.Context, network, addr string) (map[string]string, error) {
+	if network != "tcp" && network != "unix" {
+		return nil, &probeError{msg: "galeraprobe: network must be tcp or unix"}
+	}
 	ctx, cancel := context.WithTimeout(ctx, p.cfg.Timeout)
 	defer cancel()
 	cred, err := p.cfg.Credentials.Credentials(ctx)
 	if err != nil {
 		return nil, &probeError{msg: "galeraprobe: credentials: " + redact(err.Error(), "")}
 	}
-	vars, err := p.query(ctx, addr, cred)
+	vars, err := p.query(ctx, network, addr, cred)
 	if err != nil {
 		return nil, p.classify(addr, err, cred.Password)
 	}
 	return vars, nil
 }
 
-func (p *Prober) query(ctx context.Context, addr string, cred Credentials) (map[string]string, error) {
+func (p *Prober) query(ctx context.Context, network, addr string, cred Credentials) (map[string]string, error) {
 	mc := mysql.NewConfig()
 	mc.User, mc.Passwd = cred.User, cred.Password
-	mc.Net, mc.Addr = "tcp", addr
+	mc.Net, mc.Addr = network, addr
 	mc.Timeout, mc.ReadTimeout, mc.WriteTimeout = p.cfg.Timeout, p.cfg.Timeout, p.cfg.Timeout
 	mc.AllowNativePasswords = true
 	mc.AllowCleartextPasswords = false
@@ -109,7 +118,7 @@ func (p *Prober) query(ctx context.Context, addr string, cred Credentials) (map[
 	mc.AllowFallbackToPlaintext = false
 	if p.cfg.TLS != nil {
 		t := p.cfg.TLS.Clone()
-		if t.ServerName == "" {
+		if t.ServerName == "" && network == "tcp" {
 			if host, _, err := net.SplitHostPort(addr); err == nil {
 				t.ServerName = host
 			}

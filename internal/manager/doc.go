@@ -25,9 +25,13 @@
 //   - operations.go: permission-checked, audited commands that start runner
 //     operations (create cluster, replace node) and the read-only guided
 //     full-outage diagnosis.
-//   - agents.go: an AgentClient that reaches agents through the lab HTTP
-//     endpoint recorded in each host's enrollment record. This endpoint has
-//     no TLS and no authentication: it is lab-grade only.
+//   - agentpki.go, agentdir.go: the agent CA, enrollment tokens, agent
+//     identities and deny list (ADR 0010), and AgentDirectory, the mTLS
+//     AgentClient that dials each agent at its node's Swarm address.
+//   - health.go: HealthCollector (leader-only polling of node health
+//     through the agents), AgentHealthProbe (live preconditions for
+//     galeraprobe.Checker) and outage evidence collection (grastate.dat).
+//   - agents.go: LabAgentDirectory, the unauthenticated lab AgentClient.
 //
 // Package swarm (internal/manager/swarm) holds the Swarm connection, the
 // Docker compatibility matrix and the agent deployment.

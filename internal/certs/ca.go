@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"math/big"
 	"net"
+	"net/url"
 	"time"
 )
 
@@ -26,6 +27,9 @@ const (
 	KindServer Kind = "server"
 	// KindClient certificates carry the clientAuth extended key usage (mTLS).
 	KindClient Kind = "client"
+	// KindPeer certificates carry both serverAuth and clientAuth: an agent
+	// serves commands with it and authenticates its own renewal with it.
+	KindPeer Kind = "peer"
 )
 
 const clockSkew = time.Minute
@@ -36,6 +40,9 @@ type Request struct {
 	CommonName string
 	DNSNames   []string
 	IPs        []net.IP
+	// URIs are URI SANs, used as machine identities (see AgentURI and
+	// ManagerURI).
+	URIs []*url.URL
 	// Validity of the leaf; capped at the CA's NotAfter.
 	Validity time.Duration
 }
@@ -45,6 +52,9 @@ func (r Request) Names() []string {
 	out := append([]string(nil), r.DNSNames...)
 	for _, ip := range r.IPs {
 		out = append(out, ip.String())
+	}
+	for _, u := range r.URIs {
+		out = append(out, u.String())
 	}
 	return out
 }
@@ -227,37 +237,62 @@ func (i *Issued) TLSCertificate() (tls.Certificate, error) {
 	return tls.X509KeyPair(i.ChainPEM, k)
 }
 
-// Issue creates a leaf certificate. The result is verified against the CA
-// before it is returned, so name-constraint violations fail here.
+// Issue creates a leaf certificate with a key generated here. The result is
+// verified against the CA before it is returned, so name-constraint
+// violations fail here.
 func (c *CA) Issue(ctx context.Context, req Request) (*Issued, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	var eku x509.ExtKeyUsage
-	switch req.Kind {
-	case KindServer:
-		eku = x509.ExtKeyUsageServerAuth
-		if len(req.DNSNames)+len(req.IPs) == 0 {
-			return nil, errors.New("certs: server certificate needs at least one SAN")
-		}
-	case KindClient:
-		eku = x509.ExtKeyUsageClientAuth
-		if req.CommonName == "" {
-			return nil, errors.New("certs: client certificate needs a common name")
-		}
-	default:
-		return nil, fmt.Errorf("certs: unknown certificate kind %q", req.Kind)
-	}
-	if req.Validity <= 0 {
-		return nil, errors.New("certs: validity must be positive")
+	if _, err := req.usages(); err != nil {
+		return nil, err
 	}
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, err
 	}
-	sn, err := serial()
+	leaf, chain, err := c.sign(req, &key.PublicKey)
 	if err != nil {
 		return nil, err
+	}
+	return &Issued{ChainPEM: chain, Cert: leaf, key: key}, nil
+}
+
+// usages validates the request and returns its extended key usages.
+func (req Request) usages() ([]x509.ExtKeyUsage, error) {
+	var ekus []x509.ExtKeyUsage
+	switch req.Kind {
+	case KindServer:
+		ekus = []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}
+	case KindClient:
+		ekus = []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}
+	case KindPeer:
+		ekus = []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}
+	default:
+		return nil, fmt.Errorf("certs: unknown certificate kind %q", req.Kind)
+	}
+	if req.Kind != KindClient && len(req.DNSNames)+len(req.IPs)+len(req.URIs) == 0 {
+		return nil, errors.New("certs: server certificate needs at least one SAN")
+	}
+	if req.Kind != KindServer && req.CommonName == "" {
+		return nil, errors.New("certs: client certificate needs a common name")
+	}
+	if req.Validity <= 0 {
+		return nil, errors.New("certs: validity must be positive")
+	}
+	return ekus, nil
+}
+
+// sign issues a leaf for pub. Every identity in the certificate comes from
+// req, never from the key holder.
+func (c *CA) sign(req Request, pub any) (*x509.Certificate, []byte, error) {
+	ekus, err := req.usages()
+	if err != nil {
+		return nil, nil, err
+	}
+	sn, err := serial()
+	if err != nil {
+		return nil, nil, err
 	}
 	t := c.now()
 	notAfter := t.Add(req.Validity)
@@ -270,24 +305,27 @@ func (c *CA) Issue(ctx context.Context, req Request) (*Issued, error) {
 		NotBefore:             t.Add(-clockSkew),
 		NotAfter:              notAfter,
 		KeyUsage:              x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:           []x509.ExtKeyUsage{eku},
+		ExtKeyUsage:           ekus,
 		BasicConstraintsValid: true,
 		DNSNames:              req.DNSNames,
 		IPAddresses:           req.IPs,
+		URIs:                  req.URIs,
 	}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, c.cert, &key.PublicKey, c.key)
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, c.cert, pub, c.key)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	leaf, err := x509.ParseCertificate(der)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	if _, err := leaf.Verify(x509.VerifyOptions{
-		Roots: c.Pool(), CurrentTime: t, KeyUsages: []x509.ExtKeyUsage{eku},
-	}); err != nil {
-		return nil, fmt.Errorf("certs: issued certificate does not verify (name constraints?): %w", err)
+	for _, eku := range ekus {
+		if _, err := leaf.Verify(x509.VerifyOptions{
+			Roots: c.Pool(), CurrentTime: t, KeyUsages: []x509.ExtKeyUsage{eku},
+		}); err != nil {
+			return nil, nil, fmt.Errorf("certs: issued certificate does not verify (name constraints?): %w", err)
+		}
 	}
 	chain := append(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), c.certPEM...)
-	return &Issued{ChainPEM: chain, Cert: leaf, key: key}, nil
+	return leaf, chain, nil
 }
