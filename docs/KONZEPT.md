@@ -1,6 +1,6 @@
 # Confirmed product requirements
 
-Updated: 2026-10-18. These requirements record user choices, not implemented functionality. Release allocation is in [RELEASES.md](RELEASES.md); unresolved implementation choices are in [ENTSCHEIDUNGEN.md](ENTSCHEIDUNGEN.md).
+Updated: 2026-10-22 (scope extension added). These requirements record user choices, not implemented functionality. Release allocation is in [RELEASES.md](RELEASES.md); unresolved implementation choices are in [ENTSCHEIDUNGEN.md](ENTSCHEIDUNGEN.md).
 
 ## Product and deployment
 
@@ -8,7 +8,7 @@ Updated: 2026-10-18. These requirements record user choices, not implemented fun
 | --- | --- |
 | P01 | Free, self-hosted, open source under AGPLv3; inspired by ClusterControl. |
 | P02 | Svelte with shadcn-svelte; visual reference is `timetrack-pwa`. Go is selected for manager, agent and CLI. Use a monorepo with separate frontend source and a combined manager/UI distribution. |
-| P03 | Deploy databases directly inside an existing Docker Swarm. Kubernetes support comes later. |
+| P03 | Deploy databases directly inside an existing Docker Swarm. Kubernetes support comes later. *Note 2026-10-22: extended by [X01–X02](#scope-extension) (platform choice and cluster provisioning); Swarm-first for Galera is unchanged.* |
 | P04 | The user deploys only the manager, through Docker Compose or as a Swarm service, inside or outside the target Swarm. External deployment connects to its Docker API; secure connection details remain to be designed. |
 | P05 | The manager deploys agents as services, with one agent per managed Docker host. The user does not deploy agents manually. |
 | P06 | Manage multiple independent Swarms and multiple database clusters. |
@@ -29,7 +29,7 @@ Updated: 2026-10-18. These requirements record user choices, not implemented fun
 | A06 | Full-cluster failure uses guided recovery with diagnosis and explicit approval. Never treat it as ordinary single-node replacement. |
 | A07 | Show drift, let users adopt it as desired state or revert it; automatic reversion is optional. |
 | A08 | Guided host maintenance checks remaining healthy nodes, redirects traffic, pauses replacement for the host, and indicates readiness for maintenance. |
-| A09 | Host restarts and Docker upgrades remain the user's responsibility. Show Docker compatibility warnings and recommended versions against a maintained matrix. |
+| A09 | Host restarts and Docker upgrades remain the user's responsibility. Show Docker compatibility warnings and recommended versions against a maintained matrix. **Partly superseded 2026-10-22 by [X09](#scope-extension):** Docker engine updates are now wanted in scope; the boundary for host restarts and automatic vs approved steps is an open decision. The compatibility-matrix part remains valid. |
 | A10 | Do not modify unrelated containers/resources. Management must constrain its own resource consumption; shared hardware cannot promise complete performance isolation. |
 
 ## Database operations and migration
@@ -89,3 +89,24 @@ Warm copies and synchronized standby nodes do not replace retained backups: erro
 | U09 | Continuously maintained `docs/` and GitHub Pages from the same source. Repository is the source of truth; sessions are disposable. |
 | U10 | At the end of concept work, prepare a Claude Code environment to take over development. Split implementation into releases. |
 | U11 | Prototypes run locally on the user's M4 Pro Mac (48 GB physical RAM), using Colima and dedicated Lima VMs. Combined budget: 16 GB RAM, 50% CPU capacity, approximately 100 GB SSD. All test resources must be selectively removable. The user's existing Swarm is used only after the first working version. |
+
+## Scope extension
+
+Confirmed by the owner on 2026-10-22 as product direction ([ADR 0012](decisions/0012-broadened-scope-platform.md)). These rows record wishes, not implemented functionality; mechanisms are proposals in [ARCHITEKTUR.md](ARCHITEKTUR.md#extension-boundaries) and open choices are in [ENTSCHEIDUNGEN.md](ENTSCHEIDUNGEN.md).
+
+| ID | Confirmed requirement |
+| --- | --- |
+| X01 | Broaden the product from a database cluster manager to a general self-hosted platform for clusters and services. Database clusters remain a core use case. |
+| X02 | Platform choice per managed environment: Docker Swarm or Kubernetes. Optionally build (provision) new Swarm or Kubernetes clusters on user-provided hosts and manage them afterwards, in addition to connecting existing clusters. |
+| X03 | Operation is as intuitive as possible and possible 100% through the UI, without hiding the system: users must still be able to understand what is created and changed (for example plan preview, generated configuration, equivalent commands, export as code). |
+| X04 | Web servers as a managed server type, including detailed composition: choose e.g. Nginx version, PHP version, specific PHP extensions/functions and `php.ini` settings, and provide or edit the Nginx configuration. Other web server software may follow. |
+| X05 | Storage protocol servers as managed server types: SFTP, FTP(S), S3-compatible object storage, NFS and further protocols where feasible. |
+| X06 | Generic Docker containers/services as a managed type, for workloads without a dedicated type. |
+| X07 | Optionally manage Traefik directly through the UI (deployment, routers/services/middlewares, certificates). Exact scope is a proposal to be refined. |
+| X08 | The manager builds images itself from UI-composed configurations (such as X04) and uploads/distributes them to either a container registry optionally operated by the manager or a configured external registry (for example ghcr). |
+| X09 | Include Docker engine updates on managed hosts. This partly supersedes A09; who restarts hosts and which steps are automatic or require approval must be confirmed separately. |
+| X10 | Updates of managed services (images and versions of web servers, storage servers, generic containers, Traefik, registry) are supported through the UI, following the update rules of each type. |
+| X11 | MariaDB Galera has priority 1. The extension must not delay or weaken R1 scope and gates. |
+| X12 | Keep the user able to manage multiple platforms and service types side by side, with existing safety principles (A10 ownership, U02 permissions, U07 audit, no secrets in exports) applying to all new types. |
+
+Note: X12 restates that existing cross-cutting requirements apply to new types; it adds no new mechanism.

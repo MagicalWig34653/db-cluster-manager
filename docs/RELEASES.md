@@ -62,6 +62,56 @@ Exit gates: filtering/DDL/privilege tests, source outage without promotion, inte
 
 Adoption of existing full clusters, Percona XtraDB and compatible Galera-to-XtraDB migration, PostgreSQL/other engines, and native Kubernetes orchestration. Ordering within this phase remains open. Each addition needs its own compatibility matrix, operations/recovery design and end-to-end tests.
 
+## Scope extension phases (proposal)
+
+Added 2026-10-22 after the owner broadened the scope ([ADR 0012](decisions/0012-broadened-scope-platform.md), requirements X01–X12). **Not started: no code, experiment or test exists for any of these phases.** They are proposals for review, not commitments; no allocation implies a date.
+
+R1 (MariaDB Galera on Swarm) stays first and unchanged (X11). P0 and R1 gates are not relaxed, and extension work does not start before R1 unless the owner decides otherwise. The order of R6–R9 relative to R2–R5 is an open decision; the numbering only avoids renumbering the existing plan. Native Kubernetes from R5 is planned in detail in R9.
+
+Local-test notes for all phases: the U11 budget (16 GB RAM, 50% CPU, ~100 GB SSD) applies to the sum of all running VMs, builds and registries. Image builds, registries and Kubernetes nodes are disk- and memory-heavy; run their suites sequentially, cap BuildKit cache size, and include them in the lab ownership inventory and scoped cleanup. External registries (for example ghcr) are tested only with dedicated test namespaces and credentials, never production ones.
+
+### R6 — Service type framework, generic containers and Docker engine updates
+
+Service-type definition format (desired-state schema, UI form schema, planner, reconcile/health, update strategy, backup capability), express Galera through it without changing its safety logic, generic container/service type, plan preview and export-as-code for every type, read-only expert view. Docker engine update workflow within the boundaries the owner confirms for X09 (rolling, one host at a time, drain with A08 checks, compatibility matrix, stated rollback limits).
+
+Exit gates:
+
+- Galera behaviour and R1 regression suite unchanged after moving it behind the service-type interface.
+- Generic container create/update/rollback/remove on a lab Swarm; unrelated sentinel workloads unchanged (A10).
+- Every mutating UI action shows a plan whose executed steps match the audit log.
+- Engine update on a 3-host lab Swarm with a running Galera cluster: one host at a time, quorum preserved, failure mid-update stops the rollout; downgrade limits documented.
+
+### R7 — Image build service, registries and web server composer
+
+BuildKit-based build service (pending the build-tool decision), recipes generated from UI selections, reproducible builds with pinned inputs, multi-architecture output, SBOM, vulnerability-scan hook, optional signing. Registry abstraction: manager-operated registry service and external registries with credentials as secrets; distribution rules. Web server type with composer: Nginx version, PHP version, PHP extensions and `php.ini`, Nginx configuration with validation (`nginx -t` in the build/preflight), rolling updates.
+
+Exit gates:
+
+- Same recipe and pinned inputs produce an equivalent image (documented reproducibility limits); SBOM and scan report stored per build.
+- Push/pull through the managed registry and one external test registry; credentials never appear in recipes, logs, exports or audit records.
+- Invalid Nginx/PHP configuration is rejected before deployment; a failed rollout leaves the previous version serving.
+- Build resource limits and cache cleanup verified within the lab budget.
+
+### R8 — Storage protocol servers and Traefik
+
+Storage server types: SFTP, FTP(S), S3-compatible object storage, NFS (feasibility on Swarm with local storage to be verified), further protocols by request. Users/credentials, quotas where supported, TLS, backup capability per type. Traefik type: deployment, UI route editor for routers/services/middlewares, certificate integration with N05, plan preview of generated dynamic configuration.
+
+Exit gates:
+
+- Each storage type: create, client access smoke test, credential rotation, update and backup/restore (where declared) on the lab.
+- NFS limitations under Swarm (privileges, kernel modules, host networking) documented with evidence, or the type is deferred.
+- Traefik route changes are previewed, applied without dropping unrelated routes and reverted on failure; existing user-managed Traefik instances are never modified without adoption.
+
+### R9 — Kubernetes back end and cluster provisioning
+
+Kubernetes orchestrator back end for service types (starting with stateless types; Galera on Kubernetes needs its own storage-identity and recovery design). Cluster provisioning: bootstrap Swarm and a chosen Kubernetes distribution on registered hosts over SSH and/or the agent, join/remove nodes, show all commands.
+
+Exit gates:
+
+- Provisioning a Swarm and a small Kubernetes cluster on lab VMs is reproducible and fully removable by scoped cleanup.
+- Service types declare and enforce their supported platforms; no Swarm/Docker assumption leaks into the Kubernetes back end.
+- SSH credentials and provisioning privileges reviewed; provisioning never touches unregistered hosts.
+
 ## Requirement coverage
 
 | Requirements | Earliest planned delivery / expansion |
@@ -87,5 +137,12 @@ Adoption of existing full clusters, Percona XtraDB and compatible Galera-to-Xtra
 | U06–U09 | R1 and continuously thereafter |
 | U10 | Concept completion before implementation; documentation handover maintained throughout |
 | U11 | P0 and every local test stage |
+| X01, X03, X06, X12 | R6 (framework, transparency, generic containers); extended in every later phase |
+| X02 | Kubernetes back end and cluster provisioning R9 |
+| X04, X08 | R7 |
+| X05, X07 | R8 |
+| X09 | R6, after the owner confirms the update boundaries |
+| X10 | Generic containers R6; per-type update strategies R7–R8 |
+| X11 | P0 and R1 unchanged; constrains R6–R9 ordering |
 
 R1 is still substantial. Re-slice its internal work packages after P0 rather than skipping its safety/recovery gates. Run test suites sequentially when simultaneous topology sizes would exceed the Mac budget.

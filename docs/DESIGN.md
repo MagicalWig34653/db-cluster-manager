@@ -14,6 +14,10 @@ Overview · Swarms · Clusters · Hosts · Databases · Backups · Dashboards ·
 
 Show cluster health, data freshness, endpoint, node roles, last verified restore and automation policy directly. Unknown observations must not look healthy. Explain blocking conditions and offer relevant next actions.
 
+### Navigation additions for the broadened scope (proposal)
+
+Proposed additions, not implemented ([ADR 0012](decisions/0012-broadened-scope-platform.md)): **Services** (all managed service types: web servers, storage servers, generic containers, Traefik, registry), **Images & Registry** (build recipes, builds, SBOM/scan results, registries and distribution rules) and **Platforms** (Swarm and later Kubernetes environments, cluster provisioning, Docker engine updates). Galera clusters keep their own primary entry (Clusters) and remain the first-class flow; the new entries appear only when the corresponding features exist.
+
 ## First run
 
 1. Choose new installation or restore manager configuration.
@@ -38,6 +42,17 @@ Recovered managers first show live-state differences and require approval before
 - Archived metric retrieval displays loading, missing ranges and cache behavior transparently.
 
 Keep normal operations straightforward while exposing plans, audit and expert settings. Use text and icons alongside status colors; support keyboard navigation, focus management, contrast and reduced motion. Technical implementation details belong in diagnostics unless needed for a user decision.
+
+## Transparency and guided building (proposal)
+
+Proposed UX for X03 and the scope extension; nothing here is implemented. Galera flows stay primary and follow the same principles.
+
+- **Plan preview ("show what will happen").** Every mutating action ends in a review step listing ordered steps, affected resources (create/change/remove), required approvals, expected interruption and rollback limits. The plan shown is the plan executed; after execution the operation view links each step to its audit record.
+- **Export as code.** Desired state of a service, platform or recipe can be exported (for example YAML/JSON specification, generated Swarm stack or Kubernetes manifests, Dockerfile/build recipe, Traefik dynamic configuration). Secrets are exported as references only. Import of exported code is a later option, not promised.
+- **Expert view.** A read-only tab per resource shows generated artefacts, observed state, drift and the equivalent CLI/API calls. It explains; it does not replace guided forms with raw editing.
+- **Web server composer wizard.** Steps: base (Nginx version from a curated list, architecture) → PHP (version, extensions as searchable checklist with compatibility hints, `php.ini` values with defaults and help) → configuration (template-based Nginx config with a validated editor, includes and site files) → build target (managed or external registry) → review (recipe, generated Dockerfile, expected image size, scan policy) → build → deploy/update. Invalid combinations are blocked with an explanation instead of failing during the build.
+- **Traefik route editor (sketch).** List of routers with host/path rules, entry points, TLS/certificate source and attached middlewares; a service picker limited to managed services; a diff of the generated dynamic configuration before applying; conflicts (overlapping rules, missing certificates) shown inline.
+- **Platform and update wizards.** Cluster provisioning shows host prerequisites, the exact commands per host and a teardown path. Docker engine updates show the compatibility matrix, the host order, the drain/quorum checks per host and who performs restarts, according to the decision still open in [ENTSCHEIDUNGEN.md](ENTSCHEIDUNGEN.md#open-decisions-from-the-scope-extension).
 
 ## R1 web UI (implemented in `web/`)
 
