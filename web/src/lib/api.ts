@@ -36,10 +36,16 @@ export interface Swarm {
 	observedAt?: string;
 }
 
+export type NodeRole = 'synced' | 'donor' | 'joining' | 'joined' | 'initialized' | 'unknown';
+
 export interface ClusterNode {
 	id: string;
 	host?: string;
 	state: State;
+	/** Galera role from the last fresh observation; unknown when missing or stale (absent from older managers). */
+	role?: NodeRole;
+	/** Time of the last observation, fresh or not. */
+	observedAt?: string;
 }
 
 export interface Cluster {

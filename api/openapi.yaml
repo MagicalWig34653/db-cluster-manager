@@ -527,11 +527,16 @@ components:
         observedAt: { type: string, format: date-time }
     ClusterNode:
       type: object
-      required: [id, state]
+      required: [id, state, role]
       properties:
         id: { type: string }
         host: { type: string }
         state: { $ref: "#/components/schemas/State" }
+        role:
+          type: string
+          enum: [synced, donor, joining, joined, initialized, unknown]
+          description: Galera role from the last fresh observation; unknown when missing or stale
+        observedAt: { type: string, format: date-time, description: Time of the last observation, fresh or not }
     Cluster:
       type: object
       required: [id, swarm, name, state, nodes]

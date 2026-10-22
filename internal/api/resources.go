@@ -86,12 +86,27 @@ type Swarm struct {
 	ObservedAt time.Time `json:"observedAt,omitzero"`
 }
 
-// ClusterNode is one database node of a cluster.
+// ClusterNode is one database node of a cluster. Role is the node's
+// Galera role from its last fresh observation (NodeRole*); it is
+// NodeRoleUnknown when the observation is missing or stale. ObservedAt is
+// the time of the last observation, fresh or not.
 type ClusterNode struct {
-	ID    string `json:"id"`
-	Host  string `json:"host,omitempty"`
-	State State  `json:"state"`
+	ID         string    `json:"id"`
+	Host       string    `json:"host,omitempty"`
+	State      State     `json:"state"`
+	Role       string    `json:"role"`
+	ObservedAt time.Time `json:"observedAt,omitzero"`
 }
+
+// Galera roles of a cluster node.
+const (
+	NodeRoleSynced      = "synced"
+	NodeRoleDonor       = "donor"
+	NodeRoleJoining     = "joining"
+	NodeRoleJoined      = "joined"
+	NodeRoleInitialized = "initialized"
+	NodeRoleUnknown     = "unknown"
+)
 
 // Cluster is one database cluster. ID is unique within the manager; Swarm
 // qualifies it for authorization.
