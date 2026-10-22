@@ -110,6 +110,16 @@ const (
 	errMethodNotAllowed  = "method_not_allowed"
 	errRequestTooLarge   = "request_too_large"
 	errUnsupportedFormat = "unsupported_media_type"
+
+	// Codes of the command endpoints (see writeServiceError).
+	errRequiresGuidedRecovery = "requires_guided_recovery"
+	errNoCapacity             = "no_capacity"
+	errPolicyConflict         = "policy_conflict"
+	errSettingsIncomplete     = "settings_incomplete"
+	errClusterExists          = "cluster_exists"
+	errBusy                   = "busy"
+	errApprovalMismatch       = "approval_mismatch"
+	errNotLeader              = "not_leader"
 )
 
 // ErrorBody is the JSON body of every error response.

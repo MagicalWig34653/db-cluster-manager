@@ -10,12 +10,16 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/MagicalWig34653/db-cluster-manager/internal/api"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/authz"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/backup"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/dbbackup"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/enroll"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/galeraprobe"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/manager"
@@ -53,6 +57,62 @@ type managerConfig struct {
 	// AgentTransport enables the authenticated mTLS agent transport with
 	// enrollment (ADR 0010). It excludes LabAgents.
 	AgentTransport *agentTransportConfig `json:"agentTransport,omitempty"`
+	// Monitoring configures the monitoring service (metric store, alerts,
+	// notifications). Default: enabled with <dataDir>/monitoring.
+	Monitoring *monitoringConfig `json:"monitoring,omitempty"`
+	// Backup configures the backup subsystem on the manager side.
+	Backup *backupConfig `json:"backup,omitempty"`
+}
+
+// monitoringConfig is the "manager.monitoring" section.
+type monitoringConfig struct {
+	// Disabled turns off metric collection, alerting and metric queries
+	// (dashboards and the notification settings still work).
+	Disabled bool `json:"disabled"`
+	// DataDir holds the metric store; default <manager.dataDir>/monitoring.
+	DataDir string `json:"dataDir"`
+}
+
+// backupConfig is the "manager.backup" section.
+type backupConfig struct {
+	// BackendConfigFile is a file with the same JSON as the jobs' backend
+	// secret (dbbackup.BackendConfig). The manager reads manifests and
+	// job status reports through it; without it backup gates stay unmet
+	// and restores are refused (settings_incomplete).
+	BackendConfigFile string `json:"backendConfigFile"`
+	// ScheduleIntervalSeconds is how often the leader evaluates backup
+	// schedules and inspection expiry (default 60, minimum 10).
+	ScheduleIntervalSeconds int `json:"scheduleIntervalSeconds"`
+}
+
+func (b *backupConfig) validate() error {
+	if b.ScheduleIntervalSeconds != 0 && b.ScheduleIntervalSeconds < 10 {
+		return errors.New("manager.backup.scheduleIntervalSeconds must be at least 10")
+	}
+	if b.BackendConfigFile != "" && !filepath.IsAbs(b.BackendConfigFile) {
+		return errors.New("manager.backup.backendConfigFile must be an absolute path")
+	}
+	return nil
+}
+
+// openBackend reads and opens the configured backend (no network I/O).
+func (b *backupConfig) openBackend() (backup.Backend, error) {
+	if b == nil || b.BackendConfigFile == "" {
+		return nil, nil
+	}
+	raw, err := os.ReadFile(b.BackendConfigFile)
+	if err != nil {
+		return nil, fmt.Errorf("manager.backup.backendConfigFile: %w", err)
+	}
+	c, err := dbbackup.ParseBackendConfig(raw)
+	if err != nil {
+		return nil, fmt.Errorf("manager.backup.backendConfigFile: %w", err)
+	}
+	be, err := c.Open()
+	if err != nil {
+		return nil, fmt.Errorf("manager.backup.backendConfigFile: %w", err)
+	}
+	return be, nil
 }
 
 // agentTransportConfig configures the mTLS agent transport.
@@ -113,7 +173,32 @@ func (m *managerConfig) validate() error {
 	if m.AgentTransport != nil && m.LabAgents {
 		return errors.New("manager.labAgents and manager.agentTransport exclude each other")
 	}
+	if m.Monitoring != nil && m.Monitoring.DataDir != "" && !filepath.IsAbs(m.Monitoring.DataDir) {
+		return errors.New("manager.monitoring.dataDir must be an absolute path")
+	}
+	if m.Backup != nil {
+		if err := m.Backup.validate(); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func (m *managerConfig) monitoringDir() string {
+	switch {
+	case m.Monitoring != nil && m.Monitoring.Disabled:
+		return ""
+	case m.Monitoring != nil && m.Monitoring.DataDir != "":
+		return m.Monitoring.DataDir
+	}
+	return filepath.Join(m.DataDir, "monitoring")
+}
+
+func (m *managerConfig) scheduleInterval() time.Duration {
+	if m.Backup != nil && m.Backup.ScheduleIntervalSeconds > 0 {
+		return time.Duration(m.Backup.ScheduleIntervalSeconds) * time.Second
+	}
+	return time.Minute
 }
 
 // managedRuntime runs a manager.Service and serves the API of the current
@@ -125,6 +210,13 @@ type managedRuntime struct {
 	handler atomic.Pointer[http.Handler]
 	stack   atomic.Pointer[manager.AuthStack]
 	proto   http.Handler
+
+	// Command services of the current leadership's API.
+	keys       manager.KeyProvider
+	swarms     *manager.Swarms
+	monitoring *manager.Monitoring
+	backend    backup.Backend
+	backups    atomic.Pointer[manager.Backups]
 
 	enroll *http.Server
 
@@ -163,12 +255,32 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 	for _, p := range mc.Peers {
 		scfg.Peers = append(scfg.Peers, metastore.Peer{ID: p.ID, Address: p.Address})
 	}
+	backend, err := mc.Backup.openBackend()
+	if err != nil {
+		return nil, err
+	}
+	rt := &managedRuntime{proto: api.NewHandler(), keys: keys, backend: backend}
+	rt.setHandler(rt.notLeader())
 	swarms := &manager.Swarms{Matrix: swarm.DefaultMatrix(), Dial: func(h string) (swarm.Connector, error) { return swarm.Dial(h) }}
-	scfg.Reconcilers = []manager.Reconciler{manager.SyncReconciler{Swarms: swarms}}
+	rt.swarms = swarms
+	scfg.Reconcilers = []manager.Reconciler{
+		manager.SyncReconciler{Swarms: swarms},
+		manager.BackupScheduler{Backups: rt.backups.Load, Interval: mc.scheduleInterval()},
+	}
+	// Every condition goes through the routing checker: approvals from the
+	// replicated store, backup conditions through the backend, cluster
+	// conditions through live agent probes. Anything unavailable fails
+	// closed.
+	checker := &manager.RoutingChecker{}
+	if backend != nil {
+		checker.Backup = &dbbackup.Checker{Backend: backend}
+	}
+	scfg.Checker = checker
 	var probe manager.AgentHealthProbe
-	if mc.LabAgents || mc.AgentTransport != nil {
+	agents := mc.LabAgents || mc.AgentTransport != nil
+	if agents {
 		// Live preconditions and periodic health go through the agents.
-		scfg.Checker = &galeraprobe.Checker{Prober: &probe, Topology: &probe}
+		checker.Cluster = &galeraprobe.Checker{Prober: &probe, Topology: &probe}
 		scfg.Reconcilers = append(scfg.Reconcilers, manager.HealthCollector{})
 	}
 	var serverIPs []net.IP
@@ -177,13 +289,20 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 			return nil, err
 		}
 	}
-	rt := &managedRuntime{proto: api.NewHandler()}
-	rt.setHandler(rt.notLeader())
 	svc, err := manager.New(scfg)
 	if err != nil {
 		return nil, err
 	}
 	probe.Svc = svc
+	checker.Store, checker.Ops = svc.Store(), &manager.Operations{Svc: svc}
+	monCfg := manager.MonitoringConfig{DataDir: mc.monitoringDir(), Checker: rt, Keys: keys, Logger: log}
+	if agents {
+		monCfg.Status = manager.AgentStatusSource{Svc: svc}
+	}
+	if rt.monitoring, err = manager.NewMonitoring(svc, monCfg); err != nil {
+		_ = svc.Close()
+		return nil, err
+	}
 	switch {
 	case mc.LabAgents:
 		// Agents are only configurable before Start; the directory reads
@@ -206,6 +325,7 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 	svc.OnLeadership(func(l *manager.Leadership) {
 		if l == nil {
 			rt.stack.Store(nil)
+			rt.backups.Store(nil)
 			rt.setHandler(rt.notLeader())
 			return
 		}
@@ -269,16 +389,55 @@ func (rt *managedRuntime) leaderAPI(pk passkey.Config, keys manager.KeyProvider,
 		token = t
 		fmt.Fprintf(tokenOut, "First-run setup token (valid until the first administrator is created): %s\n", plain)
 	}
+	// Alert evaluation and scheduled backups run as the manager's own
+	// subject; it needs its system role binding (persisted with the policy).
+	if added, err := manager.EnsureSystemBinding(st.Policy); err != nil {
+		return nil, nil, fmt.Errorf("manager system binding: %w", err)
+	} else if added {
+		log.Info("manager: bound the manager system subject to its system role")
+	}
 	inv := manager.Inventory{Store: rt.svc.Store()}
+	svc := rt.commandServices(st)
 	h, err := api.New(api.Config{
 		Passkeys: st.Passkeys, Accounts: st.Accounts, Sessions: st.Sessions, RecoverySessions: st.RecoverySessions,
 		Codes: st.Codes, URLTokens: st.URLTokens, Limiter: st.Limiter, Authorizer: st.Authorizer, AuditSink: st.Audit,
 		SetupToken: token, AdministratorExists: st.AdministratorExists, Inventory: inv, Activity: inv, Logger: log,
+		Monitoring: rt.monitoring, Control: svc.control, Backups: svc.backups, Settings: svc.settings,
 	})
 	if err != nil {
 		return nil, nil, err
 	}
+	rt.backups.Store(svc.backups)
 	return h, st, nil
+}
+
+// commandSet groups the command services of one leadership.
+type commandSet struct {
+	control  *manager.Control
+	backups  *manager.Backups
+	settings *manager.SettingsService
+}
+
+// commandServices builds the command services on the leadership's
+// authorizer.
+func (rt *managedRuntime) commandServices(st *manager.AuthStack) commandSet {
+	ops := &manager.Operations{Svc: rt.svc, Authorizer: st.Authorizer}
+	sw := *rt.swarms
+	sw.Svc, sw.Authorizer = rt.svc, st.Authorizer
+	return commandSet{
+		control:  &manager.Control{Ops: ops, Swarms: &sw},
+		backups:  &manager.Backups{Ops: ops, Swarms: &sw, Backend: rt.backend},
+		settings: &manager.SettingsService{Svc: rt.svc, Authorizer: st.Authorizer, Keys: rt.keys, Monitoring: rt.monitoring},
+	}
+}
+
+// Check implements authz.Checker for the monitoring service: it delegates
+// to the current leadership's authorizer and denies without one.
+func (rt *managedRuntime) Check(s authz.Subject, a authz.Action, r authz.Resource) authz.Decision {
+	if st := rt.stack.Load(); st != nil {
+		return st.Authorizer.Check(s, a, r)
+	}
+	return authz.Decision{}
 }
 
 func (rt *managedRuntime) prune() {

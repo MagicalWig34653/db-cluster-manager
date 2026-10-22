@@ -163,6 +163,19 @@ func PutSealed(s *Store, kp KeyProvider, coll, key string, v any) error {
 	return err
 }
 
+// GetSealed decodes one sealed document.
+func GetSealed[T any](s *Store, kp KeyProvider, coll, key string, opts ...ReadOption) (T, bool, error) {
+	var v T
+	d, ok, err := Get[sealed](s, coll, key, opts...)
+	if err != nil || !ok {
+		return v, ok, err
+	}
+	if err := unseal(kp, coll, key, d.Value, &v); err != nil {
+		return v, false, err
+	}
+	return v, true, nil
+}
+
 // ListSealed decodes every sealed document of a collection.
 func ListSealed[T any](s *Store, kp KeyProvider, coll string, opts ...ReadOption) ([]Versioned[T], error) {
 	docs, err := List[sealed](s, coll, opts...)

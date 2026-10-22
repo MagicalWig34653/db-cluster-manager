@@ -110,9 +110,22 @@ func nodeRole(h NodeObservation, fresh bool) string {
 	return api.NodeRoleUnknown
 }
 
-func (inv Inventory) cluster(r ClusterRecord) api.Cluster {
+// DefaultDBPort is the MariaDB port of every node service (the Galera spec
+// does not change it).
+const DefaultDBPort = 3306
+
+func (inv Inventory) cluster(r ClusterRecord, idx backupIndex) api.Cluster {
 	st, at := inv.observed(r.Observed)
-	c := api.Cluster{ID: r.ID, Swarm: r.Swarm, Name: r.Name, Engine: r.Engine, State: st, ObservedAt: at, Nodes: []api.ClusterNode{}}
+	c := api.Cluster{ID: r.ID, Swarm: r.Swarm, Name: r.Name, Engine: r.Engine, State: st, ObservedAt: at, Nodes: []api.ClusterNode{},
+		LastBackupAt: idx.lastAt[r.ID], LastVerifiedRestoreAt: idx.verified[r.ID], AutomationPolicy: "manual"}
+	if r.AutoReplace {
+		c.AutomationPolicy = "auto-replace"
+	}
+	// No proxy is deployed yet: the configured endpoints are the node
+	// services on the cluster network.
+	for _, n := range r.Nodes {
+		c.Endpoints = append(c.Endpoints, api.Endpoint{Name: n.Slot, Host: galera.ServiceName(r.Name, n.Slot), Port: DefaultDBPort})
+	}
 	for _, n := range r.Nodes {
 		h, ok := r.Health[n.Slot]
 		fresh := ok && inv.fresh(h.ObservedAt)
@@ -128,9 +141,13 @@ func (inv Inventory) Clusters(context.Context) ([]api.Cluster, error) {
 	if err != nil {
 		return nil, err
 	}
+	idx, err := loadBackupIndex(inv.Store)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]api.Cluster, 0, len(recs))
 	for _, r := range recs {
-		out = append(out, inv.cluster(r.Value))
+		out = append(out, inv.cluster(r.Value, idx))
 	}
 	return out, nil
 }
@@ -144,7 +161,11 @@ func (inv Inventory) Cluster(_ context.Context, id string) (api.Cluster, error) 
 	if !ok {
 		return api.Cluster{}, api.ErrNotFound
 	}
-	return inv.cluster(r.Value), nil
+	idx, err := loadBackupIndex(inv.Store)
+	if err != nil {
+		return api.Cluster{}, err
+	}
+	return inv.cluster(r.Value, idx), nil
 }
 
 // operationState maps a runner status. A paused operation waits for a
@@ -173,11 +194,29 @@ func (inv Inventory) Operations(context.Context) ([]api.Operation, error) {
 	if err != nil {
 		return nil, err
 	}
+	approvals, err := List[ApprovalRecord](inv.Store, CollApprovals)
+	if err != nil {
+		return nil, err
+	}
+	approved := map[string]ApprovalRecord{}
+	for _, a := range approvals {
+		approved[a.Key] = a.Value
+	}
 	out := make([]api.Operation, 0, len(recs))
 	for _, r := range recs {
 		v := r.Value
-		out = append(out, api.Operation{ID: v.ID, Kind: v.Kind, Swarm: v.Swarm, Cluster: v.Cluster,
-			State: operationState(v), StartedAt: v.RequestedAt, EndedAt: v.EndedAt})
+		op := api.Operation{ID: v.ID, Kind: v.Kind, Swarm: v.Swarm, Cluster: v.Cluster,
+			State: operationState(v), StartedAt: v.RequestedAt, EndedAt: v.EndedAt}
+		if v.View != nil {
+			op.Reason = v.View.Reason
+		}
+		if v.ApprovalID != "" {
+			op.Approval = &api.OperationApproval{Digest: v.ApprovalDigest}
+			if a, ok := approved[v.ApprovalID]; ok && a.Digest == v.ApprovalDigest {
+				op.Approval.ApprovedBy, op.Approval.ApprovedAt = a.By, a.Approved
+			}
+		}
+		out = append(out, op)
 	}
 	slices.SortStableFunc(out, func(a, b api.Operation) int { return b.StartedAt.Compare(a.StartedAt) })
 	return out, nil

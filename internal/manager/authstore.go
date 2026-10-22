@@ -3,11 +3,13 @@
 package manager
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/MagicalWig34653/db-cluster-manager/internal/authz"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/collect"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/metastore"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/passkey"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/recovery"
@@ -309,4 +311,22 @@ func (a *AuthStack) Prune() {
 	a.RecoverySessions.Prune()
 	a.URLTokens.Prune()
 	a.Limiter.Prune()
+}
+
+// EnsureSystemBinding binds the manager's own subject (collect.SystemSubject)
+// to the manager system role at global scope if it is not bound yet. Alert
+// evaluation and scheduled backups run as that subject; without the
+// binding they would see nothing and start nothing (fail closed). It
+// reports whether a binding was added.
+func EnsureSystemBinding(p *authz.Policy) (bool, error) {
+	b := authz.Binding{Subject: collect.SystemSubject, Role: authz.RoleManagerSystem, Scope: authz.Global}
+	for _, x := range p.Bindings(b.Subject) {
+		if x == b {
+			return false, nil
+		}
+	}
+	if err := p.Bind(b); err != nil && !errors.Is(err, authz.ErrBindingExists) {
+		return false, err
+	}
+	return true, nil
 }

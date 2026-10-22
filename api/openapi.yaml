@@ -339,6 +339,34 @@ paths:
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Connect a Swarm
+      description: >-
+        Records the connection; nothing is contacted until a sync. dockerHost
+        is unix:///path or tcp://host:port (tcp without TLS is lab-only).
+        Needs Swarm create permission; audited.
+      operationId: connectSwarm
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name, dockerHost]
+              properties:
+                name: { type: string, maxLength: 64 }
+                dockerHost: { type: string, maxLength: 256 }
+      responses:
+        "201":
+          description: Connected (state unknown until observed)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Swarm" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
   /clusters:
     get:
       summary: List database clusters the caller may read
@@ -357,6 +385,31 @@ paths:
                     items: { $ref: "#/components/schemas/Cluster" }
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Create a MariaDB Galera cluster
+      description: >-
+        Plans placement and starts the creation operation; the response is the
+        operation. Needs cluster create permission in the Swarm; audited.
+        Coarse 409 codes: no_capacity, policy_conflict, settings_incomplete,
+        cluster_exists. 503 not_leader when this replica cannot run commands.
+      operationId: createCluster
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateClusterRequest" }
+      responses:
+        "202":
+          description: Operation started
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OperationRef" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
   /clusters/{id}:
     get:
@@ -585,9 +638,448 @@ paths:
         "401": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
+  /notifications/{id}/read:
+    post:
+      summary: Mark a notification read
+      description: >-
+        Needs read permission on the notification's resource only (the read
+        flag is presentation state, shared by all users of the leader's
+        inbox). Not audited.
+      operationId: markNotificationRead
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      responses:
+        "204": { description: Marked read }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /hosts:
+    get:
+      summary: List inventoried Swarm nodes the caller may read
+      description: Needs host read permission in the host's Swarm. Absent values are unknown.
+      operationId: listHosts
+      responses:
+        "200":
+          description: Hosts visible to the caller
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Host" }
+        "401": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /hosts/{id}/enroll:
+    post:
+      summary: Enroll a discovered host
+      description: >-
+        The host may then run the manager-deployed agent (labels are applied by
+        POST /swarms/{id}/agents/deploy). id is the Swarm node ID; an ID that
+        exists in two Swarms answers 409. Needs host update permission;
+        audited. A caller who may not read the host gets 404.
+      operationId: enrollHost
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false }
+      responses:
+        "200":
+          description: The updated host
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Host" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /hosts/{id}/revoke:
+    post:
+      summary: Revoke a host's enrollment
+      description: >-
+        Marks the host revoked and revokes its agent certificate. Like enroll:
+        host update permission, audited.
+      operationId: revokeHost
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false }
+      responses:
+        "200":
+          description: The updated host
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Host" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /swarms/{id}/sync:
+    post:
+      summary: Observe a Swarm now
+      description: Updates the Swarm and host inventory. Needs Swarm operate permission; audited.
+      operationId: syncSwarm
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      responses:
+        "204": { description: Observed (the Swarm may now be reported unavailable) }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /swarms/{id}/agents/deploy:
+    post:
+      summary: Deploy the agent service and apply enrollment labels
+      description: >-
+        Creates the installation's agent global service if missing and sets or
+        removes the enrollment label per host record. Needs Swarm operate
+        permission; audited. settings_incomplete (409) when installation ID,
+        volume base or agent image are not configured.
+      operationId: deployAgents
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      responses:
+        "200":
+          description: Deployment result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [created, labeled, unlabeled, failed]
+                properties:
+                  serviceId: { type: string }
+                  created: { type: boolean }
+                  labeled: { type: array, items: { type: string } }
+                  unlabeled: { type: array, items: { type: string } }
+                  failed: { type: array, items: { type: string } }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /clusters/{id}/nodes/{slot}/replace:
+    post:
+      summary: Replace a failed node
+      description: >-
+        Plans and starts a replacement under the quorum rules of
+        galera.PlanReplacement. When quorum or a verified donor is not observed
+        on fresh data the request is refused with 409 requires_guided_recovery
+        and nothing starts; there is no override. busy (409) while another
+        operation on the cluster is unfinished. Needs cluster operate
+        permission; audited.
+      operationId: replaceNode
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+        - name: slot
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false }
+      responses:
+        "202":
+          description: Operation started
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OperationRef" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /clusters/{id}/outage-diagnosis:
+    get:
+      summary: Diagnose a full outage (read-only)
+      description: >-
+        Reads every node's grastate.dat through its agent (read-only command)
+        and adds the last collected health observation, then evaluates the
+        recovery evidence. Nothing is started; requires_approval is always
+        true. Needs cluster read permission; a cluster the caller may not read
+        answers 404. 409 conflict when a Primary component exists.
+      operationId: outageDiagnosis
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      responses:
+        "200":
+          description: Diagnosis
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Diagnosis" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /operations/{id}/resume:
+    post:
+      summary: Resume a paused or adopted operation
+      description: Needs operate permission on the operation's cluster (else Swarm, else settings); audited.
+      operationId: resumeOperation
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      responses:
+        "202":
+          description: Resume requested
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OperationRef" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /operations/{id}/abort:
+    post:
+      summary: Abort an operation at a safe step boundary
+      description: Like resume. A step that is running blocks the abort (409).
+      operationId: abortOperation
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      responses:
+        "202":
+          description: Abort requested or recorded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OperationRef" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /operations/{id}/approve:
+    post:
+      summary: Approve the destructive steps of an operation
+      description: >-
+        Only operations that carry an approval (Operation.approval) can be
+        approved. digest must equal approval.digest, the SHA-256 of the stored
+        operation definition, so an approval covers exactly the plan that was
+        shown; a different digest answers 409 approval_mismatch. Needs the
+        restore permission on the backups of the operation's cluster
+        (administrators; not part of the operator preset); audited. The
+        operation is resumed after the approval is recorded.
+      operationId: approveOperation
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [digest]
+              properties:
+                digest: { type: string, pattern: "^[0-9a-f]{64}$" }
+      responses:
+        "200":
+          description: Approval recorded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OperationApproval" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /backups:
+    get:
+      summary: Backup state per cluster
+      description: Needs backup read permission on the cluster. Absent times are unknown, never "none".
+      operationId: listBackups
+      responses:
+        "200":
+          description: Backup summaries visible to the caller
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/BackupSummary" }
+        "401": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /clusters/{id}/backup-policy:
+    put:
+      summary: Set a cluster's backup schedule
+      description: >-
+        Scheduled backups are started by the leading manager (physical method,
+        missed-run policy skip or run-once). Needs backup update permission on
+        the cluster; audited.
+      operationId: setBackupPolicy
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BackupPolicy" }
+      responses:
+        "200":
+          description: Stored policy
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BackupSummary" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /clusters/{id}/backups:
+    post:
+      summary: Start a physical backup now
+      description: >-
+        Plans the backup (source node selection, owned one-shot job) and
+        starts it. Needs the backup permission on the cluster; audited.
+        settings_incomplete (409) without backup settings; busy (409) while
+        another operation locks the cluster.
+      operationId: startBackup
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      responses:
+        "202":
+          description: Operation started
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OperationRef" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /restores/inspect:
+    post:
+      summary: Start an isolated inspection restore
+      description: >-
+        Plans a single-node instance with wsrep off on a separate network and
+        starts the operation; every destructive step waits for an explicit
+        approval (POST /operations/{id}/approve with the returned digest).
+        Needs the restore permission on the cluster's backups; audited. The
+        inspection account password is returned only in this response. Without
+        an explicit host the manager selects one; it answers no_capacity (409)
+        when host disk space is not observed.
+      operationId: startInspection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [cluster]
+              properties:
+                cluster: { type: string }
+                backup: { type: string, description: Backup ID; default is the newest completed backup }
+                host: { type: string, description: Explicitly approved Swarm node ID }
+                keySecret: { type: string, description: Swarm secret with the recovery key; default from settings }
+                ttlMinutes: { type: integer, minimum: 0, maximum: 1440 }
+      responses:
+        "202":
+          description: Operation started, waiting for approval
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InspectionStarted" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /settings/notifications:
+    get:
+      summary: Notification channel settings
+      description: Secrets are never returned; secretSet and passwordSet report whether one is stored. Needs settings read permission.
+      operationId: getNotificationSettings
+      responses:
+        "200":
+          description: Settings
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NotificationSettings" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+    put:
+      summary: Replace notification channel settings
+      description: >-
+        Absent optional fields keep their stored values. secret and password
+        are write-only; they are stored encrypted in the replicated store and
+        replaced only when sent. Needs settings update permission; audited.
+      operationId: setNotificationSettings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NotificationSettingsInput" }
+      responses:
+        "200":
+          description: Stored settings
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NotificationSettings" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /settings/notifications/test:
+    post:
+      summary: Send a test notification through one channel
+      description: >-
+        Sends a test event through the configured webhook or email channel.
+        delivered=false carries no error detail (see the server log). Needs
+        settings operate permission; audited. settings_incomplete (409) when
+        the channel is not enabled.
+      operationId: testNotification
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [channel]
+              properties:
+                channel: { type: string, enum: [webhook, email] }
+      responses:
+        "200":
+          description: Outcome
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [channel, delivered]
+                properties:
+                  channel: { type: string }
+                  delivered: { type: boolean }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
 security:
   - sessionCookie: []
 components:
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
   securitySchemes:
     sessionCookie:
       type: apiKey
@@ -608,7 +1100,10 @@ components:
         authentication_failed, unauthenticated, forbidden,
         passkey_enrollment_required, origin_rejected, rate_limited,
         unavailable, setup_unavailable, internal_error, conflict,
-        request_too_large, unsupported_media_type.
+        request_too_large, unsupported_media_type; on command endpoints also
+        requires_guided_recovery, no_capacity, policy_conflict,
+        settings_incomplete, cluster_exists, busy, approval_mismatch and
+        not_leader (503).
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
@@ -715,6 +1210,13 @@ components:
           type: array
           items: { $ref: "#/components/schemas/ClusterNode" }
         observedAt: { type: string, format: date-time }
+        endpoints:
+          type: array
+          description: Configured client addresses on the cluster network (not a reachability claim); absent means not reported
+          items: { $ref: "#/components/schemas/Endpoint" }
+        lastBackupAt: { type: string, format: date-time, description: End of the newest successful backup; absent means unknown }
+        lastVerifiedRestoreAt: { type: string, format: date-time, description: Newest passed restore verification; absent means unknown }
+        automationPolicy: { type: string, enum: [auto-replace, manual] }
     Operation:
       type: object
       required: [id, kind, state]
@@ -726,6 +1228,8 @@ components:
         state: { type: string, enum: [pending, running, succeeded, failed, unknown] }
         startedAt: { type: string, format: date-time }
         endedAt: { type: string, format: date-time }
+        approval: { $ref: "#/components/schemas/OperationApproval" }
+        reason: { type: string, description: Short runner status reason, for example an unmet precondition }
     Event:
       type: object
       required: [id, time, severity, message]
@@ -813,7 +1317,7 @@ components:
               reason: { type: string }
     Notification:
       type: object
-      required: [id, time, severity, kind, message, read, acked]
+      required: [id, time, severity, kind, message, read, acked, acknowledged]
       properties:
         id: { type: string }
         time: { type: string, format: date-time }
@@ -826,4 +1330,189 @@ components:
         details: { type: object, additionalProperties: { type: string } }
         read: { type: boolean }
         acked: { type: boolean }
+        acknowledged: { type: boolean, description: Same as acked (UI name) }
         ackedAt: { type: string, format: date-time }
+    OperationRef:
+      type: object
+      required: [id]
+      properties:
+        id: { type: string }
+        kind: { type: string }
+    OperationApproval:
+      type: object
+      required: [digest]
+      properties:
+        digest: { type: string, description: SHA-256 (hex) of the stored operation definition }
+        approvedBy: { type: string }
+        approvedAt: { type: string, format: date-time }
+    Endpoint:
+      type: object
+      required: [host, port]
+      properties:
+        name: { type: string }
+        host: { type: string }
+        port: { type: integer }
+    Host:
+      type: object
+      required: [swarm, nodeId, enrollment]
+      properties:
+        swarm: { type: string }
+        nodeId: { type: string, description: Swarm node ID; the host's ID in paths }
+        hostname: { type: string }
+        role: { type: string }
+        availability: { type: string }
+        state: { type: string, description: Swarm node state as last observed }
+        engineVersion: { type: string }
+        enrollment: { type: string, enum: [discovered, enrolled, revoked] }
+        spare: { type: boolean }
+        nanoCpus: { type: integer, format: int64 }
+        memoryBytes: { type: integer, format: int64 }
+        observedAt: { type: string, format: date-time }
+        agentIdentity: { type: boolean, description: An agent certificate is recorded (not a reachability claim) }
+    ResourceAmount:
+      type: object
+      properties:
+        milli_cpu: { type: integer, format: int64, minimum: 0 }
+        memory_bytes: { type: integer, format: int64, minimum: 0 }
+    CreateClusterRequest:
+      type: object
+      additionalProperties: false
+      required: [swarm, name, size, image, network, rootPasswordSecret, resources, placement]
+      properties:
+        swarm: { type: string }
+        name: { type: string, pattern: "^[a-z0-9]([a-z0-9-]{0,46}[a-z0-9])?$" }
+        size: { type: integer, enum: [3, 5] }
+        image: { type: string, description: MariaDB image, pinned by digest }
+        network: { type: string, description: Attachable overlay network }
+        rootPasswordSecret: { type: string, description: Name of an existing Swarm secret (never the password) }
+        gcacheSize: { type: string }
+        resources:
+          type: object
+          required: [limits, reservations]
+          properties:
+            limits: { $ref: "#/components/schemas/ResourceAmount" }
+            reservations: { $ref: "#/components/schemas/ResourceAmount" }
+        placement:
+          type: object
+          required: [reserve]
+          description: Precedence allowlist, exclusion, preference, automatic scoring; allowlisted and excluded together is policy_conflict.
+          properties:
+            allowlist: { type: array, items: { type: string } }
+            excluded: { type: array, items: { type: string } }
+            preferred: { type: array, items: { type: string } }
+            reserve: { $ref: "#/components/schemas/ResourceAmount" }
+        autoReplace: { type: boolean }
+    Diagnosis:
+      type: object
+      required: [positions, reasons, requires_approval]
+      properties:
+        candidate: { type: string, description: Slot proposed for bootstrap; absent when none can be proposed }
+        positions:
+          type: array
+          items:
+            type: object
+            required: [slot, seqno, source, safe_to_bootstrap]
+            properties:
+              slot: { type: string }
+              uuid: { type: string }
+              seqno: { type: integer, format: int64 }
+              source: { type: string }
+              safe_to_bootstrap: { type: boolean }
+              empty: { type: boolean }
+        reasons: { type: array, items: { type: string } }
+        risks:
+          type: array
+          items:
+            type: object
+            required: [kind, detail]
+            properties:
+              kind: { type: string }
+              slot: { type: string }
+              detail: { type: string }
+        requires_approval: { type: boolean, enum: [true] }
+    BackupPolicy:
+      type: object
+      additionalProperties: false
+      required: [enabled, schedule]
+      properties:
+        enabled: { type: boolean }
+        schedule: { type: string, maxLength: 128, description: "Five-field cron-like spec, for example \"0 2 * * *\"" }
+        timezone: { type: string, description: IANA zone; default UTC }
+        missed: { type: string, enum: [skip, run-once], default: skip }
+        method: { type: string, enum: [physical], default: physical }
+    BackupSummary:
+      type: object
+      required: [cluster, swarm]
+      properties:
+        cluster: { type: string }
+        swarm: { type: string }
+        policy: { type: string, description: Schedule spec of an enabled policy }
+        backupPolicy: { $ref: "#/components/schemas/BackupPolicy" }
+        lastBackupAt: { type: string, format: date-time }
+        lastBackupId: { type: string }
+        lastVerifiedRestoreAt: { type: string, format: date-time }
+        nextRunAt: { type: string, format: date-time }
+    InspectionStarted:
+      type: object
+      required: [id, kind, session, backup, host, service, port, expiresAt, approval, inspectionAccount, inspectionPassword]
+      properties:
+        id: { type: string, description: Operation ID }
+        kind: { type: string }
+        session: { type: string }
+        backup: { type: string }
+        host: { type: string }
+        service: { type: string }
+        port: { type: integer }
+        expiresAt: { type: string, format: date-time }
+        approval: { $ref: "#/components/schemas/OperationApproval" }
+        inspectionAccount: { type: string }
+        inspectionPassword: { type: string, description: Returned only once, here }
+    NotificationSettings:
+      type: object
+      required: [minSeverity, webhook, email]
+      properties:
+        minSeverity: { type: string, enum: [info, warning, error, critical] }
+        webhook:
+          type: object
+          required: [enabled, secretSet]
+          properties:
+            enabled: { type: boolean }
+            url: { type: string }
+            secretSet: { type: boolean }
+            allowPrivate: { type: boolean }
+        email:
+          type: object
+          required: [enabled, recipients, passwordSet]
+          properties:
+            enabled: { type: boolean }
+            recipients: { type: array, items: { type: string } }
+            addr: { type: string }
+            from: { type: string }
+            username: { type: string }
+            passwordSet: { type: boolean }
+    NotificationSettingsInput:
+      type: object
+      additionalProperties: false
+      required: [webhook, email]
+      properties:
+        minSeverity: { type: string, enum: [info, warning, error, critical] }
+        webhook:
+          type: object
+          additionalProperties: false
+          required: [enabled, url]
+          properties:
+            enabled: { type: boolean }
+            url: { type: string, maxLength: 2048 }
+            secret: { type: string, writeOnly: true, maxLength: 1024 }
+            allowPrivate: { type: boolean }
+        email:
+          type: object
+          additionalProperties: false
+          required: [enabled, recipients]
+          properties:
+            enabled: { type: boolean }
+            recipients: { type: array, maxItems: 50, items: { type: string } }
+            addr: { type: string, description: "SMTP host:port" }
+            from: { type: string }
+            username: { type: string }
+            password: { type: string, writeOnly: true, maxLength: 1024 }

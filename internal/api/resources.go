@@ -118,6 +118,24 @@ type Cluster struct {
 	State      State         `json:"state"`
 	Nodes      []ClusterNode `json:"nodes"`
 	ObservedAt time.Time     `json:"observedAt,omitzero"`
+	// Endpoints are the client addresses of the cluster as configured (not
+	// a reachability claim). Absent means not reported.
+	Endpoints []Endpoint `json:"endpoints,omitempty"`
+	// LastBackupAt is the end of the newest successful backup operation,
+	// LastVerifiedRestoreAt the newest passed restore verification. Absent
+	// means unknown, never "none".
+	LastBackupAt          time.Time `json:"lastBackupAt,omitzero"`
+	LastVerifiedRestoreAt time.Time `json:"lastVerifiedRestoreAt,omitzero"`
+	// AutomationPolicy is "auto-replace" or "manual" (automatic node
+	// replacement; the quorum rules apply either way).
+	AutomationPolicy string `json:"automationPolicy,omitempty"`
+}
+
+// Endpoint is one client address of a cluster.
+type Endpoint struct {
+	Name string `json:"name,omitempty"`
+	Host string `json:"host"`
+	Port int    `json:"port"`
 }
 
 // Operation is one journaled management operation. Swarm and Cluster locate
@@ -130,6 +148,12 @@ type Operation struct {
 	State     OperationState `json:"state"`
 	StartedAt time.Time      `json:"startedAt,omitzero"`
 	EndedAt   time.Time      `json:"endedAt,omitzero"`
+	// Approval is set for operations whose destructive steps wait for an
+	// explicit approval (POST /operations/{id}/approve).
+	Approval *OperationApproval `json:"approval,omitempty"`
+	// Reason is the runner's short status reason (for example the unmet
+	// precondition of a paused operation).
+	Reason string `json:"reason,omitempty"`
 }
 
 // Event is one observed event, located like an Operation.

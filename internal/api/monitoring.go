@@ -33,6 +33,9 @@ type Notification struct {
 	Read     bool              `json:"read"`
 	Acked    bool              `json:"acked"`
 	AckedAt  time.Time         `json:"ackedAt,omitzero"`
+	// Acknowledged repeats Acked under the name the UI uses; the API sets
+	// it from Acked.
+	Acknowledged bool `json:"acknowledged"`
 }
 
 // Monitoring provides dashboards, metric queries and the notification inbox.
@@ -54,6 +57,8 @@ type Monitoring interface {
 	// Notification returns ErrNotFound for an unknown ID.
 	Notification(ctx context.Context, id string) (Notification, error)
 	AckNotification(ctx context.Context, id, by string) error
+	// MarkNotificationRead marks one notification read.
+	MarkNotificationRead(ctx context.Context, id string) error
 }
 
 // Monitoring methods of Unavailable: every call fails with ErrUnavailable.
@@ -76,6 +81,7 @@ func (Unavailable) Notification(context.Context, string) (Notification, error) {
 	return Notification{}, ErrUnavailable
 }
 func (Unavailable) AckNotification(context.Context, string, string) error { return ErrUnavailable }
+func (Unavailable) MarkNotificationRead(context.Context, string) error    { return ErrUnavailable }
 
 var dashboardIDRE = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 
@@ -329,6 +335,9 @@ func (s *server) handleNotifications(w http.ResponseWriter, r *http.Request, c *
 		}
 		items = kept
 	}
+	for i := range items {
+		items[i].Acknowledged = items[i].Acked
+	}
 	writeJSON(w, http.StatusOK, List[Notification]{Items: items})
 }
 
@@ -343,6 +352,18 @@ func (s *server) resolveNotification(r *http.Request) (authz.Resource, any, erro
 func (s *server) handleNotificationAck(w http.ResponseWriter, r *http.Request, c *caller) {
 	n := c.target.(Notification)
 	if err := s.monitoring().AckNotification(r.Context(), n.ID, c.subject.ID); err != nil {
+		s.writeServiceError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleNotificationRead marks a notification read for the inbox. It needs
+// only read permission: the read flag is presentation state, not an
+// acknowledgement.
+func (s *server) handleNotificationRead(w http.ResponseWriter, r *http.Request, c *caller) {
+	n := c.target.(Notification)
+	if err := s.monitoring().MarkNotificationRead(r.Context(), n.ID); err != nil {
 		s.writeServiceError(w, r, err)
 		return
 	}
