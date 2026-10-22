@@ -36,14 +36,21 @@ import (
 
 // Labels and defaults of the agent service.
 const (
-	LabelRole        = "dbcm.role"
-	RoleAgent        = "agent"
-	AgentListen      = "127.0.0.1:7070" // lab transport
-	AgentPort        = 7443             // default mTLS port on the host
-	AgentStateDir    = "/var/lib/dbcm-agent"
-	DockerSocket     = "/var/run/docker.sock"
-	HostNetwork      = "host"
-	HostIDEnv        = "DBCM_HOST_ID"
+	LabelRole     = "dbcm.role"
+	RoleAgent     = "agent"
+	AgentListen   = "127.0.0.1:7070" // lab transport
+	AgentPort     = 7443             // default mTLS port on the host
+	AgentStateDir = "/var/lib/dbcm-agent"
+	DockerSocket  = "/var/run/docker.sock"
+	HostNetwork   = "host"
+	HostIDEnv     = "DBCM_HOST_ID"
+	// AgentCommand is the agent binary in the product image
+	// (deploy/Dockerfile), whose entrypoint is the manager.
+	AgentCommand = "/usr/local/bin/agent"
+	// AgentUser: the agent needs root on its host (Docker socket, chown of
+	// node directories in init-volume-dirs); the product image's default
+	// user is the distroless nonroot user 65532.
+	AgentUser        = "0:0"
 	agentLabelSuffix = ".enrolled"
 )
 
@@ -112,6 +119,10 @@ func AgentSpec(d AgentDeployment) agent.ServiceSpec {
 		Name:   AgentServiceName(d.InstallationID),
 		Image:  d.Image,
 		Labels: labels,
+		// Lab E4: with only Args, the image entrypoint (the manager) received
+		// the agent flags and exited; the agent must also run as root.
+		Command: []string{AgentCommand},
+		User:    AgentUser,
 		Mounts: []agent.Mount{
 			{Type: "bind", Source: DockerSocket, Target: DockerSocket},
 			{Type: "bind", Source: AgentStateDir, Target: AgentStateDir},

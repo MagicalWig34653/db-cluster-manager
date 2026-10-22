@@ -249,3 +249,19 @@ func TestDeployAgentsMTLSDBSecrets(t *testing.T) {
 		t.Fatalf("path-like secret name accepted: %v", err)
 	}
 }
+
+// TestAgentSpecCommandAndUser: lab E4 ran the agent service from the
+// product image, whose entrypoint is the manager (it exited on the agent
+// flags) and whose user is the distroless nonroot user; the spec names the
+// agent binary and root.
+func TestAgentSpecCommandAndUser(t *testing.T) {
+	for _, d := range []AgentDeployment{
+		{InstallationID: "i", Image: "a", VolumeBase: "/v"},
+		{InstallationID: "i", Image: "a", VolumeBase: "/v", MTLS: &AgentMTLS{ManagerURL: "https://m:7444", CAFingerprint: fp, TokenSecret: "dbcm-t", Token: []byte("x")}},
+	} {
+		spec := AgentSpec(d)
+		if !slices.Equal(spec.Command, []string{"/usr/local/bin/agent"}) || spec.User != "0:0" {
+			t.Fatalf("command %v user %q", spec.Command, spec.User)
+		}
+	}
+}

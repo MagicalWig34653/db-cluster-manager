@@ -230,6 +230,18 @@ func TestCreateServiceMinimalSendsZeroReplicas(t *testing.T) {
 	jsonEqual(t, f.last().Body, `{"Name":"s","TaskTemplate":{"ContainerSpec":{"Image":"busybox"}},"Mode":{"Replicated":{"Replicas":0}}}`)
 }
 
+// TestCreateServiceSendsUser: the agent service runs as root (lab E4); the
+// user goes into ContainerSpec.User.
+func TestCreateServiceSendsUser(t *testing.T) {
+	f := newFakeDaemon(t)
+	f.route("POST /v1.47/services/create", reply{status: 201, body: cannedServiceCreate})
+	c := f.client(Options{})
+	if _, err := c.CreateService(context.Background(), agent.ServiceSpec{Name: "s", Image: "busybox", User: "0:0"}); err != nil {
+		t.Fatal(err)
+	}
+	jsonEqual(t, f.last().Body, `{"Name":"s","TaskTemplate":{"ContainerSpec":{"Image":"busybox","User":"0:0"}},"Mode":{"Replicated":{"Replicas":0}}}`)
+}
+
 func TestCreateServiceValidation(t *testing.T) {
 	f := newFakeDaemon(t)
 	c := f.client(Options{})

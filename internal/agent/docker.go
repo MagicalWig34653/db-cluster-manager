@@ -77,8 +77,10 @@ type ServiceSpec struct {
 	Labels map[string]string `json:"labels,omitempty"`
 	Env    []string          `json:"env,omitempty"`
 	// Command overrides the image entrypoint; Args are its arguments.
-	Command       []string       `json:"command,omitempty"`
-	Args          []string       `json:"args,omitempty"`
+	Command []string `json:"command,omitempty"`
+	Args    []string `json:"args,omitempty"`
+	// User overrides the image user ("uid:gid"); empty keeps the image's.
+	User          string         `json:"user,omitempty"`
 	Mounts        []Mount        `json:"mounts,omitempty"`
 	Constraints   []string       `json:"constraints,omitempty"` // for example "node.id==abc"
 	Replicas      uint64         `json:"replicas"`

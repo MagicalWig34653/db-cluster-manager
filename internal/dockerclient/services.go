@@ -42,6 +42,7 @@ type wireContainerSpec struct {
 	Labels          map[string]string `json:"Labels,omitempty"`
 	Command         []string          `json:"Command,omitempty"`
 	Args            []string          `json:"Args,omitempty"`
+	User            string            `json:"User,omitempty"`
 	Hostname        string            `json:"Hostname,omitempty"`
 	Env             []string          `json:"Env,omitempty"`
 	Mounts          []wireMount       `json:"Mounts,omitempty"`
@@ -149,6 +150,7 @@ func toWireSpec(s agent.ServiceSpec, secrets []agent.Object) wireServiceSpec {
 			Labels:          maps.Clone(s.Labels),
 			Command:         s.Command,
 			Args:            s.Args,
+			User:            s.User,
 			Hostname:        s.Hostname,
 			Env:             s.Env,
 			StopGracePeriod: s.StopGracePeriodNS,
@@ -349,7 +351,7 @@ var specShape = &shape{
 		"TaskTemplate": {
 			keys: []string{"Resources", "RestartPolicy", "Placement", "Networks"},
 			sub: map[string]*shape{"ContainerSpec": {keys: []string{
-				"Image", "Labels", "Command", "Args", "Hostname", "Env", "Mounts", "StopGracePeriod", "Secrets"}}},
+				"Image", "Labels", "Command", "Args", "User", "Hostname", "Env", "Mounts", "StopGracePeriod", "Secrets"}}},
 		},
 		"EndpointSpec": {keys: []string{"Mode"}},
 	},
