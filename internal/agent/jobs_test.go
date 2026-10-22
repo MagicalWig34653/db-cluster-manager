@@ -145,15 +145,17 @@ func TestRunBackupRefusals(t *testing.T) {
 	}
 
 	invalidCases := map[string]func(*RunBackupArgs){
-		"tool":       func(a *RunBackupArgs) { a.Tool = "sh" },
-		"job name":   func(a *RunBackupArgs) { a.JobName = "galera-1" },
-		"resources":  func(a *RunBackupArgs) { a.Resources = JobResources{} },
-		"recipient":  func(a *RunBackupArgs) { a.RecipientKey = "secret" },
-		"object":     func(a *RunBackupArgs) { a.Object = "../x" },
-		"volume":     func(a *RunBackupArgs) { a.SourceVolumeRoot = "/etc" },
-		"identity":   func(a *RunBackupArgs) { a.Expected = Identity{} },
-		"logical db": func(a *RunBackupArgs) { a.Tool, a.SourceVolume, a.SourceVolumeRoot, a.Database = ToolMariadbDump, "", "", "mysql" },
-		"db option":  func(a *RunBackupArgs) { a.DBCredentialSecret = "../../etc/passwd" },
+		"tool":      func(a *RunBackupArgs) { a.Tool = "sh" },
+		"job name":  func(a *RunBackupArgs) { a.JobName = "galera-1" },
+		"resources": func(a *RunBackupArgs) { a.Resources = JobResources{} },
+		"recipient": func(a *RunBackupArgs) { a.RecipientKey = "secret" },
+		"object":    func(a *RunBackupArgs) { a.Object = "../x" },
+		"volume":    func(a *RunBackupArgs) { a.SourceVolumeRoot = "/etc" },
+		"identity":  func(a *RunBackupArgs) { a.Expected = Identity{} },
+		"logical db": func(a *RunBackupArgs) {
+			a.Tool, a.SourceVolume, a.SourceVolumeRoot, a.Database = ToolMariadbDump, "", "", "mysql"
+		},
+		"db option": func(a *RunBackupArgs) { a.DBCredentialSecret = "../../etc/passwd" },
 	}
 	for name, mut := range invalidCases {
 		a := physicalBackupArgs(f)
