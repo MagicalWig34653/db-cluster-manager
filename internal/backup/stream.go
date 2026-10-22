@@ -157,9 +157,11 @@ type StreamSummary struct {
 // SealWriter encrypts a stream chunk by chunk. Close must be called to write
 // the final chunk; without it the stream is unreadable (truncated).
 type SealWriter struct {
-	w       io.Writer
-	cw      *countingHash
-	gcm     interface{ Seal(dst, nonce, pt, aad []byte) []byte }
+	w   io.Writer
+	cw  *countingHash
+	gcm interface {
+		Seal(dst, nonce, pt, aad []byte) []byte
+	}
 	hdrHash [32]byte
 	buf     []byte
 	size    int
@@ -359,9 +361,11 @@ func wrapForPublic(dataKey []byte, pub StreamPublicKey, aad []byte) (streamWrap,
 
 // StreamReader decrypts a stream sequentially and records chunk digests.
 type StreamReader struct {
-	r       io.Reader
-	tee     *countingHash
-	gcm     interface{ Open(dst, nonce, ct, aad []byte) ([]byte, error) }
+	r   io.Reader
+	tee *countingHash
+	gcm interface {
+		Open(dst, nonce, ct, aad []byte) ([]byte, error)
+	}
 	hdrHash [32]byte
 	meta    StreamMeta
 	maxCT   int
