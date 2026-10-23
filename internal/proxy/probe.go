@@ -42,10 +42,10 @@ func (f ProberFunc) Probe(ctx context.Context, addr string) ProbeResult { return
 // TCPProber reports a node live if a TCP connection can be opened. It knows
 // nothing about the sync state (SyncUnknown) and measures connect latency.
 //
-// Caveat (unverified against a real server): MariaDB counts connections
-// that disconnect before completing authentication against the client
-// host's max_connect_errors and may block the proxy host. Real deployments
-// need a large max_connect_errors or an authenticating probe.
+// Caveat: each probe is an aborted connect on the server. MariaDB blocks a
+// client host after max_connect_errors such connects only when it keeps a
+// host cache (name resolution on); the Galera service spec sets
+// skip_name_resolve (lab E5: no block after hundreds of probes with it).
 type TCPProber struct{}
 
 // Probe dials addr and closes the connection.

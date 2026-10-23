@@ -38,9 +38,16 @@
 //     Without a source, "sync": "galera" leaves every node sync-unknown and
 //     nothing is routed (fail closed). "sync": "assume-synced" is the
 //     explicit alternative for labs and tests.
-//   - Nothing here has been tested against a real MariaDB server or real
-//     client connectors; the protocol handling is tested against fakes
-//     written from the protocol documentation.
+//   - Lab E5 (tests/p0/results/e5-e6-proxy-outage.md) ran cmd/proxy in
+//     front of a real 3-node MariaDB 11.4 Galera cluster on arm64 VMs with
+//     go-sql-driver/mysql and the MariaDB 11.4 CLI: writer selection,
+//     failover after a killed writer, hysteresis, reload-driven drain,
+//     round-robin reads and TLS termination worked. Other connectors,
+//     authentication plugins other than mysql_native_password, several
+//     proxy instances and VIPs are untested.
+//   - A writer that becomes Donor (it serves IST/SST to a returning node)
+//     is not usable, so one node failure can cause two writer changes
+//     (observed in E5).
 //   - TLS termination ends TLS at the proxy; the proxy-to-node link is
 //     plaintext (N06: endpoint-to-node encryption is optional and not
 //     implemented). Authentication plugins that send cleartext passwords
@@ -48,8 +55,11 @@
 //     send them unencrypted to the node. The auth relay supports strict
 //     request/response plugins (mysql_native_password, ed25519, auth
 //     switch) and caching_sha2 fast-auth; others are untested.
-//   - Probes disconnect before authenticating, which MariaDB may count
-//     against max_connect_errors for the proxy host (unverified).
+//   - Probes disconnect before authenticating: every probe is an aborted
+//     connect on the node (E5: about two per second and node,
+//     Aborted_connects_preauth 750 after 6 minutes). MariaDB blocks a host
+//     after max_connect_errors only while name resolution keeps a host cache;
+//     the Galera service spec sets skip_name_resolve explicitly.
 //   - Read/write splitting correctness (transactions, read-after-write) is
 //     the application's responsibility, see internal/routing.
 package proxy
