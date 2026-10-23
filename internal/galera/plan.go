@@ -55,6 +55,12 @@ const (
 	// update-service (agent KindAwaitService); a following wait-synced
 	// would otherwise observe the old task (lab E4).
 	StepAwaitUpdate StepKind = "await-update"
+	// StepAwaitStopped waits until no task of the node's service runs
+	// (agent KindAwaitStopped); full-outage recovery only.
+	StepAwaitStopped StepKind = "await-stopped"
+	// StepStartNode scales the node's stopped service to one replica
+	// (agent KindStartService); full-outage recovery only.
+	StepStartNode StepKind = "start-node"
 )
 
 // DirOwner is the numeric owner of the database directories.
@@ -113,16 +119,23 @@ type Precondition struct {
 
 // Step is one planned operation.
 type Step struct {
-	ID            string         `json:"id"`
-	Kind          StepKind       `json:"kind"`
-	Slot          string         `json:"slot,omitempty"`
-	HostID        string         `json:"host_id,omitempty"`
-	NodeUUID      string         `json:"node_uuid,omitempty"`
-	Volume        string         `json:"volume,omitempty"`
-	ClusterSize   int            `json:"cluster_size,omitempty"` // wait-synced: expected size
-	Spec          *ServiceSpec   `json:"spec,omitempty"`
-	Owner         *DirOwner      `json:"owner,omitempty"` // init-volume-dirs
-	SQL           *SQLStep       `json:"sql,omitempty"`   // exec-sql
+	ID          string       `json:"id"`
+	Kind        StepKind     `json:"kind"`
+	Slot        string       `json:"slot,omitempty"`
+	HostID      string       `json:"host_id,omitempty"`
+	NodeUUID    string       `json:"node_uuid,omitempty"`
+	Volume      string       `json:"volume,omitempty"`
+	ClusterSize int          `json:"cluster_size,omitempty"` // wait-synced: expected size
+	Spec        *ServiceSpec `json:"spec,omitempty"`
+	Owner       *DirOwner    `json:"owner,omitempty"` // init-volume-dirs
+	SQL         *SQLStep     `json:"sql,omitempty"`   // exec-sql
+	// Position is the grastate.dat position the approved diagnosis saw
+	// (mark-safe-to-bootstrap refuses to act if the file changed since).
+	Position *Position `json:"position,omitempty"`
+	// Recovered is the wsrep-recover position mark-safe-to-bootstrap writes
+	// into a grastate.dat that has no saved seqno (-1 after a crash): a
+	// bootstrap from seqno -1 starts a new cluster history (lab E6).
+	Recovered     *Position      `json:"recovered,omitempty"`
 	Preconditions []Precondition `json:"preconditions,omitempty"`
 	Note          string         `json:"note,omitempty"`
 }

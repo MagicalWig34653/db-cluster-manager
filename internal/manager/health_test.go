@@ -25,7 +25,10 @@ type healthAgents struct {
 	dbDown   map[string]bool
 	down     map[string]bool // transport failure
 	grastate map[string]string
-	sent     []sent
+	// recovered answers wsrep-recover per host with a position; a host
+	// without an entry fails like a mariadbd without a recovered position.
+	recovered map[string]galera.Position
+	sent      []sent
 }
 
 func (h *healthAgents) Send(_ context.Context, target string, cmd agent.Command) (agent.Result, error) {
@@ -53,6 +56,13 @@ func (h *healthAgents) Send(_ context.Context, target string, cmd agent.Command)
 			}
 		}
 		r.Output, _ = json.Marshal(out)
+	case agent.KindWsrepRecover:
+		p, ok := h.recovered[target]
+		if !ok {
+			r.Status, r.Code, r.Message = agent.StatusFailed, agent.CodeIO, "no recovered position"
+			return r, nil
+		}
+		r.Output, _ = json.Marshal(agent.WsrepRecoverOutput{Position: &p})
 	}
 	return r, nil
 }

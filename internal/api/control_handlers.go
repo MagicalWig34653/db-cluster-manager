@@ -195,6 +195,57 @@ func (s *server) handleNodeReplace(w http.ResponseWriter, r *http.Request, c *ca
 	writeJSON(w, http.StatusAccepted, ref)
 }
 
+func (s *server) handleOutageRecovery(w http.ResponseWriter, r *http.Request, c *caller) {
+	var in RecoveryInput
+	if !decodeJSON(w, r, &in, false) {
+		return
+	}
+	cl := c.target.(Cluster)
+	if !slices.ContainsFunc(cl.Nodes, func(n ClusterNode) bool { return n.ID == in.Candidate }) {
+		writeError(w, http.StatusBadRequest, errBadRequest)
+		return
+	}
+	out, err := s.control().OutageRecovery(r.Context(), c.subject, cl.ID, in.Candidate)
+	if err != nil {
+		s.writeServiceError(w, r, err)
+		return
+	}
+	if out.Diagnosis.Positions == nil {
+		out.Diagnosis.Positions = []galera.NodePosition{}
+	}
+	if out.Diagnosis.Reasons == nil {
+		out.Diagnosis.Reasons = []string{}
+	}
+	out.Diagnosis.RequiresApproval = true
+	writeJSON(w, http.StatusAccepted, out)
+}
+
+func (s *server) handleOutageDiagnosisRecover(w http.ResponseWriter, r *http.Request, c *caller) {
+	var empty struct{}
+	if !decodeJSON(w, r, &empty, true) {
+		return
+	}
+	cl := c.target.(Cluster)
+	d, err := s.control().OutageDiagnosisRecover(r.Context(), c.subject, cl.ID)
+	if err != nil {
+		s.writeServiceError(w, r, err)
+		return
+	}
+	writeDiagnosis(w, d)
+}
+
+func writeDiagnosis(w http.ResponseWriter, d Diagnosis) {
+	if d.Positions == nil {
+		d.Positions = []galera.NodePosition{}
+	}
+	if d.Reasons == nil {
+		d.Reasons = []string{}
+	}
+	// Advice only: a full-cluster recovery always needs explicit approval.
+	d.RequiresApproval = true
+	writeJSON(w, http.StatusOK, d)
+}
+
 func (s *server) handleOutageDiagnosis(w http.ResponseWriter, r *http.Request, c *caller) {
 	cl := c.target.(Cluster)
 	d, err := s.control().OutageDiagnosis(r.Context(), c.subject, cl.ID)

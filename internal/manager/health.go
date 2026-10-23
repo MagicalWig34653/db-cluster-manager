@@ -339,6 +339,20 @@ func (p AgentHealthProbe) Probe(ctx context.Context, addr string) (galera.NodeHe
 // does not answer is returned without grastate (the diagnosis then cannot
 // recommend a bootstrap node).
 func (o *Operations) CollectOutageEvidence(ctx context.Context, actor authz.Subject, clusterID string) ([]galera.NodeInfo, error) {
+	return o.collectOutageEvidence(ctx, actor, clusterID, false)
+}
+
+// wsrepRecoverTimeout bounds one node's mariadbd --wsrep-recover (InnoDB
+// crash recovery of the node's data); the agent transport allows 5 min.
+const wsrepRecoverTimeout = 4 * time.Minute
+
+// collectOutageEvidence reads grastate.dat on every node. With
+// recoverPositions it also runs mariadbd --wsrep-recover (agent
+// KindWsrepRecover) on every node whose grastate.dat has no saved seqno
+// (-1 after a crash): that needs operate permission (audited), is refused
+// while a node was last seen in a Primary component, and the agent refuses
+// it while a container on the host mounts the volume.
+func (o *Operations) collectOutageEvidence(ctx context.Context, actor authz.Subject, clusterID string, recoverPositions bool) ([]galera.NodeInfo, error) {
 	cur, ok, err := Get[ClusterRecord](o.Svc.store, CollClusters, clusterID)
 	if err != nil {
 		return nil, err
@@ -348,6 +362,16 @@ func (o *Operations) CollectOutageEvidence(ctx context.Context, actor authz.Subj
 	}
 	if d := o.Authorizer.Check(actor, authz.ActionRead, clusterRes(cur.Value.Swarm, clusterID)); !d.Allowed {
 		return nil, &authz.DeniedError{Decision: d}
+	}
+	if recoverPositions {
+		if err := o.authorize(actor, authz.ActionOperate, clusterRes(cur.Value.Swarm, clusterID)); err != nil {
+			return nil, err
+		}
+		for slot, h := range cur.Value.Health {
+			if h.Health.InPrimary() {
+				return nil, fmt.Errorf("%w: %s was last seen in a Primary component", galera.ErrNotFullOutage, slot)
+			}
+		}
 	}
 	l, err := o.leadership()
 	if err != nil {
@@ -384,6 +408,34 @@ func (o *Operations) CollectOutageEvidence(ctx context.Context, actor authz.Subj
 			if json.Unmarshal(res.Output, &g) == nil && g.Grastate != nil {
 				out[i].Grastate = g.Grastate
 			}
+			if !recoverPositions || out[i].Grastate == nil || out[i].Grastate.Seqno >= 0 || out[i].Grastate.Empty() {
+				return
+			}
+			uid, gid := c.Spec.DBOwner()
+			raw, err = json.Marshal(agent.WsrepRecoverArgs{VolumeRoot: filepath.Join(st.VolumeBase, n.Volume), Volume: n.Volume,
+				Expected: agent.Identity{InstallationID: st.InstallationID, ClusterID: c.ID, NodeUUID: n.NodeUUID},
+				Image:    c.Spec.Image, UID: uid, GID: gid})
+			if err != nil {
+				return
+			}
+			rctx, rcancel := context.WithTimeout(ctx, wsrepRecoverTimeout)
+			defer rcancel()
+			res, err = l.Agents.Send(rctx, n.HostID, agent.Command{Term: l.Term, OpID: "diagnose-" + clusterID, StepID: newID("w"),
+				Kind: agent.KindWsrepRecover, Args: raw})
+			if err != nil || res.Status != agent.StatusSucceeded {
+				msg := ""
+				if err != nil {
+					msg = err.Error()
+				} else {
+					msg = res.Message
+				}
+				o.Svc.log.Warn("manager: wsrep-recover failed", "cluster", clusterID, "slot", n.Slot, "err", msg)
+				return
+			}
+			var w agent.WsrepRecoverOutput
+			if json.Unmarshal(res.Output, &w) == nil && w.Position != nil {
+				out[i].Recovered = w.Position
+			}
 		}()
 	}
 	wg.Wait()
@@ -393,7 +445,18 @@ func (o *Operations) CollectOutageEvidence(ctx context.Context, actor authz.Subj
 // DiagnoseOutageCollected collects the evidence and diagnoses (read-only;
 // the resulting plan always requires explicit approval).
 func (o *Operations) DiagnoseOutageCollected(ctx context.Context, actor authz.Subject, clusterID string) (galera.Diagnosis, []galera.NodeInfo, error) {
-	ev, err := o.CollectOutageEvidence(ctx, actor, clusterID)
+	return o.diagnoseOutage(ctx, actor, clusterID, false)
+}
+
+// DiagnoseOutageRecovering is DiagnoseOutageCollected plus mariadbd
+// --wsrep-recover on every node without a saved seqno (see
+// collectOutageEvidence); it needs operate permission.
+func (o *Operations) DiagnoseOutageRecovering(ctx context.Context, actor authz.Subject, clusterID string) (galera.Diagnosis, []galera.NodeInfo, error) {
+	return o.diagnoseOutage(ctx, actor, clusterID, true)
+}
+
+func (o *Operations) diagnoseOutage(ctx context.Context, actor authz.Subject, clusterID string, recoverPositions bool) (galera.Diagnosis, []galera.NodeInfo, error) {
+	ev, err := o.collectOutageEvidence(ctx, actor, clusterID, recoverPositions)
 	if err != nil {
 		return galera.Diagnosis{}, nil, err
 	}

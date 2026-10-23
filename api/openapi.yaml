@@ -823,6 +823,83 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Diagnose a full outage after recovering crashed nodes' positions
+      description: >-
+        Like GET, and additionally runs mariadbd --wsrep-recover (agent
+        command wsrep-recover, a one-off container without network on the
+        node's host, as the database user) on every node whose grastate.dat
+        has no saved seqno (-1 after a crash), so their positions become
+        known. This performs InnoDB crash recovery on the stopped node's data,
+        as any start would; it starts no database service, changes no
+        service spec and never bootstraps. Refused (409) while a node was last
+        seen in a Primary component; the agent refuses while a container on
+        the host mounts the volume. Needs operate permission; audited. Body:
+        empty object or none.
+      operationId: outageDiagnosisRecover
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      responses:
+        "200":
+          description: Diagnosis
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Diagnosis" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /clusters/{id}/outage-recovery:
+    post:
+      summary: Request the guided full-outage recovery (waits for approval)
+      description: >-
+        Collects the evidence again (including mariadbd --wsrep-recover on
+        nodes without a saved seqno, as POST /clusters/{id}/outage-diagnosis)
+        and diagnoses; refuses with 409 conflict
+        when the fresh diagnosis proposes no candidate or a candidate other
+        than the confirmed one, when a Primary component exists or another
+        operation of the cluster is unfinished. Otherwise stores the guided
+        recovery plan (stop every node, wait until no task runs, verify every
+        identity marker, re-check the candidate's grastate position and set
+        safe_to_bootstrap, bootstrap the candidate, start the other nodes one
+        at a time, drop the bootstrap flag) as an operation whose first stop
+        waits for POST /operations/{id}/approve with the returned digest.
+        Nothing is stopped or started before that approval. Needs operate
+        permission on the cluster; audited.
+      operationId: outageRecovery
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [candidate]
+              properties:
+                candidate: { type: string, description: The slot the diagnosis proposed }
+      responses:
+        "202":
+          description: Recovery operation waiting for approval
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, kind, candidate, approval, diagnosis]
+                properties:
+                  id: { type: string }
+                  kind: { type: string }
+                  candidate: { type: string }
+                  approval: { $ref: "#/components/schemas/OperationApproval" }
+                  diagnosis: { $ref: "#/components/schemas/Diagnosis" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
   /operations/{id}/resume:
     post:
       summary: Resume a paused or adopted operation

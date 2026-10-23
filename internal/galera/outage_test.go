@@ -149,9 +149,11 @@ func TestDiagnoseCleanShutdownPicksSafeNode(t *testing.T) {
 	if len(d.Reasons) == 0 {
 		t.Error("no reasons")
 	}
-	// No mark-safe step needed: n2 already has safe_to_bootstrap: 1.
-	if len(stepsOf(d.Plan, StepMarkSafe)) != 0 {
-		t.Error("mark-safe step for a node that is already safe")
+	// n2 already has safe_to_bootstrap: 1; the mark-safe step still re-checks
+	// that its grastate.dat holds the diagnosed position before the bootstrap.
+	ms := stepsOf(d.Plan, StepMarkSafe)
+	if len(ms) != 1 || ms[0].Slot != "n2" || ms[0].Position == nil || *ms[0].Position != (Position{UUID: d.Positions[1].UUID, Seqno: 1234}) {
+		t.Errorf("mark-safe steps = %+v", ms)
 	}
 	assertRecoveryPlan(t, d.Plan, "n2", []string{"n1", "n3"})
 }
@@ -176,6 +178,15 @@ func TestDiagnoseCrashUsesRecoveredPositions(t *testing.T) {
 	ms := stepsOf(d.Plan, StepMarkSafe)
 	if len(ms) != 1 || ms[0].Slot != "n2" {
 		t.Errorf("mark-safe steps = %+v", ms)
+	}
+	// The re-check binds to the file as read (seqno -1 after the crash), not
+	// to the recovered seqno.
+	if p := ms[0].Position; p == nil || p.Seqno != -1 || p.UUID != d.Positions[1].UUID {
+		t.Errorf("mark-safe position = %+v", ms[0].Position)
+	}
+	// ... and writes the recovered seqno, so the bootstrap keeps the history.
+	if r := ms[0].Recovered; r == nil || r.Seqno != 1240 || r.UUID != d.Positions[1].UUID {
+		t.Errorf("mark-safe recovered = %+v", ms[0].Recovered)
 	}
 	pos := d.Positions[1]
 	if pos.Source != SourceWsrepRecover || pos.Seqno != 1240 {
@@ -338,8 +349,25 @@ func TestRecoveryPlanAttachesSpecs(t *testing.T) {
 		if s.Spec == nil {
 			t.Fatalf("step %s without spec", s.ID)
 		}
-		if s.Spec.Bootstrap() != (s.Slot == "n2" && strings.Contains(s.Note, "bootstrap")) {
+		boot := s.Slot == "n2" && strings.Contains(s.Note, "bootstrap spec")
+		if s.Spec.Bootstrap() != boot {
 			t.Errorf("step %s (%s) bootstrap=%v", s.ID, s.Note, s.Spec.Bootstrap())
+		}
+		// The bootstrap spec is applied to the stopped service; update-service
+		// never changes the replica count.
+		if want := map[bool]uint64{true: 0, false: 1}[boot]; s.Spec.Replicas != want {
+			t.Errorf("step %s replicas = %d, want %d", s.ID, s.Spec.Replicas, want)
+		}
+	}
+	for _, s := range p.Steps {
+		switch s.Kind {
+		case StepStopAll, StepAwaitStopped, StepStartNode, StepAwaitUpdate, StepVerifyIdentity, StepMarkSafe:
+			if s.HostID == "" || s.NodeUUID == "" || s.Volume == "" {
+				t.Errorf("step %s lacks host, node or volume: %+v", s.ID, s)
+			}
+			if s.Kind != StepVerifyIdentity && s.Kind != StepMarkSafe && (s.Spec == nil || s.Spec.Name == "") {
+				t.Errorf("step %s lacks the service name", s.ID)
+			}
 		}
 	}
 	for _, ds := range p.Desired {
@@ -370,20 +398,29 @@ func assertRecoveryPlan(t *testing.T, p Plan, cand string, others []string) {
 	for _, s := range p.Steps {
 		seq = append(seq, string(s.Kind)+":"+s.Slot)
 	}
-	want := []string{"stop-all:"}
-	for _, s := range append([]string{cand}, others...) {
-		want = append(want, "verify-identity:"+s)
+	all := append([]string{cand}, others...)
+	var want []string
+	for _, k := range []string{"stop-all", "await-stopped", "verify-identity"} {
+		for _, s := range all {
+			want = append(want, k+":"+s)
+		}
 	}
-	want = append(want, "update-service:"+cand, "wait-synced:"+cand)
+	want = append(want, "mark-safe-to-bootstrap:"+cand, "update-service:"+cand, "start-node:"+cand, "wait-synced:"+cand)
 	for _, o := range others {
-		want = append(want, "update-service:"+o, "wait-synced:"+o)
+		want = append(want, "start-node:"+o, "wait-synced:"+o)
 	}
-	want = append(want, "update-service:"+cand, "wait-synced:"+cand)
+	want = append(want, "update-service:"+cand, "await-update:"+cand, "wait-synced:"+cand)
 	if !slices.Equal(seq, want) {
 		t.Errorf("steps =\n%v\nwant\n%v", seq, want)
 	}
-	boot := p.Steps[1+len(others)+1]
-	if !hasPre(boot, Precondition{Kind: PreNoNodeRunning}) || !strings.Contains(boot.Note, "bootstrap") {
-		t.Errorf("bootstrap step = %+v", boot)
+	for i, s := range p.Steps {
+		if i > 0 && hasPre(s, Precondition{Kind: PreApproved}) {
+			t.Errorf("step %s repeats the approval", s.ID)
+		}
+		if s.Kind == StepMarkSafe || (s.Slot == cand && s.Kind == StepStartNode) || (s.Kind == StepUpdateService && strings.Contains(s.Note, "bootstrap spec")) {
+			if !hasPre(s, Precondition{Kind: PreNoNodeRunning}) {
+				t.Errorf("step %s without no-node-running", s.ID)
+			}
+		}
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/MagicalWig34653/db-cluster-manager/internal/agent"
@@ -53,6 +54,9 @@ type GaleraBindings struct {
 	// network. Empty keeps each step on its node's host (a Swarm whose
 	// hosts are all managers).
 	ServiceHost string
+	// ApprovalID is the approval that full-outage recovery waits for
+	// (CondApproved); required for that plan kind, ignored otherwise.
+	ApprovalID string
 }
 
 // Condition kinds produced from galera preconditions (evaluated by a Checker).
@@ -73,6 +77,15 @@ const (
 func FromGaleraPlan(p galera.Plan, b GaleraBindings) (Operation, error) {
 	switch p.Kind {
 	case galera.PlanCreateCluster, galera.PlanReplaceNode:
+	case galera.PlanFullOutageRecovery:
+		// Guided recovery (A06): only with an approval to wait for, and the
+		// plan must start with the approved stop.
+		if b.ApprovalID == "" || !p.RequiresApproval {
+			return Operation{}, fmt.Errorf("%w: full-outage recovery needs an approval ID", ErrInvalidOperation)
+		}
+		if len(p.Steps) == 0 || !slices.ContainsFunc(p.Steps[0].Preconditions, func(c galera.Precondition) bool { return c.Kind == galera.PreApproved }) {
+			return Operation{}, fmt.Errorf("%w: full-outage recovery must start with the approved step", ErrInvalidOperation)
+		}
 	default:
 		return Operation{}, fmt.Errorf("%w: plan kind %q is not executable by the runner", ErrInvalidOperation, p.Kind)
 	}
@@ -102,8 +115,27 @@ func convertStep(p galera.Plan, gs galera.Step, b GaleraBindings) (Step, error) 
 	s := Step{ID: gs.ID, Target: gs.HostID, Timeout: b.StepTimeout, MaxRetries: b.MaxRetries, Note: gs.Note}
 	for _, pc := range gs.Preconditions {
 		c := Condition{Kind: string(pc.Kind), StepID: pc.StepID, Target: pc.Slot, ClusterSize: pc.ClusterSize}
-		if pc.Kind == galera.PreStepSucceeded {
+		switch pc.Kind {
+		case galera.PreStepSucceeded:
 			c = Condition{Kind: CondStepSucceeded, StepID: pc.StepID}
+		case galera.PreApproved:
+			if b.ApprovalID == "" {
+				return Step{}, fmt.Errorf("%w: approval precondition without an approval ID", ErrInvalidOperation)
+			}
+			c = Condition{Kind: CondApproved, Target: b.ApprovalID}
+		case galera.PreNoNodeRunning:
+			// Evaluated by the plan's await-stopped steps (agent
+			// KindAwaitStopped on a Swarm manager node): every service
+			// was scaled to 0 and reported no running task. Nothing in
+			// the plan scales a service up before the bootstrap.
+			ids := awaitStoppedSteps(p)
+			if len(ids) == 0 {
+				return Step{}, fmt.Errorf("%w: no-node-running without await-stopped steps", ErrInvalidOperation)
+			}
+			for _, id := range ids {
+				s.Preconditions = append(s.Preconditions, Condition{Kind: CondStepSucceeded, StepID: id})
+			}
+			continue
 		}
 		s.Preconditions = append(s.Preconditions, c)
 	}
@@ -164,6 +196,40 @@ func convertStep(p galera.Plan, gs galera.Step, b GaleraBindings) (Step, error) 
 			return Step{}, fmt.Errorf("%w: no service ID for slot %s", ErrInvalidOperation, gs.Slot)
 		}
 		s.Command, args = agent.KindRemoveService, agent.ServiceArgs{ServiceID: id}
+	case galera.StepStopAll:
+		id := b.ServiceIDs[gs.Slot]
+		if id == "" {
+			return Step{}, fmt.Errorf("%w: no service ID for slot %s", ErrInvalidOperation, gs.Slot)
+		}
+		s.Command, args = agent.KindStopDB, agent.ServiceArgs{ServiceID: id}
+	case galera.StepAwaitStopped, galera.StepStartNode:
+		if gs.Spec == nil {
+			return Step{}, fmt.Errorf("%w: %s without spec", ErrInvalidOperation, gs.Kind)
+		}
+		kind := agent.KindAwaitStopped
+		if gs.Kind == galera.StepStartNode {
+			kind = agent.KindStartService
+		}
+		s.Command, args = kind, agent.AwaitServiceArgs{ServiceName: gs.Spec.Name}
+	case galera.StepVerifyIdentity:
+		s.Command, args = agent.KindVerifyIdentity, agent.VerifyIdentityArgs{VolumeRoot: root(),
+			Expected: agent.Identity{InstallationID: b.InstallationID, ClusterID: p.ClusterID, NodeUUID: gs.NodeUUID}}
+	case galera.StepMarkSafe:
+		if gs.Position == nil {
+			return Step{}, fmt.Errorf("%w: mark-safe without the diagnosed position", ErrInvalidOperation)
+		}
+		ma := agent.MarkSafeArgs{VolumeRoot: root(),
+			Expected: agent.Identity{InstallationID: b.InstallationID, ClusterID: p.ClusterID, NodeUUID: gs.NodeUUID},
+			UUID:     gs.Position.UUID, Seqno: gs.Position.Seqno}
+		if r := gs.Recovered; r != nil {
+			if r.UUID != gs.Position.UUID || r.Seqno < 0 || gs.Position.Seqno >= 0 {
+				return Step{}, fmt.Errorf("%w: recovered position %s:%d does not fill grastate %s:%d", ErrInvalidOperation,
+					r.UUID, r.Seqno, gs.Position.UUID, gs.Position.Seqno)
+			}
+			seq := r.Seqno
+			ma.SetSeqno = &seq
+		}
+		s.Command, args = agent.KindMarkSafeToBootstrap, ma
 	case galera.StepWaitSynced:
 		s.Preconditions = append(s.Preconditions, Condition{Kind: CondNodeSynced, Target: gs.Slot, ClusterSize: gs.ClusterSize})
 	case galera.StepVerifyDonor, galera.StepRetainVolume:
@@ -176,7 +242,8 @@ func convertStep(p galera.Plan, gs galera.Step, b GaleraBindings) (Step, error) 
 		return s, nil
 	}
 	switch gs.Kind {
-	case galera.StepCreateService, galera.StepUpdateService, galera.StepAwaitUpdate, galera.StepRemoveService:
+	case galera.StepCreateService, galera.StepUpdateService, galera.StepAwaitUpdate, galera.StepRemoveService,
+		galera.StepStopAll, galera.StepAwaitStopped, galera.StepStartNode:
 		if b.ServiceHost != "" {
 			s.Target = b.ServiceHost
 		}
@@ -190,4 +257,15 @@ func convertStep(p galera.Plan, gs galera.Step, b GaleraBindings) (Step, error) 
 	}
 	s.Args = raw
 	return s, nil
+}
+
+// awaitStoppedSteps returns the IDs of a plan's await-stopped steps.
+func awaitStoppedSteps(p galera.Plan) []string {
+	var ids []string
+	for _, st := range p.Steps {
+		if st.Kind == galera.StepAwaitStopped {
+			ids = append(ids, st.ID)
+		}
+	}
+	return ids
 }

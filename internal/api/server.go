@@ -248,6 +248,14 @@ func (s *server) endpoints() []endpoint {
 			action: authz.ActionRead, resolve: s.resolveCluster, hideDenied: true, handle: s.handleOutageDiagnosis,
 		},
 		{
+			method: "POST", path: "/clusters/{id}/outage-diagnosis", access: accessPermission,
+			action: authz.ActionOperate, resolve: s.resolveCluster, hideUnreadable: true, handle: s.handleOutageDiagnosisRecover,
+		},
+		{
+			method: "POST", path: "/clusters/{id}/outage-recovery", access: accessPermission,
+			action: authz.ActionOperate, resolve: s.resolveCluster, hideUnreadable: true, handle: s.handleOutageRecovery,
+		},
+		{
 			method: "POST", path: "/operations/{id}/resume", access: accessPermission,
 			action: authz.ActionOperate, resolve: s.resolveOperation, hideUnreadable: true, handle: s.handleOperationControl(true),
 		},
