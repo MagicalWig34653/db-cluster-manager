@@ -41,3 +41,7 @@ CREATE USER 'dbcm_monitor'@'<proxy-or-manager-host>' IDENTIFIED BY '<secret>' RE
 ```
 
 No `GRANT` is issued. `REQUIRE SSL` matches `"tls": "required"` in the proxy configuration. Unverified: the exact behaviour with MariaDB 10.11/11.x (account creation, `max_connect_errors` with the probe rate, and `SHOW GLOBAL STATUS` visibility without grants).
+
+## Evidence (lab VMs, E5, 2026-10-23)
+
+go-sql-driver/mysql v1.10.1 worked against real MariaDB 11.4.13 nodes in two roles ([E5/E6 results](../../tests/p0/results/e5-e6-proxy-outage.md)): inside `internal/galeraprobe` as the proxy's wsrep status source (every node Synced/Primary recognised; a killed node unusable within one probe round; a donor recognised as `donor`), and as the lab client through the proxy's TLS-terminating endpoint (verified certificate, refusal without TLS, refusal of a wrong server name). Other connectors and authentication plugins were not tested.

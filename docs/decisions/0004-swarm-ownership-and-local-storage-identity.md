@@ -54,3 +54,16 @@ Further observations that affect the design:
 - After a partition heals, Swarm replaced the old container; whether two containers briefly shared the datadir was not checked (`docker events` evidence is missing).
 
 Not tested: graceful reboot and drain, loss of the manager host or of several managers, multiple Swarms, AMD64, the real agent (only shell scripts stood in for it), rootless Docker (the lab uses rootful Docker because the Lima `docker` template installs rootless).
+
+## Evidence (lab VMs, E6, 2026-10-23)
+
+Source: [E5/E6 results](../../tests/p0/results/e5-e6-proxy-outage.md). The real manager and mTLS agents on three arm64 Lima VMs; both outages were caused outside the manager.
+
+| Assumption | Result |
+| --- | --- |
+| A full outage is diagnosed from the nodes' own evidence without starting anything | **Confirmed.** Clean (all services scaled to 0 at once): every grastate.dat had seqno 3338 and `safe_to_bootstrap: 0` (no "last node"); the diagnosis proposed n1 with a `tie` risk. Crash (SIGKILL of all three): seqno -1 everywhere; `GET` proposed no candidate and asked for `--wsrep-recover`. For 120 s no spec changed and no task ran. |
+| `--wsrep-recover` gives the positions after a crash | **Confirmed** through the new agent command `wsrep-recover` (one-off container without network on the volume's host): seqno 3345 on all nodes, grastate.dat unchanged, no container left. mariadbd needs a cluster address even for `--wsrep-recover`; the agent passes an unreachable one, never `gcomm://`. |
+| Guided recovery keeps node identities and data | **Confirmed** after one fix: the recovery restarted the existing services on their verified volumes, rows written before both outages were present. **Refuted at first:** bootstrapping the crash candidate from `seqno: -1` with only `safe_to_bootstrap: 1` started a new cluster state UUID; mark-safe now also writes the recovered seqno and the final run kept the UUID. |
+| Swarm does not restart a service scaled to 0 | Confirmed: replacement tasks created by the restart policy after the SIGKILL stayed `Ready/Assigned` with desired state `Remove` and never ran. |
+
+Open: joiners took a full SST in every recovery (also at equal seqno); a VM power loss with Docker and manager restarting; diverging histories and a missing node in the diagnosis on real nodes.
