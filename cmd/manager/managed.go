@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -26,6 +27,7 @@ import (
 	"github.com/MagicalWig34653/db-cluster-manager/internal/manager"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/manager/swarm"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/metastore"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/notify"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/passkey"
 )
 
@@ -333,7 +335,14 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 	if agents {
 		// Live preconditions and periodic health go through the agents.
 		checker.Cluster = &galeraprobe.Checker{Prober: &probe, Topology: &probe}
-		scfg.Reconcilers = append(scfg.Reconcilers, manager.HealthCollector{})
+		// Node outages and recoveries go to the monitoring dispatcher (UI
+		// inbox and configured channels); rt.monitoring is set before Start.
+		scfg.Reconcilers = append(scfg.Reconcilers, manager.HealthCollector{Notify: func(ctx context.Context, e notify.Event) bool {
+			if rt.monitoring == nil {
+				return false
+			}
+			return rt.monitoring.Notify(ctx, e)
+		}})
 	}
 	var serverIPs []net.IP
 	if at := mc.AgentTransport; at != nil {

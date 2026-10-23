@@ -19,6 +19,7 @@ import (
 	"github.com/MagicalWig34653/db-cluster-manager/internal/authz"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/galera"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/galeraprobe"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/notify"
 )
 
 // Health collection.
@@ -87,6 +88,9 @@ type HealthCollector struct {
 	Interval    time.Duration // default 15s
 	Timeout     time.Duration // per node, default 5s
 	Concurrency int           // parallel probes, default 8
+	// Notify, if set, receives an event when a node stops or starts being
+	// healthy (typically Monitoring.Notify). Events are recorded either way.
+	Notify func(ctx context.Context, e notify.Event) bool
 }
 
 // Name implements Reconciler.
@@ -170,7 +174,9 @@ func (h HealthCollector) CollectOnce(ctx context.Context, l *Leadership) error {
 	}
 	var errs []error
 	for _, c := range clusters {
+		var changes []nodeTransition
 		_, _, err := Update(store, CollClusters, c.Key, func(cur ClusterRecord, exists bool) (ClusterRecord, error) {
+			changes = changes[:0]
 			if !exists {
 				return cur, ErrNotFound
 			}
@@ -185,6 +191,12 @@ func (h HealthCollector) CollectOnce(ctx context.Context, l *Leadership) error {
 				if !ok || !sameNode(c.Value, cur, n) {
 					continue
 				}
+				if prev, had := cur.Health[n.Slot]; had {
+					if t, changed := transition(prev.Health, o.Health); changed {
+						t.slot = n.Slot
+						changes = append(changes, t)
+					}
+				}
 				cur.Health[n.Slot] = o
 				nodes = append(nodes, o)
 			}
@@ -196,8 +208,65 @@ func (h HealthCollector) CollectOnce(ctx context.Context, l *Leadership) error {
 		if err != nil && !errors.Is(err, ErrNotFound) {
 			errs = append(errs, fmt.Errorf("cluster %s: %w", c.Key, err))
 		}
+		if err == nil {
+			h.report(ctx, l, c.Value, changes)
+		}
 	}
 	return errors.Join(errs...)
+}
+
+// nodeTransition is a change of a node between healthy and not healthy.
+type nodeTransition struct {
+	slot      string
+	recovered bool
+	state     galera.HealthState
+	reason    string
+}
+
+// transition reports whether a node changed between healthy and not
+// healthy (unhealthy or unknown) from one observation to the next. Lab E4:
+// a 30-40 s outage of a node raised no event and no notification.
+func transition(prev, next galera.NodeHealth) (nodeTransition, bool) {
+	was, is := prev.Healthy(), next.Healthy()
+	if was == is {
+		return nodeTransition{}, false
+	}
+	t := nodeTransition{recovered: is, state: next.State}
+	if t.state == galera.HealthUnknown {
+		t.state = "unknown"
+	}
+	if len(next.Reasons) > 0 {
+		t.reason = next.Reasons[0]
+	}
+	return t, true
+}
+
+// Notification kinds of node health transitions.
+const (
+	KindNodeUnavailable = "health.node_unavailable"
+	KindNodeRecovered   = "health.node_recovered"
+)
+
+// report records an event for every transition and hands it to Notify
+// (the monitoring dispatcher: UI inbox and configured channels).
+func (h HealthCollector) report(ctx context.Context, l *Leadership, c ClusterRecord, changes []nodeTransition) {
+	for _, t := range changes {
+		sev, nsev, kind := api.SeverityWarning, notify.SeverityWarning, KindNodeUnavailable
+		msg := fmt.Sprintf("node %s of cluster %s became %s", t.slot, c.Name, t.state)
+		if t.recovered {
+			sev, nsev, kind = api.SeverityInfo, notify.SeverityInfo, KindNodeRecovered
+			msg = fmt.Sprintf("node %s of cluster %s is healthy again", t.slot, c.Name)
+		} else if t.reason != "" {
+			msg += ": " + t.reason
+		}
+		l.svc.recordEvent(c.Swarm, c.ID, sev, msg)
+		if h.Notify == nil {
+			continue
+		}
+		h.Notify(ctx, notify.Event{Time: l.svc.cfg.Now(), Severity: nsev, Kind: kind,
+			Resource: "swarm/" + c.Swarm + "/cluster/" + c.ID + "/node/" + t.slot, Message: msg,
+			Details: map[string]string{"swarm": c.Swarm, "cluster": c.ID, "node": t.slot, "state": string(t.state)}})
+	}
 }
 
 func sameNode(before, now ClusterRecord, n galera.Node) bool {

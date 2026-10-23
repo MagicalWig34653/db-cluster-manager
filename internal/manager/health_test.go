@@ -15,6 +15,7 @@ import (
 	"github.com/MagicalWig34653/db-cluster-manager/internal/api"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/galera"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/galeraprobe"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/notify"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/runner"
 )
 
@@ -163,6 +164,72 @@ func TestHealthCollectorStoresObservations(t *testing.T) {
 	}
 	if ac.State != api.StateUnknown {
 		t.Fatalf("stale cluster %+v", ac)
+	}
+}
+
+// TestHealthCollectorReportsNodeOutage: lab E4 killed a node; the cluster
+// turned degraded for 30-40 s without any event or notification. A change
+// between healthy and not healthy now records an event and notifies once
+// per transition (not on every poll).
+func TestHealthCollectorReportsNodeOutage(t *testing.T) {
+	ha := &healthAgents{status: map[string]map[string]string{
+		"h1": wsrep("Synced", "Primary", "3"), "h2": wsrep("Synced", "Primary", "3"), "h3": wsrep("Synced", "Primary", "3"),
+	}, dbDown: map[string]bool{}}
+	s, _ := healthSetup(t, ha, nil)
+	var mu sync.Mutex
+	var got []notify.Event
+	hc := HealthCollector{Notify: func(_ context.Context, e notify.Event) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		got = append(got, e)
+		return true
+	}}
+	events := func() []string {
+		recs, _ := List[EventRecord](s.Store(), CollEvents)
+		var out []string
+		for _, r := range recs {
+			if strings.Contains(r.Value.Message, "node n") {
+				out = append(out, string(r.Value.Severity)+": "+r.Value.Message)
+			}
+		}
+		return out
+	}
+	collect := func() {
+		t.Helper()
+		if err := hc.CollectOnce(context.Background(), s.Current()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	collect() // first observation: no transition
+	if len(events()) != 0 || len(got) != 0 {
+		t.Fatalf("events on first observation: %v", events())
+	}
+	ha.mu.Lock()
+	ha.dbDown["h3"] = true
+	ha.mu.Unlock()
+	collect()
+	collect() // still down: no second event
+	ev := events()
+	if len(ev) != 1 || !strings.HasPrefix(ev[0], "warning: node n3 of cluster shop became unhealthy") {
+		t.Fatalf("events %v", ev)
+	}
+	mu.Lock()
+	if len(got) != 1 || got[0].Kind != KindNodeUnavailable || got[0].Severity != notify.SeverityWarning ||
+		got[0].Resource != "swarm/sw1/cluster/clu-1/node/n3" || got[0].Details["cluster"] != "clu-1" {
+		t.Fatalf("notifications %+v", got)
+	}
+	mu.Unlock()
+	ha.mu.Lock()
+	ha.dbDown["h3"] = false
+	ha.mu.Unlock()
+	collect()
+	if ev := events(); len(ev) != 2 || !strings.Contains(ev[1], "n3 of cluster shop is healthy again") {
+		t.Fatalf("events %v", ev)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(got) != 2 || got[1].Kind != KindNodeRecovered {
+		t.Fatalf("notifications %+v", got)
 	}
 }
 
