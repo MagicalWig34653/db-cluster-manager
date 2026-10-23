@@ -28,6 +28,7 @@ func PresetRoles() []Role {
 				{Type: ResourceDashboard, Action: ActionRead},
 				{Type: ResourceImageBuild, Action: ActionRead},
 				{Type: ResourceRegistry, Action: ActionRead},
+				{Type: ResourceService, Action: ActionRead},
 			},
 		},
 		{
@@ -46,6 +47,7 @@ func PresetRoles() []Role {
 				{Type: ResourceImageBuild, Action: ActionRead},
 				{Type: ResourceImageBuild, Action: ActionCreate},
 				{Type: ResourceRegistry, Action: ActionRead},
+				{Type: ResourceService, Action: ActionRead},
 			},
 		},
 		{
