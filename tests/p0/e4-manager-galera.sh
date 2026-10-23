@@ -285,7 +285,7 @@ phase_manager() {
 {
   "auth": {"enabled": true, "rpId": "localhost", "rpDisplayName": "E4 lab", "origins": ["http://localhost:$2"]},
   "manager": {
-    "nodeId": "manager-1", "dataDir": "/var/lib/dbcm-e4", "bind": "127.0.0.1:$3", "bootstrap": true,
+    "nodeId": "manager-1", "dataDir": "/var/lib/dbcm-e4", "bind": "127.0.0.1:$3", "bootstrap": true, "autoResume": ${11},
     "agentTransport": {
       "enrollListen": "$1:$4", "managerUrl": "https://$1:$4", "agentPort": 7443,
       "monitorUser": "dbcm_monitor", "monitorSecret": "$5", "dbSecrets": ["$6", "$7"]
@@ -299,7 +299,7 @@ phase_manager() {
     }
   }
 }
-EOF' "$a1" "$API_PORT" "$META_PORT" "$ENROLL_PORT" "$MON_SECRET" "$ROOT_SECRET" "$BAK_SECRET" "$INST" "$STATE" "$pub"
+EOF' "$a1" "$API_PORT" "$META_PORT" "$ENROLL_PORT" "$MON_SECRET" "$ROOT_SECRET" "$BAK_SECRET" "$INST" "$STATE" "$pub" "${E4_AUTORESUME:-false}"
 	rec "start manager unit" vm_args "$M1" 'sudo systemd-run --unit "$1" -p Restart=no --collect /usr/local/bin/dbcm-e4-manager -listen "127.0.0.1:$2" -config /etc/dbcm-e4/manager.json' "$UNIT" "$API_PORT"
 	wait_until 60 "manager health" vm_sh "$M1" "curl -fsS http://127.0.0.1:$API_PORT/api/v1/health"
 	wait_until 120 "manager leads (API not 503)" api GET /api/v1/setup/status
