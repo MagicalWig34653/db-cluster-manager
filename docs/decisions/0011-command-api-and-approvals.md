@@ -31,3 +31,19 @@ The second UI batch assumed endpoints for hosts, Swarm connection, cluster creat
 - The manager does not know the proxy's writer, so backup source selection cannot avoid it.
 - The UI inbox read flag is shared by all users of the leader's inbox.
 - Dashboards and metric queries keep their documented contract; the UI's assumed shapes for them still differ and need a UI change.
+
+## Evidence (lab VMs, E4, 2026-10-23)
+
+The real manager in managed single-instance mode, driven through its HTTP API by `tests/p0/e4client` (cookies, Origin, an ES256 software passkey; no browser) on three arm64 Lima VMs ([results](../../tests/p0/results/e4-manager-galera.md)).
+
+| Claim | Result |
+| --- | --- |
+| First-run setup with the printed token and a passkey; login with the passkey | **Confirmed** (`setupRequired` true then false; after a 3 h pause the session had expired, the passkey login worked). |
+| Hosts, Swarm connection, sync, enrollment, agent deployment through the API | **Confirmed**, after fixes: nothing could set the installation settings (`manager.settings` added), the agent spec (command, user), host prerequisites. |
+| `POST /clusters` plans and runs the create operation to success | **Confirmed** (3 nodes Synced, size 3, about 80 s in the final run at host load average 26-62), after fixes: zero retries, allow-list of operator objects, service commands on a manager node, account step order. |
+| Health of the cluster in `GET /clusters/{id}` | **Confirmed**, including a killed container: `n3 unavailable`, donor `degraded`, back to `healthy` within about 30-40 s after Swarm restarted the task. No event or notification was recorded for that outage. |
+| Backup through `POST /clusters/{id}/backups` | **Confirmed** to an SFTP target (OpenSSH of a lab VM), after fixes (source re-check demand, MariaDB 11 file names, job service on a manager node). |
+| Restore approval bound to the digest | **Confirmed** for an inspection restore: the operation waited for approval; a wrong digest was refused; with the digest the restore job ran (`stream_verified`), the instance served the restored rows with `wsrep_on=0`; the operation then waits at the documented verification gate. |
+| Abort | **Partly refuted, fixed:** an abort during a precondition wait took effect only after all polls, and a failed operation could not be aborted while it kept its runner locks. |
+
+Not covered: the backup scheduler, notification settings, outage diagnosis, node replacement, restores into a new cluster, inspection or restore jobs on worker hosts (job services must be created on a manager node; only backups were moved), more than one manager replica, any UI.

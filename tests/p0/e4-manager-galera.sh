@@ -218,6 +218,7 @@ phase_prereqs() {
 		rec "host directories on $vm" vm_root "$vm" 'install -d -m 0700 /var/lib/dbcm-agent && install -d -m 0755 "$1" && ls -ld /var/lib/dbcm-agent "$1"' "$VOLBASE"
 	done
 	rec "overlay network" vm_args "$M1" 'sudo docker network inspect -f "{{.Name}} exists" "$1" 2>/dev/null || sudo docker network create --driver overlay --attachable --label "dbcm.installation=$2" "$1"' "$NET" "$INST"
+	rec "inspection network (operator-provided, labelled)" vm_args "$M1" 'sudo docker network inspect -f "{{.Name}} exists" dbcm-e4-inspect 2>/dev/null || sudo docker network create --driver overlay --attachable --label "dbcm.installation=$1" dbcm-e4-inspect' "$INST"
 	rec "synthetic passwords and secrets (values never logged)" vm_root "$M1" '
 		set -e
 		sudo install -d -m 0700 "$1"
@@ -287,7 +288,7 @@ phase_manager() {
       "installationId": "$8", "volumeBase": "/var/lib/dbcm/volumes", "agentImage": "dbcm-agent:e4",
       "accounts": {"monitorUser": "dbcm_monitor", "monitorSecret": "$5", "backupSecret": "$7"},
       "backup": {"jobImage": "dbcm-job:e4", "backendSecret": "dbcm-e4-backend", "dbCredentialSecret": "dbcm-e4-backup-cred",
-                 "recipientKey": "${10}", "keySecret": "dbcm-e4-recovery-key"}
+                 "recipientKey": "${10}", "keySecret": "dbcm-e4-recovery-key", "inspectionNetwork": "dbcm-e4-inspect"}
     }
   }
 }
@@ -464,12 +465,12 @@ phase_inspect() {
 	CLUSTER_ID=${CLUSTER_ID:-$(cluster_id)}
 	local mgr resp op digest st start
 	mgr=$(apij GET /api/v1/hosts | jq -r '[.items[] | select(.role=="manager")][0].nodeId')
-	rec "inspection network (operator-provided, labelled)" vm_args "$M1" 'sudo docker network inspect -f "{{.Name}} exists" dbcm-e4-inspect 2>/dev/null || sudo docker network create --driver overlay --attachable --label "dbcm.installation=$1" dbcm-e4-inspect' "$INST"
 	# The response carries the one-time inspection password: it stays in a
 	# root-only file in m1 and is never logged.
 	resp=$(vm_args "$M1" 'sudo /usr/local/bin/dbcm-e4-client -state "$1/client.json" -base "http://127.0.0.1:$2" -origin "http://localhost:$2" req POST /api/v1/restores/inspect "$3" | sudo tee "$1/inspect.json" >/dev/null; sudo head -1 "$1/inspect.json"; sudo tail -1 "$1/inspect.json" | python3 -c "import json,sys; d=json.load(sys.stdin); d.pop(\"inspectionPassword\",None); print(json.dumps(d))"' \
 		"$STATE" "$API_PORT" "{\"cluster\":\"$CLUSTER_ID\",\"host\":\"$mgr\",\"ttlMinutes\":60}")
 	printf '### start inspection on the manager node %s\n\n```\n%s\n```\n\n' "$mgr" "$resp" >>"$LOG"
+	case "$resp" in "HTTP 202"*) ;; *) result "inspection not started: $(printf '%s' "$resp" | head -2 | tr '\n' ' ')"; return 1 ;; esac
 	op=$(printf '%s\n' "$resp" | tail -1 | jq -r .id)
 	digest=$(printf '%s\n' "$resp" | tail -1 | jq -r .approval.digest)
 	sleep 5
