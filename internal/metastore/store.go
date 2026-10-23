@@ -20,7 +20,8 @@
 // Transport: either an injected Transport (tests wrap the in-memory one) or,
 // with Config.BindAddr, raft's plain TCP transport. That TCP transport has no
 // TLS, no peer authentication and no encryption; it is for loopback and
-// isolated lab networks only. TLS/mTLS between managers is out of scope here.
+// isolated lab networks only. With Config.TLS the BindAddr transport is
+// mutually authenticated TLS 1.3 with metastore peer identities (tls.go).
 //
 // Journal reads are local to the node and may lag behind the leader; a new
 // leader calls Node.Barrier before it trusts its journal.
@@ -94,7 +95,9 @@ type Config struct {
 	ID string
 
 	// Exactly one of Transport and BindAddr must be set. Transport is used as
-	// is. BindAddr ("host:port") creates raft's TCP transport without TLS.
+	// is. BindAddr ("host:port") creates raft's TCP transport without TLS,
+	// or with TLS set a mutually authenticated TLS 1.3 transport (tls.go).
+	TLS       *PeerTLS
 	Transport Transport
 	BindAddr  string
 	// AdvertiseAddr is the address peers dial; it defaults to the bound
@@ -237,7 +240,17 @@ func NewNode(cfg Config) (*Node, error) {
 		st = ds
 	}
 	if cfg.Transport == nil {
-		tr, err := newTCPTransport(cfg.BindAddr, cfg.AdvertiseAddr, logOutput)
+		var tr Transport
+		var err error
+		if cfg.TLS != nil {
+			t := *cfg.TLS
+			if t.PeerIDs == nil {
+				t.PeerIDs = peerIDsOf(cfg.Peers)
+			}
+			tr, err = newTLSTransport(cfg.BindAddr, cfg.AdvertiseAddr, &t, logOutput)
+		} else {
+			tr, err = newTCPTransport(cfg.BindAddr, cfg.AdvertiseAddr, logOutput)
+		}
 		if err != nil {
 			_ = st.close()
 			return nil, err
