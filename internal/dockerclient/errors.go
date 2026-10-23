@@ -15,7 +15,7 @@ import (
 // package.
 var (
 	ErrNotFound    = agent.ErrObjectNotFound
-	ErrConflict    = errors.New("dockerclient: conflict")
+	ErrConflict    = agent.ErrConflict
 	ErrBadRequest  = errors.New("dockerclient: bad request")
 	ErrForbidden   = errors.New("dockerclient: forbidden")
 	ErrServer      = errors.New("dockerclient: daemon error")

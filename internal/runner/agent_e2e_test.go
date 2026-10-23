@@ -61,6 +61,7 @@ func (d *memDocker) ScaleService(context.Context, string, uint64) error {
 	return agent.ErrObjectNotFound
 }
 func (d *memDocker) RemoveVolume(context.Context, string) error { return agent.ErrObjectNotFound }
+func (d *memDocker) RemoveSecret(context.Context, string) error { return agent.ErrObjectNotFound }
 
 func (d *memDocker) Inspect(_ context.Context, kind agent.ObjectKind, id string) (agent.Object, error) {
 	d.mu.Lock()

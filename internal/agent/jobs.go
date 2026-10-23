@@ -158,6 +158,13 @@ type RunRestoreArgs struct {
 	BackendSecret string       `json:"backend_secret"`
 	KeySecret     string       `json:"key_secret"`
 	Resources     JobResources `json:"resources"`
+	// NodeID, if set and not this agent's node, makes this a delegated job
+	// like RunBackupArgs.NodeID: the agent runs on a Swarm manager node,
+	// pins the job to NodeID and skips the target volume checks only the
+	// node's own agent can make (the plan runs check-restore-target there
+	// first, in the same fenced operation). The check that no database
+	// service mounts the target needs the Swarm service list and stays here.
+	NodeID string `json:"node_id,omitempty"`
 }
 
 // RemoveJobArgs are the arguments of KindRemoveJob.
@@ -289,6 +296,9 @@ func checkRunRestore(a *RunRestoreArgs, volumeBase string) error {
 		}
 	default:
 		return invalid("restore mode %q is not allow-listed", a.Mode)
+	}
+	if strings.ContainsAny(a.NodeID, "/ \t\r\n=") {
+		return invalid("node_id %q", a.NodeID)
 	}
 	return checkResources(a.Resources)
 }
@@ -433,7 +443,11 @@ func (e *Executor) runBackup(ctx context.Context, cmd Command, a RunBackupArgs) 
 
 func (e *Executor) runRestore(ctx context.Context, cmd Command, a RunRestoreArgs) Result {
 	cluster := a.Expected.ClusterID
-	spec, res, ok := e.jobBase(a.JobName, a.Image, JobRestore, a.BackupID, a.Resources, cluster)
+	node, delegated := e.cfg.NodeID, a.NodeID != "" && a.NodeID != e.cfg.NodeID
+	if delegated {
+		node = a.NodeID
+	}
+	spec, res, ok := e.jobBaseOn(node, a.JobName, a.Image, JobRestore, a.BackupID, a.Resources, cluster)
 	if !ok {
 		return res
 	}
@@ -443,18 +457,20 @@ func (e *Executor) runRestore(ctx context.Context, cmd Command, a RunRestoreArgs
 			return Result{Status: StatusRefused, Code: CodeSameCluster,
 				Message: fmt.Sprintf("%v: target cluster %s; a restore always gets a new identity", ErrSameCluster, a.SourceClusterID)}
 		}
-		root, res, ok := e.ownedVolumeAt(ctx, a.TargetVolume, a.TargetVolumeRoot)
-		if !ok {
-			return res
-		}
-		if err := Verify(root, a.Expected); err != nil {
-			return outcome(err)
+		if !delegated {
+			root, res, ok := e.ownedVolumeAt(ctx, a.TargetVolume, a.TargetVolumeRoot)
+			if !ok {
+				return res
+			}
+			if err := Verify(root, a.Expected); err != nil {
+				return outcome(err)
+			}
+			if err := emptyOrMissing(filepath.Join(root, "data")); err != nil {
+				return outcome(err)
+			}
 		}
 		if res, ok := e.notMountedByService(ctx, a.TargetVolume, a.TargetVolumeRoot); !ok {
 			return res
-		}
-		if err := emptyOrMissing(filepath.Join(root, "data")); err != nil {
-			return outcome(err)
 		}
 		spec.Mounts = []Mount{{Type: "volume", Source: a.TargetVolume, Target: JobVolumeTarget}}
 	} else {

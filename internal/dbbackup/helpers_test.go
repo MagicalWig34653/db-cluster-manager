@@ -188,6 +188,7 @@ func (nopDocker) CreateService(context.Context, agent.ServiceSpec) (string, erro
 func (nopDocker) RemoveService(context.Context, string) error          { return agent.ErrObjectNotFound }
 func (nopDocker) ScaleService(context.Context, string, uint64) error   { return agent.ErrObjectNotFound }
 func (nopDocker) RemoveVolume(context.Context, string) error           { return agent.ErrObjectNotFound }
+func (nopDocker) RemoveSecret(context.Context, string) error           { return agent.ErrObjectNotFound }
 func (nopDocker) CreateVolume(context.Context, agent.VolumeSpec) error { return errors.New("nop") }
 func (nopDocker) UpdateService(context.Context, string, agent.ServiceSpec) error {
 	return agent.ErrObjectNotFound

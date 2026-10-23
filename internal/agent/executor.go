@@ -240,6 +240,12 @@ func (e *Executor) execute(ctx context.Context, d decoded) Result {
 		return e.execSQL(ctx, *a)
 	case *AwaitServiceArgs:
 		return e.awaitService(ctx, *a)
+	case *RemoveClusterServiceArgs:
+		return e.removeClusterService(ctx, *a)
+	case *RemoveSecretArgs:
+		return e.removeSecret(ctx, *a)
+	case *CheckRestoreTargetArgs:
+		return e.checkRestoreTarget(ctx, *a)
 	case *AllowObjectsArgs:
 		for _, id := range a.IDs {
 			e.allow(id)
@@ -504,8 +510,20 @@ func (e *Executor) startDB(ctx context.Context, a StartDBArgs) Result {
 }
 
 func (e *Executor) removeVolume(ctx context.Context, a RemoveVolumeArgs) Result {
+	absent := succeeded(map[string]string{"removed": "absent"})
+	if a.MissingOK && !e.owner.Allowed(a.VolumeID) {
+		// Only a volume that does not exist at all counts as removed; an
+		// existing one outside the allow-list stays refused below.
+		if _, err := e.docker.Inspect(ctx, KindVolume, a.VolumeID); errors.Is(err, ErrObjectNotFound) {
+			return absent
+		}
+	}
 	vol, res, ok := e.owned(ctx, KindVolume, a.VolumeID)
 	if !ok {
+		if a.MissingOK && res.Code == CodeNotFound {
+			e.forget(a.VolumeID)
+			return absent
+		}
 		return res
 	}
 	if vol.Mountpoint == "" || filepath.Clean(vol.Mountpoint) != a.VolumeRoot {
@@ -516,10 +534,15 @@ func (e *Executor) removeVolume(ctx context.Context, a RemoveVolumeArgs) Result 
 	if !ok {
 		return res
 	}
-	if err := Verify(root, a.Expected); err != nil {
+	if err := Verify(root, a.Expected); err != nil && !(a.AllowUnmarked && errors.Is(err, ErrEmptyVolume)) {
 		return outcome(err)
 	}
 	if err := e.docker.RemoveVolume(ctx, a.VolumeID); err != nil {
+		if errors.Is(err, ErrConflict) {
+			// Docker refused without effect: a container (for example the
+			// task of a service removed just before) still mounts it.
+			return Result{Status: StatusFailed, Code: CodeVolumeInUse, Message: err.Error()}
+		}
 		return outcome(err)
 	}
 	e.forget(a.VolumeID)

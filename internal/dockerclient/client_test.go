@@ -309,6 +309,17 @@ func TestRemove(t *testing.T) {
 	if r := f.last(); r.Method != "DELETE" || r.Path != "/v1.47/volumes/v1" || r.Query != "" {
 		t.Fatalf("request = %+v (force must not be set)", r)
 	}
+	f.route("DELETE /v1.47/secrets/s1", reply{status: 204})
+	if err := c.RemoveSecret(context.Background(), "s1"); err != nil {
+		t.Fatal(err)
+	}
+	f.route("DELETE /v1.47/secrets/s2", reply{status: 409, body: `{"message":"secret s2 is in use by service x"}`})
+	if err := c.RemoveSecret(context.Background(), "s2"); !errors.Is(err, agent.ErrConflict) {
+		t.Fatalf("in-use secret: %v", err)
+	}
+	if err := c.RemoveSecret(context.Background(), "../x"); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("bad id: %v", err)
+	}
 }
 
 func TestInspectKinds(t *testing.T) {

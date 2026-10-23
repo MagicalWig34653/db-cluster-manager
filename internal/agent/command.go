@@ -143,6 +143,15 @@ type RemoveVolumeArgs struct {
 	VolumeID   string   `json:"volume_id"`
 	VolumeRoot string   `json:"volume_root"`
 	Expected   Identity `json:"expected"`
+	// MissingOK reports success when the volume does not exist (a cluster
+	// deletion after a create that failed before create-volume). A volume
+	// that exists but is not owned is still refused.
+	MissingOK bool `json:"missing_ok,omitempty"`
+	// AllowUnmarked also removes an owned volume that has no identity
+	// marker and holds no file at all (a create that failed between
+	// create-volume and init-identity). A volume with data of unknown
+	// identity or a different marker is still refused.
+	AllowUnmarked bool `json:"allow_unmarked,omitempty"`
 }
 
 // InitIdentityArgs are the arguments of KindInitIdentity.
@@ -361,6 +370,12 @@ func decodeCommand(cmd Command, volumeBase string) (decoded, error) {
 		args = &ExecSQLArgs{}
 	case KindAwaitService:
 		args = &AwaitServiceArgs{}
+	case KindRemoveClusterService:
+		args = &RemoveClusterServiceArgs{}
+	case KindRemoveSecret:
+		args = &RemoveSecretArgs{}
+	case KindCheckRestoreTarget:
+		args = &CheckRestoreTargetArgs{}
 	default:
 		return decoded{}, invalid("unknown kind %q", cmd.Kind)
 	}
@@ -412,6 +427,19 @@ func checkArgs(args any, volumeBase string) error {
 		if a.ServiceName == "" || len(a.ServiceName) > maxIDLen {
 			return invalid("service_name must be 1..%d bytes", maxIDLen)
 		}
+	case *RemoveClusterServiceArgs:
+		if a.ServiceName == "" || len(a.ServiceName) > maxIDLen || a.ClusterID == "" || len(a.ClusterID) > maxIDLen {
+			return invalid("service_name and cluster_id must be 1..%d bytes", maxIDLen)
+		}
+	case *RemoveSecretArgs:
+		if !secretRe.MatchString(a.Secret) {
+			return invalid("secret %q", a.Secret)
+		}
+	case *CheckRestoreTargetArgs:
+		if a.TargetVolume == "" || !a.Expected.complete() {
+			return invalid("target_volume and its expected identity required")
+		}
+		return checkVolumeRoot(a.TargetVolumeRoot, volumeBase)
 	case *UpdateServiceArgs:
 		if a.ServiceName == "" || len(a.ServiceName) > maxIDLen {
 			return invalid("service_name must be 1..%d bytes", maxIDLen)

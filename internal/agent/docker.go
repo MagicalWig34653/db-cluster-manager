@@ -145,6 +145,12 @@ var ErrObjectNotFound = errors.New("agent: docker object not found")
 // timeout. The executor records such steps as StatusUnknown.
 var ErrOutcomeUnknown = errors.New("agent: docker outcome unknown")
 
+// ErrConflict is returned (wrapped) by DockerAPI implementations when the
+// daemon refused a request because of the object's current state (HTTP
+// 409), for example a volume still mounted by a container. The request had
+// no effect.
+var ErrConflict = errors.New("agent: docker conflict")
+
 // DockerAPI is the narrow set of Docker operations the executor uses. It is
 // implemented by internal/dockerclient (Docker Engine API) and by a test
 // fake.
@@ -153,6 +159,9 @@ type DockerAPI interface {
 	RemoveService(ctx context.Context, id string) error
 	ScaleService(ctx context.Context, id string, replicas uint64) error
 	RemoveVolume(ctx context.Context, id string) error
+	// RemoveSecret removes a Swarm secret by ID (a secret still used by a
+	// service answers with ErrConflict).
+	RemoveSecret(ctx context.Context, id string) error
 	// CreateVolume creates the volume. Creating a volume that already exists
 	// with the same options succeeds (Docker semantics).
 	CreateVolume(ctx context.Context, spec VolumeSpec) error

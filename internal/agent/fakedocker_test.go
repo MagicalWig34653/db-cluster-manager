@@ -120,6 +120,20 @@ func (f *fakeDocker) RemoveVolume(_ context.Context, id string) error {
 	return nil
 }
 
+func (f *fakeDocker) RemoveSecret(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record("remove-secret %s", id)
+	if err := f.takeFail(); err != nil {
+		return err
+	}
+	if o, ok := f.objects[id]; !ok || o.Kind != KindSecret {
+		return ErrObjectNotFound
+	}
+	delete(f.objects, id)
+	return nil
+}
+
 func (f *fakeDocker) Inspect(_ context.Context, kind ObjectKind, id string) (Object, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

@@ -36,6 +36,16 @@ func (c *Client) RemoveVolume(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, p, nil, nil, nil, true)
 }
 
+// RemoveSecret calls DELETE /secrets/{id}. A secret used by a service
+// answers 409 (ErrConflict, agent.ErrConflict).
+func (c *Client) RemoveSecret(ctx context.Context, id string) error {
+	p, err := objectPath("/secrets/", id)
+	if err != nil {
+		return err
+	}
+	return c.do(ctx, http.MethodDelete, p, nil, nil, nil, true)
+}
+
 // Inspect returns the object of the given kind. For volumes the ID is the
 // volume name. A missing object matches agent.ErrObjectNotFound.
 func (c *Client) Inspect(ctx context.Context, kind agent.ObjectKind, id string) (agent.Object, error) {
