@@ -274,6 +274,12 @@ func (s *Service) saveView(v runner.View) error {
 			sev = api.SeverityWarning
 		}
 		s.recordEvent(rec.Swarm, rec.Cluster, sev, fmt.Sprintf("operation %s (%s) %s", v.ID, v.Kind, v.Status))
+		if v.Status == runner.StatusSucceeded && rec.Kind == OpClusterDelete {
+			// Here rather than in a start callback: an approved deletion
+			// usually finishes in a resumed run (approvals.go), which has
+			// no callback.
+			s.finishClusterDelete(rec)
+		}
 	}
 	return nil
 }

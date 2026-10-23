@@ -158,15 +158,31 @@ func (o *Operations) DeleteCluster(actor authz.Subject, clusterID string) (Clust
 	}
 	o.Svc.recordEvent(c.Swarm, c.ID, api.SeverityWarning, fmt.Sprintf("%s requested deletion of cluster %s, operation %s (waits for approval)",
 		actor.ID, c.Name, opID))
-	o.start(l, op, func(runner.View) {
-		if err := Delete(o.Svc.store, CollClusters, c.ID, nil); err != nil && !errors.Is(err, ErrNotFound) {
-			o.Svc.log.Warn("manager: cluster record not deleted after the deletion operation", "cluster", c.ID, "err", err)
-			return
-		}
-		_ = Delete(o.Svc.store, CollBackupPolicies, c.ID, nil)
-		o.Svc.recordEvent(c.Swarm, c.ID, api.SeverityWarning, fmt.Sprintf("cluster %s deleted; name and capacity released (operation %s)", c.Name, opID))
-	})
+	// The cluster record is deleted when the operation is first stored as
+	// succeeded (Service.saveView -> finishClusterDelete).
+	o.start(l, op, nil)
 	return ClusterDeletion{Operation: rec, Digest: digest}, nil
+}
+
+// finishClusterDelete deletes the cluster record and its backup policy
+// after a deletion succeeded, which releases the name and the capacity. A
+// record whose DeleteOp is another operation is kept.
+func (s *Service) finishClusterDelete(rec OperationRecord) {
+	cur, ok, err := Get[ClusterRecord](s.store, CollClusters, rec.Cluster, Consistent())
+	if err != nil || !ok {
+		return
+	}
+	if cur.Value.DeleteOp != rec.ID {
+		s.log.Warn("manager: cluster record not deleted: it names another deletion", "cluster", rec.Cluster, "op", rec.ID)
+		return
+	}
+	if err := Delete(s.store, CollClusters, rec.Cluster, IfVersion(cur.Version)); err != nil {
+		s.log.Warn("manager: cluster record not deleted after the deletion operation", "cluster", rec.Cluster, "err", err)
+		return
+	}
+	_ = Delete(s.store, CollBackupPolicies, rec.Cluster, nil)
+	s.recordEvent(rec.Swarm, rec.Cluster, api.SeverityWarning, fmt.Sprintf("cluster %s deleted; name and capacity released (operation %s)",
+		cur.Value.Name, rec.ID))
 }
 
 // requireApproval adds the approval condition to every destructive command
