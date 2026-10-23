@@ -154,6 +154,31 @@ type Operation struct {
 	// Reason is the runner's short status reason (for example the unmet
 	// precondition of a paused operation).
 	Reason string `json:"reason,omitempty"`
+	// Progress is the step progress as last stored by the leader (absent
+	// before the operation started).
+	Progress *OperationProgress `json:"progress,omitempty"`
+}
+
+// OperationProgress shows where an operation is, also while a step polls
+// its preconditions (lab E4: the reason stayed stale during long gates).
+type OperationProgress struct {
+	StepsDone  int `json:"stepsDone"`
+	StepsTotal int `json:"stepsTotal"`
+	// Step is the first step that has not succeeded, with its command and
+	// target host (empty for a gate) and its attempts.
+	Step     string `json:"step,omitempty"`
+	Command  string `json:"command,omitempty"`
+	Target   string `json:"target,omitempty"`
+	State    string `json:"state,omitempty"`
+	Attempts int    `json:"attempts,omitempty"`
+	// Waiting is the latest unmet precondition or retry reason of Step;
+	// Polls counts its precondition polls and retries; Since is the time of
+	// its latest timeline entry.
+	Waiting string    `json:"waiting,omitempty"`
+	Polls   int       `json:"polls,omitempty"`
+	Since   time.Time `json:"since,omitzero"`
+	// UpdatedAt is when the leader stored this view.
+	UpdatedAt time.Time `json:"updatedAt,omitzero"`
 }
 
 // Event is one observed event, located like an Operation.

@@ -10,6 +10,7 @@ import (
 
 	"github.com/MagicalWig34653/db-cluster-manager/internal/api"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/galera"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/opjournal"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/runner"
 )
 
@@ -209,6 +210,7 @@ func (inv Inventory) Operations(context.Context) ([]api.Operation, error) {
 			State: operationState(v), StartedAt: v.RequestedAt, EndedAt: v.EndedAt}
 		if v.View != nil {
 			op.Reason = v.View.Reason
+			op.Progress = operationProgress(*v.View, v.UpdatedAt)
 		}
 		if v.ApprovalID != "" {
 			op.Approval = &api.OperationApproval{Digest: v.ApprovalDigest}
@@ -220,6 +222,48 @@ func (inv Inventory) Operations(context.Context) ([]api.Operation, error) {
 	}
 	slices.SortStableFunc(out, func(a, b api.Operation) int { return b.StartedAt.Compare(a.StartedAt) })
 	return out, nil
+}
+
+// operationProgress derives the step progress from a stored runner view:
+// the first step that has not succeeded and the latest wait or retry entry
+// of its timeline.
+func operationProgress(v runner.View, updated time.Time) *api.OperationProgress {
+	if len(v.Steps) == 0 {
+		return nil
+	}
+	p := &api.OperationProgress{StepsTotal: len(v.Steps), UpdatedAt: updated}
+	cur := -1
+	for i, s := range v.Steps {
+		if s.State == opjournal.Succeeded {
+			p.StepsDone++
+		} else if cur < 0 {
+			cur = i
+		}
+	}
+	if cur < 0 {
+		return p
+	}
+	s := v.Steps[cur]
+	p.Step, p.Command, p.Target, p.State, p.Attempts = s.ID, string(s.Command), s.Target, string(s.State), s.Attempts
+	for _, e := range v.Timeline {
+		if e.StepID != s.ID {
+			continue
+		}
+		p.Since = e.At
+		switch e.Type {
+		case runner.EventWait:
+			p.Polls++
+			p.Waiting = e.Detail
+		case runner.EventRetry:
+			p.Polls++
+			if p.Waiting == "" {
+				p.Waiting = e.Detail
+			}
+		case runner.EventStart:
+			p.Waiting = ""
+		}
+	}
+	return p
 }
 
 // Events implements api.Activity, newest first.

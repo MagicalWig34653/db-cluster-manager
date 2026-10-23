@@ -5,11 +5,13 @@ package manager
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/MagicalWig34653/db-cluster-manager/internal/api"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/galera"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/opjournal"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/runner"
 )
 
@@ -74,6 +76,61 @@ func TestOperationStateMapping(t *testing.T) {
 	}
 	if operationState(OperationRecord{}) != api.OperationPending {
 		t.Error("operation without view")
+	}
+}
+
+// TestOperationProgressWhilePolling: lab E4 could only see state and a
+// stale reason while a gate polled. The operations list now carries the
+// current step and its latest unmet precondition, refreshed while it polls.
+func TestOperationProgressWhilePolling(t *testing.T) {
+	env := newBackupEnv(t, true)
+	env.ops.MaxRetries = 10000 // keep polling the unmet source gate
+	ref, err := env.b.StartBackup(context.Background(), adminSubject, "clu-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var p *api.OperationProgress
+	waitFor(t, "progress with polls", func() bool {
+		ops, err := Inventory{Store: env.svc.Store()}.Operations(context.Background())
+		if err != nil {
+			return false
+		}
+		for _, o := range ops {
+			if o.ID == ref.ID && o.Progress != nil && o.Progress.Polls >= 2 {
+				p = o.Progress
+				return o.State == api.OperationRunning
+			}
+		}
+		return false
+	})
+	if p.Step != "01-check-source" || p.StepsDone != 0 || p.StepsTotal < 4 || p.Command != "" || p.Since.IsZero() || p.UpdatedAt.IsZero() ||
+		!strings.Contains(p.Waiting, "backup-source-eligible") {
+		t.Fatalf("progress %+v", p)
+	}
+	if err := env.ops.Abort(adminSubject, ref.ID); err != nil {
+		t.Fatal(err)
+	}
+	waitOpStatus(t, env.svc, ref.ID, runner.StatusAborted)
+}
+
+func TestOperationProgressFromView(t *testing.T) {
+	at := time.Date(2026, 10, 23, 1, 0, 0, 0, time.UTC)
+	v := runner.View{Steps: []runner.StepView{
+		{ID: "s1", State: opjournal.Succeeded, Attempts: 1},
+		{ID: "s2", Target: "h1", Command: "remove-volume", State: opjournal.Failed, Attempts: 2},
+		{ID: "s3", State: opjournal.Pending},
+	}, Timeline: []runner.Event{
+		{At: at, Type: runner.EventStart, StepID: "s2"},
+		{At: at.Add(time.Second), Type: runner.EventRetry, StepID: "s2", Detail: "step failed without effect (volume-in-use); retry 1 after 1s"},
+		{At: at.Add(2 * time.Second), Type: runner.EventResult, StepID: "s1"},
+	}}
+	p := operationProgress(v, at)
+	if p.StepsDone != 1 || p.StepsTotal != 3 || p.Step != "s2" || p.Target != "h1" || p.Attempts != 2 || p.Polls != 1 ||
+		!strings.Contains(p.Waiting, "volume-in-use") || !p.Since.Equal(at.Add(time.Second)) {
+		t.Fatalf("%+v", p)
+	}
+	if operationProgress(runner.View{}, at) != nil {
+		t.Fatal("progress without steps")
 	}
 }
 
