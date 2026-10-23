@@ -51,6 +51,10 @@ const (
 	// StepExecSQL runs one allow-listed SQL template on the node through
 	// its unix socket (agent KindExecSQL).
 	StepExecSQL StepKind = "exec-sql"
+	// StepAwaitUpdate waits until Swarm has replaced the task after an
+	// update-service (agent KindAwaitService); a following wait-synced
+	// would otherwise observe the old task (lab E4).
+	StepAwaitUpdate StepKind = "await-update"
 )
 
 // DirOwner is the numeric owner of the database directories.
@@ -342,6 +346,8 @@ func PlanCreate(topo Topology, hosts []Host, policy PlacementPolicy) (Plan, erro
 	boot := nodes[0]
 	l.add(Step{Kind: StepUpdateService, Slot: boot.Slot, HostID: boot.HostID, NodeUUID: boot.NodeUUID, Spec: specPtr(desired[0]),
 		Note: "remove " + BootstrapFlag + "; the node restarts and rejoins by IST"}, all...)
+	l.add(Step{Kind: StepAwaitUpdate, Slot: boot.Slot, HostID: boot.HostID, NodeUUID: boot.NodeUUID, Spec: specPtr(desired[0]),
+		Note: "wait until Swarm has replaced the bootstrap task"})
 	l.add(Step{Kind: StepWaitSynced, Slot: boot.Slot, HostID: boot.HostID, ClusterSize: len(nodes)})
 
 	return Plan{

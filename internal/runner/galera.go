@@ -153,6 +153,11 @@ func convertStep(p galera.Plan, gs galera.Step, b GaleraBindings) (Step, error) 
 			return Step{}, fmt.Errorf("%w: update-service without spec", ErrInvalidOperation)
 		}
 		s.Command, args = KindUpdateService, UpdateServiceArgs{ServiceName: gs.Spec.Name, Spec: orchestrate.ToAgentSpec(*gs.Spec)}
+	case galera.StepAwaitUpdate:
+		if gs.Spec == nil {
+			return Step{}, fmt.Errorf("%w: await-update without spec", ErrInvalidOperation)
+		}
+		s.Command, args = agent.KindAwaitService, agent.AwaitServiceArgs{ServiceName: gs.Spec.Name}
 	case galera.StepRemoveService:
 		id := b.ServiceIDs[gs.Slot]
 		if id == "" {
@@ -171,7 +176,7 @@ func convertStep(p galera.Plan, gs galera.Step, b GaleraBindings) (Step, error) 
 		return s, nil
 	}
 	switch gs.Kind {
-	case galera.StepCreateService, galera.StepUpdateService, galera.StepRemoveService:
+	case galera.StepCreateService, galera.StepUpdateService, galera.StepAwaitUpdate, galera.StepRemoveService:
 		if b.ServiceHost != "" {
 			s.Target = b.ServiceHost
 		}

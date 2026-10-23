@@ -654,3 +654,15 @@ func TestTCPHost(t *testing.T) {
 		t.Fatalf("inspect = %+v, %v", v, err)
 	}
 }
+
+// TestInspectServiceUpdateState: UpdateStatus.State (Docker Engine API
+// v1.47 Service object) is reported for await-service (lab E4).
+func TestInspectServiceUpdateState(t *testing.T) {
+	f := newFakeDaemon(t)
+	f.route("GET /v1.47/services/svcu", reply{status: 200, body: `{"ID":"svcu","Version":{"Index":3},"Spec":{"Name":"db-u","Labels":{"dbcm.installation":"i"}},"UpdateStatus":{"State":"updating","Message":"update in progress"}}`})
+	c := f.client(Options{})
+	o, err := c.Inspect(context.Background(), agent.KindService, "svcu")
+	if err != nil || o.UpdateState != "updating" {
+		t.Fatalf("%+v %v", o, err)
+	}
+}

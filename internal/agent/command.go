@@ -74,6 +74,24 @@ const (
 	// volume (args: ExecSQLArgs). Passwords are read from the agent's secret
 	// mount; no SQL text and no password is accepted from the manager.
 	KindExecSQL Kind = "exec-sql"
+	// KindAwaitService reports whether the last spec update of an owned
+	// service has completed (args: AwaitServiceArgs). It changes nothing (but
+	// is recorded like other commands, as it reads the allow-list); it fails
+	// with CodeUpdatePending while Swarm still replaces the task. Lab E4: a
+	// wait-synced right after update-service otherwise observed the old
+	// task, before Swarm had stopped it.
+	KindAwaitService Kind = "await-service"
+)
+
+// AwaitServiceArgs are the arguments of KindAwaitService.
+type AwaitServiceArgs struct {
+	ServiceName string `json:"service_name"`
+}
+
+// Codes of KindAwaitService.
+const (
+	CodeUpdatePending Code = "update-pending"
+	CodeUpdateFailed  Code = "update-failed"
 )
 
 // ReadOnly reports kinds without effect. They pass the fencing guard like
@@ -341,6 +359,8 @@ func decodeCommand(cmd Command, volumeBase string) (decoded, error) {
 		args = &InitVolumeDirsArgs{}
 	case KindExecSQL:
 		args = &ExecSQLArgs{}
+	case KindAwaitService:
+		args = &AwaitServiceArgs{}
 	default:
 		return decoded{}, invalid("unknown kind %q", cmd.Kind)
 	}
@@ -387,6 +407,10 @@ func checkArgs(args any, volumeBase string) error {
 	case *RemoveJobArgs:
 		if !jobNameRe.MatchString(a.JobName) {
 			return invalid("job_name %q", a.JobName)
+		}
+	case *AwaitServiceArgs:
+		if a.ServiceName == "" || len(a.ServiceName) > maxIDLen {
+			return invalid("service_name must be 1..%d bytes", maxIDLen)
 		}
 	case *UpdateServiceArgs:
 		if a.ServiceName == "" || len(a.ServiceName) > maxIDLen {

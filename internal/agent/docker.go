@@ -42,6 +42,9 @@ type Object struct {
 	// update-service compares them to refuse changes it must not make.
 	Constraints []string `json:"constraints,omitempty"` // services only
 	Replicas    uint64   `json:"replicas,omitempty"`    // replicated services only
+	// UpdateState is the Swarm UpdateStatus.State of a service ("" when it
+	// was never updated, "updating", "completed", "paused", "rollback_...").
+	UpdateState string `json:"update_state,omitempty"` // services only
 }
 
 // VolumeSpec describes a local Docker volume whose data lives in the host

@@ -94,7 +94,7 @@ func TestFromGaleraPlanCreate(t *testing.T) {
 	for range 3 {
 		want = append(want, "create-volume", "init-identity", "init-volume-dirs", "create-service", "")
 	}
-	want = append(want, "update-service", "")
+	want = append(want, "update-service", "await-service", "")
 	if !slices.Equal(kinds, want) {
 		t.Errorf("commands %q\nwant %q", kinds, want)
 	}
@@ -285,15 +285,15 @@ func TestCreatePlanEndToEndWithFakes(t *testing.T) {
 			t.Errorf("effect %s executed %d times", e, n)
 		}
 	}
-	if n := len(countEffects(h.agents)); n != 13 {
-		t.Errorf("%d distinct effects; want 13 agent commands", n)
+	if n := len(countEffects(h.agents)); n != 14 {
+		t.Errorf("%d distinct effects; want 14 agent commands", n)
 	}
 	for _, c := range h.agents[p.Nodes[2].HostID].Received() {
 		if c.StepID == "14-create-service-n3" && c.Term != 2 {
 			t.Errorf("n3 created under term %d", c.Term)
 		}
 	}
-	if !strings.HasPrefix(v2.Kind, "galera/") || len(v2.Steps) != 17 {
+	if !strings.HasPrefix(v2.Kind, "galera/") || len(v2.Steps) != 18 {
 		t.Errorf("view %s %d", v2.Kind, len(v2.Steps))
 	}
 }
@@ -382,7 +382,7 @@ func TestFromGaleraPlanServiceHost(t *testing.T) {
 	services := 0
 	for _, s := range op.Steps {
 		switch s.Command {
-		case agent.KindCreateService, KindUpdateService:
+		case agent.KindCreateService, KindUpdateService, agent.KindAwaitService:
 			services++
 			if s.Target != "mgr" {
 				t.Errorf("%s on %s, want the service host", s.ID, s.Target)
@@ -394,7 +394,7 @@ func TestFromGaleraPlanServiceHost(t *testing.T) {
 			}
 		}
 	}
-	if services != 4 {
-		t.Fatalf("service steps %d, want 3 creates and 1 update", services)
+	if services != 5 {
+		t.Fatalf("service steps %d, want 3 creates, 1 update and 1 await", services)
 	}
 }

@@ -67,7 +67,7 @@ func TestPlanCreateOrdering(t *testing.T) {
 		"create-volume:n1", "init-identity:n1", "init-volume-dirs:n1", "create-service:n1", "wait-synced:n1",
 		"create-volume:n2", "init-identity:n2", "init-volume-dirs:n2", "create-service:n2", "wait-synced:n2",
 		"create-volume:n3", "init-identity:n3", "init-volume-dirs:n3", "create-service:n3", "wait-synced:n3",
-		"update-service:n1", "wait-synced:n1",
+		"update-service:n1", "await-update:n1", "wait-synced:n1",
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("steps =\n%v\nwant\n%v", got, want)

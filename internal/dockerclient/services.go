@@ -136,6 +136,9 @@ type wireService struct {
 		} `json:"TaskTemplate"`
 		Mode wireServiceMode `json:"Mode"`
 	} `json:"Spec"`
+	UpdateStatus *struct {
+		State string `json:"State"`
+	} `json:"UpdateStatus,omitempty"`
 }
 
 // toWireSpec converts an agent spec. Service labels are also set on the
@@ -489,6 +492,9 @@ func serviceObject(s wireService) agent.Object {
 	}
 	if r := s.Spec.Mode.Replicated; r != nil {
 		o.Replicas = r.Replicas
+	}
+	if s.UpdateStatus != nil {
+		o.UpdateState = s.UpdateStatus.State
 	}
 	return o
 }

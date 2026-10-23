@@ -238,6 +238,8 @@ func (e *Executor) execute(ctx context.Context, d decoded) Result {
 		return e.initVolumeDirs(*a)
 	case *ExecSQLArgs:
 		return e.execSQL(ctx, *a)
+	case *AwaitServiceArgs:
+		return e.awaitService(ctx, *a)
 	case *AllowObjectsArgs:
 		for _, id := range a.IDs {
 			e.allow(id)
@@ -359,6 +361,32 @@ var ownershipLabels = []string{LabelInstallation, LabelCluster, LabelNode}
 // operation), the mounts (they select the data volume) and the replica count
 // (starting a database goes through start-db, which verifies the identity).
 // The creating step's labels (dbcm.op, dbcm.step) are preserved.
+// awaitService reports the update state of an owned service by name.
+func (e *Executor) awaitService(ctx context.Context, a AwaitServiceArgs) Result {
+	objs, err := e.docker.ListByLabel(ctx, KindService, LabelInstallation, e.cfg.InstallationID)
+	if err != nil {
+		return outcome(err)
+	}
+	for _, o := range objs {
+		if o.Name != a.ServiceName {
+			continue
+		}
+		if err := e.owner.Check(o, KindService); err != nil {
+			return outcome(err)
+		}
+		out := map[string]string{"update_state": o.UpdateState}
+		switch o.UpdateState {
+		case "", "completed":
+			return succeeded(out)
+		case "updating", "rollback_started":
+			return Result{Status: StatusFailed, Code: CodeUpdatePending, Message: fmt.Sprintf("service %q update state %q", a.ServiceName, o.UpdateState)}
+		default:
+			return Result{Status: StatusFailed, Code: CodeUpdateFailed, Message: fmt.Sprintf("service %q update state %q", a.ServiceName, o.UpdateState)}
+		}
+	}
+	return outcome(fmt.Errorf("%w: service %q", ErrObjectNotFound, a.ServiceName))
+}
+
 func (e *Executor) updateService(ctx context.Context, a UpdateServiceArgs) Result {
 	objs, err := e.docker.ListByLabel(ctx, KindService, LabelInstallation, e.cfg.InstallationID)
 	if err != nil {
