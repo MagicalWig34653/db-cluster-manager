@@ -178,6 +178,7 @@ const (
 	dropResponse                  // effect and record, but the answer is lost
 	crashInDoubt                  // intent recorded, effect maybe, no result recorded
 	failResult                    // StatusFailed recorded
+	failInUse                     // StatusFailed with CodeVolumeInUse (no effect)
 )
 
 var errNet = errors.New("fake network: connection reset")
@@ -296,6 +297,8 @@ func (a *fakeAgent) Handle(ctx context.Context, cmd agent.Command) (agent.Result
 		return agent.Result{}, errNet
 	case failResult:
 		res.Status, res.Code, res.Message = agent.StatusFailed, agent.CodeDocker, "simulated failure"
+	case failInUse:
+		res.Status, res.Code, res.Message = agent.StatusFailed, agent.CodeVolumeInUse, "simulated volume in use"
 	}
 	rec.result = &res
 	if f == dropResponse {

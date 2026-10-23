@@ -100,8 +100,14 @@ type Step struct {
 	// MaxRetries bounds extra attempts of this step in one run: re-queries
 	// of an unanswered command, automatic retries of idempotent kinds and
 	// precondition polls.
-	MaxRetries int    `json:"max_retries,omitempty"`
-	Note       string `json:"note,omitempty"`
+	MaxRetries int `json:"max_retries,omitempty"`
+	// RetryCodes are agent outcome codes of a failed attempt that the agent
+	// guarantees had no effect (for example volume-in-use: Docker refused
+	// the removal). Such a failure is retried like an idempotent step,
+	// under a new agent step ID and within MaxRetries, although the kind
+	// itself is not idempotent.
+	RetryCodes []agent.Code `json:"retry_codes,omitempty"`
+	Note       string       `json:"note,omitempty"`
 }
 
 // Operation is a long-running operation made of ordered steps.
@@ -172,7 +178,7 @@ func (op Operation) stepIDs() []string {
 func Idempotent(k agent.Kind) bool {
 	switch k {
 	case agent.KindInspect, agent.KindListOwned, agent.KindVerifyIdentity, agent.KindAllowObjects,
-		agent.KindCollectHealth, agent.KindReadGrastate:
+		agent.KindCollectHealth, agent.KindReadGrastate, agent.KindCheckRestoreTarget:
 		return true
 	case agent.KindAwaitService:
 		// Changes nothing: polled until Swarm finished replacing the task.

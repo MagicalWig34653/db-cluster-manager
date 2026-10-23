@@ -677,10 +677,15 @@ func (r *Runner) runStep(ctx context.Context, st *opState, spec Step, js opjourn
 			if err := r.finish(st, spec.ID, opjournal.Failed); err != nil {
 				return false, err
 			}
-			if idem && extra < spec.MaxRetries && classify(res, sendErr) == outFailed {
+			retryable := idem || (sendErr == nil && res.Code != "" && slices.Contains(spec.RetryCodes, res.Code))
+			if retryable && extra < spec.MaxRetries && classify(res, sendErr) == outFailed {
 				extra++
 				r.newAgentStep(st, spec.ID, cur.Attempts+1)
-				if err := r.wait(ctx, st, spec.ID, extra, "idempotent step failed"); err != nil {
+				why := "idempotent step failed"
+				if !idem {
+					why = "step failed without effect (" + string(res.Code) + ")"
+				}
+				if err := r.wait(ctx, st, spec.ID, extra, why); err != nil {
 					return false, err
 				}
 				state = opjournal.Failed

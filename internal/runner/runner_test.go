@@ -321,6 +321,33 @@ func TestDestructiveFailureIsNotRetried(t *testing.T) {
 	}
 }
 
+// TestRetryCodesRetryDestructiveStepWithoutEffect: a cluster deletion
+// removes a volume right after its service; Docker refuses the removal
+// (volume in use) until the task has stopped. The agent reports that code
+// as "no effect", so the step is retried under a new step ID within its
+// budget; any other failure of the same step still fails the operation.
+func TestRetryCodesRetryDestructiveStepWithoutEffect(t *testing.T) {
+	h := newHarness(t, "h1")
+	step := Step{ID: "rm", Target: "h1", Command: agent.KindRemoveService, Args: svcArgs("a"), MaxRetries: 3,
+		RetryCodes: []agent.Code{agent.CodeVolumeInUse}}
+	op := Operation{ID: "op1", Kind: "test", Locks: []string{"x"}, Steps: []Step{step}}
+	h.agents["h1"].addFault("rm", failInUse)
+	h.agents["h1"].addFault("rm~a2", failInUse)
+	v, err := h.runner("m1").Run(context.Background(), op)
+	if err != nil || v.Status != StatusSucceeded {
+		t.Fatalf("err %v status %s (%s)", err, v.Status, v.Reason)
+	}
+	if n := len(h.agents["h1"].Received()); n != 3 {
+		t.Errorf("%d attempts, want 3", n)
+	}
+	op2 := Operation{ID: "op2", Kind: "test", Locks: []string{"y"}, Steps: []Step{step}}
+	h.agents["h1"].addFault("rm", failResult)
+	v, err = h.runner("m1").Run(context.Background(), op2)
+	if err != nil || v.Status != StatusFailed {
+		t.Fatalf("other failure code: err %v status %s", err, v.Status)
+	}
+}
+
 // TestLeaderChangeAdoptsAndFencesOldTerm: m1 loses the answer of s2, then m2
 // is elected. m1 keeps believing it leads (partition) and tries to continue;
 // its journal writes and its commands are rejected. m2 adopts, queries s2,
