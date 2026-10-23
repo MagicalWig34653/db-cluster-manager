@@ -32,5 +32,6 @@ Where one feature has parts at different levels, each part is labelled separatel
 10. [Known limits](10-known-limits.md)
 11. [Operator runbook](11-operator-runbook.md)
 12. [Configuration reference](12-configuration-reference.md)
+13. [Services (stub)](13-services.md)
 
 Reading order for a first test: 1, 2, 3, then 10 before trusting anything.
