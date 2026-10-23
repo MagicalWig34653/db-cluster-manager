@@ -78,6 +78,8 @@ Script defects fixed on the way (not product code): `/root` paths used as the un
 - Not exercised: node replacement, outage diagnosis, backup schedule, logical backup, restore into a new cluster, certificate renewal/revocation, agent service update for new secrets, more than one manager replica, the UI, amd64, `REQUIRE SSL`.
 - Lima forwards guest listeners on loopback and `0.0.0.0` to host loopback (E3): the manager API (authenticated), the **unauthenticated metastore port** `127.0.0.1:18490` and the agents' mTLS port were reachable from the host's loopback during the runs.
 
+Follow-up (after this run, code and fakes only, not re-run here): cluster delete/discard, restore and inspection jobs on the manager node, Galera position from the stream, node-outage events and notifications, operation progress, restore verification and init secret teardown; see `docs/STATUS.md`, "E4 gaps closed". The plaintext chunk digests and the Lima loopback exposure remain.
+
 ## Cleanup and unrelated resources
 
 Every VM was created and removed with `bin/lab` only (development VMs: `bin/lab cleanup -apply` before the clean runs; each clean run: EXIT trap). Final `bin/lab status`: manifest empty; unrelated (never touched): `colima:default`, `lima:thermoctl-e2e-basestation`, `lima:thermoctl-test-vm` (both thermoctl VMs `Stopped` before and after). The shared Lima user-v2 network state is not a lab resource and was left alone. Host-side build artifacts lived in the git-ignored `.lab/e4/` and were deleted after the run.

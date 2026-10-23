@@ -26,8 +26,9 @@ The second UI batch assumed endpoints for hosts, Swarm connection, cluster creat
 ## Consequences and limits
 
 - Inspection restores need an explicit host: free disk space is not observed, so automatic host selection answers `no_capacity`.
-- The inspection init secret is created in the Swarm and not removed by the teardown (the Swarm connector has no secret removal yet).
-- Restore verification is not wired; "last verified restore" stays unknown and inspection operations pause at their verification gate.
+- ~~The inspection init secret is not removed by the teardown.~~ Since the E4 gap work (2026-10-23, fakes only): the teardown removes it through the agent's new `remove-secret` (ownership guard), after the instance.
+- ~~Restore verification is not wired.~~ Since the E4 gap work (fakes only): the `restore-verified` gate probes the inspection instance through the agent on its host (`collect-health` over the socket on the inspection volume) and records a `VerifyReport` of level `instance`: stream digests verified by the restore job, the instance answers, it is not in a Galera component. Table counts, checksums and markers are not compared (no catalog is captured). For the probe, the init file leaves the restored local monitoring account (`dbcm_monitor@localhost`, USAGE only) unlocked; every other restored account stays locked.
+- **Cluster deletion** (`DELETE /clusters/{id}`, operation kind `cluster/delete`) uses the same digest-bound approval; approving it needs the **delete** permission on the cluster instead of restore (`api.ApprovalPermission`, checked by the API and again by the manager). Only the administrator preset grants delete.
 - The manager does not know the proxy's writer, so backup source selection cannot avoid it.
 - The UI inbox read flag is shared by all users of the leader's inbox.
 - Dashboards and metric queries keep their documented contract; the UI's assumed shapes for them still differ and need a UI change.
@@ -47,3 +48,5 @@ The real manager in managed single-instance mode, driven through its HTTP API by
 | Abort | **Partly refuted, fixed:** an abort during a precondition wait took effect only after all polls, and a failed operation could not be aborted while it kept its runner locks. |
 
 Not covered: the backup scheduler, notification settings, outage diagnosis, node replacement, restores into a new cluster, inspection or restore jobs on worker hosts (job services must be created on a manager node; only backups were moved), more than one manager replica, any UI.
+
+After E4 (fakes and unit tests only, not run on the lab): restore and inspection jobs and the instance service are created by the service host's agent (delegated job pinned to the target host after `check-restore-target` there), cluster deletion, restore verification, init secret removal, node outage events and notifications, and step progress in `GET /operations`.
