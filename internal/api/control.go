@@ -155,15 +155,22 @@ type ClusterDeletion struct {
 	Approval OperationApproval `json:"approval"`
 }
 
+// OperationKindOutageRecovery is the kind of a guided full-outage recovery.
+const OperationKindOutageRecovery = "galera/full-outage-recovery"
+
 // ApprovalPermission is the permission an approval of an operation needs:
-// delete on the cluster for a cluster deletion, restore on the cluster's
-// backups for other operations, manager settings for unlocated ones.
+// delete on the cluster for a cluster deletion, recover on the cluster for
+// a guided full-outage recovery, restore on the cluster's backups for other
+// operations, manager settings for unlocated ones.
 func ApprovalPermission(kind, swarm, cluster string) (authz.Action, authz.Resource) {
 	if swarm == "" || cluster == "" {
 		return authz.ActionRestore, settingsResource
 	}
-	if kind == OperationKindClusterDelete {
+	switch kind {
+	case OperationKindClusterDelete:
 		return authz.ActionDelete, authz.Resource{Type: authz.ResourceCluster, Scope: authz.ClusterScope(swarm, cluster)}
+	case OperationKindOutageRecovery:
+		return authz.ActionRecover, authz.Resource{Type: authz.ResourceCluster, Scope: authz.ClusterScope(swarm, cluster)}
 	}
 	return authz.ActionRestore, backupResource(swarm, cluster)
 }

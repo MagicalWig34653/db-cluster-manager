@@ -32,8 +32,8 @@ var ErrCandidateMismatch = errors.New("manager: requested bootstrap candidate di
 // RecoverOutage plans the guided recovery of a cluster without a Primary
 // component and starts it waiting for approval. candidate must equal the
 // diagnosis candidate (the user confirms what they saw). It needs operate
-// permission on the cluster; approving needs the approval permission of
-// POST /operations/{id}/approve.
+// permission on the cluster; approving needs the separate recover
+// permission on the cluster (api.ApprovalPermission).
 func (o *Operations) RecoverOutage(ctx context.Context, actor authz.Subject, clusterID, candidate string) (OperationRecord, galera.Diagnosis, error) {
 	l, err := o.leadership()
 	if err != nil {

@@ -633,6 +633,39 @@ func TestClusterDeleteNeedsDeletePermission(t *testing.T) {
 	wantError(t, admin.do("DELETE", "/api/v1/clusters/c1", nil), http.StatusConflict, "busy")
 }
 
+// TestOutageRecoveryApprovalNeedsRecoverPermission: lab E6 approved the
+// guided recovery with the restore permission. Approving it now needs the
+// separate recover permission on the cluster; operators may request the
+// plan (operate) but not approve it, and a restore role does not cover it.
+func TestOutageRecoveryApprovalNeedsRecoverPermission(t *testing.T) {
+	cf := newControlFixture(t)
+	cf.inventory.operations = append(cf.inventory.operations, Operation{ID: "op-o1", Kind: OperationKindOutageRecovery,
+		Swarm: "s1", Cluster: "c1", State: OperationPending, Approval: &OperationApproval{Digest: digestA}})
+	if err := cf.policy.AddRole(authz.Role{Name: "restorer", Permissions: []authz.Permission{
+		{Type: authz.ResourceCluster, Action: authz.ActionRead}, {Type: authz.ResourceBackup, Action: authz.ActionRestore}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := cf.policy.AddRole(authz.Role{Name: "recoverer", Permissions: []authz.Permission{
+		{Type: authz.ResourceCluster, Action: authz.ActionRead}, {Type: authz.ResourceBackup, Action: authz.ActionRead},
+		{Type: authz.ResourceCluster, Action: authz.ActionRecover}}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, role := range []string{authz.RoleOperator, authz.RoleDatabaseAdmin, "restorer"} {
+		u := cf.loggedIn("u-"+role, role, authz.SwarmScope("s1"))
+		wantError(t, u.do("POST", "/api/v1/operations/op-o1/approve", map[string]string{"digest": digestA}), http.StatusForbidden, errForbidden)
+	}
+	if n := auditsOf(cf.fixture, authz.ActionRecover, authz.OutcomeDenied, authz.ResourceCluster); n != 3 {
+		t.Fatalf("denied approvals audited %d times, want 3", n)
+	}
+	rc := cf.loggedIn("rc", "recoverer", authz.SwarmScope("s1"))
+	wantStatus(t, rc.do("POST", "/api/v1/operations/op-o1/approve", map[string]string{"digest": digestA}), http.StatusOK)
+	// The recover permission does not approve a restore.
+	wantError(t, rc.do("POST", "/api/v1/operations/op-r1/approve", map[string]string{"digest": digestA}), http.StatusForbidden, errForbidden)
+	if n := auditsOf(cf.fixture, authz.ActionRecover, authz.OutcomeAllowed, authz.ResourceCluster); n != 1 {
+		t.Fatalf("allowed approval audited %d times", n)
+	}
+}
+
 func TestAuditOutageFailsCommandsClosed(t *testing.T) {
 	cf := newControlFixture(t)
 	admin, _, _ := cf.setupAdmin("admin")

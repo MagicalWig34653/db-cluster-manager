@@ -899,8 +899,9 @@ paths:
         safe_to_bootstrap, bootstrap the candidate, start the other nodes one
         at a time, drop the bootstrap flag) as an operation whose first stop
         waits for POST /operations/{id}/approve with the returned digest.
-        Nothing is stopped or started before that approval. Needs operate
-        permission on the cluster; audited.
+        Nothing is stopped or started before that approval. Requesting needs
+        operate permission on the cluster; approving needs the separate
+        recover permission on the cluster. Both are audited.
       operationId: outageRecovery
       parameters:
         - { $ref: "#/components/parameters/Id" }
@@ -980,8 +981,10 @@ paths:
         shown; a different digest answers 409 approval_mismatch. Needs the
         restore permission on the backups of the operation's cluster
         (administrators; not part of the operator preset), and for a
-        cluster/delete operation the delete permission on the cluster instead;
-        audited. The operation is resumed after the approval is recorded.
+        cluster/delete operation the delete permission on the cluster instead,
+        for a galera/full-outage-recovery operation the recover permission on
+        the cluster (only the administrator preset holds it; neither operate
+        nor restore covers it); audited. The operation is resumed after the approval is recorded.
       operationId: approveOperation
       parameters:
         - { $ref: "#/components/parameters/Id" }
