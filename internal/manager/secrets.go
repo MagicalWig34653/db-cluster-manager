@@ -22,12 +22,12 @@ import (
 // a sealed value to its collection and key, so a value cannot be moved to
 // another document.
 //
-// NOT SOLVED: key provisioning. Every replica needs the same data key, and
-// the key must be recoverable outside the manager (B07). FileKeyProvider
-// creates a random key file on first use, which is only adequate for a
-// single-instance lab installation or for replicas that were given the same
-// file out of band. Rotation (several key IDs) is prepared by the KeyID in
-// each sealed value but not implemented.
+// Key provisioning: FileKeyProvider creates a random key file on first use,
+// which is only adequate for a single-instance installation or replicas
+// given the same file out of band. Keyring (keyring.go) distributes the key
+// across replicas in wrapped form and keeps a recovery envelope for the
+// backup recovery key (B07). Rotation (several key IDs) is prepared by the
+// KeyID in each sealed value but not implemented.
 
 // ErrNoKey is returned when the KeyProvider does not know a key ID.
 var ErrNoKey = errors.New("manager: data key not available")
