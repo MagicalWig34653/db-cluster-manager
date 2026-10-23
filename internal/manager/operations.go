@@ -416,7 +416,11 @@ func (o *Operations) ReplaceNode(actor authz.Subject, clusterID, slot string) (O
 	if err != nil {
 		return OperationRecord{}, err
 	}
-	plan, err := galera.PlanReplacement(state, slot, galera.ReplacementPolicy{Placement: c.Placement, Now: o.Svc.cfg.Now()})
+	paused, err := o.pausedHosts(c.Swarm)
+	if err != nil {
+		return OperationRecord{}, err
+	}
+	plan, err := galera.PlanReplacement(state, slot, galera.ReplacementPolicy{Placement: c.Placement, Now: o.Svc.cfg.Now(), PausedHosts: paused})
 	if err != nil {
 		return OperationRecord{}, err
 	}

@@ -123,6 +123,9 @@ type HostRecord struct {
 	// DenyListDigest is the deny list the host's agent last confirmed
 	// (denylist.go).
 	DenyListDigest string `json:"denyListDigest,omitempty"`
+	// Maintenance is set while the host is in guided maintenance
+	// (maintenance.go); replacement on it is paused.
+	Maintenance *HostMaintenanceRecord `json:"maintenance,omitempty"`
 }
 
 // HostKey is the key of a host record.
@@ -164,6 +167,8 @@ type ClusterRecord struct {
 	// DeleteOp is the latest deletion operation (clusterdelete.go); while
 	// it runs, node health changes raise no notifications.
 	DeleteOp string `json:"deleteOp,omitempty"`
+	// Drift is the last periodic drift check (drift.go).
+	Drift *DriftObservation `json:"drift,omitempty"`
 }
 
 // Settings are manager-wide settings.

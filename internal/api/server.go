@@ -61,6 +61,8 @@ type Config struct {
 	Settings Settings
 	// Replicas backs the data keyring endpoints; nil answers 503.
 	Replicas Replicas
+	// Maintenance backs host maintenance and drift checks; nil answers 503.
+	Maintenance Maintenance
 	// RecoveryCodeIterations is passed to recovery.GenerateCodes; 0 selects
 	// the default.
 	RecoveryCodeIterations int
@@ -226,6 +228,22 @@ func (s *server) endpoints() []endpoint {
 		{
 			method: "POST", path: "/hosts/{id}/revoke", access: accessPermission,
 			action: authz.ActionUpdate, resolve: s.resolveHost, hideUnreadable: true, handle: s.handleHostEnrollment(false),
+		},
+		{
+			method: "GET", path: "/hosts/{id}/maintenance-plan", access: accessPermission,
+			action: authz.ActionRead, resolve: s.resolveHost, hideDenied: true, handle: s.handleMaintenancePlan,
+		},
+		{
+			method: "POST", path: "/hosts/{id}/maintenance", access: accessPermission,
+			action: authz.ActionOperate, resolve: s.resolveHost, hideUnreadable: true, handle: s.handleMaintenanceEnter,
+		},
+		{
+			method: "DELETE", path: "/hosts/{id}/maintenance", access: accessPermission,
+			action: authz.ActionOperate, resolve: s.resolveHost, hideUnreadable: true, handle: s.handleMaintenanceLeave,
+		},
+		{
+			method: "GET", path: "/clusters/{id}/drift", access: accessPermission,
+			action: authz.ActionRead, resolve: s.resolveCluster, hideDenied: true, handle: s.handleClusterDrift,
 		},
 		{
 			method: "POST", path: "/swarms", access: accessPermission,

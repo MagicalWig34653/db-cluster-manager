@@ -47,7 +47,9 @@ func (c *Control) Hosts(context.Context) ([]api.Host, error) {
 	}
 	out := make([]api.Host, 0, len(recs))
 	for _, r := range recs {
-		out = append(out, toAPIHost(r.Value))
+		h := toAPIHost(r.Value)
+		h.Maintenance = c.Ops.maintenanceView(r.Value.Maintenance)
+		out = append(out, h)
 	}
 	return out, nil
 }
@@ -230,6 +232,7 @@ func MapCommandError(err error) error {
 		errors.Is(err, runner.ErrNotPaused), errors.Is(err, galera.ErrNodeNotFailed), errors.Is(err, galera.ErrNotFullOutage),
 		errors.Is(err, galera.ErrReplacementPaused), errors.Is(err, ErrMissingServiceID), errors.Is(err, ErrConflict),
 		errors.Is(err, galera.ErrNoCandidate), errors.Is(err, ErrCandidateMismatch), errors.Is(err, ErrNoKeyring),
+		errors.Is(err, galera.ErrMaintenanceUnsafe), errors.Is(err, ErrInMaintenance), errors.Is(err, ErrNotInMaintenance),
 		errors.Is(err, dbbackup.ErrNoSource), errors.Is(err, dbbackup.ErrProductionTarget), errors.Is(err, dbbackup.ErrIdentityMismatch):
 		sentinel = api.ErrConflict
 	case errors.Is(err, galera.ErrInvalidTopology), errors.Is(err, galera.ErrInvalidSpec), errors.Is(err, ErrUnknownReference), errors.Is(err, dbbackup.ErrInvalidRequest),

@@ -758,6 +758,90 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
+  /hosts/{id}/maintenance-plan:
+    get:
+      summary: Preview the maintenance plan of a host
+      description: >-
+        Read-only. For every cluster with a node on the host: the steps that
+        entering maintenance (or, with end=true, leaving it) would run, their
+        conditions, warnings, and why a cluster refuses (fewer than a strict
+        majority of its nodes outside the host, an unfinished operation, a
+        missing service ID). Needs host read permission (404 when denied).
+      operationId: hostMaintenancePlan
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+        - { name: end, in: query, required: false, schema: { type: boolean } }
+      responses:
+        "200":
+          description: The plan
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MaintenancePreview" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /hosts/{id}/maintenance:
+    post:
+      summary: Put a host into guided maintenance
+      description: >-
+        Marks the host in maintenance (node replacement on it is paused) and
+        starts, per cluster with a node on the host, an operation that stops
+        those nodes gracefully one at a time, each only after every node of
+        the cluster on another host is Synced at the current cluster size.
+        Refused with 409 (and nothing changed) when any affected cluster
+        refuses (see the plan preview) or the host is already in
+        maintenance. The manager never reboots or drains the host and does
+        not change its Swarm availability; Host.maintenance.ready reports
+        when the operator may do so. Needs operate permission on the host
+        and on every affected cluster; audited.
+      operationId: enterHostMaintenance
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                reason: { type: string, maxLength: 500 }
+      responses:
+        "202":
+          description: Started
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MaintenanceStarted" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+    delete:
+      summary: End the maintenance of a host
+      description: >-
+        Starts, per affected cluster, an operation that checks each node's
+        volume identity marker, starts the node and waits until it is Synced
+        (IST or SST), one node at a time, and clears the maintenance mark.
+        409 when the host is not in maintenance or an operation of an
+        affected cluster is unfinished. Needs operate permission on the host
+        and the clusters; audited.
+      operationId: leaveHostMaintenance
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      responses:
+        "202":
+          description: Started
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MaintenanceStarted" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
   /swarms/{id}/sync:
     post:
       summary: Observe a Swarm now
@@ -832,6 +916,32 @@ paths:
         "400": { $ref: "#/components/responses/Error" }
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /clusters/{id}/drift:
+    get:
+      summary: Compare a cluster's desired state with its Swarm services
+      description: >-
+        Lists the Swarm services labelled with the cluster (read-only Docker
+        API call) and reports differences from the cluster record: missing
+        node services, services recreated outside the manager, foreign
+        labels, changed placement, nodes scaled to 0 or without a running
+        task outside maintenance and operations, and unexpected services with
+        the cluster label. Each finding proposes a manual action; nothing is
+        changed. The leader also checks periodically and records an event
+        when the findings change. Needs cluster read permission (404 when
+        denied); settings_incomplete (409) without a Swarm connector.
+      operationId: clusterDrift
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      responses:
+        "200":
+          description: Drift report
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DriftReport" }
+        "401": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
@@ -1631,6 +1741,71 @@ components:
         memoryBytes: { type: integer, format: int64 }
         observedAt: { type: string, format: date-time }
         agentIdentity: { type: boolean, description: An agent certificate is recorded (not a reachability claim) }
+        maintenance:
+          type: object
+          description: Set while the host is in guided maintenance (replacement on it is paused)
+          required: [since, by, operations, ready]
+          properties:
+            since: { type: string, format: date-time }
+            by: { type: string }
+            reason: { type: string }
+            operations: { type: array, items: { type: string } }
+            ready: { type: boolean, description: Every maintenance operation succeeded; the operator may reboot the host }
+    PlanStep:
+      type: object
+      required: [id, kind]
+      properties:
+        id: { type: string }
+        kind: { type: string }
+        slot: { type: string }
+        note: { type: string }
+        conditions: { type: array, items: { type: string } }
+    MaintenancePreview:
+      type: object
+      required: [host, end, safe, clusters]
+      properties:
+        host: { type: string }
+        end: { type: boolean }
+        safe: { type: boolean, description: No affected cluster refuses }
+        clusters:
+          type: array
+          items:
+            type: object
+            required: [cluster, name, slots, steps]
+            properties:
+              cluster: { type: string }
+              name: { type: string }
+              slots: { type: array, items: { type: string } }
+              steps: { type: array, items: { $ref: "#/components/schemas/PlanStep" } }
+              warnings: { type: array, items: { type: string } }
+              refused: { type: string, description: Why this cluster cannot lose its nodes on the host now }
+    MaintenanceStarted:
+      type: object
+      required: [host, operations, plan]
+      properties:
+        host: { type: string }
+        operations: { type: array, items: { $ref: "#/components/schemas/OperationRef" } }
+        plan: { $ref: "#/components/schemas/MaintenancePreview" }
+    DriftReport:
+      type: object
+      required: [cluster, checkedAt, inSync, findings]
+      properties:
+        cluster: { type: string }
+        checkedAt: { type: string, format: date-time }
+        inSync: { type: boolean }
+        findings:
+          type: array
+          items:
+            type: object
+            required: [kind, detail, action]
+            properties:
+              kind:
+                type: string
+                enum: [missing-service, service-replaced-outside, foreign-labels, placement-changed, stopped, not-running, unexpected-service]
+              slot: { type: string }
+              service: { type: string }
+              detail: { type: string }
+              action: { type: string, description: Proposed manual next step; nothing is changed automatically }
     ResourceAmount:
       type: object
       properties:

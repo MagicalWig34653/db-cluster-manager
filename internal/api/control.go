@@ -67,6 +67,8 @@ type Host struct {
 	// AgentIdentity reports whether an agent certificate is recorded for
 	// the host (it says nothing about the agent being reachable).
 	AgentIdentity bool `json:"agentIdentity,omitempty"`
+	// Maintenance is set while the host is in guided maintenance.
+	Maintenance *HostMaintenance `json:"maintenance,omitempty"`
 }
 
 // Enrollment states of a host.
