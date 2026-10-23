@@ -16,6 +16,10 @@ Der Manager ist ein einzelnes Go-Programm, das die Web-Oberfläche und die HTTP-
 | Auth-Modus (`auth.enabled`, ohne `manager`-Abschnitt) | Einrichtung, Passkey-Anmeldung, Wiederherstellung, Rollen, Audit ins Log. Zustand **nur im Speicher**, beim Neustart weg; Ressourcen-Endpunkte antworten 503. | [Fakes] (Software-Authenticator) |
 | Verwalteter Modus (`manager`-Abschnitt) | Replizierter Speicher, Swarm-Anbindung, Agenten-Deployment, Cluster-Operationen, Backups, Monitoring. | [Lab-VMs] als Einzelinstanz, als Prozess auf einem Swarm-Manager-Knoten (E4-E6). |
 
+![Übersichtsseite der Weboberfläche](../../assets/screenshots/de-light-overview.png)
+
+*Bildschirmfoto aus dem Entwicklungs-Mock-Server (`npm run dev:mock`, erfundene Beispieldaten), nicht von einem echten Manager.*
+
 ## Voraussetzungen
 
 - Ein Docker Swarm (E4-E6: Docker 29.9.2 auf Ubuntu 26.04, arm64). Die Kompatibilitätsmatrix kennt nur Docker 29.x. Für amd64 gibt es **keinen** Nachweis [Ungetestet].

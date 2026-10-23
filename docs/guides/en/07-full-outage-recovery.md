@@ -18,6 +18,10 @@ A full outage means no node is in a Primary component. The manager **never** boo
 
 The operation needs operate permission on the cluster; approval currently uses the **restore** permission on the cluster's backups (a known mismatch, see [Known limits](10-known-limits.md)).
 
+![Full-outage diagnosis and planned recovery waiting for approval](../../assets/screenshots/en-light-outage-recovery.png)
+
+*Screenshot from the development mock server (`npm run dev:mock`, invented sample data), not from a real manager.*
+
 ## Choosing the candidate
 
 Follow the diagnosis. If it names none, do not force one. If you suspect divergence or data loss, restore from a backup instead ([Backups and restore](05-backup-restore.md)). The manager never promotes a cross-cluster backup copy automatically.

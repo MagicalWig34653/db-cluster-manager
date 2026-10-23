@@ -1,0 +1,143 @@
+/* Landing page only (docs/_layouts/landing.html); the other pages use jekyll-theme-minimal. */
+:root {
+	--bg: #ffffff;
+	--fg: #18181b;
+	--muted: #52525b;
+	--border: #e4e4e7;
+	--card: #fafafa;
+	--accent: #2f6fe8;
+	--accent-soft: #e8f0fe;
+	--lab: #0f766e;
+	--fakes: #b45309;
+	--mock: #6d28d9;
+	--planned: #52525b;
+	color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+	:root {
+		--bg: #0b0b0e;
+		--fg: #f4f4f5;
+		--muted: #a1a1aa;
+		--border: #27272a;
+		--card: #131317;
+		--accent: #7aa7ff;
+		--accent-soft: #172036;
+		--lab: #5eead4;
+		--fakes: #fbbf24;
+		--mock: #c4b5fd;
+		--planned: #a1a1aa;
+	}
+}
+* { box-sizing: border-box; }
+body {
+	margin: 0;
+	background: var(--bg);
+	color: var(--fg);
+	font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
+}
+a { color: var(--accent); }
+img { max-width: 100%; height: auto; }
+code { font-size: 0.9em; }
+
+.topbar {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem 1.5rem;
+	align-items: center;
+	justify-content: space-between;
+	max-width: 1120px;
+	margin: 0 auto;
+	padding: 1rem;
+	border-bottom: 1px solid var(--border);
+}
+.brand {
+	display: inline-flex;
+	gap: 0.6rem;
+	align-items: center;
+	color: var(--fg);
+	font-weight: 600;
+	text-decoration: none;
+}
+.topbar nav { display: flex; flex-wrap: wrap; gap: 1rem; font-size: 0.95rem; }
+.topbar nav a { color: var(--muted); text-decoration: none; }
+.topbar nav a:hover { color: var(--fg); }
+
+.landing { max-width: 1120px; margin: 0 auto; padding: 0 1rem 3rem; }
+.landing h2 { margin-top: 3rem; font-size: 1.5rem; }
+
+.hero { padding: 3rem 0 1rem; text-align: center; }
+.hero .logo { width: 128px; height: 128px; }
+.hero h1 { margin: 0.5rem 0; font-size: clamp(2rem, 5vw, 3rem); line-height: 1.15; }
+.hero .lead { max-width: 46rem; margin: 0.5rem auto 1rem; color: var(--muted); font-size: 1.15rem; }
+.badges { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; align-items: center; }
+.badges p { margin: 0; display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; }
+.status-badge {
+	display: inline-block;
+	padding: 0.2rem 0.75rem;
+	border: 1px solid var(--fakes);
+	border-radius: 999px;
+	color: var(--fakes);
+	font-size: 0.85rem;
+	font-weight: 600;
+}
+.cta { display: flex; flex-wrap: wrap; gap: 0.75rem; justify-content: center; margin: 1.5rem 0 0; }
+.cta p { margin: 0; display: flex; flex-wrap: wrap; gap: 0.75rem; justify-content: center; }
+.cta a {
+	display: inline-block;
+	padding: 0.55rem 1.1rem;
+	border-radius: 0.5rem;
+	background: var(--accent);
+	color: #fff;
+	font-weight: 600;
+	text-decoration: none;
+}
+.cta a + a, .cta p a:not(:first-child) { background: var(--accent-soft); color: var(--accent); }
+
+.shot { margin: 2rem 0 0; text-align: center; }
+.shot img { border: 1px solid var(--border); border-radius: 0.75rem; box-shadow: 0 10px 30px rgb(0 0 0 / 0.12); }
+.shot em, .caption { display: block; margin-top: 0.5rem; color: var(--muted); font-size: 0.85rem; }
+
+.grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+	gap: 1rem;
+}
+.card {
+	padding: 1rem 1.1rem;
+	border: 1px solid var(--border);
+	border-radius: 0.75rem;
+	background: var(--card);
+}
+.card h3 { margin: 0 0 0.4rem; font-size: 1.05rem; }
+.card p { margin: 0.4rem 0 0; color: var(--muted); font-size: 0.95rem; }
+.tag {
+	display: inline-block;
+	padding: 0 0.5rem;
+	border: 1px solid currentColor;
+	border-radius: 999px;
+	font-size: 0.75rem;
+	font-weight: 600;
+	white-space: nowrap;
+}
+.tag.lab { color: var(--lab); }
+.tag.fakes { color: var(--fakes); }
+.tag.mock { color: var(--mock); }
+.tag.planned { color: var(--planned); }
+
+.gallery {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+	gap: 1.25rem;
+}
+.gallery p { margin: 0; color: var(--muted); font-size: 0.85rem; }
+.gallery img { border: 1px solid var(--border); border-radius: 0.5rem; }
+
+.docs-list { columns: 2 280px; padding-left: 1.2rem; }
+.footer {
+	max-width: 1120px;
+	margin: 0 auto;
+	padding: 1.5rem 1rem 2.5rem;
+	border-top: 1px solid var(--border);
+	color: var(--muted);
+	font-size: 0.85rem;
+}

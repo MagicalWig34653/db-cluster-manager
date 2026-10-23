@@ -16,6 +16,10 @@ The manager is one Go binary that serves the web UI and the HTTP API (`/api/v1`)
 | Auth mode (`auth.enabled`, no `manager` section) | Setup, passkey login, recovery, roles, audit to the log. State is **in memory** and lost on restart; resource endpoints answer 503. | [Fakes] (software authenticator) |
 | Managed mode (`manager` section) | Replicated store, Swarm connection, agent deployment, cluster operations, backups, monitoring. | [Lab VMs] as a single instance run as a process on a Swarm manager node (E4-E6). |
 
+![Overview page of the web UI](../../assets/screenshots/en-light-overview.png)
+
+*Screenshot from the development mock server (`npm run dev:mock`, invented sample data), not from a real manager.*
+
 ## Requirements
 
 - A Docker Swarm (E4-E6 used Docker 29.9.2 on Ubuntu 26.04, arm64). The compatibility matrix is seeded only with Docker 29.x. amd64 has **no** evidence yet [Untested].

@@ -16,6 +16,10 @@ Ein Knoten, dessen Host verloren ist oder dessen Daten Sie bewusst verwerfen. Ei
 
 Die Operation wählt nach den Platzierungsregeln einen Zielhost, legt ein neues Volume mit Identitätsmarker an und lässt den neuen Knoten per Zustandsübertragung (SST) beitreten. Die genaue Schrittfolge ist in `internal/galera` und `internal/runner` definiert und lief nur gegen Fakes; lesen Sie den Plan in der Operationsansicht, bevor Sie sich darauf verlassen.
 
+![Cluster-Detail mit Knotentabelle](../../assets/screenshots/de-light-cluster-detail.png)
+
+*Bildschirmfoto aus dem Entwicklungs-Mock-Server (`npm run dev:mock`, erfundene Beispieldaten), nicht von einem echten Manager.*
+
 ## Prüfstand
 
 | Teil | Stufe |

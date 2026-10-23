@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="{{ site.lang | default: 'en' }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>{{ page.title | default: site.title }}</title>
+<meta name="description" content="{{ page.description | default: site.description }}">
+<link rel="stylesheet" href="{{ '/assets/css/landing.css' | relative_url }}">
+{% include head-custom.html %}
+</head>
+<body>
+<header class="topbar">
+<a class="brand" href="{{ '/' | relative_url }}"><img src="{{ '/assets/icon/favicon.svg' | relative_url }}" alt="" width="28" height="28">{{ site.title }}</a>
+<nav aria-label="Documentation">
+<a href="{{ '/guides/en/' | relative_url }}">Guides (EN)</a>
+<a href="{{ '/guides/de/' | relative_url }}">Handbuch (DE)</a>
+<a href="{{ '/STATUS.html' | relative_url }}">Status</a>
+{% if site.github.repository_url %}<a href="{{ site.github.repository_url }}">GitHub</a>{% endif %}
+</nav>
+</header>
+<main class="landing">
+{{ content }}
+</main>
+<footer class="footer">
+<p>{{ site.title }} (working title) · AGPL-3.0-only · Screenshots come from the development mock server with invented data.</p>
+</footer>
+</body>
+</html>

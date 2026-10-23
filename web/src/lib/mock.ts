@@ -59,7 +59,15 @@ fixtures['/api/v1/clusters'] = { items: clusters };
 const GiB = 1024 ** 3;
 const digest = (c: string) => c.repeat(64);
 const operations: Record<string, unknown>[] = [
-	{ id: 'mock-op-3', kind: 'mock-backup', swarm: 'mock-swarm-a', cluster: 'mock-galera', state: 'running', startedAt: ago(4) },
+	{
+		id: 'mock-op-3',
+		kind: 'mock-backup',
+		swarm: 'mock-swarm-a',
+		cluster: 'mock-galera',
+		state: 'running',
+		startedAt: ago(4),
+		progress: { stepsDone: 2, stepsTotal: 5, step: 'mock-stream-backup', command: 'mock-backup', target: 'mock-host-1', state: 'running', attempts: 1, since: ago(2), updatedAt: ago(0) }
+	},
 	{ id: 'mock-op-4', kind: 'mock-inspection-restore', swarm: 'mock-swarm-a', cluster: 'mock-galera', state: 'pending', startedAt: ago(3), reason: 'mock: waiting for approval', approval: { digest: digest('a') } },
 	{ id: 'mock-op-5', kind: 'mock-replace-node', swarm: 'mock-swarm-a', cluster: 'mock-galera', state: 'pending', startedAt: ago(30), reason: 'mock: quorum not certain' },
 	{ id: 'mock-op-2', kind: 'mock-failover', swarm: 'mock-swarm-a', cluster: 'mock-galera', state: 'succeeded', startedAt: ago(90), endedAt: ago(88), approval: { digest: digest('b'), approvedBy: 'mock-admin', approvedAt: ago(89) } },
@@ -115,6 +123,23 @@ function metrics(body: { selector: string; start: number; end: number; stepSecon
 	return { start: body.start, end: body.end, stepSeconds: body.stepSeconds, windowSeconds: body.stepSeconds, series, gaps: [{ from: body.start, to: body.start + 5 * step, reason: 'mock: archive unreachable' }] };
 }
 
+// A new operation that waits for approval (outage recovery, cluster deletion).
+function pendingOp(kind: string, cluster: string, digestChar: string, stepsTotal: number) {
+	const op = {
+		id: `mock-op-${kind}-${operations.length}`,
+		kind,
+		swarm: 'mock-swarm-a',
+		cluster,
+		state: 'pending',
+		startedAt: new Date().toISOString(),
+		reason: 'mock: waiting for approval',
+		approval: { digest: digest(digestChar) },
+		progress: { stepsDone: 0, stepsTotal, step: 'mock-approval-gate', state: 'pending' }
+	};
+	operations.unshift(op);
+	return op;
+}
+
 const json = (status: number, body: unknown) =>
 	new Response(body === undefined ? null : JSON.stringify(body), {
 		status,
@@ -137,6 +162,11 @@ export const mockFetch: typeof fetch = async (input, init) => {
 		if (path === '/api/v1/metrics/query') return json(200, metrics(body));
 		if (path === '/api/v1/clusters') return json(202, { id: 'mock-op-new', kind: 'create-cluster' });
 		if (/\/nodes\/[^/]+\/replace$/.test(path)) return json(409, { error: 'requires_guided_recovery' });
+		const or = path.match(/^\/api\/v1\/clusters\/([^/]+)\/outage-recovery$/);
+		if (or) {
+			const op = pendingOp('mock-full-outage-recovery', decodeURIComponent(or[1]), 'd', 6);
+			return json(202, { id: op.id, kind: op.kind, candidate: body.candidate, approval: op.approval, diagnosis: fixtures['/api/v1/clusters/mock-galera/outage-diagnosis'] });
+		}
 		let m = path.match(/^\/api\/v1\/hosts\/([^/]+)\/(enroll|revoke)$/);
 		if (m) {
 			const h = hosts.find((h) => h.nodeId === decodeURIComponent(m![1]));
@@ -199,6 +229,11 @@ export const mockFetch: typeof fetch = async (input, init) => {
 		}
 		dashboards[idx] = { ...cur, ...body };
 		return json(200, dashboards[idx]);
+	}
+	const del = url.pathname.match(/^\/api\/v1\/clusters\/([^/]+)$/);
+	if (del && method === 'DELETE') {
+		const op = pendingOp('mock-delete-cluster', decodeURIComponent(del[1]), 'e', 4);
+		return json(202, { id: op.id, kind: op.kind, approval: op.approval });
 	}
 	if (method === 'PUT' || method === 'DELETE') return json(503, { error: 'unavailable' });
 	if (url.pathname === '/api/v1/operations') return json(200, { items: operations });

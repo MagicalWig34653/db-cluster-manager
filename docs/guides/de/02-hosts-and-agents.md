@@ -30,6 +30,10 @@ Der Manager legt sie noch nicht an und prüft sie nicht. Fehlendes führt zu ver
 
 Beobachtet: drei Agenten innerhalb von 2 s eingebunden, `agentIdentity: true` [Lab-VMs]. Die Host-Seite der Oberfläche lief nur gegen Fakes [Fakes].
 
+![Host-Seite mit Einbindungsstatus](../../assets/screenshots/de-light-hosts.png)
+
+*Bildschirmfoto aus dem Entwicklungs-Mock-Server (`npm run dev:mock`, erfundene Beispieldaten), nicht von einem echten Manager.*
+
 ## Host sperren
 
 `POST /api/v1/hosts/{id}/revoke` markiert den Host als gesperrt und widerruft das Agentenzertifikat. Der Widerruf mit echtem Agenten, die Zertifikatserneuerung und die Verteilung der Sperrliste an Agenten wurden **nicht** geprüft [Ungetestet]; die Verteilung der Sperrliste ist eine bekannte Lücke.

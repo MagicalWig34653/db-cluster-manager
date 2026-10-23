@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - 'docs/**'
+      - 'README.md'
       - 'scripts/check_docs.py'
       - '.github/workflows/pages.yml'
   workflow_dispatch:

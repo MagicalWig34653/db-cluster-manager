@@ -12,6 +12,10 @@ title: Creating a Galera cluster
 
 Placement precedence is allow list, exclusion, preference, then automatic scoring; allow-listing and excluding the same host is `policy_conflict`. Other coarse errors: `no_capacity`, `settings_incomplete`, `cluster_exists`. The response is an operation (`202`); watch it with `GET /api/v1/operations` (progress shows the current step, attempts and the latest unmet precondition).
 
+![Cluster creation wizard, first step](../../assets/screenshots/en-light-create-wizard.png)
+
+*Screenshot from the development mock server (`npm run dev:mock`, invented sample data), not from a real manager.*
+
 ## What the operation does
 
 One pinned Swarm service per node, each with its own local volume and an identity marker; the bootstrap node starts first, the others join one at a time; the monitoring account (`dbcm_monitor`) and backup account (`dbcm_backup`) are created and replicate. A node never starts on an empty volume that lacks the marker (the E2 "empty-volume trap" guard).
@@ -30,6 +34,10 @@ One pinned Swarm service per node, each with its own local volume and an identit
 ## Failed create and deletion
 
 A failed create keeps the cluster name and planned capacity until you delete it. `DELETE /api/v1/clusters/{id}` plans a `cluster/delete` operation and returns an approval digest; nothing is removed before `POST /api/v1/operations/{id}/approve` with that digest. It needs the **delete** permission (administrator preset only). Deletion removes only objects the installation created (database services, unfinished job services, inspection instances, node volumes after the identity check). Operator networks and secrets, host directories of local volumes and backups in the backend are kept. This path ran only against fakes [Fakes]; the E4 failed-create cleanup was done by hand.
+
+![Planned cluster deletion waiting for approval](../../assets/screenshots/en-light-delete-approval.png)
+
+*Screenshot from the development mock server (`npm run dev:mock`, invented sample data), not from a real manager.*
 
 ## After creation
 

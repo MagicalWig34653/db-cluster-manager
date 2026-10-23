@@ -18,6 +18,10 @@ Ein Totalausfall heißt: Kein Knoten ist in einer Primary-Komponente. Der Manage
 
 Die Operation braucht die Berechtigung Betreiben auf dem Cluster; die Freigabe nutzt derzeit die Berechtigung **Wiederherstellen** auf den Backups des Clusters (bekannte Unstimmigkeit, siehe [Bekannte Grenzen](10-known-limits.md)).
 
+![Diagnose bei Komplettausfall und geplante Wiederherstellung mit Freigabe](../../assets/screenshots/de-light-outage-recovery.png)
+
+*Bildschirmfoto aus dem Entwicklungs-Mock-Server (`npm run dev:mock`, erfundene Beispieldaten), nicht von einem echten Manager.*
+
 ## Wahl des Kandidaten
 
 Folgen Sie der Diagnose. Nennt sie keinen, erzwingen Sie keinen. Bei Verdacht auf Divergenz oder Datenverlust stellen Sie aus einem Backup wieder her ([Backups](05-backup-restore.md)). Der Manager befördert nie automatisch eine Cluster-übergreifende Backup-Kopie.

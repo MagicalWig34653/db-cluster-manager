@@ -12,6 +12,10 @@ title: Galera-Cluster anlegen
 
 Vorrang bei der Platzierung: Positivliste, Ausschluss, Präferenz, dann automatische Bewertung; derselbe Host in Positivliste und Ausschluss ergibt `policy_conflict`. Weitere grobe Fehler: `no_capacity`, `settings_incomplete`, `cluster_exists`. Die Antwort ist eine Operation (`202`); verfolgen Sie sie mit `GET /api/v1/operations` (der Fortschritt zeigt aktuellen Schritt, Versuche und die letzte ungeklärte Vorbedingung).
 
+![Assistent zum Anlegen eines Clusters, erster Schritt](../../assets/screenshots/de-light-create-wizard.png)
+
+*Bildschirmfoto aus dem Entwicklungs-Mock-Server (`npm run dev:mock`, erfundene Beispieldaten), nicht von einem echten Manager.*
+
 ## Was die Operation tut
 
 Ein festgelegter Swarm-Dienst je Knoten, jeweils mit eigenem lokalem Volume und Identitätsmarker; der Bootstrap-Knoten startet zuerst, die übrigen treten nacheinander bei; Monitoring-Konto (`dbcm_monitor`) und Backup-Konto (`dbcm_backup`) werden angelegt und repliziert. Ein Knoten startet nie auf einem leeren Volume ohne Marker (Schutz vor der „Leeres-Volume-Falle“ aus E2).
@@ -30,6 +34,10 @@ Ein festgelegter Swarm-Dienst je Knoten, jeweils mit eigenem lokalem Volume und 
 ## Fehlgeschlagene Erstellung und Löschen
 
 Eine fehlgeschlagene Erstellung behält Clustername und geplante Kapazität, bis Sie den Cluster löschen. `DELETE /api/v1/clusters/{id}` plant eine `cluster/delete`-Operation und liefert einen Freigabe-Digest; vor `POST /api/v1/operations/{id}/approve` mit diesem Digest wird nichts entfernt. Nötig ist die Berechtigung **Löschen** (nur Administrator-Preset). Entfernt werden nur Objekte, die die Installation angelegt hat (Datenbankdienste, unfertige Job-Dienste, Inspektionsinstanzen, Knoten-Volumes nach der Identitätsprüfung). Netzwerke und Secrets des Betreibers, Host-Verzeichnisse lokaler Volumes und Backups im Ziel bleiben erhalten. Dieser Pfad lief nur gegen Fakes [Fakes]; die Bereinigung der fehlgeschlagenen Erstellung in E4 geschah von Hand.
+
+![Geplantes Löschen wartet auf Freigabe](../../assets/screenshots/de-light-delete-approval.png)
+
+*Bildschirmfoto aus dem Entwicklungs-Mock-Server (`npm run dev:mock`, erfundene Beispieldaten), nicht von einem echten Manager.*
 
 ## Nach der Erstellung
 

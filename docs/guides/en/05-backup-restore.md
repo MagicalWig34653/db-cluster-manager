@@ -21,11 +21,19 @@ Backend settings (`manager.backup.backendConfigFile`), a recovery-key Swarm secr
 - Now: `POST /api/v1/clusters/{id}/backups` (permission: backup on the cluster). The manager picks an eligible source node and creates an owned job pinned to that host.
 - Schedule: `PUT /api/v1/clusters/{id}/backup-policy` with `enabled`, a five-field cron-like `schedule`, `timezone`, `missed` (`skip` or `run-once`), `method: physical`. `GET /api/v1/backups` lists `lastBackupAt`, `nextRunAt`, `lastVerifiedRestoreAt`; absent means unknown, not "none".
 
+![Backups page](../../assets/screenshots/en-light-backups.png)
+
+*Screenshot from the development mock server (`npm run dev:mock`, invented sample data), not from a real manager.*
+
 ## Restore with inspection and approval
 
 1. `POST /api/v1/restores/inspect` with `cluster`, optional `backup` (default: newest completed), `host`, `keySecret`, `ttlMinutes` (at most 1440). The response contains the **approval digest** and, only once, the inspection account password.
 2. Review the plan, then `POST /api/v1/operations/{id}/approve` with the digest. A wrong digest answers `409 approval_mismatch`. Approval needs the **restore** permission (administrators; not in the operator preset).
 3. The job restores, the instance starts, and you connect with the one-time `dbcm_inspect` account. At expiry the instance, its volume and its init secret are removed.
+
+![Operations with approval and progress](../../assets/screenshots/en-light-operations.png)
+
+*Screenshot from the development mock server (`npm run dev:mock`, invented sample data), not from a real manager.*
 
 ## Verification levels
 

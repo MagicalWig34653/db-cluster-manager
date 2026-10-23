@@ -30,6 +30,10 @@ The manager does not create or check these yet. Missing items give confusing fai
 
 Observed: three agents enrolled within 2 s and reported `agentIdentity: true` [Lab VMs]. The UI host page was only run against fakes [Fakes].
 
+![Hosts page with enrollment state](../../assets/screenshots/en-light-hosts.png)
+
+*Screenshot from the development mock server (`npm run dev:mock`, invented sample data), not from a real manager.*
+
 ## Revoke a host
 
 `POST /api/v1/hosts/{id}/revoke` marks the host revoked and revokes the agent certificate. The revocation path with a real agent, certificate renewal and the distribution of the deny list to agents were **not** exercised [Untested]; deny-list distribution is a known gap.
