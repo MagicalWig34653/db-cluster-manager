@@ -122,6 +122,34 @@ func requireApprovalOnDestructive(t *testing.T, op runner.Operation, id string) 
 	}
 }
 
+func TestClusterRestoreDelegatesJobToServiceHost(t *testing.T) {
+	base := t.TempDir()
+	req := clusterRestoreRequest(base)
+	req.Bindings.ServiceHost = "m1"
+	res, err := ClusterRestorePlan(req, prodInventory())
+	if err != nil {
+		t.Fatal(err)
+	}
+	n1 := res.Plan.Nodes[0].HostID
+	var seen []string
+	for _, st := range res.Operation.Steps {
+		switch st.Command {
+		case agent.KindCheckRestoreTarget:
+			seen = append(seen, "check@"+st.Target)
+		case agent.KindRunRestore:
+			var a agent.RunRestoreArgs
+			_ = json.Unmarshal(st.Args, &a)
+			seen = append(seen, "restore@"+st.Target+"->"+a.NodeID)
+		case agent.KindRemoveJob:
+			seen = append(seen, "remove-job@"+st.Target)
+		}
+	}
+	if !slices.Equal(seen, []string{"check@" + n1, "restore@m1->" + n1, "remove-job@m1"}) {
+		t.Fatalf("restore steps %v", seen)
+	}
+	requireApprovalOnDestructive(t, res.Operation, "appr-1")
+}
+
 func TestClusterRestoreSafetyRefusals(t *testing.T) {
 	base := t.TempDir()
 	cases := map[string]struct {
@@ -297,6 +325,105 @@ func TestTeardownPlan(t *testing.T) {
 	}
 	if got := ExpiredSessions([]InspectionSession{s}, s.ExpiresAt); len(got) != 1 {
 		t.Fatal("not expired at expiry")
+	}
+}
+
+// TestInspectionDelegatesServiceCommandsToManagerNode: lab E4 F12 found
+// that only a Swarm manager's agent can create services. With a service
+// host, the restore job, its removal and the instance service run there
+// (the job pinned to the inspection host), while the volume steps and a
+// read-only check of the restore target stay on the inspection host.
+func TestInspectionDelegatesServiceCommandsToManagerNode(t *testing.T) {
+	base := t.TempDir()
+	req := inspectionRequest(base)
+	req.ServiceHost = "m1"
+	res, err := InspectionRestorePlan(req, prodInventory())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[agent.Kind]string{
+		agent.KindCreateVolume: "h4", agent.KindInitIdentity: "h4", agent.KindInitVolumeDirs: "h4", agent.KindCheckRestoreTarget: "h4",
+		agent.KindRunRestore: "m1", agent.KindRemoveJob: "m1", agent.KindCreateService: "m1",
+	}
+	var order []agent.Kind
+	for _, st := range res.Operation.Steps {
+		if st.Command == "" {
+			continue
+		}
+		order = append(order, st.Command)
+		if st.Target != want[st.Command] {
+			t.Errorf("%s on %s, want %s", st.Command, st.Target, want[st.Command])
+		}
+		if st.Command == agent.KindRunRestore {
+			var a agent.RunRestoreArgs
+			if err := json.Unmarshal(st.Args, &a); err != nil || a.NodeID != "h4" {
+				t.Fatalf("restore job not pinned to the inspection host: %+v %v", a, err)
+			}
+		}
+	}
+	if i, j := slices.Index(order, agent.KindCheckRestoreTarget), slices.Index(order, agent.KindRunRestore); i < 0 || i+1 != j {
+		t.Fatalf("check-restore-target must directly precede the delegated job: %v", order)
+	}
+	requireApprovalOnDestructive(t, res.Operation, "appr-2")
+	requireAgentAccepts(t, res.Operation, base)
+
+	// The service host is the inspection host: nothing is delegated.
+	req.ServiceHost, req.OpID = "h4", "op-i2"
+	res, err = InspectionRestorePlan(req, prodInventory())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, st := range res.Operation.Steps {
+		if st.Command == agent.KindCheckRestoreTarget || (st.Command != "" && st.Target != "h4") {
+			t.Fatalf("step %s on %s", st.Command, st.Target)
+		}
+	}
+}
+
+func TestTeardownRemovesInitSecretOnServiceHost(t *testing.T) {
+	base := t.TempDir()
+	res, err := InspectionRestorePlan(inspectionRequest(base), prodInventory())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := res.Session
+	s.ServiceID = "svc-9"
+	req := TeardownRequest{OpID: "op-t1", InstallationID: testInst, Session: s, ServiceHost: "m1", InitSecret: InitSecretName(s.ID), MaxRetries: 5}
+	op, err := TeardownPlanFor(req, prodInventory())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, st := range op.Steps {
+		got = append(got, string(st.Command)+"@"+st.Target)
+	}
+	if !slices.Equal(got, []string{"remove-job@m1", "remove-service@m1", "remove-secret@m1", "remove-volume@h4"}) {
+		t.Fatalf("steps %v", got)
+	}
+	if !slices.Equal(op.Steps[2].RetryCodes, []agent.Code{agent.CodeSecretInUse}) || !slices.Equal(op.Steps[3].RetryCodes, []agent.Code{agent.CodeVolumeInUse}) {
+		t.Fatalf("retry codes %v %v", op.Steps[2].RetryCodes, op.Steps[3].RetryCodes)
+	}
+	requireAgentAccepts(t, op, base)
+	// Only the session's own init secret is removed.
+	req.InitSecret = "dbcm-recovery-key"
+	if _, err := TeardownPlanFor(req, prodInventory()); !errors.Is(err, ErrProductionTarget) {
+		t.Fatalf("foreign secret: %v", err)
+	}
+}
+
+func TestRenderInspectionInitKeepsOnlyLocalAccounts(t *testing.T) {
+	pw, _ := NewInspectionPassword()
+	sql, err := RenderInspectionInitKeeping(pw, LocalAccount{User: "dbcm_monitor", Host: "localhost"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(sql, "OR (User = 'dbcm_monitor' AND Host = 'localhost')") || strings.Contains(sql, "dbcm_monitor'@") {
+		t.Fatalf("monitor account not exempted (or touched):\n%s", sql)
+	}
+	for _, bad := range []LocalAccount{{User: "dbcm_backup", Host: "%"}, {User: "x' OR 1=1 --", Host: "localhost"}, {User: InspectionAccount, Host: "localhost"}} {
+		if _, err := RenderInspectionInitKeeping(pw, bad); !errors.Is(err, ErrInvalidRequest) {
+			t.Fatalf("%+v accepted: %v", bad, err)
+		}
 	}
 }
 

@@ -159,16 +159,22 @@ func ClusterRestorePlan(req ClusterRestoreRequest, inv Inventory) (ClusterRestor
 	job := JobName(m.BackupID, "restore-"+c.Name)
 	expected := agent.Identity{InstallationID: c.InstallationID, ClusterID: c.ClusterID, NodeUUID: n1.NodeUUID}
 	prev := op.Steps[at].ID
-	ins := []runner.Step{
-		command("restore-"+n1.Slot, n1.HostID, agent.KindRunRestore, agent.RunRestoreArgs{
-			JobName: job, Image: req.JobImage, Mode: agent.RestorePhysical, BackupID: m.BackupID, Object: m.Object,
-			ApprovalID: req.ApprovalID, SourceClusterID: req.Source.ClusterID,
-			TargetVolume: n1.Volume, TargetVolumeRoot: filepath.Join(b.VolumeBase, n1.Volume), Expected: expected,
-			BackendSecret: req.Source.BackendSecret, KeySecret: req.Source.KeySecret, Resources: req.Job,
-		}),
-		gate("wait-restore-"+n1.Slot, runner.Condition{Kind: CondRestoreComplete, Target: job}),
-		command("remove-restore-job-"+n1.Slot, n1.HostID, agent.KindRemoveJob, agent.RemoveJobArgs{JobName: job}),
+	ra := agent.RunRestoreArgs{
+		JobName: job, Image: req.JobImage, Mode: agent.RestorePhysical, BackupID: m.BackupID, Object: m.Object,
+		ApprovalID: req.ApprovalID, SourceClusterID: req.Source.ClusterID,
+		TargetVolume: n1.Volume, TargetVolumeRoot: filepath.Join(b.VolumeBase, n1.Volume), Expected: expected,
+		BackendSecret: req.Source.BackendSecret, KeySecret: req.Source.KeySecret, Resources: req.Job,
 	}
+	jobHost, local := delegate(b.ServiceHost, n1.HostID, &ra)
+	var ins []runner.Step
+	if local != nil {
+		ins = append(ins, command("check-restore-target-"+n1.Slot, n1.HostID, agent.KindCheckRestoreTarget, *local))
+	}
+	ins = append(ins,
+		command("restore-"+n1.Slot, jobHost, agent.KindRunRestore, ra),
+		gate("wait-restore-"+n1.Slot, runner.Condition{Kind: CondRestoreComplete, Target: job}),
+		command("remove-restore-job-"+n1.Slot, jobHost, agent.KindRemoveJob, agent.RemoveJobArgs{JobName: job}),
+	)
 	for i := range ins {
 		ins[i].Timeout, ins[i].MaxRetries = b.StepTimeout, b.MaxRetries
 		ins[i].Preconditions = append([]runner.Condition{{Kind: runner.CondStepSucceeded, StepID: prev}}, ins[i].Preconditions...)
@@ -188,6 +194,30 @@ func ClusterRestorePlan(req ClusterRestoreRequest, inv Inventory) (ClusterRestor
 		return ClusterRestoreResult{}, err
 	}
 	return ClusterRestoreResult{Operation: op, Plan: plan}, nil
+}
+
+// delegate routes a physical restore job to the service host (a Swarm
+// manager node: only managers accept service changes, lab E4 F12) when the
+// target host is another node. The job is then pinned to the target host
+// (RunRestoreArgs.NodeID) and the target volume checks, which only the
+// target host's agent can make, are returned as a check-restore-target to
+// run there first. Without a service host, or when it is the target host,
+// the job stays on the target host and nothing is returned.
+func delegate(serviceHost, targetHost string, a *agent.RunRestoreArgs) (string, *agent.CheckRestoreTargetArgs) {
+	if serviceHost == "" || serviceHost == targetHost {
+		return targetHost, nil
+	}
+	a.NodeID = targetHost
+	return serviceHost, &agent.CheckRestoreTargetArgs{TargetVolume: a.TargetVolume, TargetVolumeRoot: a.TargetVolumeRoot, Expected: a.Expected}
+}
+
+// serviceTarget is the host that runs service commands: the service host
+// if set, else the node's own host.
+func serviceTarget(serviceHost, host string) string {
+	if serviceHost != "" {
+		return serviceHost
+	}
+	return host
 }
 
 // Inspection restores.
@@ -240,6 +270,10 @@ type InspectionRequest struct {
 	// (lab E4: without it the inspection paused at its first gate poll,
 	// before the restore job could report).
 	MaxRetries int
+	// ServiceHost is the host ID of the agent that creates and removes the
+	// restore job and the instance service (a Swarm manager node, lab E4
+	// F12); empty keeps them on Host. Volume steps always run on Host.
+	ServiceHost string
 }
 
 // InspectionSession is the durable record of an inspection instance. The
@@ -372,15 +406,22 @@ func InspectionRestorePlan(req InspectionRequest, inv Inventory) (InspectionResu
 		VolumeRoot: sess.VolumeRoot, Token: agent.NewIdentityToken{TokenID: req.TokenID, Identity: expected}}))
 	s.add(command("init-volume-dirs", sess.HostID, agent.KindInitVolumeDirs, agent.InitVolumeDirsArgs{
 		VolumeRoot: sess.VolumeRoot, Expected: expected, UID: galera.DefaultDBUID, GID: galera.DefaultDBGID}))
-	s.add(command("restore", sess.HostID, agent.KindRunRestore, agent.RunRestoreArgs{
+	ra := agent.RunRestoreArgs{
 		JobName: sess.JobName, Image: req.JobImage, Mode: agent.RestorePhysical, BackupID: m.BackupID, Object: m.Object,
 		ApprovalID: req.ApprovalID, SourceClusterID: req.Source.ClusterID,
 		TargetVolume: sess.Volume, TargetVolumeRoot: sess.VolumeRoot, Expected: expected,
 		BackendSecret: req.Source.BackendSecret, KeySecret: req.Source.KeySecret, Resources: req.Job,
-	}))
+	}
+	jobHost, local := delegate(req.ServiceHost, sess.HostID, &ra)
+	if local != nil {
+		s.add(command("check-restore-target", sess.HostID, agent.KindCheckRestoreTarget, *local))
+	}
+	s.add(command("restore", jobHost, agent.KindRunRestore, ra))
 	s.add(gate("wait-restore", runner.Condition{Kind: CondRestoreComplete, Target: sess.JobName}))
-	s.add(command("remove-job", sess.HostID, agent.KindRemoveJob, agent.RemoveJobArgs{JobName: sess.JobName}))
-	s.add(command("create-instance", sess.HostID, agent.KindCreateService, spec))
+	s.add(command("remove-job", jobHost, agent.KindRemoveJob, agent.RemoveJobArgs{JobName: sess.JobName}))
+	s.add(command("create-instance", serviceTarget(req.ServiceHost, sess.HostID), agent.KindCreateService, spec))
+	// The manager evaluates CondRestoreVerified by probing the instance
+	// through the agent on its host and records a VerifyReport.
 	s.add(gate("verify", runner.Condition{Kind: CondRestoreVerified, Target: sess.ID}))
 	op := runner.Operation{ID: req.OpID, Kind: OpInspection, Locks: []string{"inspection/" + sess.ID, "backup/" + m.BackupID}, Steps: s.list}
 	requireApproval(&op, req.ApprovalID)
@@ -390,30 +431,71 @@ func InspectionRestorePlan(req InspectionRequest, inv Inventory) (InspectionResu
 	return InspectionResult{Operation: op, Session: sess, Spec: spec}, nil
 }
 
-// TeardownPlan removes an inspection instance: the restore job (if left),
-// the instance service (if created) and the volume after the agent has
-// verified its inspection identity. It refuses sessions whose identity is
-// not an inspection identity or that overlap production. It needs no
-// approval, so expiry cleanup can run unattended (B03).
+// TeardownPlan removes an inspection instance (TeardownPlanFor without a
+// service host or init secret).
 func TeardownPlan(opID, installationID string, s InspectionSession, inv Inventory) (runner.Operation, error) {
-	if opID == "" || installationID == "" || !sessionRe.MatchString(s.ID) || s.HostID == "" {
+	return TeardownPlanFor(TeardownRequest{OpID: opID, InstallationID: installationID, Session: s}, inv)
+}
+
+// TeardownRequest describes the teardown of one inspection session.
+type TeardownRequest struct {
+	OpID           string
+	InstallationID string
+	Session        InspectionSession
+	// ServiceHost runs the service and secret commands (a Swarm manager
+	// node); empty keeps them on the session's host.
+	ServiceHost string
+	// InitSecret is the session's init secret (created by the manager for
+	// this session only); empty skips its removal.
+	InitSecret  string
+	StepTimeout time.Duration
+	MaxRetries  int
+}
+
+// InitSecretName is the name of the init secret the manager creates for an
+// inspection session; it is the only secret a teardown removes.
+func InitSecretName(session string) string { return "dbcm-inspect-" + session + "-init" }
+
+// TeardownPlanFor removes an inspection instance: the restore job (if left),
+// the instance service (if created), the session's init secret and the
+// volume after the agent has verified its inspection identity (a volume
+// that was never created counts as removed). It refuses sessions whose
+// identity is not an inspection identity, that overlap production, and a
+// secret that is not the session's init secret. It needs no approval, so
+// expiry cleanup can run unattended (B03).
+func TeardownPlanFor(req TeardownRequest, inv Inventory) (runner.Operation, error) {
+	s := req.Session
+	if req.OpID == "" || req.InstallationID == "" || !sessionRe.MatchString(s.ID) || s.HostID == "" {
 		return runner.Operation{}, fmt.Errorf("%w: op, installation, session and host required", ErrInvalidRequest)
 	}
 	if s.ClusterID != InspectionPrefix+s.ID || !strings.HasPrefix(s.Volume, "dbcm-inspect-"+s.ID+"-") {
 		return runner.Operation{}, fmt.Errorf("%w: session %s does not describe an inspection instance", ErrProductionTarget, s.ID)
 	}
+	if req.InitSecret != "" && req.InitSecret != InitSecretName(s.ID) {
+		return runner.Operation{}, fmt.Errorf("%w: secret %s is not the init secret of session %s", ErrProductionTarget, req.InitSecret, s.ID)
+	}
 	if err := inv.overlap(s.ClusterID, "", s.Network, []string{s.Volume}, []string{s.NodeUUID}, nil); err != nil {
 		return runner.Operation{}, err
 	}
-	st := &steps{}
-	st.add(command("remove-job", s.HostID, agent.KindRemoveJob, agent.RemoveJobArgs{JobName: s.JobName}))
+	svc := serviceTarget(req.ServiceHost, s.HostID)
+	st := &steps{b: BackupRequest{StepTimeout: req.StepTimeout, MaxRetries: req.MaxRetries}}
+	st.add(command("remove-job", svc, agent.KindRemoveJob, agent.RemoveJobArgs{JobName: s.JobName}))
 	if s.ServiceID != "" {
-		st.add(command("remove-instance", s.HostID, agent.KindRemoveService, agent.ServiceArgs{ServiceID: s.ServiceID}))
+		st.add(command("remove-instance", svc, agent.KindRemoveService, agent.ServiceArgs{ServiceID: s.ServiceID}))
 	}
-	st.add(command("remove-volume", s.HostID, agent.KindRemoveVolume, agent.RemoveVolumeArgs{
-		VolumeID: s.Volume, VolumeRoot: s.VolumeRoot,
-		Expected: agent.Identity{InstallationID: installationID, ClusterID: s.ClusterID, NodeUUID: s.NodeUUID}}))
-	op := runner.Operation{ID: opID, Kind: OpTeardown, Locks: []string{"inspection/" + s.ID}, Steps: st.list}
+	if req.InitSecret != "" {
+		// After the instance: Docker refuses to remove a secret in use.
+		rs := command("remove-init-secret", svc, agent.KindRemoveSecret, agent.RemoveSecretArgs{Secret: req.InitSecret})
+		rs.RetryCodes = []agent.Code{agent.CodeSecretInUse}
+		st.add(rs)
+	}
+	rv := command("remove-volume", s.HostID, agent.KindRemoveVolume, agent.RemoveVolumeArgs{
+		VolumeID: s.Volume, VolumeRoot: s.VolumeRoot, MissingOK: true,
+		Expected: agent.Identity{InstallationID: req.InstallationID, ClusterID: s.ClusterID, NodeUUID: s.NodeUUID}})
+	// The instance's task may hold the volume until it has stopped.
+	rv.RetryCodes = []agent.Code{agent.CodeVolumeInUse}
+	st.add(rv)
+	op := runner.Operation{ID: req.OpID, Kind: OpTeardown, Locks: []string{"inspection/" + s.ID}, Steps: st.list}
 	return op, op.Validate()
 }
 
@@ -484,15 +566,45 @@ var hexPasswordRe = regexp.MustCompile(`^[0-9a-f]{32,128}$`)
 // the data but cannot log in), creates the read-only inspection account and
 // clears replication configuration. Requires MariaDB 10.4+ (global_priv).
 func RenderInspectionInit(password string) (string, error) {
+	return RenderInspectionInitKeeping(password)
+}
+
+// LocalAccount names a restored account that stays usable in an
+// inspection instance.
+type LocalAccount struct {
+	User string
+	Host string
+}
+
+var (
+	accountUserRe = regexp.MustCompile(`^[A-Za-z0-9_]{1,32}$`)
+	// Only local accounts may stay unlocked: they can log in through the
+	// instance's unix socket on its volume, not over the network.
+	localHosts = map[string]bool{"localhost": true, "127.0.0.1": true, "::1": true}
+)
+
+// RenderInspectionInitKeeping is RenderInspectionInit, but leaves the
+// given restored local accounts unlocked. The manager keeps the monitoring
+// account (USAGE only, localhost) so the agent on the instance's host can
+// verify that the instance answers (restore verification) with the
+// credentials it already has; no password is rendered for it.
+func RenderInspectionInitKeeping(password string, keep ...LocalAccount) (string, error) {
 	if !hexPasswordRe.MatchString(password) {
 		return "", fmt.Errorf("%w: inspection password must come from NewInspectionPassword", ErrInvalidRequest)
+	}
+	exempt := "(User = '" + InspectionAccount + "' AND Host = '%')"
+	for _, k := range keep {
+		if !accountUserRe.MatchString(k.User) || !localHosts[k.Host] || k.User == InspectionAccount {
+			return "", fmt.Errorf("%w: account %q@%q cannot stay unlocked (local accounts only)", ErrInvalidRequest, k.User, k.Host)
+		}
+		exempt += " OR (User = '" + k.User + "' AND Host = '" + k.Host + "')"
 	}
 	acct := "'" + InspectionAccount + "'@'%'"
 	return strings.Join([]string{
 		"SET SESSION sql_log_bin=0;",
 		"STOP ALL SLAVES;",
 		"RESET SLAVE ALL;",
-		"UPDATE mysql.global_priv SET Priv = JSON_SET(Priv, '$.account_locked', true) WHERE NOT (User = '" + InspectionAccount + "' AND Host = '%');",
+		"UPDATE mysql.global_priv SET Priv = JSON_SET(Priv, '$.account_locked', true) WHERE NOT (" + exempt + ");",
 		"FLUSH PRIVILEGES;",
 		"CREATE USER IF NOT EXISTS " + acct + " IDENTIFIED BY '" + password + "';",
 		"ALTER USER " + acct + " IDENTIFIED BY '" + password + "' ACCOUNT UNLOCK;",

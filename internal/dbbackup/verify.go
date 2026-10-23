@@ -41,12 +41,66 @@ type CheckResult struct {
 // report counts as "verified restore" (backup success and verified
 // restorability are distinct states).
 type VerifyReport struct {
-	BackupID  string        `json:"backup_id"`
-	ClusterID string        `json:"cluster_id"`
-	SessionID string        `json:"session_id"`
-	At        time.Time     `json:"at"`
-	Checks    []CheckResult `json:"checks"`
-	Passed    bool          `json:"passed"`
+	BackupID  string `json:"backup_id"`
+	ClusterID string `json:"cluster_id"`
+	SessionID string `json:"session_id"`
+	// Level is what was verified: VerifyLevelFull (EvaluateVerification) or
+	// VerifyLevelInstance (EvaluateInstance). Empty in older reports means
+	// full.
+	Level  string        `json:"level,omitempty"`
+	At     time.Time     `json:"at"`
+	Checks []CheckResult `json:"checks"`
+	Passed bool          `json:"passed"`
+}
+
+// Verification levels of a VerifyReport.
+const (
+	// VerifyLevelFull: stream, server start, table counts, checksum sample
+	// and marker were compared with the manifest.
+	VerifyLevelFull = "full"
+	// VerifyLevelInstance: the restore job verified the stream digests and
+	// the started instance answered a status query while isolated from any
+	// Galera cluster. Table contents were not compared.
+	VerifyLevelInstance = "instance"
+)
+
+// InstanceProbe is what the manager observed of an inspection instance
+// through the agent on its host.
+type InstanceProbe struct {
+	// StreamVerified comes from the restore job's status report.
+	StreamVerified bool
+	// Answered: the instance accepted a login and answered SHOW GLOBAL
+	// STATUS; Status holds its wsrep_% variables.
+	Answered bool
+	Status   map[string]string
+	// Detail explains a probe that did not answer.
+	Detail string
+}
+
+// EvaluateInstance is the minimal restore verification: the stream digests
+// matched, the instance answers, and it is not part of a Galera component
+// (wsrep not ready, not connected, not Primary). A report is passed only
+// when every check passed.
+func EvaluateInstance(m Manifest, sessionID string, p InstanceProbe, now time.Time) VerifyReport {
+	r := VerifyReport{BackupID: m.BackupID, ClusterID: m.ClusterID, SessionID: sessionID, Level: VerifyLevelInstance, At: now.UTC()}
+	add := func(name string, ok bool, f string, a ...any) {
+		r.Checks = append(r.Checks, CheckResult{Name: name, Passed: ok, Detail: fmt.Sprintf(f, a...)})
+	}
+	add("stream-integrity", p.StreamVerified, "chunk and total digests matched the manifest: %v", p.StreamVerified)
+	if p.Answered {
+		add("instance-answers", true, "status query answered")
+	} else {
+		add("instance-answers", false, "no answer: %s", p.Detail)
+	}
+	st := p.Status
+	isolated := p.Answered && st["wsrep_ready"] != "ON" && st["wsrep_connected"] != "ON" && st["wsrep_cluster_status"] != "Primary"
+	add("galera-isolated", isolated, "wsrep_ready=%q wsrep_connected=%q wsrep_cluster_status=%q",
+		st["wsrep_ready"], st["wsrep_connected"], st["wsrep_cluster_status"])
+	r.Passed = true
+	for _, c := range r.Checks {
+		r.Passed = r.Passed && c.Passed
+	}
+	return r
 }
 
 // SampleTables picks up to n "schema.table" names deterministically for a
@@ -80,7 +134,7 @@ func SampleTables(c *Catalog, backupID string, n int) []string {
 // baselines (tables without a baseline only report their value), and the
 // backup marker when the manifest carries one.
 func EvaluateVerification(m Manifest, sessionID string, obs Observation, now time.Time) VerifyReport {
-	r := VerifyReport{BackupID: m.BackupID, ClusterID: m.ClusterID, SessionID: sessionID, At: now.UTC()}
+	r := VerifyReport{BackupID: m.BackupID, ClusterID: m.ClusterID, SessionID: sessionID, Level: VerifyLevelFull, At: now.UTC()}
 	add := func(name string, ok bool, f string, a ...any) {
 		r.Checks = append(r.Checks, CheckResult{Name: name, Passed: ok, Detail: fmt.Sprintf(f, a...)})
 	}
