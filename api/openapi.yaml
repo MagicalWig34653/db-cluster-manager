@@ -1409,6 +1409,108 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
+  /image-builds:
+    get:
+      summary: Recorded image builds (proposal, fakes only)
+      description: >-
+        Lists build jobs newest first without their logs: spec hash, context
+        hash, base image digests, resulting image digest, SBOM placeholder
+        (always `not_generated` for now) and status. Needs image_build read
+        permission. Not wired into the manager yet (503 unavailable).
+      operationId: listImageBuilds
+      responses:
+        "200":
+          description: Build jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ImageBuildJob" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Plan an image build, then start it with the plan's approval digest
+      description: >-
+        Without `approvalDigest` the request is validated and answered with
+        the plan (200): the generated Dockerfile, context files, steps,
+        warnings and a human-readable explanation. Nothing is built or
+        pushed. With `approvalDigest` equal to the `digest` of the reviewed
+        plan the build starts and the job is returned (202); a digest that
+        does not match the freshly recomputed plan is refused with 409
+        approval_mismatch. The base image must be pinned by digest; PHP
+        extensions, php.ini settings and packages come from allow-lists and
+        the custom nginx snippet is size-limited and checked for dangerous
+        directives (400 bad_request otherwise). Needs image_build create
+        permission; both the preview and the start are audited as create
+        decisions. Fakes only: no image has been built by a real builder.
+      operationId: createImageBuild
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ImageBuildRequest" }
+      responses:
+        "200":
+          description: Plan preview
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ImageBuildResult" }
+        "202":
+          description: Build started (or finished, with the fake builder)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ImageBuildResult" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /registries:
+    get:
+      summary: Configured container registries (proposal, fakes only)
+      description: >-
+        Lists registries without credentials; `credentialSet` only says that
+        one is stored. Needs registry read permission.
+      operationId: listRegistries
+      responses:
+        "200":
+          description: Registries
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Registry" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Register an external registry
+      description: >-
+        Registers a GHCR, Docker Hub or generic OCI registry. The service
+        checks reachability and the credentials before storing anything; the
+        password is stored through the secret store and never returned or
+        logged. A rejected credential answers 400. Managed registries are a
+        deployment specification only and cannot be registered here. Needs
+        registry create permission (administrator preset only); audited.
+      operationId: createExternalRegistry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ExternalRegistryInput" }
+      responses:
+        "201":
+          description: Registry registered
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Registry" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
 security:
   - sessionCookie: []
 components:
@@ -1983,3 +2085,122 @@ components:
             from: { type: string }
             username: { type: string }
             password: { type: string, writeOnly: true, maxLength: 1024 }
+    ImageBuildRequest:
+      type: object
+      additionalProperties: false
+      required: [spec, target]
+      properties:
+        spec:
+          type: object
+          description: Web server composition (nginx, PHP-FPM, extensions, ini, snippet, packages, platforms)
+          required: [name, nginx]
+          properties:
+            name: { type: string }
+            nginx:
+              type: object
+              required: [version, baseDigest]
+              properties:
+                version: { type: string, example: "1.27" }
+                baseDigest: { type: string, pattern: "^sha256:[0-9a-f]{64}$" }
+                options: { type: object }
+                customSnippet: { type: string, maxLength: 8192 }
+            php:
+              type: object
+              properties:
+                version: { type: string, example: "8.3" }
+                extensions: { type: array, items: { type: string } }
+                ini: { type: object, additionalProperties: { type: string } }
+            extraPackages: { type: array, items: { type: string } }
+            platforms: { type: array, items: { type: string, enum: [linux/amd64, linux/arm64] } }
+        target:
+          type: object
+          required: [registry, repository, tag]
+          properties:
+            registry: { type: string }
+            repository: { type: string }
+            tag: { type: string }
+        approvalDigest: { type: string, description: "Digest of the reviewed plan; starts the build" }
+    ImageBuildResult:
+      type: object
+      properties:
+        plan: { $ref: "#/components/schemas/ImageBuildPlan" }
+        job: { $ref: "#/components/schemas/ImageBuildJob" }
+    ImageBuildPlan:
+      type: object
+      required: [specHash, contextHash, digest, dockerfile, steps, warnings, explanation]
+      properties:
+        specHash: { type: string }
+        contextHash: { type: string }
+        digest: { type: string }
+        baseImage: { type: string }
+        platforms: { type: array, items: { type: string } }
+        target: { type: object }
+        reference: { type: string }
+        dockerfile: { type: string }
+        files:
+          type: array
+          items:
+            type: object
+            properties:
+              path: { type: string }
+              mode: { type: integer }
+              content: { type: string }
+        steps:
+          type: array
+          items:
+            type: object
+            properties:
+              order: { type: integer }
+              title: { type: string }
+              detail: { type: string }
+        warnings: { type: array, items: { type: string } }
+        explanation: { type: string }
+    ImageBuildJob:
+      type: object
+      required: [id, status, specHash, contextHash, planDigest, reference, sbom]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        status: { type: string, enum: [running, succeeded, failed] }
+        spec: { type: object }
+        specHash: { type: string }
+        contextHash: { type: string }
+        planDigest: { type: string }
+        reference: { type: string }
+        platforms: { type: array, items: { type: string } }
+        baseDigests: { type: array, items: { type: string } }
+        imageDigest: { type: string }
+        sbom:
+          type: object
+          properties:
+            status: { type: string, enum: [not_generated] }
+            ref: { type: string }
+        error: { type: string, description: Redacted }
+        log: { type: string, description: "Redacted build log; omitted in lists" }
+        logSize: { type: integer }
+        logTruncated: { type: boolean }
+        requestedBy: { type: string }
+        createdAt: { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time }
+    Registry:
+      type: object
+      required: [id, name, kind, credentialSet]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        kind: { type: string, enum: [ghcr, dockerhub, generic, managed] }
+        endpoint: { type: string }
+        username: { type: string }
+        credentialSet: { type: boolean }
+        createdBy: { type: string }
+    ExternalRegistryInput:
+      type: object
+      additionalProperties: false
+      required: [id, name, kind]
+      properties:
+        id: { type: string, pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$" }
+        name: { type: string, maxLength: 100 }
+        kind: { type: string, enum: [ghcr, dockerhub, generic] }
+        endpoint: { type: string, description: "Required for generic; https (http only for loopback)" }
+        username: { type: string, maxLength: 512 }
+        password: { type: string, writeOnly: true, maxLength: 4096 }

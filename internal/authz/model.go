@@ -80,6 +80,10 @@ const (
 	ResourceUserAccount  ResourceType = "user_account"
 	ResourceRole         ResourceType = "role"
 	ResourceAuditLog     ResourceType = "audit_log"
+	// ResourceImageBuild and ResourceRegistry belong to the image build
+	// service (X08, proposal). They are global resources.
+	ResourceImageBuild ResourceType = "image_build"
+	ResourceRegistry   ResourceType = "registry"
 	// ResourceAny is a wildcard usable in permissions only, never in a check.
 	ResourceAny ResourceType = "*"
 )
@@ -89,6 +93,7 @@ var knownResourceTypes = map[ResourceType]bool{
 	ResourceDatabase: true, ResourceDatabaseUser: true, ResourceBackup: true,
 	ResourceSettings: true, ResourceDashboard: true, ResourceUserAccount: true,
 	ResourceRole: true, ResourceAuditLog: true,
+	ResourceImageBuild: true, ResourceRegistry: true,
 }
 
 // Valid reports whether t is a concrete, known resource type.
