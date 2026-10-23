@@ -280,7 +280,7 @@ func TestErrorsCarryNoSecrets(t *testing.T) {
 	c2, _ := newClient(t, f2, "x")
 	_, err = c2.Resolve(ctx, "a/b", "nope")
 	var re *Error
-	if !errors.As(err, &re) || re.Code != "MANIFEST_UNKNOWN" || !errors.Is(err, ErrNotFound) {
+	if !errors.As(err, &re) || re.Status != 404 || !errors.Is(err, ErrNotFound) {
 		t.Fatalf("%v", err)
 	}
 	// Connection failure: no URL in the message.
