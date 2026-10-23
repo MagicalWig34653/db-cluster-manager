@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+	"sync/atomic"
 
 	"github.com/MagicalWig34653/db-cluster-manager/internal/fencing"
 )
@@ -68,6 +69,8 @@ type Executor struct {
 	docker     DockerAPI
 	owner      *OwnershipGuard
 	state      *persistentState
+	// deny is the distributed deny list for TLS handshakes (denylist.go).
+	deny atomic.Pointer[map[string]bool]
 }
 
 var _ Handler = (*Executor)(nil)
@@ -104,7 +107,10 @@ func NewExecutor(cfg Config) (*Executor, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Executor{cfg: cfg, volumeBase: resolvedBase, guard: cfg.Guard, docker: cfg.Docker, owner: owner, state: st}, nil
+	e := &Executor{cfg: cfg, volumeBase: resolvedBase, guard: cfg.Guard, docker: cfg.Docker, owner: owner, state: st}
+	m := denySet(st.Denied)
+	e.deny.Store(&m)
+	return e, nil
 }
 
 // Handle validates cmd, admits its term, and either returns the recorded
@@ -256,6 +262,8 @@ func (e *Executor) execute(ctx context.Context, d decoded) Result {
 		return e.markSafe(*a)
 	case *WsrepRecoverArgs:
 		return e.wsrepRecover(ctx, *a)
+	case *SetDenyListArgs:
+		return e.setDenyList(*a)
 	case *AllowObjectsArgs:
 		for _, id := range a.IDs {
 			e.allow(id)

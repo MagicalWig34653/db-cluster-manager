@@ -32,6 +32,10 @@ type persistentState struct {
 	Allowed []string `json:"allowed_ids"`
 	// ConsumedTokens maps a used new-identity token ID to its node UUID.
 	ConsumedTokens map[string]string `json:"consumed_tokens"`
+	// DenyRevision and Denied are the distributed certificate deny list
+	// (denylist.go).
+	DenyRevision int64    `json:"deny_revision,omitempty"`
+	Denied       []string `json:"denied_serials,omitempty"`
 }
 
 func newPersistentState() *persistentState {

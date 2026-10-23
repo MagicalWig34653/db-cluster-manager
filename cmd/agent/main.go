@@ -268,7 +268,7 @@ func run(ctx context.Context, o options, logw io.Writer, ready func(addr string)
 			return err
 		}
 		srv, err = agent.NewMTLSServer(ex, agent.MTLSServerConfig{Certificate: holder.Certificate, ClientCAs: pool,
-			ManagerIdentity: certs.ManagerURI(o.installation)})
+			ManagerIdentity: certs.ManagerURI(o.installation), Revoked: ex.Revoked})
 		if err != nil {
 			return err
 		}

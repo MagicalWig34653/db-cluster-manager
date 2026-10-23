@@ -380,6 +380,8 @@ func decodeCommand(cmd Command, volumeBase string) (decoded, error) {
 		args = &MarkSafeArgs{}
 	case KindWsrepRecover:
 		args = &WsrepRecoverArgs{}
+	case KindSetDenyList:
+		args = &SetDenyListArgs{}
 	default:
 		return decoded{}, invalid("unknown kind %q", cmd.Kind)
 	}
@@ -423,6 +425,8 @@ func checkArgs(args any, volumeBase string) error {
 		return checkRunBackup(a, volumeBase)
 	case *RunRestoreArgs:
 		return checkRunRestore(a, volumeBase)
+	case *SetDenyListArgs:
+		return checkDenyList(a)
 	case *RemoveJobArgs:
 		if !jobNameRe.MatchString(a.JobName) {
 			return invalid("job_name %q", a.JobName)
