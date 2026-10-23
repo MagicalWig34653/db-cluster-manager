@@ -68,7 +68,7 @@ func TestKeyringDistributesDataKeyToRegisteredReplicas(t *testing.T) {
 	}
 
 	ops := opsFor(t, l)
-	ks := &KeyringService{Svc: l, Ring: lk, Authorizer: ops.Authorizer}
+	ks := &ReplicaService{Svc: l, Ring: lk, Authorizer: ops.Authorizer}
 	pub, _ := fk.PublicKey()
 	if err := ops.Authorizer.Policy().Bind(authz.Binding{Subject: operatorSubject, Role: authz.RoleOperator, Scope: authz.Global}); err != nil {
 		t.Fatal(err)
@@ -116,7 +116,7 @@ func TestKeyringReplicaWithoutKeyHandsLeadershipOver(t *testing.T) {
 	c, krs := keyringCluster(t, 3)
 	l := c.leader()
 	ops := opsFor(t, l)
-	ks := &KeyringService{Svc: l, Ring: krs[l.cfg.NodeID], Authorizer: ops.Authorizer}
+	ks := &ReplicaService{Svc: l, Ring: krs[l.cfg.NodeID], Authorizer: ops.Authorizer}
 	f := c.follower(l)
 	pub, _ := krs[f.cfg.NodeID].PublicKey()
 	if _, err := ks.Register(adminSubject, f.cfg.NodeID, pub); err != nil {

@@ -312,6 +312,10 @@ func (s *server) endpoints() []endpoint {
 			method: "PUT", path: "/settings/replicas/{id}/data-key-recipient", access: accessPermission,
 			action: authz.ActionUpdate, resolve: s.resolveSettings, handle: s.handleReplicaKey,
 		},
+		{
+			method: "POST", path: "/settings/replicas/{id}/revoke-certificates", access: accessPermission,
+			action: authz.ActionUpdate, resolve: s.resolveSettings, handle: s.handleReplicaRevoke,
+		},
 	}
 }
 

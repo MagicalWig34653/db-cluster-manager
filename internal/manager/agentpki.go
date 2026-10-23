@@ -64,6 +64,9 @@ type EnrollTokenRecord struct {
 type AgentPKI struct {
 	Store *Store
 	Keys  KeyProvider
+	// ReplicaID is this replica's metastore ID, recorded with every
+	// manager certificate it is issued (RevokeReplicaCertificates).
+	ReplicaID string
 	// ServerDNS and ServerIPs are the enrollment endpoint's names as the
 	// agents dial them (the agents verify the manager identity URI SAN; the
 	// names only help other TLS clients).
@@ -207,7 +210,7 @@ func (p *AgentPKI) ClientCAs() *x509.CertPool {
 func (p *AgentPKI) cached(slot **tls.Certificate, req func(inst string) certs.Request) (*tls.Certificate, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if c := *slot; c != nil && !certs.NeedsRenewal(c.Leaf, p.now(), certs.Policy{Fraction: 0.3}) {
+	if c := *slot; c != nil && !certs.NeedsRenewal(c.Leaf, p.now(), certs.Policy{Fraction: 0.3}) && !p.Revoked(c.Leaf.SerialNumber) {
 		return c, nil
 	}
 	ca, err := p.loadCA()
@@ -228,7 +231,55 @@ func (p *AgentPKI) cached(slot **tls.Certificate, req func(inst string) certs.Re
 	}
 	c.Leaf = iss.Cert
 	*slot = &c
+	// Record which replica holds the certificate, so its certificates can
+	// be revoked when the replica is removed or compromised. A follower
+	// cannot write; it only issues certificates while it leads.
+	if _, err := Put(p.Store, CollManagerCerts, iss.Cert.SerialNumber.Text(16), ManagerCertRecord{
+		Replica: p.ReplicaID, NotAfter: iss.Cert.NotAfter, IssuedAt: p.now()}, nil); err != nil && !errors.Is(err, ErrNotLeader) {
+		return nil, fmt.Errorf("manager: record manager certificate: %w", err)
+	}
 	return &c, nil
+}
+
+// CollManagerCerts records the manager certificates (client and enrollment
+// server) each replica was issued; key: serial (hex).
+const CollManagerCerts = "manager-certs"
+
+// ManagerCertRecord is one issued manager certificate.
+type ManagerCertRecord struct {
+	Replica  string    `json:"replica"`
+	NotAfter time.Time `json:"notAfter"`
+	IssuedAt time.Time `json:"issuedAt"`
+}
+
+// RevokeReplicaCertificates denies every recorded, unexpired manager
+// certificate of a replica (a removed or compromised replica). The deny
+// list reaches the agents through DenyListDistributor; the replica's
+// current certificates are reissued on next use if it is this one.
+// Permission: update on the manager settings (audited). Returns the number
+// of serials revoked.
+func (p *AgentPKI) RevokeReplicaCertificates(actor authz.Subject, az *authz.Authorizer, replica, reason string) (int, error) {
+	if d := az.Authorize(actor, authz.ActionUpdate, authz.Resource{Type: authz.ResourceSettings, Scope: authz.Global}); !d.Allowed {
+		return 0, &authz.DeniedError{Decision: d}
+	}
+	recs, err := List[ManagerCertRecord](p.Store, CollManagerCerts, Consistent())
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, r := range recs {
+		if r.Value.Replica != replica || !p.now().Before(r.Value.NotAfter) {
+			continue
+		}
+		if s, ok := new(big.Int).SetString(r.Key, 16); ok && p.Revoked(s) {
+			continue
+		}
+		if err := p.revokeSerial(r.Key, reason); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
 }
 
 func (p *AgentPKI) managerValidity() time.Duration {

@@ -39,10 +39,43 @@ type ReplicaKeyInput struct {
 	PublicKey string `json:"publicKey"`
 }
 
-// Replicas reports and registers manager replicas in the data keyring.
+// ReplicaRevocation is the result of revoking a replica's manager
+// certificates.
+type ReplicaRevocation struct {
+	Replica string `json:"replica"`
+	Revoked int    `json:"revoked"`
+}
+
+// Replicas reports and registers manager replicas in the data keyring and
+// revokes a replica's manager certificates.
 type Replicas interface {
 	Keyring(ctx context.Context, actor authz.Subject) (KeyringStatus, error)
 	RegisterReplicaKey(ctx context.Context, actor authz.Subject, replicaID, publicKey string) (ReplicaKeyStatus, error)
+	RevokeReplicaCertificates(ctx context.Context, actor authz.Subject, replicaID string) (ReplicaRevocation, error)
+}
+
+// RevokeReplicaCertificates implements Replicas.
+func (Unavailable) RevokeReplicaCertificates(context.Context, authz.Subject, string) (ReplicaRevocation, error) {
+	return ReplicaRevocation{}, ErrUnavailable
+}
+
+func (s *server) handleReplicaRevoke(w http.ResponseWriter, r *http.Request, c *caller) {
+	id := r.PathValue("id")
+	if !replicaIDPattern.MatchString(id) {
+		writeError(w, http.StatusBadRequest, errBadRequest)
+		return
+	}
+	var empty struct{}
+	if !decodeJSON(w, r, &empty, true) {
+		return
+	}
+	out, err := s.replicas().RevokeReplicaCertificates(r.Context(), c.subject, id)
+	if err != nil {
+		s.writeServiceError(w, r, err)
+		return
+	}
+	s.log.Info("api: replica manager certificates revoked", "replica", id, "by", c.subject.ID, "count", out.Revoked)
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *server) replicas() Replicas {

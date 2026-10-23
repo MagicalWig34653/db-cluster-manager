@@ -31,6 +31,35 @@ func (f *fakeReplicas) RegisterReplicaKey(_ context.Context, actor authz.Subject
 	return ReplicaKeyStatus{ID: id, PublicKeyID: "abcd", RegisteredBy: actor.ID, HasCurrentKey: true}, nil
 }
 
+func (f *fakeReplicas) RevokeReplicaCertificates(_ context.Context, actor authz.Subject, id string) (ReplicaRevocation, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, "revoke:"+actor.ID+":"+id)
+	return ReplicaRevocation{Replica: id, Revoked: 2}, f.err
+}
+
+func TestReplicaRevokeRoute(t *testing.T) {
+	cf := newControlFixture(t)
+	fr := &fakeReplicas{}
+	cf.srv.cfg.Replicas = fr
+	op := cf.loggedIn("op", authz.RoleOperator, authz.Global)
+	wantError(t, op.do("POST", "/api/v1/settings/replicas/m2/revoke-certificates", nil), http.StatusForbidden, errForbidden)
+	admin, _, _ := cf.setupAdmin("admin")
+	wantError(t, admin.do("POST", "/api/v1/settings/replicas/m2/revoke-certificates", map[string]string{"x": "y"}), http.StatusBadRequest, errBadRequest)
+	var out ReplicaRevocation
+	r := admin.do("POST", "/api/v1/settings/replicas/m2/revoke-certificates", nil)
+	wantStatus(t, r, http.StatusOK)
+	r.decode(t, &out)
+	if out.Replica != "m2" || out.Revoked != 2 || len(fr.calls) != 1 {
+		t.Fatalf("%+v %v", out, fr.calls)
+	}
+	if auditsOf(cf.fixture, authz.ActionUpdate, authz.OutcomeDenied, authz.ResourceSettings) != 1 {
+		t.Fatal("denied revocation not audited")
+	}
+	fr.err = ErrSettingsIncomplete
+	wantError(t, admin.do("POST", "/api/v1/settings/replicas/m2/revoke-certificates", nil), http.StatusConflict, errSettingsIncomplete)
+}
+
 // TestReplicaKeyRoutes: listing and registering replicas need settings
 // read/update permission (operators have neither), registrations are
 // audited, malformed IDs and keys are refused before the service, and the

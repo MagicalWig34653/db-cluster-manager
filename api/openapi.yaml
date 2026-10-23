@@ -1250,6 +1250,43 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
+  /settings/replicas/{id}/revoke-certificates:
+    post:
+      summary: Revoke every manager certificate of a replica
+      description: >-
+        Adds every unexpired manager certificate (agent-command client and
+        enrollment server) recorded for the replica to the replicated deny
+        list, for a removed or compromised replica. The leader distributes
+        the deny list to every enrolled agent (agent command set-deny-list),
+        whose mTLS listener then refuses those certificates; a replica that
+        is still in service gets new certificates on next use. It does not
+        remove the replica from the metastore or rotate the data key.
+        Leader only. Needs settings update permission; audited, and recorded
+        as an event. settings_incomplete (409) without the agent transport.
+      operationId: revokeReplicaCertificates
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false }
+      responses:
+        "200":
+          description: Number of revoked serials
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [replica, revoked]
+                properties:
+                  replica: { type: string }
+                  revoked: { type: integer }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
 security:
   - sessionCookie: []
 components:

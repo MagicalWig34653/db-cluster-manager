@@ -276,7 +276,8 @@ type managedRuntime struct {
 
 	// Command services of the current leadership's API.
 	keys       manager.KeyProvider
-	keyring    *manager.Keyring // nil without manager.keyring
+	keyring    *manager.Keyring  // nil without manager.keyring
+	pki        *manager.AgentPKI // nil without manager.agentTransport
 	swarms     *manager.Swarms
 	monitoring *manager.Monitoring
 	backend    backup.Backend
@@ -336,6 +337,11 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 		rt.keyring = keyring
 		scfg.Reconcilers = append(scfg.Reconcilers, manager.KeyringReconciler{Keyring: keyring})
 	}
+	if mc.AgentTransport != nil {
+		// Revoked serials (renewals, revoked hosts and manager
+		// certificates) reach every enrolled agent.
+		scfg.Reconcilers = append(scfg.Reconcilers, manager.DenyListDistributor{})
+	}
 	// Every condition goes through the routing checker: approvals from the
 	// replicated store, backup conditions through the backend, cluster
 	// conditions through live agent probes. Anything unavailable fails
@@ -386,8 +392,9 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 		svc.SetAgents(manager.LabAgentDirectory{Store: svc.Store()})
 	case mc.AgentTransport != nil:
 		at := mc.AgentTransport
-		pki := &manager.AgentPKI{Store: svc.Store(), Keys: keys, ServerDNS: at.ServerDNS, ServerIPs: serverIPs,
+		pki := &manager.AgentPKI{Store: svc.Store(), Keys: keys, ReplicaID: nodeID, ServerDNS: at.ServerDNS, ServerIPs: serverIPs,
 			RequireSourceAddr: !at.AllowAnySource}
+		rt.pki = pki
 		svc.SetAgents(&manager.AgentDirectory{Store: svc.Store(), PKI: pki, Port: at.AgentPort})
 		swarms.Transport = &manager.AgentTransport{PKI: pki, ManagerURL: at.ManagerURL, Port: at.AgentPort,
 			MonitorUser: at.MonitorUser, MonitorSecret: at.MonitorSecret, DBSecrets: at.DBSecrets}
@@ -488,9 +495,9 @@ func (rt *managedRuntime) leaderAPI(pk passkey.Config, keys manager.KeyProvider,
 		SetupToken: token, AdministratorExists: st.AdministratorExists, Inventory: inv, Activity: inv, Logger: log,
 		Monitoring: rt.monitoring, Control: svc.control, Backups: svc.backups, Settings: svc.settings,
 	}
-	if rt.keyring != nil {
-		acfg.Replicas = &manager.KeyringService{Svc: rt.svc, Ring: rt.keyring, Authorizer: st.Authorizer}
-	}
+	// Without a keyring or the agent transport the respective endpoints
+	// answer settings_incomplete.
+	acfg.Replicas = &manager.ReplicaService{Svc: rt.svc, Ring: rt.keyring, PKI: rt.pki, Authorizer: st.Authorizer}
 	h, err := api.New(acfg)
 	if err != nil {
 		return nil, nil, err

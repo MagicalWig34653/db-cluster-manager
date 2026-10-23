@@ -120,6 +120,9 @@ type HostRecord struct {
 	AgentIdentityAt time.Time `json:"agentIdentityAt,omitzero"`
 	// AgentServiceID is the agent global service that serves this host.
 	AgentServiceID string `json:"agentServiceId,omitempty"`
+	// DenyListDigest is the deny list the host's agent last confirmed
+	// (denylist.go).
+	DenyListDigest string `json:"denyListDigest,omitempty"`
 }
 
 // HostKey is the key of a host record.

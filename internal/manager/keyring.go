@@ -464,28 +464,54 @@ type ReplicaKeyStatus = api.ReplicaKeyStatus
 // KeyringStatus is the non-secret view of the keyring.
 type KeyringStatus = api.KeyringStatus
 
-var _ api.Replicas = (*KeyringService)(nil)
+var _ api.Replicas = (*ReplicaService)(nil)
 
 // Keyring implements api.Replicas.
-func (k *KeyringService) Keyring(_ context.Context, actor authz.Subject) (KeyringStatus, error) {
+func (k *ReplicaService) Keyring(_ context.Context, actor authz.Subject) (KeyringStatus, error) {
+	if k.Ring == nil {
+		return KeyringStatus{}, fmt.Errorf("%w: manager.keyring is not enabled", api.ErrSettingsIncomplete)
+	}
 	st, err := k.Status(actor)
 	return st, MapCommandError(err)
 }
 
 // RegisterReplicaKey implements api.Replicas.
-func (k *KeyringService) RegisterReplicaKey(_ context.Context, actor authz.Subject, replicaID, publicKey string) (ReplicaKeyStatus, error) {
+func (k *ReplicaService) RegisterReplicaKey(_ context.Context, actor authz.Subject, replicaID, publicKey string) (ReplicaKeyStatus, error) {
+	if k.Ring == nil {
+		return ReplicaKeyStatus{}, fmt.Errorf("%w: manager.keyring is not enabled", api.ErrSettingsIncomplete)
+	}
 	st, err := k.Register(actor, replicaID, publicKey)
 	return st, MapCommandError(err)
 }
 
-// KeyringService registers replicas and reports the keyring.
-type KeyringService struct {
+// RevokeReplicaCertificates implements api.Replicas: it denies every
+// unexpired manager certificate recorded for the replica (AgentPKI) and
+// records an event; the agents learn it from DenyListDistributor.
+func (k *ReplicaService) RevokeReplicaCertificates(_ context.Context, actor authz.Subject, replicaID string) (api.ReplicaRevocation, error) {
+	if k.PKI == nil {
+		return api.ReplicaRevocation{}, fmt.Errorf("%w: the agent transport is not configured", api.ErrSettingsIncomplete)
+	}
+	if !k.Svc.node.IsLeader() || k.Svc.Current() == nil {
+		return api.ReplicaRevocation{}, api.ErrNotLeader
+	}
+	n, err := k.PKI.RevokeReplicaCertificates(actor, k.Authorizer, replicaID, "revoked by "+actor.ID)
+	if err != nil {
+		return api.ReplicaRevocation{}, MapCommandError(err)
+	}
+	k.Svc.recordEvent("", "", api.SeverityWarning, fmt.Sprintf("%s revoked %d manager certificate(s) of replica %s", actor.ID, n, replicaID))
+	return api.ReplicaRevocation{Replica: replicaID, Revoked: n}, nil
+}
+
+// ReplicaService registers replicas, reports the keyring and revokes a
+// replica's manager certificates. Ring and PKI are optional.
+type ReplicaService struct {
 	Svc        *Service
 	Ring       *Keyring
+	PKI        *AgentPKI
 	Authorizer *authz.Authorizer
 }
 
-func (k *KeyringService) authorize(actor authz.Subject, act authz.Action) error {
+func (k *ReplicaService) authorize(actor authz.Subject, act authz.Action) error {
 	if d := k.Authorizer.Authorize(actor, act, settingsRes); !d.Allowed {
 		return &authz.DeniedError{Decision: d}
 	}
@@ -493,7 +519,7 @@ func (k *KeyringService) authorize(actor authz.Subject, act authz.Action) error 
 }
 
 // Status reports the voters and their key state (settings read).
-func (k *KeyringService) Status(actor authz.Subject) (KeyringStatus, error) {
+func (k *ReplicaService) Status(actor authz.Subject) (KeyringStatus, error) {
 	if err := k.authorize(actor, authz.ActionRead); err != nil {
 		return KeyringStatus{}, err
 	}
@@ -528,7 +554,7 @@ func (k *KeyringService) Status(actor authz.Subject) (KeyringStatus, error) {
 
 // Register records a voter's public key and wraps every data key for it
 // (settings update, audited; leader only).
-func (k *KeyringService) Register(actor authz.Subject, replicaID, publicKey string) (ReplicaKeyStatus, error) {
+func (k *ReplicaService) Register(actor authz.Subject, replicaID, publicKey string) (ReplicaKeyStatus, error) {
 	if err := k.authorize(actor, authz.ActionUpdate); err != nil {
 		return ReplicaKeyStatus{}, err
 	}
