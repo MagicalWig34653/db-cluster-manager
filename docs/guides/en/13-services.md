@@ -6,7 +6,7 @@ title: Services (stub)
 
 [Guide index](index.md) | Previous: [Configuration reference](12-configuration-reference.md)
 
-**Status: [Fakes] only.** The service-type framework (work package W07, requirements X03, X06 and X07 in [KONZEPT.md](../../KONZEPT.md)) exists as code and unit tests. It has never run against a Swarm, Docker or Traefik, and there is no UI for it yet. This page is a stub that records what exists, so nobody mistakes it for a usable feature.
+**Status: [Fakes] only.** The service-type framework (work package W07, requirements X03, X06 and X07 in [KONZEPT.md](../../KONZEPT.md)) exists as code and unit tests. It has never run against a Swarm, Docker or Traefik, and the web UI for it has only run against the mock server. This page is a stub that records what exists, so nobody mistakes it for a usable feature.
 
 ## What exists
 
@@ -31,4 +31,18 @@ Permissions are deny by default. The viewer and operator presets can only read s
 - **Published ports cannot be created yet**: the agent's service spec has no port field. A plan with a published port is shown with a blocker and cannot be started. This includes the entry points of Traefik.
 - **Configuration files cannot be delivered yet**: the agent has no command for it, so the dynamic Traefik configuration (routers, services, middlewares) is only a preview and also blocks the plan.
 - No health observation is wired in, no update strategy, no backup of service volumes, and Galera is not a service type (it keeps its own package).
-- No UI, no CLI, no expert or export view beyond the artifacts in the plan response.
+- No CLI, no expert or export view beyond the artifacts in the plan response.
+
+## In the web UI (mock only)
+
+The **Services** page lists managed services and has one form for both types. The three steps are always the same: describe the service, review the plan the manager returns (steps, generated files, warnings, blockers), then approve the operation with the digest it shows. Typing a password into an environment variable is refused: the form tells you to use a Swarm secret instead. A Traefik request is shown with its blockers (published ports and configuration delivery are not supported by the agent yet) and cannot be requested. Deleting a service first shows a deletion plan; the data volumes are kept unless you tick the box.
+
+![Services page: container request, plan and approval](../../assets/screenshots/en-light-services.png)
+
+*Screenshot from the development mock server (`npm run dev:mock`, invented sample data), not from a real manager.*
+
+![Traefik request with its plan and blockers](../../assets/screenshots/en-light-services-traefik-plan.png)
+
+*Screenshot from the development mock server (`npm run dev:mock`, invented sample data), not from a real manager.*
+
+The UI has only run against the mock server; no service was ever created on a Swarm [Mock only].

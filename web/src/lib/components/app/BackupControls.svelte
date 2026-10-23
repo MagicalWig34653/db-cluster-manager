@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { api, asApiError, type ApiError, type BackupSummary } from '../../api';
-	import { buildPolicy, policyFormOf, validatePolicy } from '../../lifecycle';
+	import { buildPolicy, policyFormOf, validatePolicy, type PolicyError } from '../../lifecycle';
 	import { t } from '../../locale.svelte';
 	import * as Alert from '../ui/alert/index.js';
 	import { Button } from '../ui/button/index.js';
@@ -32,7 +32,7 @@
 
 	let editing = $state(false);
 	let form = $state(policyFormOf(undefined));
-	let invalid = $state<('schedule' | 'timezone')[]>([]);
+	let invalid = $state<PolicyError[]>([]);
 	let saving = $state(false);
 	let saved = $state(false);
 	let saveError = $state<ApiError | undefined>();
@@ -67,7 +67,7 @@
 	<h3 class="font-medium">{name}</h3>
 	<p class="text-muted-foreground">
 		{t('backupPolicy')}:
-		{#if p}{p.enabled ? p.schedule : t('policyOff')}{#if p.timezone} ({p.timezone}){/if}{:else}{summary?.policy ?? t('notReported')}{/if}
+		{#if p}{p.enabled ? p.schedule : t('policyOff')}{#if p.timezone} ({p.timezone}){/if}{#if p.enabled}, {t('policyMethodShown', { method: t(p.method === 'logical' ? 'methodLogical' : 'methodPhysical') })}{/if}{:else}{summary?.policy ?? t('notReported')}{/if}
 	</p>
 	<div class="flex flex-wrap gap-2">
 		<Button size="sm" disabled={starting} onclick={start}>{t('backupStart')}</Button>
@@ -105,7 +105,43 @@
 					<option value="run-once">{t('policyRunOnce')}</option>
 				</select>
 			</div>
-			<p class="text-xs text-muted-foreground">{t('policyPhysical')}</p>
+			<div class="space-y-1.5">
+				<Label for="bp-method-{cluster}">{t('policyMethod')}</Label>
+				<select id="bp-method-{cluster}" class={selectClass} bind:value={form.method}>
+					<option value="physical">{t('policyMethodPhysical')}</option>
+					<option value="logical">{t('policyMethodLogical')}</option>
+				</select>
+			</div>
+			{#if form.method === 'logical'}
+				<div class="space-y-1.5">
+					<Label for="bp-dbs-{cluster}">{t('policyDatabases')}</Label>
+					<Input id="bp-dbs-{cluster}" class="font-mono" bind:value={form.databases} autocomplete="off" aria-invalid={invalid.includes('databases')} aria-describedby="bp-dbs-hint-{cluster}" placeholder="app, shop" />
+					<p id="bp-dbs-hint-{cluster}" class="text-xs {invalid.includes('databases') ? 'text-red-700 dark:text-red-400' : 'text-muted-foreground'}">{invalid.includes('databases') ? t('valDatabases') : t('policyDatabasesHint')}</p>
+				</div>
+			{/if}
+			<div class="space-y-2">
+				<label class="flex items-center gap-2"><input type="checkbox" class={checkClass} bind:checked={form.retentionEnabled} />{t('policyRetention')}</label>
+				<p class="text-xs text-muted-foreground">{t('policyRetentionHint')}</p>
+				{#if form.retentionEnabled}
+					<div class="grid gap-2 sm:grid-cols-3">
+						<div class="space-y-1">
+							<Label for="bp-kl-{cluster}" class="text-xs">{t('policyKeepLast')}</Label>
+							<Input id="bp-kl-{cluster}" inputmode="numeric" bind:value={form.keepLast} aria-invalid={invalid.includes('keepLast')} />
+							<p class="text-xs {invalid.includes('keepLast') ? 'text-red-700 dark:text-red-400' : 'text-muted-foreground'}">{invalid.includes('keepLast') ? t('valKeepLast') : t('policyKeepLastUnit')}</p>
+						</div>
+						<div class="space-y-1">
+							<Label for="bp-kd-{cluster}" class="text-xs">{t('policyKeepDaily')}</Label>
+							<Input id="bp-kd-{cluster}" inputmode="numeric" bind:value={form.keepDaily} aria-invalid={invalid.includes('keepDaily')} />
+							<p class="text-xs {invalid.includes('keepDaily') ? 'text-red-700 dark:text-red-400' : 'text-muted-foreground'}">{invalid.includes('keepDaily') ? t('valKeepCount') : t('policyKeepDailyUnit')}</p>
+						</div>
+						<div class="space-y-1">
+							<Label for="bp-kw-{cluster}" class="text-xs">{t('policyKeepWeekly')}</Label>
+							<Input id="bp-kw-{cluster}" inputmode="numeric" bind:value={form.keepWeekly} aria-invalid={invalid.includes('keepWeekly')} />
+							<p class="text-xs {invalid.includes('keepWeekly') ? 'text-red-700 dark:text-red-400' : 'text-muted-foreground'}">{invalid.includes('keepWeekly') ? t('valKeepCount') : t('policyKeepWeeklyUnit')}</p>
+						</div>
+					</div>
+				{/if}
+			</div>
 			<div class="flex gap-2">
 				<Button type="submit" size="sm" disabled={saving}>{t('save')}</Button>
 				<Button type="button" size="sm" variant="ghost" onclick={() => (editing = false)}>{t('cancel')}</Button>

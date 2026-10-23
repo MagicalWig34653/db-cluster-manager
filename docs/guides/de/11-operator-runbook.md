@@ -54,6 +54,18 @@ Die Experiment-Skripte unter `tests/p0/` legen ihre VMs selbst an und entfernen 
 
 **Drift** [Fakes]: `GET /api/v1/clusters/{id}/drift` vergleicht den Cluster-Datensatz mit den Swarm-Diensten mit seinem Label (fehlend, außerhalb des Managers neu angelegt, fremde Labels, geänderte Platzierung, auf 0 skaliert oder ohne laufenden Task außerhalb von Wartung und Operationen, unerwartete Dienste). Jeder Befund schlägt einen manuellen Schritt vor; nichts wird geändert. Der Leader prüft auch periodisch und erfasst ein Ereignis, wenn sich die Befunde ändern.
 
+Die Seite **Hosts** bietet pro eingetragenem Host **Wartung**: **Wartungsplan anzeigen** zeigt je Cluster die Schritte und Warnungen oder den Grund, warum der Cluster ablehnt (weniger als eine strikte Mehrheit seiner Knoten bliebe übrig). Nur ein Plan ohne Ablehnung lässt sich starten; der Manager startet den Host nie neu und leert ihn nicht, sondern meldet, wann er bereit ist. Die **Cluster-Detailseite** hat eine Karte **Abweichungsprüfung**, die Unterschiede zwischen Cluster-Eintrag und Swarm-Diensten mit je einem vorgeschlagenen manuellen nächsten Schritt auflistet; automatisch wird nichts geändert.
+
+![Wartungsplan eines Hosts](../../assets/screenshots/de-light-host-maintenance.png)
+
+*Bildschirmfoto aus dem Entwicklungs-Mock-Server (`npm run dev:mock`, erfundene Beispieldaten), nicht von einem echten Manager.*
+
+![Abweichungsprüfung eines Clusters](../../assets/screenshots/de-light-drift.png)
+
+*Bildschirmfoto aus dem Entwicklungs-Mock-Server (`npm run dev:mock`, erfundene Beispieldaten), nicht von einem echten Manager.*
+
+Nur Ansichten des Mock-Servers [Nur Mock].
+
 ## 5. Replikate, Schlüsselring und Peer-Zertifikate
 
 Nichts davon lief mit mehreren Manager-Replikaten auf VMs [Ungetestet]; die Teile sind mit Fakes und Loopback-TLS getestet [Fakes]. Referenz: [Konfigurationsreferenz](12-configuration-reference.md), [ADR 0013](../../decisions/0013-replica-keys-peer-tls-and-revocation.md).
@@ -64,6 +76,14 @@ Nichts davon lief mit mehreren Manager-Replikaten auf VMs [Ungetestet]; die Teil
 4. **Weitere Replikate registrieren:** auf jedem `manager -print-replica-key -config <Datei>` ausführen (legt bei Bedarf `<dataDir>/replica.key` an) und den öffentlichen Schlüssel samt Fingerabdruck notieren. Auf einem anderen Weg vergleichen, dann als Administrator `PUT /api/v1/settings/replicas/{id}/data-key-recipient` mit dem öffentlichen Schlüssel (`dbcmpk1:...`) aufrufen. Nur aktuelle Voter werden akzeptiert; nichts wird automatisch registriert. Ein Replikat, das ohne den Schlüssel Leader wird, gibt die Leadership ab, ein nicht registriertes Replikat bedient die API also nicht. `GET /api/v1/settings/replicas` zeigt den Zustand des Schlüsselrings und ob die Schlüssel `recoverable` sind.
 5. **Wiederherstellung:** Ist `settings.backup.recipientKey` konfiguriert, hat jeder Datenschlüssel auch einen Umschlag für den Backup-Recovery-Key; bewahren Sie dessen privaten Teil außerhalb des Clusters auf. `<dataDir>` wie in Abschnitt 1 sichern.
 6. **Replikat abschneiden:** `POST /api/v1/settings/replicas/{id}/revoke-certificates` sperrt seine Manager-Zertifikate an jedem Agenten. Schlüssel, die das Replikat schon entpackt hat, nimmt das nicht zurück; Rotation ist nicht implementiert.
+
+**Einstellungen > Manager-Replikate und Schlüsselbund** listet jedes Replikat mit dem Fingerabdruck seiner registrierten öffentlichen Identität und ob der aktuelle Datenschlüssel für es verpackt ist, warnt bei fehlendem Wiederherstellungs-Umschlag, registriert einen Datenschlüssel-Empfänger (Format `dbcmpk1:...`, vorher über einen zweiten Kanal vergleichen) und widerruft nach Rückfrage alle Manager-Zertifikate eines Replikats. Schlüsselmaterial wird nie angezeigt.
+
+![Einstellungen für Replikate und Schlüsselbund](../../assets/screenshots/de-light-keyring.png)
+
+*Bildschirmfoto aus dem Entwicklungs-Mock-Server (`npm run dev:mock`, erfundene Beispieldaten), nicht von einem echten Manager.*
+
+Nur Ansicht des Mock-Servers [Nur Mock].
 
 ## 6. Manager-Installation entfernen
 

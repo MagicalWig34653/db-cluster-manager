@@ -145,13 +145,26 @@ export interface PolicyForm {
 	schedule: string;
 	timezone: string;
 	missed: 'skip' | 'run-once';
+	method: 'physical' | 'logical';
+	/** Logical method: database names, separated by commas, spaces or new lines. */
+	databases: string;
+	retentionEnabled: boolean;
+	keepLast: string;
+	keepDaily: string;
+	keepWeekly: string;
 }
 
 export const policyFormOf = (p: BackupPolicy | undefined): PolicyForm => ({
 	enabled: p?.enabled ?? false,
 	schedule: p?.schedule ?? '0 2 * * *',
 	timezone: p?.timezone ?? 'UTC',
-	missed: p?.missed ?? 'skip'
+	missed: p?.missed ?? 'skip',
+	method: p?.method ?? 'physical',
+	databases: (p?.databases ?? []).join(', '),
+	retentionEnabled: p?.retention !== undefined,
+	keepLast: String(p?.retention?.keepLast ?? 7),
+	keepDaily: String(p?.retention?.keepDaily ?? 0),
+	keepWeekly: String(p?.retention?.keepWeekly ?? 0)
 });
 
 const cronField = /^(\*|\d+(-\d+)?)(\/\d+)?(,(\*|\d+(-\d+)?)(\/\d+)?)*$/;
@@ -172,10 +185,27 @@ export function validTimezone(tz: string): boolean {
 	}
 }
 
-export function validatePolicy(f: PolicyForm): ('schedule' | 'timezone')[] {
-	const out: ('schedule' | 'timezone')[] = [];
+const dbNameRE = /^[A-Za-z0-9_$-]{1,64}$/;
+/** Database names of the logical method; duplicates are dropped, order is kept. */
+export const parseDatabases = (s: string): string[] => [...new Set(s.split(/[,;\s]+/).map((x) => x.trim()).filter(Boolean))];
+
+export type PolicyError = 'schedule' | 'timezone' | 'databases' | 'keepLast' | 'keepDaily' | 'keepWeekly';
+
+const countIn = (s: string, lo: number) => /^\d+$/.test(s.trim()) && Number(s) >= lo && Number(s) <= 1000;
+
+export function validatePolicy(f: PolicyForm): PolicyError[] {
+	const out: PolicyError[] = [];
 	if (!validCronShape(f.schedule)) out.push('schedule');
 	if (!validTimezone(f.timezone)) out.push('timezone');
+	if (f.method === 'logical') {
+		const dbs = parseDatabases(f.databases);
+		if (dbs.length === 0 || dbs.length > 64 || !dbs.every((d) => dbNameRE.test(d))) out.push('databases');
+	}
+	if (f.retentionEnabled) {
+		if (!countIn(f.keepLast, 1)) out.push('keepLast');
+		if (!countIn(f.keepDaily, 0)) out.push('keepDaily');
+		if (!countIn(f.keepWeekly, 0)) out.push('keepWeekly');
+	}
 	return out;
 }
 
@@ -185,7 +215,11 @@ export function buildPolicy(f: PolicyForm): BackupPolicy {
 		schedule: f.schedule.trim().split(/\s+/).join(' '),
 		...(f.timezone.trim() ? { timezone: f.timezone.trim() } : {}),
 		missed: f.missed,
-		method: 'physical'
+		method: f.method,
+		...(f.method === 'logical' ? { databases: parseDatabases(f.databases) } : {}),
+		...(f.retentionEnabled
+			? { retention: { keepLast: Number(f.keepLast), keepDaily: Number(f.keepDaily), keepWeekly: Number(f.keepWeekly) } }
+			: {})
 	};
 }
 

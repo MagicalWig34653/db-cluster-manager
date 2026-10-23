@@ -366,6 +366,18 @@ export interface Host {
 	observedAt?: string;
 	/** An agent certificate is recorded for the host; says nothing about reachability. */
 	agentIdentity?: boolean;
+	/** Set while the host is in guided maintenance. */
+	maintenance?: HostMaintenance;
+}
+
+/** Mirrors Host.maintenance: replacement on the host is paused while it is set. */
+export interface HostMaintenance {
+	since: string;
+	by: string;
+	reason?: string;
+	operations: string[];
+	/** Every maintenance operation succeeded; the operator may reboot the host. */
+	ready: boolean;
 }
 
 /** Mirrors galera.ResourceAmount. */
@@ -416,6 +428,15 @@ export const missedPolicies = ['skip', 'run-once'] as const;
 export type MissedPolicy = (typeof missedPolicies)[number];
 
 /** Mirrors api.BackupPolicy (PUT /clusters/{id}/backup-policy). */
+export const backupMethods = ['physical', 'logical'] as const;
+export type BackupMethod = (typeof backupMethods)[number];
+
+export interface RetentionPolicy {
+	keepLast: number;
+	keepDaily?: number;
+	keepWeekly?: number;
+}
+
 export interface BackupPolicy {
 	enabled: boolean;
 	/** Five-field cron-like spec. */
@@ -423,7 +444,10 @@ export interface BackupPolicy {
 	/** IANA zone; the manager defaults to UTC. */
 	timezone?: string;
 	missed?: MissedPolicy;
-	method?: 'physical';
+	method?: BackupMethod;
+	/** Logical method only (required there): one export per database. */
+	databases?: string[];
+	retention?: RetentionPolicy;
 }
 
 export interface BackupSummary {
@@ -613,7 +637,14 @@ export const isHost: Guard<Host> = (v): v is Host =>
 	optNum(v.nanoCpus) &&
 	optNum(v.memoryBytes) &&
 	optDate(v.observedAt) &&
-	(v.agentIdentity === undefined || isBool(v.agentIdentity));
+	(v.agentIdentity === undefined || isBool(v.agentIdentity)) &&
+	(v.maintenance === undefined ||
+		(isObj(v.maintenance) &&
+			isStr(v.maintenance.since) &&
+			isStr(v.maintenance.by) &&
+			optStr(v.maintenance.reason) &&
+			strArray(v.maintenance.operations) &&
+			isBool(v.maintenance.ready)));
 
 export const isOperationRef = (v: unknown): v is { id: string; kind?: string } => isObj(v) && isStr(v.id) && optStr(v.kind);
 
@@ -650,7 +681,10 @@ export const isBackupPolicy = (v: unknown): v is BackupPolicy =>
 	isStr(v.schedule) &&
 	optStr(v.timezone) &&
 	(v.missed === undefined || oneOf(missedPolicies)(v.missed)) &&
-	(v.method === undefined || v.method === 'physical');
+	(v.method === undefined || oneOf(backupMethods)(v.method)) &&
+	(v.databases === undefined || strArray(v.databases)) &&
+	(v.retention === undefined ||
+		(isObj(v.retention) && isNum(v.retention.keepLast) && optNum(v.retention.keepDaily) && optNum(v.retention.keepWeekly)));
 
 export const isBackupSummary: Guard<BackupSummary> = (v): v is BackupSummary =>
 	isObj(v) &&
@@ -744,6 +778,322 @@ export const isClusterDeletion = (v: unknown): v is ClusterDeletion =>
 
 export const isOutageRecoveryStarted = (v: unknown): v is OutageRecoveryStarted =>
 	isObj(v) && isStr(v.id) && isStr(v.kind) && isStr(v.candidate) && isApproval(v.approval) && isDiagnosis(v.diagnosis);
+
+
+// ---------------------------------------------------------------------------
+// Services, image builds, registries, maintenance, drift, keyring
+// (api/openapi.yaml; all implemented with fakes only on the manager side).
+
+export const serviceTypes = ['container', 'traefik'] as const;
+export type ServiceType = (typeof serviceTypes)[number];
+
+/** Request body of POST /services and POST /services/plan. The spec is type specific and holds no secret values. */
+export interface ServiceInput {
+	swarm: string;
+	name: string;
+	type: ServiceType;
+	spec: Record<string, unknown>;
+}
+
+export interface ServiceInfo {
+	id: string;
+	swarm: string;
+	name: string;
+	type: string;
+	spec: Record<string, unknown>;
+	createdBy?: string;
+	createdAt?: string;
+	createOperation?: string;
+	deleteOperation?: string;
+}
+
+export interface PlanStep {
+	id: string;
+	kind: string;
+	slot?: string;
+	note?: string;
+	conditions?: string[];
+}
+
+export interface ServiceArtifact {
+	name: string;
+	mediaType: string;
+	content: string;
+}
+
+export interface ServicePlan {
+	kind: 'create' | 'delete';
+	type: string;
+	name: string;
+	steps: PlanStep[];
+	artifacts: ServiceArtifact[];
+	warnings: string[];
+	blockers: string[];
+	executable: boolean;
+	requiresApproval: boolean;
+	text: string;
+}
+
+export interface ServiceStarted {
+	service: string;
+	operation: { id: string; kind?: string };
+	approval: OperationApproval;
+	plan: ServicePlan;
+}
+
+export interface MaintenanceCluster {
+	cluster: string;
+	name: string;
+	slots: string[];
+	steps: PlanStep[];
+	warnings?: string[];
+	/** Why this cluster cannot lose its nodes on the host now. */
+	refused?: string;
+}
+
+export interface MaintenancePreview {
+	host: string;
+	end: boolean;
+	/** No affected cluster refuses. */
+	safe: boolean;
+	clusters: MaintenanceCluster[];
+}
+
+export interface MaintenanceStarted {
+	host: string;
+	operations: { id: string; kind?: string }[];
+	plan: MaintenancePreview;
+}
+
+export const driftKinds = [
+	'missing-service',
+	'service-replaced-outside',
+	'foreign-labels',
+	'placement-changed',
+	'stopped',
+	'not-running',
+	'unexpected-service'
+] as const;
+export type DriftKind = (typeof driftKinds)[number];
+
+export interface DriftFinding {
+	kind: DriftKind;
+	slot?: string;
+	service?: string;
+	detail: string;
+	/** Proposed manual next step; nothing is changed automatically. */
+	action: string;
+}
+
+export interface DriftReport {
+	cluster: string;
+	checkedAt: string;
+	inSync: boolean;
+	findings: DriftFinding[];
+}
+
+export interface ReplicaKeyStatus {
+	id: string;
+	address?: string;
+	leader: boolean;
+	/** Fingerprint of the registered public identity. */
+	publicKeyId?: string;
+	registeredBy?: string;
+	registeredAt?: string;
+	hasCurrentKey: boolean;
+}
+
+export interface KeyringStatus {
+	/** ID of the current data key (not the key). */
+	currentKey: string;
+	/** The current key has a backup recovery key envelope. */
+	recoverable: boolean;
+	replicas: ReplicaKeyStatus[];
+}
+
+export interface ImageBuildSpec {
+	name: string;
+	nginx: {
+		version: string;
+		baseDigest: string;
+		options?: Record<string, unknown>;
+		customSnippet?: string;
+	};
+	php?: { version?: string; extensions?: string[]; ini?: Record<string, string> };
+	extraPackages?: string[];
+	platforms?: string[];
+}
+
+export interface ImageBuildRequest {
+	spec: ImageBuildSpec;
+	target: { registry: string; repository: string; tag: string };
+	/** Digest of the reviewed plan; starts the build. */
+	approvalDigest?: string;
+}
+
+export interface ImageBuildPlan {
+	specHash: string;
+	contextHash: string;
+	digest: string;
+	baseImage?: string;
+	platforms?: string[];
+	reference?: string;
+	dockerfile: string;
+	files?: { path?: string; mode?: number; content?: string }[];
+	steps: { order?: number; title?: string; detail?: string }[];
+	warnings: string[];
+	explanation: string;
+}
+
+export const buildStatuses = ['running', 'succeeded', 'failed'] as const;
+export type BuildStatus = (typeof buildStatuses)[number];
+
+export interface ImageBuildJob {
+	id: string;
+	name?: string;
+	status: BuildStatus;
+	specHash: string;
+	contextHash: string;
+	planDigest: string;
+	reference: string;
+	platforms?: string[];
+	baseDigests?: string[];
+	imageDigest?: string;
+	sbom: { status?: string; ref?: string };
+	/** Redacted. */
+	error?: string;
+	requestedBy?: string;
+	createdAt?: string;
+	finishedAt?: string;
+}
+
+export interface ImageBuildResult {
+	plan?: ImageBuildPlan;
+	job?: ImageBuildJob;
+}
+
+export const registryKinds = ['ghcr', 'dockerhub', 'generic', 'managed'] as const;
+export type RegistryKind = (typeof registryKinds)[number];
+
+export interface Registry {
+	id: string;
+	name: string;
+	kind: RegistryKind;
+	endpoint?: string;
+	username?: string;
+	/** Only says that a credential is stored; it is never returned. */
+	credentialSet: boolean;
+	createdBy?: string;
+}
+
+/** The password is write-only: sent once, never returned or kept in the UI after the request. */
+export interface ExternalRegistryInput {
+	id: string;
+	name: string;
+	kind: Exclude<RegistryKind, 'managed'>;
+	endpoint?: string;
+	username?: string;
+	password?: string;
+}
+
+const isPlanStep = (v: unknown): v is PlanStep =>
+	isObj(v) && isStr(v.id) && isStr(v.kind) && optStr(v.slot) && optStr(v.note) && (v.conditions === undefined || strArray(v.conditions));
+
+export const isServiceInfo: Guard<ServiceInfo> = (v): v is ServiceInfo =>
+	isObj(v) && isStr(v.id) && isStr(v.swarm) && isStr(v.name) && isStr(v.type) && isObj(v.spec) && optStr(v.createdBy) && optDate(v.createdAt) && optStr(v.createOperation) && optStr(v.deleteOperation);
+
+export const isServicePlan = (v: unknown): v is ServicePlan =>
+	isObj(v) &&
+	(v.kind === 'create' || v.kind === 'delete') &&
+	isStr(v.type) &&
+	isStr(v.name) &&
+	Array.isArray(v.steps) &&
+	v.steps.every(isPlanStep) &&
+	Array.isArray(v.artifacts) &&
+	v.artifacts.every((a) => isObj(a) && isStr(a.name) && isStr(a.mediaType) && isStr(a.content)) &&
+	strArray(v.warnings) &&
+	strArray(v.blockers) &&
+	isBool(v.executable) &&
+	isBool(v.requiresApproval) &&
+	isStr(v.text);
+
+export const isServiceStarted = (v: unknown): v is ServiceStarted =>
+	isObj(v) && isStr(v.service) && isOperationRef(v.operation) && isApproval(v.approval) && isServicePlan(v.plan);
+
+const isMaintenanceCluster = (v: unknown): v is MaintenanceCluster =>
+	isObj(v) &&
+	isStr(v.cluster) &&
+	isStr(v.name) &&
+	strArray(v.slots) &&
+	Array.isArray(v.steps) &&
+	v.steps.every(isPlanStep) &&
+	(v.warnings === undefined || strArray(v.warnings)) &&
+	optStr(v.refused);
+
+export const isMaintenancePreview = (v: unknown): v is MaintenancePreview =>
+	isObj(v) && isStr(v.host) && isBool(v.end) && isBool(v.safe) && Array.isArray(v.clusters) && v.clusters.every(isMaintenanceCluster);
+
+export const isMaintenanceStarted = (v: unknown): v is MaintenanceStarted =>
+	isObj(v) && isStr(v.host) && Array.isArray(v.operations) && v.operations.every(isOperationRef) && isMaintenancePreview(v.plan);
+
+export const isDriftReport = (v: unknown): v is DriftReport =>
+	isObj(v) &&
+	isStr(v.cluster) &&
+	isDate(v.checkedAt) &&
+	isBool(v.inSync) &&
+	Array.isArray(v.findings) &&
+	v.findings.every((f) => isObj(f) && oneOf(driftKinds)(f.kind) && optStr(f.slot) && optStr(f.service) && isStr(f.detail) && isStr(f.action));
+
+const isReplica = (r: unknown): r is ReplicaKeyStatus =>
+	isObj(r) && isStr(r.id) && optStr(r.address) && isBool(r.leader) && optStr(r.publicKeyId) && optStr(r.registeredBy) && optDate(r.registeredAt) && isBool(r.hasCurrentKey);
+
+export const isKeyringStatus = (v: unknown): v is KeyringStatus =>
+	isObj(v) && isStr(v.currentKey) && isBool(v.recoverable) && Array.isArray(v.replicas) && v.replicas.every(isReplica);
+
+export const isReplicaKeyStatus = isReplica;
+
+const isImageBuildPlan = (v: unknown): v is ImageBuildPlan =>
+	isObj(v) &&
+	isStr(v.specHash) &&
+	isStr(v.contextHash) &&
+	isStr(v.digest) &&
+	optStr(v.baseImage) &&
+	optStr(v.reference) &&
+	isStr(v.dockerfile) &&
+	(v.files === undefined || (Array.isArray(v.files) && v.files.every((f) => isObj(f) && optStr(f.path) && optStr(f.content)))) &&
+	Array.isArray(v.steps) &&
+	v.steps.every((s) => isObj(s) && optStr(s.title) && optStr(s.detail)) &&
+	strArray(v.warnings) &&
+	isStr(v.explanation);
+
+export const isImageBuildJob: Guard<ImageBuildJob> = (v): v is ImageBuildJob =>
+	isObj(v) &&
+	isStr(v.id) &&
+	optStr(v.name) &&
+	oneOf(buildStatuses)(v.status) &&
+	isStr(v.specHash) &&
+	isStr(v.contextHash) &&
+	isStr(v.planDigest) &&
+	isStr(v.reference) &&
+	(v.platforms === undefined || strArray(v.platforms)) &&
+	(v.baseDigests === undefined || strArray(v.baseDigests)) &&
+	optStr(v.imageDigest) &&
+	isObj(v.sbom) &&
+	optStr(v.error) &&
+	optStr(v.requestedBy) &&
+	optDate(v.createdAt) &&
+	optDate(v.finishedAt);
+
+export const isImageBuildResult = (v: unknown): v is ImageBuildResult =>
+	isObj(v) && (v.plan === undefined || isImageBuildPlan(v.plan)) && (v.job === undefined || isImageBuildJob(v.job));
+
+export const isRegistry: Guard<Registry> = (v): v is Registry =>
+	isObj(v) && isStr(v.id) && isStr(v.name) && oneOf(registryKinds)(v.kind) && optStr(v.endpoint) && optStr(v.username) && isBool(v.credentialSet) && optStr(v.createdBy);
+
+const listOfArray =
+	<T>(item: (v: unknown) => v is T) =>
+	(v: unknown): v is T[] =>
+		Array.isArray(v) && v.every(item);
 
 // ---------------------------------------------------------------------------
 // Client
@@ -861,7 +1211,8 @@ export function createClient(fetchFn: FetchFn) {
 			call('POST', `/clusters/${encodeURIComponent(cluster)}/outage-diagnosis`, isDiagnosis, {}),
 		requestOutageRecovery: (cluster: string, candidate: string) =>
 			call('POST', `/clusters/${encodeURIComponent(cluster)}/outage-recovery`, isOutageRecoveryStarted, { candidate }),
-		startBackup: (cluster: string) => call('POST', `/clusters/${encodeURIComponent(cluster)}/backups`, isOperationRef, {}),
+		startBackup: (cluster: string, opts: { method?: BackupMethod; databases?: string[] } = {}) =>
+			call('POST', `/clusters/${encodeURIComponent(cluster)}/backups`, isOperationRef, opts),
 		setBackupPolicy: (cluster: string, p: BackupPolicy) =>
 			call('PUT', `/clusters/${encodeURIComponent(cluster)}/backup-policy`, isBackupSummary, p),
 		testNotification: (channel: NotificationChannel) =>
@@ -896,6 +1247,37 @@ export function createClient(fetchFn: FetchFn) {
 		/** The digest is the one of the displayed approval; the manager refuses a mismatch. */
 		approveOperation: (id: string, digest: string) =>
 			call('POST', `/operations/${encodeURIComponent(id)}/approve`, isApproval, { digest }),
+		// --- Services, image builds, registries, maintenance, drift, keyring.
+		services: () => items(call('GET', '/services', listOf(isServiceInfo))),
+		previewService: (input: ServiceInput) => call('POST', '/services/plan', isServicePlan, input),
+		createService: (input: ServiceInput) => call('POST', '/services', isServiceStarted, input),
+		previewServiceDelete: (id: string, removeVolumes: boolean) =>
+			call('GET', `/services/${encodeURIComponent(id)}/delete-plan${removeVolumes ? '?removeVolumes=true' : ''}`, isServicePlan),
+		deleteService: (id: string, removeVolumes: boolean) =>
+			call('DELETE', `/services/${encodeURIComponent(id)}`, isServiceStarted, removeVolumes ? { removeVolumes: true } : undefined),
+		imageBuilds: () => call('GET', '/image-builds', listOfArray(isImageBuildJob)),
+		/** Without approvalDigest the answer carries the plan only; nothing is built. */
+		planImageBuild: (req: ImageBuildRequest) => call('POST', '/image-builds', isImageBuildResult, req),
+		startImageBuild: (req: ImageBuildRequest, approvalDigest: string) =>
+			call('POST', '/image-builds', isImageBuildResult, { ...req, approvalDigest }),
+		registries: () => call('GET', '/registries', listOfArray(isRegistry)),
+		createRegistry: (input: ExternalRegistryInput) => call('POST', '/registries', isRegistry, input),
+		maintenancePlan: (nodeId: string, end: boolean) =>
+			call('GET', `/hosts/${encodeURIComponent(nodeId)}/maintenance-plan${end ? '?end=true' : ''}`, isMaintenancePreview),
+		enterMaintenance: (nodeId: string, reason?: string) =>
+			call('POST', `/hosts/${encodeURIComponent(nodeId)}/maintenance`, isMaintenanceStarted, reason ? { reason } : {}),
+		leaveMaintenance: (nodeId: string) => call('DELETE', `/hosts/${encodeURIComponent(nodeId)}/maintenance`, isMaintenanceStarted),
+		clusterDrift: (id: string) => call('GET', `/clusters/${encodeURIComponent(id)}/drift`, isDriftReport),
+		keyring: () => call('GET', '/settings/replicas', isKeyringStatus),
+		registerReplicaKey: (replica: string, publicKey: string) =>
+			call('PUT', `/settings/replicas/${encodeURIComponent(replica)}/data-key-recipient`, isReplicaKeyStatus, { publicKey }),
+		revokeReplicaCertificates: (replica: string) =>
+			call(
+				'POST',
+				`/settings/replicas/${encodeURIComponent(replica)}/revoke-certificates`,
+				(v): v is { replica: string; revoked: number } => isObj(v) && isStr(v.replica) && isNum(v.revoked),
+				{}
+			),
 		notificationSettings: () => call('GET', '/settings/notifications', isNotificationSettings),
 		saveNotificationSettings: (s: NotificationSettingsInput) =>
 			call('PUT', '/settings/notifications', isNotificationSettings, s)

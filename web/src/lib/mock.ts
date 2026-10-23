@@ -80,7 +80,18 @@ const hosts: Record<string, unknown>[] = [
 	{ swarm: 'mock-swarm-a', nodeId: 'mock-host-3', hostname: 'mock-host-3', enrollment: 'enrolled', state: 'down', availability: 'active', nanoCpus: 2e9, memoryBytes: 4 * GiB, agentIdentity: true },
 	{ swarm: 'mock-swarm-a', nodeId: 'mock-host-4', hostname: 'mock-host-4', enrollment: 'discovered', state: 'ready', availability: 'active' }
 ];
-fixtures['/api/v1/backups'] = { items: [{ cluster: 'mock-galera', swarm: 'mock-swarm-a', policy: 'mock: 0 2 * * *', lastBackupAt: ago(500), nextRunAt: new Date(now + 3600_000).toISOString() }] };
+fixtures['/api/v1/backups'] = {
+	items: [
+		{
+			cluster: 'mock-galera',
+			swarm: 'mock-swarm-a',
+			policy: '0 2 * * *',
+			backupPolicy: { enabled: true, schedule: '0 2 * * *', timezone: 'Europe/Berlin', missed: 'skip', method: 'physical', retention: { keepLast: 7, keepDaily: 14, keepWeekly: 4 } },
+			lastBackupAt: ago(500),
+			nextRunAt: new Date(now + 3600_000).toISOString()
+		}
+	]
+};
 const panel = (id: string, title: string, kind: string, selector: string, func = 'last') => ({ id, title, kind, selector, func, windowSeconds: 60, stepSeconds: 60, x: 0, y: 0, w: 12, h: 6 });
 const dashboards: Record<string, unknown>[] = [
 	{ id: 'mock-d1', title: 'Mock personal', owner: 'mock-admin', shared: false, panels: [panel('p1', 'Mock queries', 'line', 'mock_queries', 'rate'), { ...panel('p2', 'Mock connections', 'stat', 'mock_conn'), x: 12 }, { ...panel('p3', 'Mock unreadable', 'stat', 'mock_unreadable'), y: 6 }, { ...panel('p4', 'Mock per node', 'table', 'mock_node'), x: 12, y: 6 }] },
@@ -146,10 +157,218 @@ const json = (status: number, body: unknown) =>
 		headers: { 'Content-Type': 'application/json' }
 	});
 
+
+// ---------------------------------------------------------------------------
+// Services, image builds, registries, maintenance, drift and keyring mocks.
+// Invented data; the real manager implements these endpoints with fakes only.
+
+const services: Record<string, unknown>[] = [
+	{ id: 'mock-svc-1', swarm: 'mock-swarm-a', name: 'shop-web', type: 'container', spec: { image: 'nginx:1.27', replicas: 2, placement: {}, resources: { limits: {}, reservations: {} } }, createdBy: 'mock-admin', createdAt: ago(2000) },
+	{ id: 'mock-svc-2', swarm: 'mock-swarm-a', name: 'shop-db-files', type: 'container', spec: { image: 'registry.example.invalid/team/files:2.4', replicas: 1, volumes: [{ name: 'data', target: '/srv/files' }], placement: { hostId: 'mock-host-2' }, resources: { limits: {}, reservations: {} } }, createdBy: 'mock-admin', createdAt: ago(900) }
+];
+const registries: Record<string, unknown>[] = [
+	{ id: 'ghcr-main', name: 'GitHub Container Registry (team)', kind: 'ghcr', username: 'ci-bot', credentialSet: true, createdBy: 'mock-admin' },
+	{ id: 'local-lab', name: 'Lab registry', kind: 'generic', endpoint: 'https://registry.example.invalid', credentialSet: false, createdBy: 'mock-admin' }
+];
+const builds: Record<string, unknown>[] = [
+	{ id: 'mock-build-2', name: 'Shop web', status: 'succeeded', specHash: 'a1b2c3d4e5f6', contextHash: 'f6e5d4c3b2a1', planDigest: digest('b'), reference: 'ghcr.io/team/shop-web:1.1.0', platforms: ['linux/amd64'], baseDigests: ['sha256:' + digest('c')], imageDigest: 'sha256:' + digest('d'), sbom: { status: 'not_generated' }, requestedBy: 'mock-admin', createdAt: ago(300), finishedAt: ago(296) },
+	{ id: 'mock-build-1', name: 'Shop web', status: 'failed', specHash: 'a1b2c3d4e5f6', contextHash: '0a0b0c0d0e0f', planDigest: digest('e'), reference: 'ghcr.io/team/shop-web:1.0.0', platforms: ['linux/amd64'], sbom: { status: 'not_generated' }, error: 'mock: apk add failed (package not found)', requestedBy: 'mock-admin', createdAt: ago(1500), finishedAt: ago(1497) }
+];
+const replicas: Record<string, unknown>[] = [
+	{ id: 'manager-1', address: '10.0.0.11:7001', leader: true, publicKeyId: 'SHA256:mock3f9a1c', registeredBy: 'mock-admin', registeredAt: ago(9000), hasCurrentKey: true },
+	{ id: 'manager-2', address: '10.0.0.12:7001', leader: false, publicKeyId: 'SHA256:mock77d0e2', registeredBy: 'mock-admin', registeredAt: ago(8800), hasCurrentKey: true },
+	{ id: 'manager-3', address: '10.0.0.13:7001', leader: false, hasCurrentKey: false }
+];
+const keyring = { currentKey: 'key-2026-10', recoverable: false, replicas };
+
+const traefikArtifact = (spec: any) =>
+	`http:\n  routers:\n${(spec.routers ?? []).map((r: any) => `    ${r.name}:\n      rule: Host(\`${r.match?.hosts?.[0]}\`)\n      service: ${r.service}\n`).join('')}  services:\n${(spec.services ?? []).map((x: any) => `    ${x.name}:\n      loadBalancer:\n        servers:\n          - url: ${x.servers?.[0]}\n`).join('')}`;
+
+function servicePlan(kind: 'create' | 'delete', input: any, removeVolumes = false) {
+	const traefik = input.type === 'traefik';
+	if (kind === 'delete') {
+		return {
+			kind, type: input.type, name: input.name, requiresApproval: true, executable: true, warnings: removeVolumes ? ['Mock: the data volumes and their data will be deleted.'] : [], blockers: [], artifacts: [],
+			steps: [{ id: 'remove-service', kind: 'remove-service', note: 'Remove the Swarm service ' + input.name }, ...(removeVolumes ? [{ id: 'remove-volumes', kind: 'remove-volume', note: 'Delete managed volumes (irreversible)' }] : [])],
+			text: removeVolumes ? 'Removes the service and its data volumes.' : 'Removes the service. Managed volumes and their data are kept.'
+		};
+	}
+	const spec = input.spec ?? {};
+	return {
+		kind, type: input.type, name: input.name, requiresApproval: true,
+		executable: !traefik, warnings: traefik ? ['Mock: the staging CA issues certificates that browsers do not trust.'] : [],
+		blockers: traefik ? ['published ports cannot be created yet (entry points web:80, websecure:443)', 'configuration files cannot be delivered to the service yet'] : [],
+		steps: [
+			...(Array.isArray(spec.volumes) && spec.volumes.length ? [{ id: 'create-volume', kind: 'create-volume', note: 'Managed local volume on ' + (spec.placement?.hostId ?? 'the pinned host') }] : []),
+			{ id: 'create-service', kind: 'create-service', note: 'Create the Swarm service ' + input.name + ' from image ' + spec.image, conditions: ['image is pinned', 'no secret values in the spec'] }
+		],
+		artifacts: traefik
+			? [{ name: 'dynamic.yml', mediaType: 'application/yaml', content: traefikArtifact(spec) }]
+			: [{ name: 'service.json', mediaType: 'application/json', content: JSON.stringify({ name: input.name, image: spec.image, replicas: spec.replicas, placement: spec.placement, restart: spec.restart }, null, 2) }],
+		text: traefik ? 'Creates a Traefik service with the rendered routing configuration.' : 'Creates one Swarm service from the pinned image.'
+	};
+}
+
+function dockerfile(req: any) {
+	const n = req.spec.nginx;
+	const php = req.spec.php;
+	const lines = [`FROM nginx:${n.version}-alpine@${n.baseDigest}`];
+	if (php?.version) lines.push(`RUN apk add --no-cache php${php.version.replace('.', '')}-fpm ${(php.extensions ?? []).map((e: string) => 'php' + php.version.replace('.', '') + '-' + e).join(' ')}`);
+	if (req.spec.extraPackages?.length) lines.push(`RUN apk add --no-cache ${req.spec.extraPackages.join(' ')}`);
+	lines.push('COPY nginx/nginx.conf /etc/nginx/nginx.conf');
+	if (php?.ini && Object.keys(php.ini).length) lines.push('COPY php/zz-dbcm.ini /etc/php/conf.d/zz-dbcm.ini');
+	if (n.customSnippet) lines.push('COPY nginx/custom.conf /etc/nginx/custom.conf');
+	lines.push('RUN nginx -t', 'USER nginx', 'EXPOSE 8080');
+	return lines.join('\n') + '\n';
+}
+
+function imagePlan(req: any) {
+	const d = dockerfile(req);
+	return {
+		specHash: 'a1b2c3d4e5f6', contextHash: '9f8e7d6c5b4a', digest: digest('9'), baseImage: `nginx:${req.spec.nginx.version}-alpine@${req.spec.nginx.baseDigest}`, platforms: req.spec.platforms ?? ['linux/amd64'],
+		reference: `ghcr.io/${req.target.repository}:${req.target.tag}`, dockerfile: d,
+		files: [{ path: 'nginx/nginx.conf', mode: 420, content: '' }, ...(req.spec.php?.version ? [{ path: 'php/zz-dbcm.ini', mode: 420, content: '' }] : [])],
+		steps: [
+			{ order: 1, title: 'Verify the pinned base image', detail: 'The digest is checked before anything is built.' },
+			{ order: 2, title: 'Render the build context', detail: 'Dockerfile, nginx.conf' + (req.spec.php?.version ? ' and php ini' : '') },
+			{ order: 3, title: 'Build for ' + (req.spec.platforms ?? ['linux/amd64']).join(', '), detail: 'nginx -t validates the configuration inside the build.' },
+			{ order: 4, title: 'Push to the target registry', detail: `ghcr.io/${req.target.repository}:${req.target.tag}` }
+		],
+		warnings: ['Mock: Alpine package versions are not pinned.', 'Mock: no SBOM or vulnerability scan is generated.'],
+		explanation: `Builds an nginx ${req.spec.nginx.version} image${req.spec.php?.version ? ' with PHP-FPM ' + req.spec.php.version : ''} from a digest-pinned base and pushes it as ghcr.io/${req.target.repository}:${req.target.tag}. Nothing happens before you approve this plan.`
+	};
+}
+
+const driftReports: Record<string, unknown> = {
+	'mock-galera': {
+		cluster: 'mock-galera', checkedAt: ago(1), inSync: false,
+		findings: [
+			{ kind: 'foreign-labels', service: 'mock-galera-n2', detail: 'Service mock-galera-n2 carries a label the manager did not set (com.example.owner=ops).', action: 'Check whether the label is intended; remove it with docker service update --label-rm if not.' },
+			{ kind: 'not-running', slot: 'mock-node-3', service: 'mock-galera-n3', detail: 'Node service has no running task and the cluster is not in maintenance.', action: 'Look at docker service ps mock-galera-n3; replace the node from the cluster page if the host is lost.' },
+			{ kind: 'placement-changed', slot: 'mock-node-1', service: 'mock-galera-n1', detail: 'Placement constraint differs from the cluster record (node.hostname == mock-host-9 instead of mock-host-1).', action: 'Restore the constraint, or record the move by replacing the node.' }
+		]
+	},
+	'mock-empty': { cluster: 'mock-empty', checkedAt: ago(1), inSync: true, findings: [] }
+};
+
+function maintenancePlan(nodeId: string, end: boolean) {
+	const host = hosts.find((h) => h.nodeId === nodeId);
+	if (!host) return undefined;
+	const hasNode = nodeId === 'mock-host-1' || nodeId === 'mock-host-2';
+	if (!hasNode) return { host: nodeId, end, safe: true, clusters: [] };
+	const steps = end
+		? [{ id: 'check-marker', kind: 'check-volume-marker', slot: 'mock-node-2', note: 'Verify the volume identity marker' }, { id: 'start', kind: 'start-node', slot: 'mock-node-2', note: 'Start the node and wait until Synced (IST or SST)' }]
+		: [{ id: 'gate', kind: 'wait-synced', slot: 'mock-node-2', conditions: ['every node of the cluster on another host is Synced at the current size'] }, { id: 'stop', kind: 'stop-node', slot: 'mock-node-2', note: 'Stop the node gracefully' }];
+	if (nodeId === 'mock-host-1' && !end) {
+		return { host: nodeId, end, safe: false, clusters: [{ cluster: 'mock-galera', name: 'Mock Galera', slots: ['mock-node-1'], steps: [], refused: 'Only 1 of 3 nodes would remain outside this host: fewer than a strict majority (mock-node-3 is unavailable).' }] };
+	}
+	return { host: nodeId, end, safe: true, clusters: [{ cluster: 'mock-galera', name: 'Mock Galera', slots: ['mock-node-2'], steps, warnings: end ? [] : ['The cluster runs with 2 of 3 nodes during maintenance.'] }] };
+}
+
+let opSeq = 100;
+function platformMock(method: string, path: string, query: URLSearchParams, body: any): Response | undefined {
+	const P = '/api/v1';
+	if (path === P + '/services') {
+		if (method === 'GET') return json(200, { items: services });
+		if (method === 'POST') {
+			const plan = servicePlan('create', body);
+			if (!plan.executable) return json(409, { error: 'conflict' });
+			const op = pendingOp('service/create', 'mock-galera', 'f', plan.steps.length);
+			(op as any).cluster = undefined;
+			const created = { id: 'mock-svc-' + ++opSeq, swarm: body.swarm, name: body.name, type: body.type, spec: body.spec, createdBy: 'mock-admin', createdAt: new Date().toISOString(), createOperation: op.id };
+			services.push(created);
+			return json(202, { service: created.id, operation: { id: op.id, kind: op.kind }, approval: op.approval, plan });
+		}
+	}
+	if (path === P + '/services/plan' && method === 'POST') return json(200, servicePlan('create', body));
+	let m = path.match(/^\/api\/v1\/services\/([^/]+)\/delete-plan$/);
+	if (m && method === 'GET') {
+		const svc: any = services.find((x: any) => x.id === decodeURIComponent(m![1]));
+		return svc ? json(200, servicePlan('delete', svc, query.get('removeVolumes') === 'true')) : json(404, { error: 'not_found' });
+	}
+	m = path.match(/^\/api\/v1\/services\/([^/]+)$/);
+	if (m) {
+		const svc: any = services.find((x: any) => x.id === decodeURIComponent(m![1]));
+		if (!svc) return json(404, { error: 'not_found' });
+		if (method === 'GET') return json(200, svc);
+		if (method === 'DELETE') {
+			const plan = servicePlan('delete', svc, !!body?.removeVolumes);
+			const op = pendingOp('service/delete', 'mock-galera', '1', plan.steps.length);
+			svc.deleteOperation = op.id;
+			return json(202, { service: svc.id, operation: { id: op.id, kind: op.kind }, approval: op.approval, plan });
+		}
+	}
+	if (path === P + '/image-builds') {
+		if (method === 'GET') return json(200, builds);
+		if (method === 'POST') {
+			if (!/^sha256:[0-9a-f]{64}$/.test(body?.spec?.nginx?.baseDigest ?? '')) return json(400, { error: 'bad_request' });
+			const plan = imagePlan(body);
+			if (!body.approvalDigest) return json(200, { plan });
+			if (body.approvalDigest !== plan.digest) return json(409, { error: 'approval_mismatch' });
+			const job = { id: 'mock-build-' + ++opSeq, name: body.spec.name, status: 'succeeded', specHash: plan.specHash, contextHash: plan.contextHash, planDigest: plan.digest, reference: plan.reference, platforms: plan.platforms, baseDigests: [body.spec.nginx.baseDigest], imageDigest: 'sha256:' + digest('7'), sbom: { status: 'not_generated' }, requestedBy: 'mock-admin', createdAt: new Date().toISOString(), finishedAt: new Date().toISOString() };
+			builds.unshift(job);
+			return json(202, { job });
+		}
+	}
+	if (path === P + '/registries') {
+		if (method === 'GET') return json(200, registries);
+		if (method === 'POST') {
+			if (registries.some((r: any) => r.id === body.id)) return json(409, { error: 'conflict' });
+			// The password is never stored or echoed back.
+			const r = { id: body.id, name: body.name, kind: body.kind, ...(body.endpoint ? { endpoint: body.endpoint } : {}), ...(body.username ? { username: body.username } : {}), credentialSet: !!body.password, createdBy: 'mock-admin' };
+			registries.push(r);
+			return json(201, r);
+		}
+	}
+	m = path.match(/^\/api\/v1\/hosts\/([^/]+)\/maintenance-plan$/);
+	if (m && method === 'GET') {
+		const plan = maintenancePlan(decodeURIComponent(m[1]), query.get('end') === 'true');
+		return plan ? json(200, plan) : json(404, { error: 'not_found' });
+	}
+	m = path.match(/^\/api\/v1\/hosts\/([^/]+)\/maintenance$/);
+	if (m && (method === 'POST' || method === 'DELETE')) {
+		const id = decodeURIComponent(m[1]);
+		const h: any = hosts.find((x) => x.nodeId === id);
+		if (!h) return json(404, { error: 'not_found' });
+		const end = method === 'DELETE';
+		const plan: any = maintenancePlan(id, end);
+		if (end ? !h.maintenance : h.maintenance || !plan.safe) return json(409, { error: 'conflict' });
+		const ops = plan.clusters.map((c: any) => { const o = pendingOp(end ? 'host/maintenance-end' : 'host/maintenance', c.cluster, '2', c.steps.length); (o as any).state = 'running'; delete (o as any).approval; (o as any).reason = undefined; return { id: o.id, kind: o.kind }; });
+		if (end) delete h.maintenance;
+		else h.maintenance = { since: new Date().toISOString(), by: 'mock-admin', reason: body?.reason, operations: ops.map((o: any) => o.id), ready: false };
+		return json(202, { host: id, operations: ops, plan });
+	}
+	m = path.match(/^\/api\/v1\/clusters\/([^/]+)\/drift$/);
+	if (m && method === 'GET') {
+		const r = driftReports[decodeURIComponent(m[1])];
+		return r ? json(200, r) : json(404, { error: 'not_found' });
+	}
+	if (path === P + '/settings/replicas' && method === 'GET') return json(200, keyring);
+	m = path.match(/^\/api\/v1\/settings\/replicas\/([^/]+)\/data-key-recipient$/);
+	if (m && method === 'PUT') {
+		const r: any = replicas.find((x: any) => x.id === decodeURIComponent(m![1]));
+		if (!r) return json(400, { error: 'bad_request' });
+		if (!/^dbcmpk1:[A-Za-z0-9_-]{43}$/.test(body?.publicKey ?? '')) return json(400, { error: 'bad_request' });
+		Object.assign(r, { publicKeyId: 'SHA256:mock' + String(body.publicKey).slice(8, 14), registeredBy: 'mock-admin', registeredAt: new Date().toISOString(), hasCurrentKey: true });
+		return json(200, r);
+	}
+	m = path.match(/^\/api\/v1\/settings\/replicas\/([^/]+)\/revoke-certificates$/);
+	if (m && method === 'POST') return json(200, { replica: decodeURIComponent(m[1]), revoked: 2 });
+	return undefined;
+}
+
 export const mockFetch: typeof fetch = async (input, init) => {
 	const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url, location.href);
 	const method = (init?.method ?? 'GET').toUpperCase();
 	await new Promise((r) => setTimeout(r, 150));
+	let parsed: any = {};
+	try {
+		if (init?.body) parsed = JSON.parse(String(init.body));
+	} catch {
+		// ignore
+	}
+	const platform = platformMock(method, url.pathname, url.searchParams, parsed);
+	if (platform) return platform;
 	if (method === 'POST') {
 		if (url.pathname === '/api/v1/auth/logout') return new Response(null, { status: 204 });
 		let body: any = {};

@@ -164,6 +164,7 @@
 				<CircleDashed class="size-4" aria-hidden="true" />{t('managerSettingsEditNA')}
 			</p>
 			<p class="mt-2 text-sm"><a class="underline underline-offset-4" href="/notifications/settings">{t('notifySettingsTitle')}</a></p>
+			<p class="mt-2 text-sm"><a class="underline underline-offset-4" href="/settings/replicas">{t('keyOpen')}</a></p>
 		</Card.Content>
 	</Card.Root>
 </div>

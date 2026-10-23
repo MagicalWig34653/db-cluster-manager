@@ -116,7 +116,7 @@ describe('node events', () => {
 
 describe('backup policy form', () => {
 	it('starts from defaults and from a stored policy', () => {
-		expect(policyFormOf(undefined)).toEqual({ enabled: false, schedule: '0 2 * * *', timezone: 'UTC', missed: 'skip' });
+		expect(policyFormOf(undefined)).toMatchObject({ enabled: false, schedule: '0 2 * * *', timezone: 'UTC', missed: 'skip', method: 'physical', retentionEnabled: false });
 		expect(policyFormOf({ enabled: true, schedule: '*/30 * * * *', timezone: 'Europe/Berlin', missed: 'run-once' })).toMatchObject({ enabled: true, missed: 'run-once' });
 	});
 	it('validates the cron shape and the time zone', () => {
@@ -130,14 +130,42 @@ describe('backup policy form', () => {
 		expect(validatePolicy({ ...f, timezone: '' })).toEqual([]);
 	});
 	it('builds the request with normalised whitespace and the physical method', () => {
-		expect(buildPolicy({ enabled: true, schedule: ' 0   2 * * * ', timezone: ' Europe/Berlin ', missed: 'skip' })).toEqual({
+		const base = policyFormOf(undefined);
+		expect(buildPolicy({ ...base, enabled: true, schedule: ' 0   2 * * * ', timezone: ' Europe/Berlin ' })).toEqual({
 			enabled: true,
 			schedule: '0 2 * * *',
 			timezone: 'Europe/Berlin',
 			missed: 'skip',
 			method: 'physical'
 		});
-		expect(buildPolicy({ enabled: false, schedule: '0 2 * * *', timezone: '', missed: 'skip' })).not.toHaveProperty('timezone');
+		expect(buildPolicy({ ...base, timezone: '' })).not.toHaveProperty('timezone');
+	});
+	it('requires databases for the logical method and sends them de-duplicated', () => {
+		const f = { ...policyFormOf(undefined), method: 'logical' as const };
+		expect(validatePolicy(f)).toEqual(['databases']);
+		expect(validatePolicy({ ...f, databases: 'app; bad name!' })).toEqual(['databases']);
+		const ok = { ...f, databases: 'app, shop app\nlogs' };
+		expect(validatePolicy(ok)).toEqual([]);
+		expect(buildPolicy(ok)).toMatchObject({ method: 'logical', databases: ['app', 'shop', 'logs'] });
+		expect(buildPolicy({ ...ok, method: 'physical' })).not.toHaveProperty('databases');
+	});
+	it('validates retention counts and omits the block when it is off', () => {
+		const f = policyFormOf(undefined);
+		expect(buildPolicy(f)).not.toHaveProperty('retention');
+		const r = { ...f, retentionEnabled: true };
+		expect(validatePolicy(r)).toEqual([]);
+		expect(buildPolicy(r).retention).toEqual({ keepLast: 7, keepDaily: 0, keepWeekly: 0 });
+		expect(validatePolicy({ ...r, keepLast: '0' })).toEqual(['keepLast']);
+		expect(validatePolicy({ ...r, keepDaily: '-1', keepWeekly: '1001' })).toEqual(['keepDaily', 'keepWeekly']);
+		expect(validatePolicy({ ...f, keepLast: 'x' })).toEqual([]);
+	});
+	it('round-trips a stored logical policy with retention', () => {
+		const stored = { enabled: true, schedule: '0 3 * * *', method: 'logical' as const, databases: ['app'], retention: { keepLast: 3, keepDaily: 7, keepWeekly: 4 } };
+		expect(isBackupSummary({ cluster: 'c', backupPolicy: stored })).toBe(true);
+		expect(isBackupSummary({ cluster: 'c', backupPolicy: { ...stored, retention: { keepDaily: 1 } } })).toBe(false);
+		const f = policyFormOf(stored);
+		expect(f).toMatchObject({ method: 'logical', databases: 'app', retentionEnabled: true, keepLast: '3' });
+		expect(buildPolicy(f)).toMatchObject({ method: 'logical', databases: ['app'], retention: { keepLast: 3, keepDaily: 7, keepWeekly: 4 } });
 	});
 	it('accepts a backup summary with a stored policy and rejects a malformed one', () => {
 		expect(isBackupSummary({ cluster: 'c', swarm: 's', backupPolicy: { enabled: true, schedule: '0 2 * * *', missed: 'skip' } })).toBe(true);

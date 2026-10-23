@@ -29,6 +29,14 @@ Backend settings (`manager.backup.backendConfigFile`), a recovery-key Swarm secr
 
 After each scheduler pass the manager deletes older complete backup sets according to the policy (manifest first, then stream). It always keeps the newest set, the newest set with a passed restore verification and sets used by an open inspection, and skips a cluster while one of its operations is unfinished. [Fakes]: an end-to-end test over four simulated days with fake jobs and an in-memory backend; no deletion ran against a real SFTP or S3 backend.
 
+In the schedule form you choose the method (physical, or logical with the databases to export) and optional retention (keep the latest N sets, one per day for N days, one per week for N weeks). The form states that the newest set, the newest verified set and sets used by an open inspection are always kept.
+
+![Schedule form with logical method and retention](../../assets/screenshots/en-light-backup-policy.png)
+
+*Screenshot from the development mock server (`npm run dev:mock`, invented sample data), not from a real manager.*
+
+Mock-server view only [Mock only].
+
 ## Restore with inspection and approval
 
 1. `POST /api/v1/restores/inspect` with `cluster`, optional `backup` (default: newest completed), `host`, `keySecret`, `ttlMinutes` (at most 1440). The response contains the **approval digest** and, only once, the inspection account password.

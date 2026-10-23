@@ -16,6 +16,7 @@
 	import ErrorNotice from './ErrorNotice.svelte';
 	import Loading from './Loading.svelte';
 	import ApiGate from './ApiGate.svelte';
+	import DriftPanel from './DriftPanel.svelte';
 	import { Button } from '../ui/button/index.js';
 	import * as Alert from '../ui/alert/index.js';
 
@@ -278,6 +279,8 @@
 				{/if}
 			</Card.Content>
 		</Card.Root>
+
+		<DriftPanel cluster={c.id} />
 
 		<Card.Root class="lg:col-span-2">
 			<Card.Header>

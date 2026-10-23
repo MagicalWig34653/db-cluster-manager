@@ -29,6 +29,14 @@ Ziel-Einstellungen (`manager.backup.backendConfigFile`), ein Recovery-Key-Swarm-
 
 Nach jedem Durchlauf des Zeitplaners löscht der Manager ältere vollständige Backup-Sätze gemäß der Richtlinie (zuerst das Manifest, dann den Stream). Er behält stets den neuesten Satz, den neuesten Satz mit bestandener Wiederherstellungsprüfung und Sätze einer offenen Inspektion und überspringt einen Cluster, solange eine seiner Operationen unfertig ist. [Fakes]: ein Ende-zu-Ende-Test über vier simulierte Tage mit Fake-Jobs und einem Speicher-Backend; es lief kein Löschen gegen ein echtes SFTP- oder S3-Ziel.
 
+Im Zeitplanformular wählt man die Methode (physisch oder logisch mit den zu exportierenden Datenbanken) und optional die Aufbewahrung (die letzten N Sätze, einen pro Tag für N Tage, einen pro Woche für N Wochen). Das Formular nennt, dass der neueste Satz, der neueste geprüfte Satz und von einer offenen Inspektion genutzte Sätze immer bleiben.
+
+![Zeitplanformular mit logischer Methode und Aufbewahrung](../../assets/screenshots/de-light-backup-policy.png)
+
+*Bildschirmfoto aus dem Entwicklungs-Mock-Server (`npm run dev:mock`, erfundene Beispieldaten), nicht von einem echten Manager.*
+
+Nur Ansicht des Mock-Servers [Nur Mock].
+
 ## Wiederherstellung per Inspektion mit Freigabe
 
 1. `POST /api/v1/restores/inspect` mit `cluster`, optional `backup` (Standard: neuestes abgeschlossenes), `host`, `keySecret`, `ttlMinutes` (höchstens 1440). Die Antwort enthält den **Freigabe-Digest** und, nur einmal, das Passwort des Inspektionskontos.

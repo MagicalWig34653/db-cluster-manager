@@ -54,6 +54,18 @@ The experiment scripts under `tests/p0/` create and remove their own VMs and run
 
 **Drift** [Fakes]: `GET /api/v1/clusters/{id}/drift` compares the cluster record with the Swarm services carrying its label (missing, recreated outside the manager, foreign labels, changed placement, scaled to 0 or not running outside maintenance and operations, unexpected services). Each finding proposes a manual action; nothing is changed. The leader also checks periodically and records an event when the findings change.
 
+The **Hosts** page offers **Maintenance** per enrolled host: **Show maintenance plan** previews, per cluster, the steps and warnings, or why the cluster refuses (fewer than a strict majority of its nodes would remain). Only a plan without refusals can be started; the manager never reboots or drains the host and says when it is ready. The **cluster detail** page has a **Drift check** card that lists differences between the cluster record and the Swarm services, each with a proposed manual next step; nothing is changed automatically.
+
+![Host maintenance plan](../../assets/screenshots/en-light-host-maintenance.png)
+
+*Screenshot from the development mock server (`npm run dev:mock`, invented sample data), not from a real manager.*
+
+![Drift check of a cluster](../../assets/screenshots/en-light-drift.png)
+
+*Screenshot from the development mock server (`npm run dev:mock`, invented sample data), not from a real manager.*
+
+Mock-server views only [Mock only].
+
 ## 5. Replicas, key ring and peer certificates
 
 None of this has run with several manager replicas on VMs [Untested]; the pieces are tested with fakes and loopback TLS [Fakes]. Reference: [configuration reference](12-configuration-reference.md), [ADR 0013](../../decisions/0013-replica-keys-peer-tls-and-revocation.md).
@@ -64,6 +76,14 @@ None of this has run with several manager replicas on VMs [Untested]; the pieces
 4. **Register further replicas:** on each, run `manager -print-replica-key -config <file>` (creates `<dataDir>/replica.key` if needed) and note the public key and its fingerprint. Compare them out of band, then as an administrator call `PUT /api/v1/settings/replicas/{id}/data-key-recipient` with the public key (`dbcmpk1:...`). Only current voters are accepted; nothing is registered automatically. A replica that becomes leader without the key hands leadership over, so an unregistered replica will not serve the API. `GET /api/v1/settings/replicas` shows the keyring status and whether the keys are `recoverable`.
 5. **Recovery:** with `settings.backup.recipientKey` configured, every data key also has an envelope for the backup recovery key; keep that private key outside the cluster. Back up `<dataDir>` as in section 1.
 6. **Cut off a replica:** `POST /api/v1/settings/replicas/{id}/revoke-certificates` denies its manager certificates at every agent. It does not take back keys the replica already unwrapped; rotation is not implemented.
+
+**Settings > Manager replicas and keyring** lists each replica with the fingerprint of its registered public identity and whether the current data key is wrapped for it, warns when the key has no backup recovery envelope, registers a data-key recipient (format `dbcmpk1:...`, compare it out of band first) and revokes all manager certificates of a replica after a confirmation. No key material is ever displayed.
+
+![Replicas and keyring settings](../../assets/screenshots/en-light-keyring.png)
+
+*Screenshot from the development mock server (`npm run dev:mock`, invented sample data), not from a real manager.*
+
+Mock-server view only [Mock only].
 
 ## 6. Remove a manager installation
 

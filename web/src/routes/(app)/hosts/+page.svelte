@@ -4,6 +4,7 @@
 	import { t } from '../../../lib/locale.svelte';
 	import type { MessageKey } from '../../../lib/i18n';
 	import { canEnroll, canRevoke } from '../../../lib/operations';
+	import { canEnterMaintenance, canLeaveMaintenance, maintenanceState } from '../../../lib/platform';
 	import * as Table from '../../../lib/components/ui/table/index.js';
 	import * as Alert from '../../../lib/components/ui/alert/index.js';
 	import { Button } from '../../../lib/components/ui/button/index.js';
@@ -13,6 +14,7 @@
 	import ApiGate from '../../../lib/components/app/ApiGate.svelte';
 	import ErrorNotice from '../../../lib/components/app/ErrorNotice.svelte';
 	import Loading from '../../../lib/components/app/Loading.svelte';
+	import MaintenancePanel from '../../../lib/components/app/MaintenancePanel.svelte';
 
 	const hosts = load(api.hosts);
 	const enrollLabel: Record<string, MessageKey> = {
@@ -23,6 +25,7 @@
 	// Swarm node status maps to the shared state vocabulary; anything else is unknown.
 	const nodeState = (s?: string) => (s === 'ready' ? 'healthy' : s === 'down' ? 'unavailable' : 'unknown');
 
+	let maintHost = $state<string | undefined>(); // nodeId whose maintenance panel is open
 	let busy = $state<string | undefined>(); // nodeId of the running action
 	let revoking = $state<string | undefined>(); // nodeId awaiting confirmation
 	let error = $state<{ node: string; error: ApiError } | undefined>();
@@ -73,7 +76,10 @@
 						</Table.Cell>
 						<Table.Cell class="font-mono text-xs">{h.swarm}</Table.Cell>
 						<Table.Cell>{t(enrollLabel[h.enrollment])}</Table.Cell>
-						<Table.Cell><Status value={nodeState(h.state)} /></Table.Cell>
+						<Table.Cell>
+							<Status value={nodeState(h.state)} />
+							{#if h.maintenance}<p class="mt-1 text-xs font-medium text-amber-700 dark:text-amber-400">{maintenanceState(h) === 'ready' ? t('mntReady') : t('mntInProgress')}</p>{/if}
+						</Table.Cell>
 						<Table.Cell>{h.agentIdentity ? t('identityRecorded') : t('identityNone')}</Table.Cell>
 						<Table.Cell class="font-mono text-xs">{h.engineVersion ?? t('stateUnknown')}</Table.Cell>
 						<Table.Cell><Freshness at={h.observedAt} /></Table.Cell>
@@ -81,6 +87,9 @@
 							<div class="flex flex-wrap gap-2">
 								{#if canEnroll(h)}
 									<Button size="sm" variant="outline" disabled={busy !== undefined} onclick={() => act(h, 'enroll')}>{t('enrollAction')}</Button>
+								{/if}
+								{#if canEnterMaintenance(h) || canLeaveMaintenance(h)}
+									<Button size="sm" variant="outline" aria-expanded={maintHost === h.nodeId} onclick={() => (maintHost = maintHost === h.nodeId ? undefined : h.nodeId)}>{t('mntAction')}</Button>
 								{/if}
 								{#if canRevoke(h) && revoking !== h.nodeId}
 									<Button size="sm" variant="outline" disabled={busy !== undefined} onclick={() => (revoking = h.nodeId)}>{t('revokeAction')}</Button>
@@ -104,5 +113,9 @@
 			</Table.Body>
 		</Table.Root>
 	</div>
+	{#if maintHost}
+		{@const mh = hosts.state.value.find((x) => x.nodeId === maintHost)}
+		{#if mh}<div class="mt-4">{#key mh.nodeId + String(!!mh.maintenance)}<MaintenancePanel host={mh} onchange={hosts.refresh} />{/key}</div>{/if}
+	{/if}
 	<p class="mt-3 text-xs text-muted-foreground">{t('hostsHint')} {t('hostsAgentNote')}</p>
 {/if}
