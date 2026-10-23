@@ -33,6 +33,11 @@ const (
 	ActionBackup            Action = "backup"
 	ActionRestore           Action = "restore"
 	ActionManagePermissions Action = "manage_permissions"
+	// ActionRecover approves a guided full-outage recovery of a cluster
+	// (A06): bootstrapping one node as the new Primary component. It is
+	// separate from operate (which only requests the plan) and from
+	// restore; of the presets only the administrator holds it.
+	ActionRecover Action = "recover"
 	// ActionAny is a wildcard usable in permissions only, never in a check.
 	ActionAny Action = "*"
 )
@@ -40,7 +45,7 @@ const (
 var knownActions = map[Action]bool{
 	ActionRead: true, ActionCreate: true, ActionUpdate: true, ActionDelete: true,
 	ActionOperate: true, ActionBackup: true, ActionRestore: true,
-	ActionManagePermissions: true,
+	ActionManagePermissions: true, ActionRecover: true,
 }
 
 // Valid reports whether a is a concrete, known action.
@@ -54,7 +59,7 @@ func (a Action) ChangesState() bool { return a.Valid() && a != ActionRead }
 // Destructive actions on protected resources require a system role.
 func (a Action) Destructive() bool {
 	switch a {
-	case ActionDelete, ActionUpdate, ActionRestore, ActionManagePermissions:
+	case ActionDelete, ActionUpdate, ActionRestore, ActionManagePermissions, ActionRecover:
 		return true
 	}
 	return false

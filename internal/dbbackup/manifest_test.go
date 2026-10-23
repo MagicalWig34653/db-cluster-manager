@@ -58,8 +58,8 @@ func validManifest() Manifest {
 	return Manifest{
 		Format: ManifestFormat, BackupID: "b1", Method: MethodPhysical, ClusterID: testCluster, SourceNodeUUID: uuid2,
 		Object: "o.xbs.dbcms", Started: t0, Finished: t0.Add(1),
-		Stream: backup.StreamSummary{KeyID: "k", PlainSize: 10, CipherSize: 99, CipherSHA256: "aa",
-			Chunks: []backup.ChunkDigest{{Index: 0, Size: 10, SHA256: "bb"}}},
+		Stream: backup.StreamSummary{KeyID: "k", PlainSize: 10, PlainMAC: "mm", CipherSize: 99, CipherSHA256: "aa",
+			Chunks: []backup.ChunkDigest{{Index: 0, Size: 10, MAC: "bb"}}},
 		Stored:      backup.PutResult{Size: 99, SHA256: "aa"},
 		Checkpoints: &Checkpoints{BackupType: "full-backuped", ToLSN: 5},
 	}
@@ -70,7 +70,11 @@ func TestManifestValidate(t *testing.T) {
 		t.Fatal(err)
 	}
 	cases := map[string]func(*Manifest){
-		"format":        func(m *Manifest) { m.Format = 2 },
+		"format":        func(m *Manifest) { m.Format = 3 },
+		"v2 plain hash": func(m *Manifest) { m.Stream.PlainSHA256 = "cc" },
+		"v2 chunk hash": func(m *Manifest) { m.Stream.Chunks[0].SHA256 = "cc" },
+		"v2 no mac":     func(m *Manifest) { m.Stream.Chunks[0].MAC = "" },
+		"v1 with mac":   func(m *Manifest) { m.Format = ManifestFormatV1 },
 		"id":            func(m *Manifest) { m.BackupID = "B/1" },
 		"cluster":       func(m *Manifest) { m.ClusterID = "" },
 		"stored digest": func(m *Manifest) { m.Stored.SHA256 = "cc" },
@@ -93,6 +97,13 @@ func TestManifestValidate(t *testing.T) {
 	}
 	if _, err := DecodeManifest([]byte("{")); !errors.Is(err, ErrInvalidManifest) {
 		t.Fatal(err)
+	}
+	// Format 1 (plaintext chunk hashes) stays readable.
+	v1 := validManifest()
+	v1.Format, v1.Stream.PlainMAC, v1.Stream.PlainSHA256 = ManifestFormatV1, "", "pp"
+	v1.Stream.Chunks = []backup.ChunkDigest{{Index: 0, Size: 10, SHA256: "bb"}}
+	if err := v1.Validate(); err != nil {
+		t.Fatalf("format 1: %v", err)
 	}
 }
 

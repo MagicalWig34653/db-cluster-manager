@@ -99,6 +99,28 @@ func TestRecoverOutageWaitsForApprovalThenRunsTheGuidedPlan(t *testing.T) {
 	if _, _, err := ops.RecoverOutage(ctx, adminSubject, "clu-1", "n2"); !errors.Is(err, runner.ErrBusy) {
 		t.Fatalf("second request while one waits: %v", err)
 	}
+	// Approving needs the separate recover permission: neither operate
+	// (operator preset) nor restore on the cluster's backups is enough.
+	restorer := authz.Subject{ID: "restorer", Kind: authz.SubjectUser}
+	pol := ops.Authorizer.Policy()
+	if err := pol.AddRole(authz.Role{Name: "restore-only", Permissions: []authz.Permission{
+		{Type: authz.ResourceBackup, Action: authz.ActionRestore}, {Type: authz.ResourceCluster, Action: authz.ActionOperate}}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range []authz.Binding{{Subject: operatorSubject, Role: authz.RoleOperator, Scope: authz.Global},
+		{Subject: restorer, Role: "restore-only", Scope: authz.Global}} {
+		if err := pol.Bind(b); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, who := range []authz.Subject{operatorSubject, restorer} {
+		if _, err := ops.Approve(who, rec.ID, rec.ApprovalDigest); !errors.As(err, new(*authz.DeniedError)) {
+			t.Fatalf("approval by %s: %v", who.ID, err)
+		}
+	}
+	if act, _ := approvalPermission(rec); act != authz.ActionRecover {
+		t.Fatalf("approval permission %q", act)
+	}
 	if _, err := ops.Approve(adminSubject, rec.ID, "0000"); !errors.Is(err, ErrApprovalMismatch) {
 		t.Fatalf("wrong digest: %v", err)
 	}

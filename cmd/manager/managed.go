@@ -48,9 +48,18 @@ type managerConfig struct {
 	Peers     []peerConfig `json:"peers"`
 	Bootstrap bool         `json:"bootstrap"`
 	// KeyFile holds the 32-byte data key for secrets at rest; default
-	// <dataDir>/data.key, created if missing. Every replica needs the same
-	// key: provisioning it is not solved (copy it out of band).
+	// <dataDir>/data.key, created if missing. Without Keyring every replica
+	// needs the same file (copied out of band).
 	KeyFile string `json:"keyFile"`
+	// Keyring distributes the data key through the replicated keyring
+	// instead (manager/keyring.go): each replica keeps only its identity in
+	// <dataDir>/replica.key; an existing KeyFile is adopted as the first
+	// key when the keyring is bootstrapped. Other replicas are registered
+	// through PUT /settings/replicas/{id}/data-key-recipient.
+	Keyring bool `json:"keyring"`
+	// PeerTLS makes the metastore transport mutual TLS 1.3 between
+	// replicas with certificates of a peer CA (manager -issue-peer-certs).
+	PeerTLS *peerTLSConfig `json:"peerTLS,omitempty"`
 	// LabAgents routes agent commands to each enrolled host's lab HTTP
 	// endpoint (unauthenticated; lab only). Without it agent commands are
 	// refused.
@@ -267,6 +276,8 @@ type managedRuntime struct {
 
 	// Command services of the current leadership's API.
 	keys       manager.KeyProvider
+	keyring    *manager.Keyring  // nil without manager.keyring
+	pki        *manager.AgentPKI // nil without manager.agentTransport
 	swarms     *manager.Swarms
 	monitoring *manager.Monitoring
 	backend    backup.Backend
@@ -290,21 +301,22 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 			return nil, fmt.Errorf("auth config: %w", err)
 		}
 	}
-	keyFile := mc.KeyFile
-	if keyFile == "" {
-		keyFile = filepath.Join(mc.DataDir, "data.key")
-	}
-	keys, err := manager.FileKeyProvider(keyFile)
-	if err != nil {
-		return nil, err
-	}
 	nodeID := mc.NodeID
 	if nodeID == "" {
 		nodeID = "manager-1"
 	}
+	keys, keyring, err := mc.dataKeys(nodeID)
+	if err != nil {
+		return nil, err
+	}
 	scfg := manager.Config{
 		NodeID: nodeID, DataDir: filepath.Join(mc.DataDir, "metastore"), BindAddr: mc.Bind, AdvertiseAddr: mc.Advertise,
-		Bootstrap: mc.Bootstrap, AutoResume: mc.AutoResume, Logger: log,
+		Bootstrap: mc.Bootstrap, AutoResume: mc.AutoResume, Logger: log, Keyring: keyring,
+	}
+	if mc.PeerTLS != nil {
+		if scfg.PeerTLS, err = mc.PeerTLS.load(); err != nil {
+			return nil, err
+		}
 	}
 	for _, p := range mc.Peers {
 		scfg.Peers = append(scfg.Peers, metastore.Peer{ID: p.ID, Address: p.Address})
@@ -319,7 +331,17 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 	rt.swarms = swarms
 	scfg.Reconcilers = []manager.Reconciler{
 		manager.SyncReconciler{Swarms: swarms},
+		manager.DriftDetector{Swarms: swarms},
 		manager.BackupScheduler{Backups: rt.backups.Load, Interval: mc.scheduleInterval()},
+	}
+	if keyring != nil {
+		rt.keyring = keyring
+		scfg.Reconcilers = append(scfg.Reconcilers, manager.KeyringReconciler{Keyring: keyring})
+	}
+	if mc.AgentTransport != nil {
+		// Revoked serials (renewals, revoked hosts and manager
+		// certificates) reach every enrolled agent.
+		scfg.Reconcilers = append(scfg.Reconcilers, manager.DenyListDistributor{})
 	}
 	// Every condition goes through the routing checker: approvals from the
 	// replicated store, backup conditions through the backend, cluster
@@ -371,8 +393,9 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 		svc.SetAgents(manager.LabAgentDirectory{Store: svc.Store()})
 	case mc.AgentTransport != nil:
 		at := mc.AgentTransport
-		pki := &manager.AgentPKI{Store: svc.Store(), Keys: keys, ServerDNS: at.ServerDNS, ServerIPs: serverIPs,
+		pki := &manager.AgentPKI{Store: svc.Store(), Keys: keys, ReplicaID: nodeID, ServerDNS: at.ServerDNS, ServerIPs: serverIPs,
 			RequireSourceAddr: !at.AllowAnySource}
+		rt.pki = pki
 		svc.SetAgents(&manager.AgentDirectory{Store: svc.Store(), PKI: pki, Port: at.AgentPort})
 		swarms.Transport = &manager.AgentTransport{PKI: pki, ManagerURL: at.ManagerURL, Port: at.AgentPort,
 			MonitorUser: at.MonitorUser, MonitorSecret: at.MonitorSecret, DBSecrets: at.DBSecrets}
@@ -467,12 +490,16 @@ func (rt *managedRuntime) leaderAPI(pk passkey.Config, keys manager.KeyProvider,
 	}
 	inv := manager.Inventory{Store: rt.svc.Store()}
 	svc := rt.commandServices(st)
-	h, err := api.New(api.Config{
+	acfg := api.Config{
 		Passkeys: st.Passkeys, Accounts: st.Accounts, Sessions: st.Sessions, RecoverySessions: st.RecoverySessions,
 		Codes: st.Codes, URLTokens: st.URLTokens, Limiter: st.Limiter, Authorizer: st.Authorizer, AuditSink: st.Audit,
 		SetupToken: token, AdministratorExists: st.AdministratorExists, Inventory: inv, Activity: inv, Logger: log,
-		Monitoring: rt.monitoring, Control: svc.control, Backups: svc.backups, Settings: svc.settings,
-	})
+		Monitoring: rt.monitoring, Control: svc.control, Backups: svc.backups, Settings: svc.settings, Maintenance: svc.control,
+	}
+	// Without a keyring or the agent transport the respective endpoints
+	// answer settings_incomplete.
+	acfg.Replicas = &manager.ReplicaService{Svc: rt.svc, Ring: rt.keyring, PKI: rt.pki, Authorizer: st.Authorizer}
+	h, err := api.New(acfg)
 	if err != nil {
 		return nil, nil, err
 	}

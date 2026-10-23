@@ -10,6 +10,8 @@ Automatic single-node replacement is allowed by policy/capacity. Full-cluster re
 
 **Scope broadened (2026-10-22, [ADR 0012](decisions/0012-broadened-scope-platform.md)):** the product becomes a general self-hosted platform for clusters and services: Swarm or Kubernetes (including provisioning new clusters), additional server types (web servers with detailed composition, storage protocol servers, generic containers, optionally Traefik), image building with a managed or external registry, and Docker engine updates — fully operable through the UI while keeping the system understandable. MariaDB Galera remains priority 1; R1 scope and gates are unchanged. Requirements: X01–X12 in [KONZEPT.md](KONZEPT.md#scope-extension). A09 is partly superseded by X09.
 
+**Technical decisions of 2026-10-23 (proposed, fakes-only evidence):** data-key distribution through a replicated keyring with per-replica and recovery-key envelopes, administrator registration of replicas, metastore peer mTLS and certificate deny-list distribution to the agents ([ADR 0013](decisions/0013-replica-keys-peer-tls-and-revocation.md)); keyed backup chunk digests in manifest format 2 ([ADR 0009 amendment](decisions/0009-cluster-backup-method.md)). Approving a guided full-outage recovery needs the new `recover` permission (administrator preset only). Host maintenance never reboots or drains a host and does not change its Swarm availability (consistent with the open X09 question below).
+
 ## Remaining product decisions
 
 - Final project name/GitHub owner, release naming and Pages setup. Public visibility and Git initialization/public push by Claude are explicitly authorized.

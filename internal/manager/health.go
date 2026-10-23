@@ -175,10 +175,15 @@ func (h HealthCollector) CollectOnce(ctx context.Context, l *Leadership) error {
 	var errs []error
 	for _, c := range clusters {
 		var changes []nodeTransition
+		var prevState, nextState api.State
 		_, _, err := Update(store, CollClusters, c.Key, func(cur ClusterRecord, exists bool) (ClusterRecord, error) {
 			changes = changes[:0]
+			prevState, nextState = "", ""
 			if !exists {
 				return cur, ErrNotFound
+			}
+			if cur.Observed != nil {
+				prevState = cur.Observed.State
 			}
 			if cur.Health == nil {
 				cur.Health = map[string]NodeObservation{}
@@ -202,6 +207,7 @@ func (h HealthCollector) CollectOnce(ctx context.Context, l *Leadership) error {
 			}
 			if len(nodes) > 0 {
 				cur.Observed = clusterObservation(cur, nodes[0].ObservedAt)
+				nextState = cur.Observed.State
 			}
 			return cur, nil
 		})
@@ -209,7 +215,7 @@ func (h HealthCollector) CollectOnce(ctx context.Context, l *Leadership) error {
 			errs = append(errs, fmt.Errorf("cluster %s: %w", c.Key, err))
 		}
 		if err == nil {
-			h.report(ctx, l, c.Value, changes)
+			h.report(ctx, l, c.Value, changes, clusterChange(prevState, nextState))
 		}
 	}
 	return errors.Join(errs...)
@@ -241,16 +247,49 @@ func transition(prev, next galera.NodeHealth) (nodeTransition, bool) {
 	return t, true
 }
 
-// Notification kinds of node health transitions.
+// Notification kinds of node and cluster health transitions.
 const (
 	KindNodeUnavailable = "health.node_unavailable"
 	KindNodeRecovered   = "health.node_recovered"
+	// KindClusterOutage: no node of the cluster is in a Primary component
+	// and no majority is unknown, so the cluster serves no writes (lab E6).
+	// Recovery is never started automatically (A06); the notification
+	// points to the read-only outage diagnosis.
+	KindClusterOutage = "health.cluster_outage"
+	// KindClusterOutageEnded: a cluster left the unavailable state.
+	KindClusterOutageEnded = "health.cluster_outage_ended"
 )
+
+// clusterOutageChange is a change of the aggregated cluster state into or
+// out of unavailable.
+type clusterOutageChange int
+
+const (
+	outageNone clusterOutageChange = iota
+	outageStarted
+	outageEnded
+)
+
+// clusterChange compares two aggregated cluster states. The first
+// observation of a cluster (prev empty) is no transition, like for nodes.
+// A change between unavailable and unknown is none either: unknown means
+// the manager cannot tell (for example agents unreachable).
+func clusterChange(prev, next api.State) clusterOutageChange {
+	switch {
+	case prev == "" || next == "" || prev == next:
+		return outageNone
+	case next == api.StateUnavailable && prev != api.StateUnknown:
+		return outageStarted
+	case prev == api.StateUnavailable && (next == api.StateHealthy || next == api.StateDegraded):
+		return outageEnded
+	}
+	return outageNone
+}
 
 // report records an event for every transition and hands it to Notify
 // (the monitoring dispatcher: UI inbox and configured channels).
-func (h HealthCollector) report(ctx context.Context, l *Leadership, c ClusterRecord, changes []nodeTransition) {
-	if len(changes) > 0 && c.DeleteOp != "" {
+func (h HealthCollector) report(ctx context.Context, l *Leadership, c ClusterRecord, changes []nodeTransition, cc clusterOutageChange) {
+	if (len(changes) > 0 || cc != outageNone) && c.DeleteOp != "" {
 		// Nodes going away during a deletion are expected.
 		if op, ok, err := Get[OperationRecord](l.svc.store, CollOperations, c.DeleteOp); err == nil && ok && op.Value.EndedAt.IsZero() {
 			return
@@ -273,6 +312,32 @@ func (h HealthCollector) report(ctx context.Context, l *Leadership, c ClusterRec
 			Resource: "swarm/" + c.Swarm + "/cluster/" + c.ID + "/node/" + t.slot, Message: msg,
 			Details: map[string]string{"swarm": c.Swarm, "cluster": c.ID, "node": t.slot, "state": string(t.state)}})
 	}
+	h.reportCluster(ctx, l, c, cc)
+}
+
+// reportCluster records and notifies the start or end of a full-cluster
+// outage. It suggests the diagnosis; it never plans a recovery.
+func (h HealthCollector) reportCluster(ctx context.Context, l *Leadership, c ClusterRecord, cc clusterOutageChange) {
+	var sev api.Severity
+	var nsev notify.Severity
+	var kind, msg string
+	switch cc {
+	case outageStarted:
+		sev, nsev, kind = api.SeverityCritical, notify.SeverityCritical, KindClusterOutage
+		msg = fmt.Sprintf("cluster %s has no Primary component (full outage); run the outage diagnosis, recovery needs an approved plan", c.Name)
+	case outageEnded:
+		sev, nsev, kind = api.SeverityInfo, notify.SeverityInfo, KindClusterOutageEnded
+		msg = fmt.Sprintf("cluster %s has a Primary component again", c.Name)
+	default:
+		return
+	}
+	l.svc.recordEvent(c.Swarm, c.ID, sev, msg)
+	if h.Notify == nil {
+		return
+	}
+	h.Notify(ctx, notify.Event{Time: l.svc.cfg.Now(), Severity: nsev, Kind: kind,
+		Resource: "swarm/" + c.Swarm + "/cluster/" + c.ID, Message: msg,
+		Details: map[string]string{"swarm": c.Swarm, "cluster": c.ID}})
 }
 
 func sameNode(before, now ClusterRecord, n galera.Node) bool {

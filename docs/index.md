@@ -24,6 +24,7 @@ title: Galera Cluster Manager
 - [Current status](STATUS.md)
 - [Decision records](decisions/0001-product-direction.md)
 - [Broadened scope decision](decisions/0012-broadened-scope-platform.md)
+- [Replica keys, peer TLS and revocation](decisions/0013-replica-keys-peer-tls-and-revocation.md)
 - [Technical references](QUELLEN.md)
 
 Technical documentation is English. German and English user guides exist for the features implemented so far; each feature is labelled with its verification level. This Pages source is prepared but has not been built or published.

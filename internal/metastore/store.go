@@ -20,7 +20,8 @@
 // Transport: either an injected Transport (tests wrap the in-memory one) or,
 // with Config.BindAddr, raft's plain TCP transport. That TCP transport has no
 // TLS, no peer authentication and no encryption; it is for loopback and
-// isolated lab networks only. TLS/mTLS between managers is out of scope here.
+// isolated lab networks only. With Config.TLS the BindAddr transport is
+// mutually authenticated TLS 1.3 with metastore peer identities (tls.go).
 //
 // Journal reads are local to the node and may lag behind the leader; a new
 // leader calls Node.Barrier before it trusts its journal.
@@ -94,7 +95,9 @@ type Config struct {
 	ID string
 
 	// Exactly one of Transport and BindAddr must be set. Transport is used as
-	// is. BindAddr ("host:port") creates raft's TCP transport without TLS.
+	// is. BindAddr ("host:port") creates raft's TCP transport without TLS,
+	// or with TLS set a mutually authenticated TLS 1.3 transport (tls.go).
+	TLS       *PeerTLS
 	Transport Transport
 	BindAddr  string
 	// AdvertiseAddr is the address peers dial; it defaults to the bound
@@ -237,7 +240,17 @@ func NewNode(cfg Config) (*Node, error) {
 		st = ds
 	}
 	if cfg.Transport == nil {
-		tr, err := newTCPTransport(cfg.BindAddr, cfg.AdvertiseAddr, logOutput)
+		var tr Transport
+		var err error
+		if cfg.TLS != nil {
+			t := *cfg.TLS
+			if t.PeerIDs == nil {
+				t.PeerIDs = peerIDsOf(cfg.Peers)
+			}
+			tr, err = newTLSTransport(cfg.BindAddr, cfg.AdvertiseAddr, &t, logOutput)
+		} else {
+			tr, err = newTCPTransport(cfg.BindAddr, cfg.AdvertiseAddr, logOutput)
+		}
 		if err != nil {
 			_ = st.close()
 			return nil, err
@@ -332,6 +345,28 @@ func (n *Node) Leader() (id, address string) {
 
 // Term returns the current consensus term of this node.
 func (n *Node) Term() uint64 { return n.raft.CurrentTerm() }
+
+// Members returns the voting members of the latest Raft configuration this
+// node knows.
+func (n *Node) Members() ([]Peer, error) {
+	f := n.raft.GetConfiguration()
+	if err := f.Error(); err != nil {
+		return nil, err
+	}
+	var out []Peer
+	for _, s := range f.Configuration().Servers {
+		if s.Suffrage == raft.Voter {
+			out = append(out, Peer{ID: string(s.ID), Address: string(s.Address)})
+		}
+	}
+	return out, nil
+}
+
+// TransferLeadership asks the leader to hand leadership to another voter
+// (for example a replica that cannot act as leader because it lacks the
+// data key). It fails when this node is not the leader or no other voter
+// is reachable.
+func (n *Node) TransferLeadership() error { return n.raft.LeadershipTransfer().Error() }
 
 // Journal returns the local replica of the journal for reading. Restoring a
 // snapshot replaces the journal, so callers should not keep the pointer.

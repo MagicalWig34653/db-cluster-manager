@@ -59,6 +59,10 @@ type Config struct {
 	Control  Control
 	Backups  Backups
 	Settings Settings
+	// Replicas backs the data keyring endpoints; nil answers 503.
+	Replicas Replicas
+	// Maintenance backs host maintenance and drift checks; nil answers 503.
+	Maintenance Maintenance
 	// RecoveryCodeIterations is passed to recovery.GenerateCodes; 0 selects
 	// the default.
 	RecoveryCodeIterations int
@@ -226,6 +230,22 @@ func (s *server) endpoints() []endpoint {
 			action: authz.ActionUpdate, resolve: s.resolveHost, hideUnreadable: true, handle: s.handleHostEnrollment(false),
 		},
 		{
+			method: "GET", path: "/hosts/{id}/maintenance-plan", access: accessPermission,
+			action: authz.ActionRead, resolve: s.resolveHost, hideDenied: true, handle: s.handleMaintenancePlan,
+		},
+		{
+			method: "POST", path: "/hosts/{id}/maintenance", access: accessPermission,
+			action: authz.ActionOperate, resolve: s.resolveHost, hideUnreadable: true, handle: s.handleMaintenanceEnter,
+		},
+		{
+			method: "DELETE", path: "/hosts/{id}/maintenance", access: accessPermission,
+			action: authz.ActionOperate, resolve: s.resolveHost, hideUnreadable: true, handle: s.handleMaintenanceLeave,
+		},
+		{
+			method: "GET", path: "/clusters/{id}/drift", access: accessPermission,
+			action: authz.ActionRead, resolve: s.resolveCluster, hideDenied: true, handle: s.handleClusterDrift,
+		},
+		{
 			method: "POST", path: "/swarms", access: accessPermission,
 			action: authz.ActionCreate, resolve: s.resolveNewSwarm, handle: s.handleSwarmConnect,
 		},
@@ -301,6 +321,18 @@ func (s *server) endpoints() []endpoint {
 		{
 			method: "POST", path: "/settings/notifications/test", access: accessPermission,
 			action: authz.ActionOperate, resolve: s.resolveSettings, handle: s.handleNotificationTest,
+		},
+		{
+			method: "GET", path: "/settings/replicas", access: accessPermission,
+			action: authz.ActionRead, resolve: s.resolveSettings, handle: s.handleReplicas,
+		},
+		{
+			method: "PUT", path: "/settings/replicas/{id}/data-key-recipient", access: accessPermission,
+			action: authz.ActionUpdate, resolve: s.resolveSettings, handle: s.handleReplicaKey,
+		},
+		{
+			method: "POST", path: "/settings/replicas/{id}/revoke-certificates", access: accessPermission,
+			action: authz.ActionUpdate, resolve: s.resolveSettings, handle: s.handleReplicaRevoke,
 		},
 	}
 }

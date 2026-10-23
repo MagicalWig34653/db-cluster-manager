@@ -76,7 +76,7 @@ const (
 // separate guided flow.
 func FromGaleraPlan(p galera.Plan, b GaleraBindings) (Operation, error) {
 	switch p.Kind {
-	case galera.PlanCreateCluster, galera.PlanReplaceNode:
+	case galera.PlanCreateCluster, galera.PlanReplaceNode, galera.PlanHostMaintenance, galera.PlanHostMaintenanceEnd:
 	case galera.PlanFullOutageRecovery:
 		// Guided recovery (A06): only with an approval to wait for, and the
 		// plan must start with the approved stop.

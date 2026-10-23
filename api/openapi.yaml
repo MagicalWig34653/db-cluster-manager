@@ -758,6 +758,90 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
+  /hosts/{id}/maintenance-plan:
+    get:
+      summary: Preview the maintenance plan of a host
+      description: >-
+        Read-only. For every cluster with a node on the host: the steps that
+        entering maintenance (or, with end=true, leaving it) would run, their
+        conditions, warnings, and why a cluster refuses (fewer than a strict
+        majority of its nodes outside the host, an unfinished operation, a
+        missing service ID). Needs host read permission (404 when denied).
+      operationId: hostMaintenancePlan
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+        - { name: end, in: query, required: false, schema: { type: boolean } }
+      responses:
+        "200":
+          description: The plan
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MaintenancePreview" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /hosts/{id}/maintenance:
+    post:
+      summary: Put a host into guided maintenance
+      description: >-
+        Marks the host in maintenance (node replacement on it is paused) and
+        starts, per cluster with a node on the host, an operation that stops
+        those nodes gracefully one at a time, each only after every node of
+        the cluster on another host is Synced at the current cluster size.
+        Refused with 409 (and nothing changed) when any affected cluster
+        refuses (see the plan preview) or the host is already in
+        maintenance. The manager never reboots or drains the host and does
+        not change its Swarm availability; Host.maintenance.ready reports
+        when the operator may do so. Needs operate permission on the host
+        and on every affected cluster; audited.
+      operationId: enterHostMaintenance
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                reason: { type: string, maxLength: 500 }
+      responses:
+        "202":
+          description: Started
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MaintenanceStarted" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+    delete:
+      summary: End the maintenance of a host
+      description: >-
+        Starts, per affected cluster, an operation that checks each node's
+        volume identity marker, starts the node and waits until it is Synced
+        (IST or SST), one node at a time, and clears the maintenance mark.
+        409 when the host is not in maintenance or an operation of an
+        affected cluster is unfinished. Needs operate permission on the host
+        and the clusters; audited.
+      operationId: leaveHostMaintenance
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      responses:
+        "202":
+          description: Started
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MaintenanceStarted" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
   /swarms/{id}/sync:
     post:
       summary: Observe a Swarm now
@@ -835,6 +919,32 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
+  /clusters/{id}/drift:
+    get:
+      summary: Compare a cluster's desired state with its Swarm services
+      description: >-
+        Lists the Swarm services labelled with the cluster (read-only Docker
+        API call) and reports differences from the cluster record: missing
+        node services, services recreated outside the manager, foreign
+        labels, changed placement, nodes scaled to 0 or without a running
+        task outside maintenance and operations, and unexpected services with
+        the cluster label. Each finding proposes a manual action; nothing is
+        changed. The leader also checks periodically and records an event
+        when the findings change. Needs cluster read permission (404 when
+        denied); settings_incomplete (409) without a Swarm connector.
+      operationId: clusterDrift
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      responses:
+        "200":
+          description: Drift report
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DriftReport" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
   /clusters/{id}/outage-diagnosis:
     get:
       summary: Diagnose a full outage (read-only)
@@ -899,8 +1009,9 @@ paths:
         safe_to_bootstrap, bootstrap the candidate, start the other nodes one
         at a time, drop the bootstrap flag) as an operation whose first stop
         waits for POST /operations/{id}/approve with the returned digest.
-        Nothing is stopped or started before that approval. Needs operate
-        permission on the cluster; audited.
+        Nothing is stopped or started before that approval. Requesting needs
+        operate permission on the cluster; approving needs the separate
+        recover permission on the cluster. Both are audited.
       operationId: outageRecovery
       parameters:
         - { $ref: "#/components/parameters/Id" }
@@ -980,8 +1091,10 @@ paths:
         shown; a different digest answers 409 approval_mismatch. Needs the
         restore permission on the backups of the operation's cluster
         (administrators; not part of the operator preset), and for a
-        cluster/delete operation the delete permission on the cluster instead;
-        audited. The operation is resumed after the approval is recorded.
+        cluster/delete operation the delete permission on the cluster instead,
+        for a galera/full-outage-recovery operation the recover permission on
+        the cluster (only the administrator preset holds it; neither operate
+        nor restore covers it); audited. The operation is resumed after the approval is recorded.
       operationId: approveOperation
       parameters:
         - { $ref: "#/components/parameters/Id" }
@@ -1054,15 +1167,27 @@ paths:
         "503": { $ref: "#/components/responses/Error" }
   /clusters/{id}/backups:
     post:
-      summary: Start a physical backup now
+      summary: Start a backup now
       description: >-
-        Plans the backup (source node selection, owned one-shot job) and
-        starts it. Needs the backup permission on the cluster; audited.
-        settings_incomplete (409) without backup settings; busy (409) while
-        another operation locks the cluster.
+        Plans the backup (source node selection, owned one-shot job per
+        object) and starts it: physical (mariabackup, default) or, with
+        method logical, one mariadb-dump export per named database. Needs
+        the backup permission on the cluster; audited. settings_incomplete
+        (409) without backup settings; busy (409) while another operation
+        locks the cluster.
       operationId: startBackup
       parameters:
         - { $ref: "#/components/parameters/Id" }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                method: { type: string, enum: [physical, logical], default: physical }
+                databases: { type: array, maxItems: 64, items: { type: string } }
       responses:
         "202":
           description: Operation started
@@ -1192,6 +1317,98 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
+  /settings/replicas:
+    get:
+      summary: Manager replicas and the data keyring
+      description: >-
+        Lists the metastore voters with the fingerprint of their registered
+        public identity and whether the current data key (which seals
+        sessions, passkeys and the agent CA at rest) is wrapped for them, and
+        whether the key has an envelope for the backup recovery key.
+        No key material is returned. Needs settings read permission; read
+        decisions are audited only when denied.
+      operationId: listReplicas
+      responses:
+        "200":
+          description: Keyring status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KeyringStatus" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /settings/replicas/{id}/data-key-recipient:
+    put:
+      summary: Register a replica's public identity and wrap the data key for it
+      description: >-
+        Registers the public identity a replica prints with
+        `manager -print-replica-key` (compare it out of band before
+        registering) and wraps every data key for it, so that replica can
+        unseal secrets and act as leader. Only current metastore voters can
+        be registered (400 otherwise); a changed identity replaces the old
+        envelopes. Leader only (503 not_leader elsewhere). Needs settings
+        update permission; audited, and recorded as an event.
+      operationId: registerReplicaKey
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [publicKey]
+              properties:
+                publicKey: { type: string, maxLength: 256, description: "dbcmpk1:<base64url X25519 public key>" }
+      responses:
+        "200":
+          description: Registered replica
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReplicaKeyStatus" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /settings/replicas/{id}/revoke-certificates:
+    post:
+      summary: Revoke every manager certificate of a replica
+      description: >-
+        Adds every unexpired manager certificate (agent-command client and
+        enrollment server) recorded for the replica to the replicated deny
+        list, for a removed or compromised replica. The leader distributes
+        the deny list to every enrolled agent (agent command set-deny-list),
+        whose mTLS listener then refuses those certificates; a replica that
+        is still in service gets new certificates on next use. It does not
+        remove the replica from the metastore or rotate the data key.
+        Leader only. Needs settings update permission; audited, and recorded
+        as an event. settings_incomplete (409) without the agent transport.
+      operationId: revokeReplicaCertificates
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false }
+      responses:
+        "200":
+          description: Number of revoked serials
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [replica, revoked]
+                properties:
+                  replica: { type: string }
+                  revoked: { type: integer }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
 security:
   - sessionCookie: []
 components:
@@ -1265,6 +1482,26 @@ components:
       required: [error]
       properties:
         error: { type: string }
+    ReplicaKeyStatus:
+      type: object
+      required: [id, leader, hasCurrentKey]
+      properties:
+        id: { type: string }
+        address: { type: string }
+        leader: { type: boolean }
+        publicKeyId: { type: string, description: Fingerprint of the registered public identity }
+        registeredBy: { type: string }
+        registeredAt: { type: string, format: date-time }
+        hasCurrentKey: { type: boolean }
+    KeyringStatus:
+      type: object
+      required: [currentKey, recoverable, replicas]
+      properties:
+        currentKey: { type: string, description: ID of the current data key (not the key) }
+        recoverable: { type: boolean, description: The current key has a backup recovery key envelope }
+        replicas:
+          type: array
+          items: { $ref: "#/components/schemas/ReplicaKeyStatus" }
     AccountId:
       type: string
       minLength: 1
@@ -1516,6 +1753,71 @@ components:
         memoryBytes: { type: integer, format: int64 }
         observedAt: { type: string, format: date-time }
         agentIdentity: { type: boolean, description: An agent certificate is recorded (not a reachability claim) }
+        maintenance:
+          type: object
+          description: Set while the host is in guided maintenance (replacement on it is paused)
+          required: [since, by, operations, ready]
+          properties:
+            since: { type: string, format: date-time }
+            by: { type: string }
+            reason: { type: string }
+            operations: { type: array, items: { type: string } }
+            ready: { type: boolean, description: Every maintenance operation succeeded; the operator may reboot the host }
+    PlanStep:
+      type: object
+      required: [id, kind]
+      properties:
+        id: { type: string }
+        kind: { type: string }
+        slot: { type: string }
+        note: { type: string }
+        conditions: { type: array, items: { type: string } }
+    MaintenancePreview:
+      type: object
+      required: [host, end, safe, clusters]
+      properties:
+        host: { type: string }
+        end: { type: boolean }
+        safe: { type: boolean, description: No affected cluster refuses }
+        clusters:
+          type: array
+          items:
+            type: object
+            required: [cluster, name, slots, steps]
+            properties:
+              cluster: { type: string }
+              name: { type: string }
+              slots: { type: array, items: { type: string } }
+              steps: { type: array, items: { $ref: "#/components/schemas/PlanStep" } }
+              warnings: { type: array, items: { type: string } }
+              refused: { type: string, description: Why this cluster cannot lose its nodes on the host now }
+    MaintenanceStarted:
+      type: object
+      required: [host, operations, plan]
+      properties:
+        host: { type: string }
+        operations: { type: array, items: { $ref: "#/components/schemas/OperationRef" } }
+        plan: { $ref: "#/components/schemas/MaintenancePreview" }
+    DriftReport:
+      type: object
+      required: [cluster, checkedAt, inSync, findings]
+      properties:
+        cluster: { type: string }
+        checkedAt: { type: string, format: date-time }
+        inSync: { type: boolean }
+        findings:
+          type: array
+          items:
+            type: object
+            required: [kind, detail, action]
+            properties:
+              kind:
+                type: string
+                enum: [missing-service, service-replaced-outside, foreign-labels, placement-changed, stopped, not-running, unexpected-service]
+              slot: { type: string }
+              service: { type: string }
+              detail: { type: string }
+              action: { type: string, description: Proposed manual next step; nothing is changed automatically }
     ResourceAmount:
       type: object
       properties:
@@ -1586,7 +1888,25 @@ components:
         schedule: { type: string, maxLength: 128, description: "Five-field cron-like spec, for example \"0 2 * * *\"" }
         timezone: { type: string, description: IANA zone; default UTC }
         missed: { type: string, enum: [skip, run-once], default: skip }
-        method: { type: string, enum: [physical], default: physical }
+        method: { type: string, enum: [physical, logical], default: physical }
+        databases:
+          type: array
+          maxItems: 64
+          description: Logical method only (required there); one mariadb-dump export per database
+          items: { type: string }
+        retention:
+          type: object
+          additionalProperties: false
+          description: >-
+            After each scheduler pass, older complete backup sets of the cluster are
+            deleted (manifest first, then stream); the newest set, the newest set with a
+            passed restore verification and sets used by an open inspection are always
+            kept; a cluster with an unfinished operation is skipped for the pass.
+          required: [keepLast]
+          properties:
+            keepLast: { type: integer, minimum: 1, maximum: 1000 }
+            keepDaily: { type: integer, minimum: 0, maximum: 1000 }
+            keepWeekly: { type: integer, minimum: 0, maximum: 1000 }
     BackupSummary:
       type: object
       required: [cluster, swarm]

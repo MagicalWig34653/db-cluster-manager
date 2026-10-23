@@ -276,6 +276,51 @@ func TestPhysicalRestoreJobRoundTrip(t *testing.T) {
 	}
 }
 
+// TestRestoreJobAcceptsFormat1Manifest: a backup whose manifest has the
+// older plaintext chunk hashes (format 1) still restores and is verified
+// against the stream; the new backup writes format 2 without them.
+func TestRestoreJobAcceptsFormat1Manifest(t *testing.T) {
+	key := testKey(t)
+	ctx := context.Background()
+	obj := "prod-b1.xbs.dbcms"
+	be, _, _ := runPhysicalBackup(t, key)
+	m, err := readManifest(ctx, be, obj)
+	if err != nil || m.Format != ManifestFormat || m.Stream.PlainSHA256 != "" || m.Stream.Chunks[0].SHA256 != "" {
+		t.Fatalf("new manifest %+v %v", m, err)
+	}
+	rc, err := be.Get(ctx, obj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sr, err := backup.OpenStream(rc, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.Copy(io.Discard, sr); err != nil {
+		t.Fatal(err)
+	}
+	_ = rc.Close()
+	v1 := sr.Summary()
+	v1.PlainMAC = ""
+	for i := range v1.Chunks {
+		v1.Chunks[i].MAC = ""
+	}
+	m.Format, m.Stream = ManifestFormatV1, v1
+	putManifest(t, be, m)
+	files := fstest.MapFS{}
+	env, _ := jobEnv(t, be, key, newFakeTools(files, nil), files)
+	if err := RunJob(ctx, restoreJobArgs(agent.RestorePhysical, obj), env); err != nil {
+		t.Fatalf("format 1 restore: %v", err)
+	}
+	m.Stream.Chunks[1].SHA256 = strings.Repeat("0", 64)
+	putManifest(t, be, m)
+	files = fstest.MapFS{}
+	env, _ = jobEnv(t, be, key, newFakeTools(files, nil), files)
+	if err := RunJob(ctx, restoreJobArgs(agent.RestorePhysical, obj), env); !errors.Is(err, backup.ErrIntegrity) {
+		t.Fatalf("tampered format 1 manifest: %v", err)
+	}
+}
+
 func putManifest(t *testing.T, be backup.Backend, m Manifest) {
 	t.Helper()
 	data, _ := json.Marshal(m)
@@ -298,7 +343,7 @@ func TestRestoreJobRefusals(t *testing.T) {
 	t.Run("manifest digests tampered", func(t *testing.T) {
 		be, _, _ := runPhysicalBackup(t, key)
 		m, _ := readManifest(ctx, be, obj)
-		m.Stream.Chunks[1].SHA256 = strings.Repeat("0", 64)
+		m.Stream.Chunks[1].MAC = strings.Repeat("0", 64)
 		putManifest(t, be, m)
 		err, tools := run(t, be, key, restoreJobArgs(agent.RestorePhysical, obj))
 		if !errors.Is(err, backup.ErrIntegrity) || tools.called("mariabackup --prepare") {

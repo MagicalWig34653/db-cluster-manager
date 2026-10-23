@@ -49,7 +49,11 @@
 //	  "advertise": "",
 //	  "peers": [],          // empty: single-instance mode
 //	  "bootstrap": true,
-//	  "keyFile": "",        // default <dataDir>/data.key, created if missing
+//	  "keyFile": "",        // default <dataDir>/data.key, created if missing (without keyring)
+//	  "keyring": false,     // replicated data keyring; identity in <dataDir>/replica.key
+//	  "peerTLS": {          // mTLS between metastore replicas (-issue-peer-certs)
+//	    "installation": "inst-1", "caFile": "", "certFile": "", "keyFile": ""
+//	  },
 //	  "labAgents": false,   // unauthenticated lab agent transport
 //	  "autoResume": false,
 //	  "agentTransport": {   // mTLS agent transport with enrollment (ADR 0010)
@@ -239,8 +243,16 @@ func run(args []string, getenv func(string) string, stderr io.Writer) error {
 	configPath := fs.String("config", getenv(configEnv), "JSON configuration file (default $"+configEnv+")")
 	showVersion := fs.Bool("version", false, "print version and exit")
 	health := fs.Bool("healthcheck", false, "probe the local manager at -listen and exit 0 if healthy (for container HEALTHCHECK)")
+	printKey := fs.Bool("print-replica-key", false, "print this replica's public data-key identity (manager.dataDir of -config) and exit")
+	peerCertsDir := fs.String("issue-peer-certs", "", "create a metastore peer CA and replica certificates in this directory and exit (CA passphrase from $DBCM_PEER_CA_PASSPHRASE)")
+	installation := fs.String("installation", "", "installation ID for -issue-peer-certs")
+	peerIDs := fs.String("peer-ids", "", "comma-separated replica IDs for -issue-peer-certs")
+	peerValidity := fs.Duration("peer-validity", 365*24*time.Hour, "certificate validity for -issue-peer-certs")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if *peerCertsDir != "" {
+		return issuePeerCerts(*peerCertsDir, *installation, *peerIDs, getenv("DBCM_PEER_CA_PASSPHRASE"), *peerValidity, time.Now)
 	}
 	if *health {
 		if err := probeHealth(context.Background(), *addr); err != nil {
@@ -255,6 +267,9 @@ func run(args []string, getenv func(string) string, stderr io.Writer) error {
 	cfg, err := loadConfig(*configPath)
 	if err != nil {
 		return err
+	}
+	if *printKey {
+		return printReplicaKey(cfg, os.Stdout)
 	}
 	log := slog.Default()
 	var (

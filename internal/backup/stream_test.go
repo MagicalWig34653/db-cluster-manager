@@ -81,8 +81,16 @@ func TestStreamRoundTripSizes(t *testing.T) {
 			t.Fatalf("n=%d: %d chunks, want %d", n, len(sum.Chunks), wantChunks)
 		}
 		h := sha256.Sum256(payload)
-		if sum.PlainSHA256 != hex.EncodeToString(h[:]) || sum.PlainSize != int64(n) {
+		if sum.PlainSHA256 != "" || sum.PlainMAC == "" || sum.PlainMAC == hex.EncodeToString(h[:]) || sum.PlainSize != int64(n) {
 			t.Fatalf("n=%d: plaintext summary wrong", n)
+		}
+		if got := r.Summary(); got.PlainSHA256 != hex.EncodeToString(h[:]) {
+			t.Fatalf("n=%d: reader plain digest wrong", n)
+		}
+		for _, c := range sum.Chunks {
+			if c.SHA256 != "" || len(c.MAC) != 64 {
+				t.Fatalf("n=%d: chunk digest %+v", n, c)
+			}
 		}
 		ch := sha256.Sum256(data)
 		if sum.CipherSHA256 != hex.EncodeToString(ch[:]) || sum.CipherSize != int64(len(data)) {
@@ -210,7 +218,7 @@ func TestCompareSummaryMismatch(t *testing.T) {
 	got := r.Summary()
 	bad := sum
 	bad.Chunks = append([]ChunkDigest(nil), sum.Chunks...)
-	bad.Chunks[1].SHA256 = strings.Repeat("0", 64)
+	bad.Chunks[1].MAC = strings.Repeat("0", 64)
 	if err := CompareSummary(got, bad); !errors.Is(err, ErrIntegrity) {
 		t.Fatalf("got %v", err)
 	}
@@ -218,6 +226,61 @@ func TestCompareSummaryMismatch(t *testing.T) {
 	bad.KeyID = "other"
 	if err := CompareSummary(got, bad); !errors.Is(err, ErrIntegrity) {
 		t.Fatalf("got %v", err)
+	}
+	bad = sum
+	bad.PlainMAC = strings.Repeat("0", 64)
+	if err := CompareSummary(got, bad); !errors.Is(err, ErrIntegrity) {
+		t.Fatalf("got %v", err)
+	}
+	// A keyed summary without MACs on a chunk (stripped) fails.
+	bad = sum
+	bad.Chunks = append([]ChunkDigest(nil), sum.Chunks...)
+	bad.Chunks[0].MAC = ""
+	if err := CompareSummary(got, bad); !errors.Is(err, ErrIntegrity) {
+		t.Fatalf("stripped chunk mac: %v", err)
+	}
+}
+
+// TestCompareSummaryVersion1: manifests written before the keyed digests
+// (plain SHA-256 per chunk) stay verifiable with a reader summary, and
+// tampering is still detected.
+func TestCompareSummaryVersion1(t *testing.T) {
+	key := mustKey(t)
+	payload := randBytes(t, 200)
+	data, _ := sealStream(t, key, payload, 64)
+	_, r, _ := openAll(data, key)
+	got := r.Summary()
+	v1 := got
+	v1.PlainMAC = ""
+	v1.Chunks = append([]ChunkDigest(nil), got.Chunks...)
+	for i := range v1.Chunks {
+		v1.Chunks[i].MAC = ""
+	}
+	if err := CompareSummary(got, v1); err != nil {
+		t.Fatal(err)
+	}
+	v1.Chunks[2].SHA256 = strings.Repeat("0", 64)
+	if err := CompareSummary(got, v1); !errors.Is(err, ErrIntegrity) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+// TestChunkMACsDoNotRevealPlaintext: two streams of the same plaintext
+// have unrelated chunk digests (per-stream key), and no digest equals the
+// plain SHA-256 of the chunk.
+func TestChunkMACsDoNotRevealPlaintext(t *testing.T) {
+	key := mustKey(t)
+	payload := randBytes(t, 128)
+	_, a := sealStream(t, key, payload, 64)
+	_, b := sealStream(t, key, payload, 64)
+	for i := range a.Chunks {
+		plain := sha256.Sum256(payload[i*64 : (i+1)*64])
+		if a.Chunks[i].MAC == b.Chunks[i].MAC || a.Chunks[i].MAC == hex.EncodeToString(plain[:]) {
+			t.Fatalf("chunk %d digest links streams or reveals the plaintext", i)
+		}
+	}
+	if a.PlainMAC == b.PlainMAC {
+		t.Fatal("plaintext MAC links two streams")
 	}
 }
 

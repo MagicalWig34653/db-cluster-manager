@@ -110,6 +110,8 @@ type BackupRecord struct {
 	Trigger   string          `json:"trigger"` // manual or schedule
 	By        string          `json:"by"`
 	StartedAt time.Time       `json:"startedAt"`
+	// DeletedAt is set when retention deleted the backup's objects.
+	DeletedAt time.Time `json:"deletedAt,omitzero"`
 }
 
 // InspectionRecord is one inspection session and its operations.
@@ -219,7 +221,7 @@ func loadBackupIndex(s *Store) (backupIndex, error) {
 		}
 		for _, r := range recs {
 			op, ok := byID[r.Value.OpID]
-			if !ok || op.View == nil || op.View.Status != runner.StatusSucceeded || op.EndedAt.IsZero() {
+			if !ok || !r.Value.DeletedAt.IsZero() || op.View == nil || op.View.Status != runner.StatusSucceeded || op.EndedAt.IsZero() {
 				continue
 			}
 			if op.EndedAt.After(idx.lastAt[r.Value.Cluster]) {
@@ -285,8 +287,16 @@ func (b *Backups) setBackupPolicy(_ context.Context, actor authz.Subject, cluste
 	if p.Method == "" {
 		p.Method = string(dbbackup.MethodPhysical)
 	}
-	if p.Method != string(dbbackup.MethodPhysical) {
-		return api.BackupSummary{}, fmt.Errorf("%w: scheduled backups use the physical method", dbbackup.ErrInvalidRequest)
+	switch {
+	case p.Method == string(dbbackup.MethodPhysical) && len(p.Databases) > 0:
+		return api.BackupSummary{}, fmt.Errorf("%w: a physical backup covers every database", dbbackup.ErrInvalidRequest)
+	case p.Method == string(dbbackup.MethodLogical) && (len(p.Databases) == 0 || len(p.Databases) > 64):
+		return api.BackupSummary{}, fmt.Errorf("%w: a logical backup needs 1..64 databases", dbbackup.ErrInvalidRequest)
+	case p.Method != string(dbbackup.MethodPhysical) && p.Method != string(dbbackup.MethodLogical):
+		return api.BackupSummary{}, fmt.Errorf("%w: method %q", dbbackup.ErrInvalidRequest, p.Method)
+	}
+	if r := p.Retention; r != nil && (r.KeepLast < 1 || r.KeepDaily < 0 || r.KeepWeekly < 0 || r.KeepLast > 1000 || r.KeepDaily > 1000 || r.KeepWeekly > 1000) {
+		return api.BackupSummary{}, fmt.Errorf("%w: retention keepLast must be 1..1000, keepDaily and keepWeekly 0..1000", dbbackup.ErrInvalidRequest)
 	}
 	if p.Missed != string(dbbackup.MissedSkip) && p.Missed != string(dbbackup.MissedRunOnce) {
 		return api.BackupSummary{}, fmt.Errorf("%w: missed-run policy %q", dbbackup.ErrSchedule, p.Missed)
@@ -333,7 +343,20 @@ func (b *Backups) StartInspection(ctx context.Context, actor authz.Subject, in a
 // StartBackup implements api.Backups: a physical backup now. It needs the
 // backup permission on the cluster's backups (audited).
 func (b *Backups) StartBackup(_ context.Context, actor authz.Subject, clusterID string) (api.OperationRef, error) {
-	rec, err := b.start(actor, clusterID, "manual")
+	rec, err := b.start(actor, clusterID, "manual", dbbackup.MethodPhysical, nil)
+	if err != nil {
+		return api.OperationRef{}, MapCommandError(err)
+	}
+	return api.OperationRef{ID: rec.ID, Kind: rec.Kind}, nil
+}
+
+var _ api.LogicalBackups = (*Backups)(nil)
+
+// StartLogicalBackup implements api.LogicalBackups: one mariadb-dump
+// export per database now (backup permission, audited). The agent
+// validates the database names again.
+func (b *Backups) StartLogicalBackup(_ context.Context, actor authz.Subject, clusterID string, databases []string) (api.OperationRef, error) {
+	rec, err := b.start(actor, clusterID, "manual", dbbackup.MethodLogical, databases)
 	if err != nil {
 		return api.OperationRef{}, MapCommandError(err)
 	}
@@ -375,7 +398,7 @@ func (b *Backups) nodeStates(c ClusterRecord) ([]dbbackup.NodeState, error) {
 	return out, nil
 }
 
-func (b *Backups) start(actor authz.Subject, clusterID, trigger string) (OperationRecord, error) {
+func (b *Backups) start(actor authz.Subject, clusterID, trigger string, method dbbackup.Method, databases []string) (OperationRecord, error) {
 	l, err := b.Ops.leadership()
 	if err != nil {
 		return OperationRecord{}, err
@@ -415,7 +438,7 @@ func (b *Backups) start(actor authz.Subject, clusterID, trigger string) (Operati
 	opID := newID("op")
 	plan, err := dbbackup.BackupPlan(dbbackup.BackupRequest{
 		OpID: opID, BackupID: backupID, InstallationID: st.InstallationID, ClusterID: c.ID, ClusterName: c.Name,
-		Method: dbbackup.MethodPhysical, JobImage: st.Backup.JobImage, Network: c.Spec.Network,
+		Method: method, Databases: databases, JobImage: st.Backup.JobImage, Network: c.Spec.Network,
 		DBCredentialSecret: st.Backup.DBCredentialSecret, BackendSecret: st.Backup.BackendSecret,
 		RecipientKey: st.Backup.RecipientKey, VolumeBase: st.VolumeBase, Job: st.Backup.job(),
 		StepTimeout: b.Ops.StepTimeout, MaxRetries: b.Ops.MaxRetries, ServiceHost: svcHost,
@@ -429,13 +452,13 @@ func (b *Backups) start(actor authz.Subject, clusterID, trigger string) (Operati
 	}
 	rec := OperationRecord{ID: opID, Kind: plan.Operation.Kind, Swarm: c.Swarm, Cluster: c.ID, RequestedBy: actor.ID,
 		RequestedAt: now, Definition: plan.Operation, Nodes: c.Nodes}
-	br := BackupRecord{ID: backupID, Cluster: c.ID, Swarm: c.Swarm, OpID: opID, Method: dbbackup.MethodPhysical,
+	br := BackupRecord{ID: backupID, Cluster: c.ID, Swarm: c.Swarm, OpID: opID, Method: method,
 		Objects: plan.Objects, Source: plan.Source.Slot, Trigger: trigger, By: actor.ID, StartedAt: now}
 	if err := b.commit(rec, PutOpOf(CollBackups, backupID, br)); err != nil {
 		return OperationRecord{}, err
 	}
-	b.Ops.Svc.recordEvent(c.Swarm, c.ID, api.SeverityInfo, fmt.Sprintf("%s started %s backup %s of %s from %s, operation %s",
-		actor.ID, trigger, backupID, c.Name, plan.Source.Slot, opID))
+	b.Ops.Svc.recordEvent(c.Swarm, c.ID, api.SeverityInfo, fmt.Sprintf("%s started %s %s backup %s of %s from %s, operation %s",
+		actor.ID, trigger, method, backupID, c.Name, plan.Source.Slot, opID))
 	b.Ops.start(l, plan.Operation, nil)
 	return rec, nil
 }
@@ -767,7 +790,11 @@ func (b *Backups) RunSchedules(actor authz.Subject) {
 		if !d.Run {
 			continue
 		}
-		if _, err := b.start(actor, rec.Cluster, "schedule"); err != nil {
+		method := dbbackup.Method(rec.Policy.Method)
+		if method == "" {
+			method = dbbackup.MethodPhysical
+		}
+		if _, err := b.start(actor, rec.Cluster, "schedule", method, rec.Policy.Databases); err != nil {
 			b.Ops.Svc.recordEvent(c.Value.Swarm, rec.Cluster, api.SeverityWarning, fmt.Sprintf("scheduled backup of %s not started: %v", rec.Cluster, err))
 		}
 	}
@@ -928,6 +955,9 @@ func (s BackupScheduler) Run(ctx context.Context, _ *Leadership) error {
 		if b := s.Backups(); b != nil {
 			b.RunSchedules(actor)
 			b.TeardownExpired(actor)
+			if err := b.ApplyRetention(ctx); err != nil && ctx.Err() == nil {
+				b.log("manager: backup retention incomplete", "err", err)
+			}
 		}
 	}
 }

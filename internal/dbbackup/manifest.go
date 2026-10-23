@@ -28,7 +28,13 @@ const (
 )
 
 // ManifestFormat is the manifest version written by the job helper.
-const ManifestFormat = 1
+// Format 2 carries keyed chunk digests only (backup.ChunkDigest.MAC, no
+// plaintext SHA-256; ADR 0009 amendment). Format 1 manifests (plain
+// SHA-256 per chunk) are still accepted and verified on restore.
+const ManifestFormat = 2
+
+// ManifestFormatV1 is the older format with plaintext chunk hashes.
+const ManifestFormatV1 = 1
 
 // Errors.
 var (
@@ -113,8 +119,12 @@ func StatusName(key string) string { return key + ".status.json" }
 func (m Manifest) Validate() error {
 	bad := func(f string, a ...any) error { return fmt.Errorf("%w: %s", ErrInvalidManifest, fmt.Sprintf(f, a...)) }
 	switch {
-	case m.Format != ManifestFormat:
+	case m.Format != ManifestFormat && m.Format != ManifestFormatV1:
 		return bad("format %d", m.Format)
+	case m.Format == ManifestFormat && (!m.Stream.Keyed() || m.Stream.PlainSHA256 != ""):
+		return bad("format %d needs keyed digests and no plaintext hash", m.Format)
+	case m.Format == ManifestFormatV1 && (m.Stream.Keyed() || m.Stream.PlainSHA256 == ""):
+		return bad("format %d needs plaintext hashes", m.Format)
 	case !backupIDRe.MatchString(m.BackupID):
 		return bad("backup id %q", m.BackupID)
 	case m.ClusterID == "" || m.SourceNodeUUID == "" || m.Object == "":
@@ -145,6 +155,9 @@ func (m Manifest) Validate() error {
 	for i, c := range m.Stream.Chunks {
 		if c.Index != uint64(i) {
 			return bad("chunk %d has index %d", i, c.Index)
+		}
+		if (m.Format == ManifestFormat && (c.MAC == "" || c.SHA256 != "")) || (m.Format == ManifestFormatV1 && (c.SHA256 == "" || c.MAC != "")) {
+			return bad("chunk %d digest does not match format %d", i, m.Format)
 		}
 		sum += int64(c.Size)
 	}
