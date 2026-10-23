@@ -55,7 +55,7 @@ LABEL org.opencontainers.image.title="db-cluster-manager" \
       org.opencontainers.image.revision="${COMMIT}"
 COPY --from=build /out/manager /out/agent /out/cli /usr/local/bin/
 # Distroless "nonroot" runs as uid/gid 65532; the image works with a read-only
-# root filesystem (the manager currently writes no files).
+# root filesystem (managed mode writes only below its data directory, a volume).
 USER 65532:65532
 EXPOSE 8080
 # The distroless image has no shell or curl; the manager probes itself.

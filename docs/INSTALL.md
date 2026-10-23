@@ -4,11 +4,11 @@ title: Installation and packaging
 
 # Installation and packaging
 
-Technical guide for installing the manager. It describes only what exists today. **Not implemented yet** (marked below): persistent manager state, Docker/Swarm connection, agent deployment, manager configuration backup, replicated metastore inside the manager, signed images. Verification status: files in `deploy/` and the release workflow are statically checked (`python3 scripts/check_deploy.py`); **the image has not been built, and the workflow, compose and stack files have not been run.**
+Technical guide for installing the manager. It describes only what exists today. **Not verified from these files** (marked below): the managed mode was run on lab VMs only as a process, never from the compose/stack files; manager configuration backup has no scheduler or API; there are no signed images. Verification status: files in `deploy/` and the release workflow are statically checked (`python3 scripts/check_deploy.py`); **the image has not been built, and the workflow, compose and stack files have not been run.**
 
 ## What the manager does today
 
-It serves the web UI and `GET /api/v1/health` and `GET /api/v1/version`. It stores no state and has no Docker access. Installing it validates packaging, not cluster management.
+Without a configuration the shipped container (and `deploy/compose.yaml`) serves only the web UI, `GET /api/v1/health` and `GET /api/v1/version`, stores no state and has no Docker access. Persistent state, Swarm connection and cluster operations need a `-config` file with `auth` and `manager` sections (see the header of `cmd/manager/main.go` and the [user guides](guides/en/01-getting-started.md)); that mode ran as a process on lab VMs, not from the shipped compose/stack files.
 
 ## Artifacts
 
@@ -20,7 +20,7 @@ It serves the web UI and `GET /api/v1/health` and `GET /api/v1/version`. It stor
 | Job image (backup/restore) | `deploy/Dockerfile.jobs` (not in the release workflow yet) | `mariadb:11.4.13` pinned by digest plus `dbcm-job` (`cmd/dbcm-job`); runs as uid/gid 999 (the image's `mysql`); **never built so far** ([ADR 0011](decisions/0011-galera-endpoints-and-bootstrap-sql.md)) |
 | Offline bundle | `scripts/make-offline-bundle.sh` | binaries, compose/stack files, checksums, manifest, optional `docker save` image |
 
-`cmd/metad` and `cmd/lab` are test harnesses and are not shipped. There is no proxy binary yet.
+`cmd/metad` and `cmd/lab` are test harnesses and are not shipped. `cmd/proxy` exists and ran as a lab container in E5; the manager does not deploy it and no release artifact contains it.
 
 ## Fresh install (single instance, test installations)
 

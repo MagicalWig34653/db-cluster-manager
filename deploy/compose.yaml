@@ -3,9 +3,10 @@
 # Single-instance manager for small TEST installations (requirement P07).
 # Not highly available. Start:  docker compose -f deploy/compose.yaml up -d
 #
-# Honest status: today the manager serves the UI and /api/v1/health and
-# /api/v1/version only. It does not yet persist state or connect to Docker, so
-# the volume below is reserved for the upcoming metastore and stays empty.
+# Honest status: without a -config file (none is passed here) the manager runs
+# in prototype mode: UI, /api/v1/health, /api/v1/version, no state, no Docker.
+# Managed mode (DCM_CONFIG, manager.dataDir under the volume below) ran only as
+# a process on lab VMs; this file with such a config was never run.
 name: dbcm
 services:
   manager:

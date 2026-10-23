@@ -1,0 +1,34 @@
+---
+title: Troubleshooting
+---
+
+# Troubleshooting
+
+[Guide index](index.md) | Previous: [Security model](08-security-model.md) | Next: [Known limits](10-known-limits.md)
+
+Entries marked "seen in lab" were observed in experiments E4-E6 (see `tests/p0/results/`); others are derived from the code or API contract.
+
+| Symptom | Likely cause | What to do |
+| --- | --- | --- |
+| API answers `409 settings_incomplete` | Installation ID, volume base, agent image or backup settings missing in the manager `settings` | Complete the `manager.settings` configuration and restart. |
+| Agent tasks `Rejected`: `bind source path does not exist: /var/lib/dbcm-agent` (seen in lab) | Swarm does not create bind sources | Create `/var/lib/dbcm-agent` and the volume base on every host. |
+| `refused (not-owned): referenced network/secret ... not in allow-list` (seen in lab) | The network or secret lacks the label `dbcm.installation=<installation ID>`, or the agent service was created before the secret was listed in `agentTransport.dbSecrets` | Add the label, list the secret, redeploy the agents. |
+| Service commands fail on a worker: `This node is not a swarm manager` | No enrolled manager node with an agent | Enroll a Swarm manager node and deploy the agent there. |
+| Pull errors, tasks stay `preparing` | Image absent on a node, no registry | Load or pull the image on every node. |
+| Setup token lost | Token only printed at start | Restart while no administrator exists; read the new token from the log. |
+| No passkey prompt, or origin mismatch | `rpId` or `origins` do not match the HTTPS URL you use | Fix the config; passkeys need the exact HTTPS origin. |
+| All passkeys lost | - | Redeem a recovery code (`/auth/recovery/code`), then register a new passkey. There is no command line to issue recovery URLs yet. |
+| API answers 503 with `X-DCM-Leader` | This replica is not the metastore leader (no forwarding) | Ask the leader. Multi-replica operation is untested on VMs. |
+| Operation `paused` or a step keeps polling | An unmet precondition (for example a node not `Synced`) | Read `progress` in `GET /api/v1/operations`, fix the cause, then `POST /api/v1/operations/{id}/resume`. Abort works at the next poll or step boundary (`.../abort`). |
+| `409 busy` or `resource locked` | Another operation holds the cluster | Wait, or abort the unfinished or failed operation first. |
+| `409 requires_guided_recovery` on replace | Quorum or a verified donor is not observed | Use the [full-outage recovery](07-full-outage-recovery.md) path; there is no override. |
+| `409 approval_mismatch` | The digest differs from the stored plan | Re-read the operation's `approval.digest` and approve that. |
+| Cluster create failed and the name is taken | A failed create keeps name and capacity | Delete the cluster (approval, administrator only), see [Creating a cluster](03-create-cluster.md). |
+| Backup fails with `docker-error` on a worker | Job created by a non-manager agent (seen in lab, fixed) | Ensure a manager-node agent is enrolled. |
+| Backup warning `galera_info not found` | MariaDB 11.4 does not write it to `--extra-lsndir` (seen in lab) | Informational; the position may be read from the stream (fakes only). |
+| Proxy: about two aborted handshakes per second per node in node logs | Proxy health probes | Expected; one log line each (E5). |
+| After a writer failure no write works for about 6 s | Galera failure detection (E5) | Expected; the proxy itself switched within 0.2 s. |
+
+## Collecting evidence
+
+Manager log (stderr or `docker logs`), `GET /api/v1/operations`, `GET /api/v1/events`, `GET /api/v1/clusters/{id}`, and on a node `docker service ps --no-trunc <service>`. Do not run `docker system prune`, and do not delete volumes by hand: a volume's identity marker protects against starting on foreign data.

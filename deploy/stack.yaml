@@ -4,10 +4,9 @@
 # Deploy on a Swarm manager node:  docker stack deploy -c deploy/stack.yaml dbcm
 #
 # !!! HONEST STATUS !!!
-# Manager HA needs a replicated metastore (Raft). The metastore exists as a
-# library and the lab daemon cmd/metad (flags: -id, -bind, -advertise, -data,
-# -peers id=host:port,..., -bootstrap), but the manager does NOT embed it yet
-# and has no peers configuration. Running three replicas of the current
+# Manager HA needs a replicated metastore (Raft). The manager can embed it
+# (config manager.peers/bootstrap), but a multi-replica manager never ran on
+# VMs, metastore peers have no TLS and the data key must be copied by hand. Running three replicas of the current
 # manager gives three independent, stateless UI/API instances, NOT a highly
 # available manager. Once the manager embeds the metastore, each replica needs
 # a stable node ID and the peer list, for example (proposal, not implemented):
