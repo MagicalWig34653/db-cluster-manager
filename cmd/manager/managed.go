@@ -495,6 +495,7 @@ func (rt *managedRuntime) leaderAPI(pk passkey.Config, keys manager.KeyProvider,
 		Codes: st.Codes, URLTokens: st.URLTokens, Limiter: st.Limiter, Authorizer: st.Authorizer, AuditSink: st.Audit,
 		SetupToken: token, AdministratorExists: st.AdministratorExists, Inventory: inv, Activity: inv, Logger: log,
 		Monitoring: rt.monitoring, Control: svc.control, Backups: svc.backups, Settings: svc.settings, Maintenance: svc.control,
+		Services: svc.services,
 	}
 	// Without a keyring or the agent transport the respective endpoints
 	// answer settings_incomplete.
@@ -518,6 +519,7 @@ type commandSet struct {
 	control  *manager.Control
 	backups  *manager.Backups
 	settings *manager.SettingsService
+	services *manager.Services
 }
 
 // commandServices builds the command services on the leadership's
@@ -531,6 +533,7 @@ func (rt *managedRuntime) commandServices(st *manager.AuthStack) commandSet {
 		control:  &manager.Control{Ops: ops, Swarms: &sw},
 		backups:  &manager.Backups{Ops: ops, Swarms: &sw, Backend: rt.backend},
 		settings: &manager.SettingsService{Svc: rt.svc, Authorizer: st.Authorizer, Keys: rt.keys, Monitoring: rt.monitoring},
+		services: &manager.Services{Ops: ops},
 	}
 }
 

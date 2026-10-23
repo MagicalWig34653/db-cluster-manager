@@ -63,6 +63,8 @@ type Config struct {
 	Replicas Replicas
 	// Maintenance backs host maintenance and drift checks; nil answers 503.
 	Maintenance Maintenance
+	// Services backs the managed service endpoints (W07); nil answers 503.
+	Services Services
 	// RecoveryCodeIterations is passed to recovery.GenerateCodes; 0 selects
 	// the default.
 	RecoveryCodeIterations int
@@ -294,6 +296,28 @@ func (s *server) endpoints() []endpoint {
 			method: "POST", path: "/operations/{id}/approve", access: accessPermission,
 			action: authz.ActionRestore, resolve: s.resolveOperationApproval, hideUnreadable: true,
 			actionOf: approvalAction, handle: s.handleOperationApprove,
+		},
+
+		{method: "GET", path: "/services", access: accessFiltered, handle: s.handleServices},
+		{
+			method: "POST", path: "/services/plan", access: accessPermission,
+			action: authz.ActionCreate, resolve: s.resolveNewService, handle: s.handleServicePreview,
+		},
+		{
+			method: "POST", path: "/services", access: accessPermission,
+			action: authz.ActionCreate, resolve: s.resolveNewService, handle: s.handleServiceCreate,
+		},
+		{
+			method: "GET", path: "/services/{id}", access: accessPermission,
+			action: authz.ActionRead, resolve: s.resolveService, hideDenied: true, handle: s.handleService,
+		},
+		{
+			method: "GET", path: "/services/{id}/delete-plan", access: accessPermission,
+			action: authz.ActionRead, resolve: s.resolveService, hideDenied: true, handle: s.handleServiceDeletePreview,
+		},
+		{
+			method: "DELETE", path: "/services/{id}", access: accessPermission,
+			action: authz.ActionDelete, resolve: s.resolveService, hideUnreadable: true, handle: s.handleServiceDelete,
 		},
 
 		{method: "GET", path: "/backups", access: accessFiltered, handle: s.handleBackups},

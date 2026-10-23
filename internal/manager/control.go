@@ -13,7 +13,9 @@ import (
 	"github.com/MagicalWig34653/db-cluster-manager/internal/dbbackup"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/galera"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/metastore"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/orchestrate"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/runner"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/service"
 )
 
 // Control implements api.Control on top of Operations and Swarms. The API
@@ -216,6 +218,12 @@ func MapCommandError(err error) error {
 		sentinel = api.ErrPolicyConflict
 	case errors.Is(err, ErrSettingsIncomplete), errors.Is(err, ErrNoInstallation), errors.Is(err, errNoDial), errors.Is(err, ErrNoServiceHost):
 		sentinel = api.ErrSettingsIncomplete
+	case errors.Is(err, ErrServiceExists):
+		sentinel = api.ErrClusterExists
+	case errors.Is(err, service.ErrNotExecutable):
+		sentinel = api.ErrConflict
+	case errors.Is(err, service.ErrInvalidSpec), errors.Is(err, service.ErrUnknownType), errors.Is(err, orchestrate.ErrPortsUnsupported):
+		sentinel = api.ErrInvalidInput
 	case errors.Is(err, ErrClusterExists):
 		sentinel = api.ErrClusterExists
 	case errors.Is(err, runner.ErrBusy), errors.Is(err, runner.ErrActive):

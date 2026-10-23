@@ -1094,7 +1094,9 @@ paths:
         cluster/delete operation the delete permission on the cluster instead,
         for a galera/full-outage-recovery operation the recover permission on
         the cluster (only the administrator preset holds it; neither operate
-        nor restore covers it); audited. The operation is resumed after the approval is recorded.
+        nor restore covers it), and for a service/create or service/delete
+        operation the create or delete permission on the service resource in
+        the Swarm; audited. The operation is resumed after the approval is recorded.
       operationId: approveOperation
       parameters:
         - { $ref: "#/components/parameters/Id" }
@@ -1117,6 +1119,144 @@ paths:
         "400": { $ref: "#/components/responses/Error" }
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /services:
+    get:
+      summary: List managed services the caller may read
+      description: >-
+        Services of a service type (container, traefik). Implemented with
+        fakes only (W07).
+      operationId: listServices
+      responses:
+        "200":
+          description: Services visible to the caller
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/ServiceInfo" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Request a managed service
+      description: >-
+        Validates the spec, plans, stores an operation whose steps wait for an
+        approval bound to the digest of the planned definition, and starts it.
+        Approve with POST /operations/{id}/approve. A plan with blockers
+        (published ports, configuration delivery: the agent cannot do them
+        yet) is refused with 409 conflict; preview it with POST
+        /services/plan. Needs service create permission in the Swarm; audited.
+        Coarse 409 codes: conflict, settings_incomplete, cluster_exists (name
+        used), busy. 503 not_leader.
+      operationId: createService
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ServiceInput" }
+      responses:
+        "202":
+          description: Operation started, waiting for approval
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ServiceStarted" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /services/plan:
+    post:
+      summary: Preview the plan of a service request
+      description: >-
+        Read-only plan preview: ordered steps, the generated artifacts (Swarm
+        service, rendered Traefik YAML; never secret values), warnings and
+        blockers. Changes nothing. Needs service create permission in the
+        Swarm.
+      operationId: previewService
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ServiceInput" }
+      responses:
+        "200":
+          description: Plan
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ServicePlan" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /services/{id}:
+    get:
+      summary: Get one managed service
+      operationId: getService
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      responses:
+        "200":
+          description: Service
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ServiceInfo" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+    delete:
+      summary: Request the deletion of a managed service
+      description: >-
+        Plans the removal and stores an operation whose removals wait for an
+        approval bound to the digest of the definition. The body may set
+        removeVolumes; by default managed volumes and their data are kept.
+        Needs service delete permission (administrators); audited. When the
+        operation succeeds the service record is removed.
+      operationId: deleteService
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ServiceDeleteInput" }
+      responses:
+        "202":
+          description: Operation started, waiting for approval
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ServiceStarted" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /services/{id}/delete-plan:
+    get:
+      summary: Preview the deletion plan of a managed service
+      description: Read-only. Query removeVolumes=true includes the volume removals.
+      operationId: previewServiceDelete
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+        - { name: removeVolumes, in: query, required: false, schema: { type: boolean } }
+      responses:
+        "200":
+          description: Plan
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ServicePlan" }
+        "401": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
@@ -1607,6 +1747,60 @@ components:
         polls: { type: integer, minimum: 0, description: Precondition polls and retries of the step }
         since: { type: string, format: date-time, description: Time of the step's latest timeline entry }
         updatedAt: { type: string, format: date-time }
+    ServiceInput:
+      type: object
+      required: [swarm, name, type, spec]
+      properties:
+        swarm: { type: string }
+        name: { type: string, description: "Lower case letters, digits and hyphens." }
+        type: { type: string, enum: [container, traefik] }
+        spec: { type: object, description: "Type-specific desired state; strict, no secret values." }
+    ServiceDeleteInput:
+      type: object
+      properties:
+        removeVolumes: { type: boolean }
+    ServiceInfo:
+      type: object
+      required: [id, swarm, name, type, spec]
+      properties:
+        id: { type: string }
+        swarm: { type: string }
+        name: { type: string }
+        type: { type: string }
+        spec: { type: object }
+        createdBy: { type: string }
+        createdAt: { type: string, format: date-time }
+        createOperation: { type: string }
+        deleteOperation: { type: string }
+    ServiceArtifact:
+      type: object
+      required: [name, mediaType, content]
+      properties:
+        name: { type: string }
+        mediaType: { type: string }
+        content: { type: string }
+    ServicePlan:
+      type: object
+      required: [kind, type, name, steps, artifacts, warnings, blockers, executable, requiresApproval, text]
+      properties:
+        kind: { type: string, enum: [create, delete] }
+        type: { type: string }
+        name: { type: string }
+        steps: { type: array, items: { $ref: "#/components/schemas/PlanStep" } }
+        artifacts: { type: array, items: { $ref: "#/components/schemas/ServiceArtifact" } }
+        warnings: { type: array, items: { type: string } }
+        blockers: { type: array, items: { type: string } }
+        executable: { type: boolean }
+        requiresApproval: { type: boolean }
+        text: { type: string }
+    ServiceStarted:
+      type: object
+      required: [service, operation, approval, plan]
+      properties:
+        service: { type: string }
+        operation: { $ref: "#/components/schemas/OperationRef" }
+        approval: { $ref: "#/components/schemas/OperationApproval" }
+        plan: { $ref: "#/components/schemas/ServicePlan" }
     ClusterDeletion:
       type: object
       required: [id, kind, approval]

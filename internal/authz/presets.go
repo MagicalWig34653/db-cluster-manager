@@ -26,6 +26,7 @@ func PresetRoles() []Role {
 				{Type: ResourceDatabase, Action: ActionRead},
 				{Type: ResourceBackup, Action: ActionRead},
 				{Type: ResourceDashboard, Action: ActionRead},
+				{Type: ResourceService, Action: ActionRead},
 			},
 		},
 		{
@@ -41,6 +42,7 @@ func PresetRoles() []Role {
 				{Type: ResourceBackup, Action: ActionRead},
 				{Type: ResourceBackup, Action: ActionBackup},
 				{Type: ResourceDashboard, Action: ActionRead},
+				{Type: ResourceService, Action: ActionRead},
 			},
 		},
 		{

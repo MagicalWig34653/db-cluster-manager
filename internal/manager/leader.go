@@ -293,6 +293,9 @@ func (s *Service) saveView(v runner.View) error {
 			// no callback.
 			s.finishClusterDelete(rec)
 		}
+		if v.Status == runner.StatusSucceeded && rec.Kind == runner.OpServiceDelete {
+			s.finishServiceDelete(rec)
+		}
 	}
 	return nil
 }

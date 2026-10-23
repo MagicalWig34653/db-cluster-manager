@@ -80,6 +80,9 @@ const (
 	ResourceUserAccount  ResourceType = "user_account"
 	ResourceRole         ResourceType = "role"
 	ResourceAuditLog     ResourceType = "audit_log"
+	// ResourceService is a managed service of a service type (W07), for
+	// example a generic container or Traefik; scoped to a Swarm.
+	ResourceService ResourceType = "service"
 	// ResourceAny is a wildcard usable in permissions only, never in a check.
 	ResourceAny ResourceType = "*"
 )
@@ -88,7 +91,7 @@ var knownResourceTypes = map[ResourceType]bool{
 	ResourceSwarm: true, ResourceHost: true, ResourceCluster: true,
 	ResourceDatabase: true, ResourceDatabaseUser: true, ResourceBackup: true,
 	ResourceSettings: true, ResourceDashboard: true, ResourceUserAccount: true,
-	ResourceRole: true, ResourceAuditLog: true,
+	ResourceRole: true, ResourceAuditLog: true, ResourceService: true,
 }
 
 // Valid reports whether t is a concrete, known resource type.
