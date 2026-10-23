@@ -42,6 +42,7 @@ type wireContainerSpec struct {
 	Labels          map[string]string `json:"Labels,omitempty"`
 	Command         []string          `json:"Command,omitempty"`
 	Args            []string          `json:"Args,omitempty"`
+	User            string            `json:"User,omitempty"`
 	Hostname        string            `json:"Hostname,omitempty"`
 	Env             []string          `json:"Env,omitempty"`
 	Mounts          []wireMount       `json:"Mounts,omitempty"`
@@ -135,6 +136,9 @@ type wireService struct {
 		} `json:"TaskTemplate"`
 		Mode wireServiceMode `json:"Mode"`
 	} `json:"Spec"`
+	UpdateStatus *struct {
+		State string `json:"State"`
+	} `json:"UpdateStatus,omitempty"`
 }
 
 // toWireSpec converts an agent spec. Service labels are also set on the
@@ -149,6 +153,7 @@ func toWireSpec(s agent.ServiceSpec, secrets []agent.Object) wireServiceSpec {
 			Labels:          maps.Clone(s.Labels),
 			Command:         s.Command,
 			Args:            s.Args,
+			User:            s.User,
 			Hostname:        s.Hostname,
 			Env:             s.Env,
 			StopGracePeriod: s.StopGracePeriodNS,
@@ -349,7 +354,7 @@ var specShape = &shape{
 		"TaskTemplate": {
 			keys: []string{"Resources", "RestartPolicy", "Placement", "Networks"},
 			sub: map[string]*shape{"ContainerSpec": {keys: []string{
-				"Image", "Labels", "Command", "Args", "Hostname", "Env", "Mounts", "StopGracePeriod", "Secrets"}}},
+				"Image", "Labels", "Command", "Args", "User", "Hostname", "Env", "Mounts", "StopGracePeriod", "Secrets"}}},
 		},
 		"EndpointSpec": {keys: []string{"Mode"}},
 	},
@@ -487,6 +492,9 @@ func serviceObject(s wireService) agent.Object {
 	}
 	if r := s.Spec.Mode.Replicated; r != nil {
 		o.Replicas = r.Replicas
+	}
+	if s.UpdateStatus != nil {
+		o.UpdateState = s.UpdateStatus.State
 	}
 	return o
 }

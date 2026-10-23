@@ -55,3 +55,19 @@ The fourth batch left two gaps that block the Swarm trial (STATUS "Fourth batch"
 
 - Existing clusters created with the earlier spec have no `--socket` and no `run/` directory; changing their spec is an update that restarts nodes and needs `init-volume-dirs` first (no migration exists; there are no production clusters yet).
 - The manager still has to: generate and create the account secrets, attach the root and backup secrets to the agent service, fill `Cluster.Accounts` from settings, and render the backup option-file secret.
+
+## Evidence (lab VMs, E4, 2026-10-23)
+
+MariaDB `mariadb:11.4.13@sha256:250e1609…` on three arm64 Lima VMs, cluster created by the real manager through its API ([results](../../tests/p0/results/e4-manager-galera.md)). Numbers refer to the assumptions above.
+
+1. **Confirmed.** `mariadbd` runs with `--socket=/dbcm/run/mysqld.sock` (`@@socket` reported it); `run/` and `data/` are `999` owned, mode 0750; the image entrypoint initialised through that socket; `mariadb -S /dbcm/run/mysqld.sock` works inside the container. The image healthcheck was not exercised (the service spec does not use it).
+2. **Confirmed.** Both joiners received SST through `wsrep_sst_mariabackup` with `--socket=/dbcm/run/mysqld.sock` in the mysqld args (`mariabackup SST completed on joiner`); the bootstrap node restarted without `--wsrep-new-cluster` and rejoined (`Found saved state ... safe_to_bootstrap: 0`, bootstrap option 0).
+3. **Confirmed.** The agent (root, host network) connects to the socket in the volume; `CURRENT_USER()` is `dbcm_monitor@localhost`; the health collector reported all three nodes `healthy/synced` through it.
+4. **Confirmed** for create/alter/revoke/grant replicated to joiners (accounts present on n2 with the documented grants) and `SHOW GLOBAL STATUS` for a USAGE-only account. `REQUIRE SSL` not tested.
+5. **Confirmed** for physical backups: mariabackup with exactly `RELOAD, PROCESS, LOCK TABLES, BINLOG MONITOR` streamed a backup with `--galera-info` over TCP from the job (`dbcm_backup@%`), reading the datadir read-only as uid 999 (`completed OK!`, manifest written). **Refuted detail:** MariaDB 11.4 names the metadata files `mariadb_backup_checkpoints`/`mariadb_backup_galera_info`; the job expected `xtrabackup_*` (fixed). The Galera position is still not recorded: `mariadb_backup_galera_info` is not in `--extra-lsndir` (manifest warning). Logical export (`SHOW CREATE ROUTINE`) untested.
+6. **Untested** (arm64 only).
+7. **Confirmed:** the job image builds (final stage of `deploy/Dockerfile.jobs`, tool check and uid check passed) and inherits `VOLUME /var/lib/mysql`. Whether Swarm removes the anonymous volume per job task was not checked.
+8. **Confirmed:** directories created by `init-volume-dirs` on the local bind volume appear with uid/gid 999 inside the container (no user-namespace remapping).
+9. **Not exercised as designed:** the secrets were mounted when the agent service was created (`manager.agentTransport.dbSecrets`, added in E4); updating the running agent service to add secrets is still not implemented.
+
+Also found: the bootstrap node's wait-synced reads status through the monitoring account, so the account steps had to move before it (they run right after the bootstrap service is created and are retried, `exec-sql` is now idempotent for the runner).

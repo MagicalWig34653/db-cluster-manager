@@ -236,6 +236,10 @@ type InspectionRequest struct {
 	TokenID     string
 	NewUUID     func() (string, error)
 	StepTimeout time.Duration
+	// MaxRetries bounds precondition polls and idempotent retries per step
+	// (lab E4: without it the inspection paused at its first gate poll,
+	// before the restore job could report).
+	MaxRetries int
 }
 
 // InspectionSession is the durable record of an inspection instance. The
@@ -360,7 +364,7 @@ func InspectionRestorePlan(req InspectionRequest, inv Inventory) (InspectionResu
 	}
 	expected := agent.Identity{InstallationID: req.InstallationID, ClusterID: sess.ClusterID, NodeUUID: nodeUUID}
 	spec := InspectionServiceSpec(sess, req.Image, req.InitSecret, req.Resources)
-	s := &steps{b: BackupRequest{StepTimeout: req.StepTimeout}}
+	s := &steps{b: BackupRequest{StepTimeout: req.StepTimeout, MaxRetries: req.MaxRetries}}
 	s.add(command("create-volume", sess.HostID, agent.KindCreateVolume, agent.CreateVolumeArgs{
 		Volume: sess.Volume, VolumeRoot: sess.VolumeRoot,
 		Labels: map[string]string{agent.LabelCluster: sess.ClusterID, agent.LabelNode: nodeUUID, "dbcm.inspection": sess.ID}}))

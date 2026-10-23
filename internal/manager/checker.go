@@ -4,7 +4,11 @@ package manager
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+
+	"github.com/MagicalWig34653/db-cluster-manager/internal/agent"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/galera"
 
 	"github.com/MagicalWig34653/db-cluster-manager/internal/dbbackup"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/runner"
@@ -48,6 +52,15 @@ func (c *RoutingChecker) Check(ctx context.Context, opID string, step runner.Ste
 		bc := *c.Backup
 		bc.Approvals = StoreApprovals{Store: c.Store}
 		bc.Nodes = func(context.Context) ([]dbbackup.NodeState, error) { return c.opNodes(opID) }
+		if cond.Kind == dbbackup.CondSourceEligible && (bc.Policy.Job.MilliCPU <= 0 || bc.Policy.Job.MemoryBytes <= 0) {
+			// The source re-check needs the job's demand like the planning
+			// did (lab E4: without it every backup paused at check-source).
+			job, err := c.opJobDemand(opID)
+			if err != nil {
+				return false, "", err
+			}
+			bc.Policy.Job = job
+		}
 		if bc.SessionReport == nil {
 			bc.SessionReport = func(id string) (dbbackup.VerifyReport, bool) {
 				r, ok, err := Get[dbbackup.VerifyReport](c.Store, CollVerifications, id)
@@ -85,4 +98,27 @@ func (c *RoutingChecker) opNodes(opID string) ([]dbbackup.NodeState, error) {
 	}
 	b := &Backups{Ops: c.Ops}
 	return b.nodeStates(cl.Value)
+}
+
+// opJobDemand returns the resource demand of the operation's backup job
+// (the limits of its first run-backup step), in the placement unit.
+func (c *RoutingChecker) opJobDemand(opID string) (galera.ResourceAmount, error) {
+	rec, ok, err := Get[OperationRecord](c.Store, CollOperations, opID)
+	if err != nil {
+		return galera.ResourceAmount{}, err
+	}
+	if !ok {
+		return galera.ResourceAmount{}, fmt.Errorf("%w: operation %s", ErrNotFound, opID)
+	}
+	for _, st := range rec.Value.Definition.Steps {
+		if st.Command != agent.KindRunBackup {
+			continue
+		}
+		var a agent.RunBackupArgs
+		if err := json.Unmarshal(st.Args, &a); err != nil {
+			return galera.ResourceAmount{}, fmt.Errorf("operation %s step %s: %w", opID, st.ID, err)
+		}
+		return galera.ResourceAmount{MilliCPU: a.Resources.NanoCPUs / 1e6, MemoryBytes: a.Resources.MemoryBytes}, nil
+	}
+	return galera.ResourceAmount{}, fmt.Errorf("%w: operation %s has no backup job", ErrNotFound, opID)
 }

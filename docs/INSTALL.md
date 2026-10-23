@@ -36,6 +36,15 @@ Defaults: port bound to loopback only (`DBCM_BIND`, `DBCM_PORT` override), read-
 
 External-Docker-API connection details are an open design item (requirement P04). When implemented the intended approach is a remote, mutually authenticated endpoint rather than mounting `/var/run/docker.sock`. Do not mount the socket into the manager container; it grants root on the host.
 
+### Managed mode on a lab Swarm (what lab E4 ran)
+
+Lab E4 ([results](../tests/p0/results/e4-manager-galera.md)) ran the manager as a plain process on a Swarm manager node with `unix:///var/run/docker.sock` and the `manager.settings` configuration section (installation ID, volume base, agent image, accounts, backup settings; see `cmd/manager/main.go`). Host and operator prerequisites observed there, none of which the manager creates or checks yet:
+
+- On **every** host: the agent state directory `/var/lib/dbcm-agent` and the volume base (for example `/var/lib/dbcm/volumes`) must exist; Swarm rejects the agent task otherwise (`bind source path does not exist`).
+- At least one enrolled **Swarm manager node** with an agent: service and backup-job commands are sent to its agent, because workers cannot change services.
+- The cluster's attachable overlay network and the root, monitoring and backup password secrets (plus the backup option file, backend configuration and recovery key secrets) must exist with the label `dbcm.installation=<installation ID>`; the secrets the agent reads for `exec-sql` are listed in `manager.agentTransport.dbSecrets` before the agent service is created.
+- Images are referenced by tag or digest; without a registry they must be present on every node (E4 used `docker save | docker load`).
+
 ## Three-replica Swarm service (not highly available yet)
 
 `deploy/stack.yaml` defines three replicas with `max_replicas_per_node: 1`, spread by node, an encrypted overlay network, a healthcheck, resource limits and a local volume per node. The manager does not yet embed the replicated metastore, so there is no peers configuration to set, and three replicas are three independent stateless instances. The metastore lab daemon takes `-id`, `-bind`, `-advertise`, `-data`, `-peers id=host:port,...` and `-bootstrap`; the manager will need an equivalent, with stable per-instance identities that `replicas: 3` alone does not provide. Deploy only to exercise the packaging: `docker stack deploy -c deploy/stack.yaml dbcm`.

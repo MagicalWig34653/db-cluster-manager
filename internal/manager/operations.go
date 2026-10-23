@@ -51,6 +51,59 @@ type Operations struct {
 	// StepTimeout and MaxRetries are passed to every planned step.
 	StepTimeout time.Duration
 	MaxRetries  int
+	// Swarms, if set, resolves the operator-provided objects an operation
+	// references so the agents can be told to allow them (allowrefs.go).
+	Swarms *Swarms
+}
+
+// ErrNoServiceHost: no enrolled Swarm manager node with an enrolled agent
+// can run the service commands of an operation.
+var ErrNoServiceHost = errors.New("manager: no enrolled Swarm manager node with an agent identity")
+
+// serviceHost picks the agent that runs Swarm service commands: an enrolled,
+// ready Swarm manager node whose agent has enrolled its identity (the
+// lowest node ID, so the choice is stable).
+func (o *Operations) serviceHost(swarm string) (string, error) {
+	hosts, err := List[HostRecord](o.Svc.store, CollHosts, Consistent())
+	if err != nil {
+		return "", err
+	}
+	var ids []string
+	for _, h := range hosts {
+		v := h.Value
+		if v.Swarm == swarm && v.Enrollment == EnrollEnrolled && v.Role == "manager" && v.State == "ready" && v.AgentSerial != "" {
+			ids = append(ids, v.NodeID)
+		}
+	}
+	if len(ids) == 0 {
+		return "", fmt.Errorf("%w in swarm %s", ErrNoServiceHost, swarm)
+	}
+	slices.Sort(ids)
+	return ids[0], nil
+}
+
+// serviceHostFor returns the service host in production (Swarms set) and
+// "" (each step on its node's host) for unit tests without a Swarm
+// connector.
+func (o *Operations) serviceHostFor(swarm string) (string, error) {
+	if o.Swarms == nil {
+		return "", nil
+	}
+	return o.serviceHost(swarm)
+}
+
+// nodeHosts returns the host IDs of nodes.
+func nodeHosts(nodes []galera.Node) []string {
+	out := make([]string, 0, len(nodes))
+	for _, n := range nodes {
+		out = append(out, n.HostID)
+	}
+	return out
+}
+
+// clusterRefs are the operator-provided objects a cluster's services use.
+func clusterRefs(c galera.Cluster) objectRefs {
+	return objectRefs{Networks: []string{c.Network}, Secrets: append([]string{c.RootPasswordSecret}, c.TLS.Secrets...)}
 }
 
 func (o *Operations) leadership() (*Leadership, error) {
@@ -180,18 +233,26 @@ func (o *Operations) CreateCluster(actor authz.Subject, req CreateClusterRequest
 	clusterID := newID("clu")
 	plan, err := galera.PlanCreate(galera.Topology{
 		Cluster: galera.Cluster{InstallationID: st.InstallationID, ClusterID: clusterID, Name: req.Name, Image: req.Image,
-			Network: req.Network, RootPasswordSecret: req.RootPasswordSecret, GcacheSize: req.GcacheSize},
+			Network: req.Network, RootPasswordSecret: req.RootPasswordSecret, GcacheSize: req.GcacheSize,
+			Accounts: st.Accounts},
 		Size: req.Size, Resources: req.Resources,
 	}, hosts, req.Placement)
+	if err != nil {
+		return OperationRecord{}, err
+	}
+	svcHost, err := o.serviceHostFor(req.Swarm)
 	if err != nil {
 		return OperationRecord{}, err
 	}
 	opID := newID("op")
 	op, err := runner.FromGaleraPlan(plan, runner.GaleraBindings{
 		OpID: opID, InstallationID: st.InstallationID, VolumeBase: st.VolumeBase, TokenIDs: tokens(plan.Nodes),
-		StepTimeout: o.StepTimeout, MaxRetries: o.MaxRetries,
+		StepTimeout: o.StepTimeout, MaxRetries: o.MaxRetries, ServiceHost: svcHost,
 	})
 	if err != nil {
+		return OperationRecord{}, err
+	}
+	if err := o.allowReferenced(&op, req.Swarm, st.InstallationID, append(nodeHosts(plan.Nodes), svcHost), clusterRefs(plan.Cluster)); err != nil {
 		return OperationRecord{}, err
 	}
 	now := o.Svc.cfg.Now()
@@ -362,13 +423,20 @@ func (o *Operations) ReplaceNode(actor authz.Subject, clusterID, slot string) (O
 	if c.ServiceID[slot] == "" {
 		return OperationRecord{}, fmt.Errorf("%w: %s/%s", ErrMissingServiceID, c.ID, slot)
 	}
+	svcHost, err := o.serviceHostFor(c.Swarm)
+	if err != nil {
+		return OperationRecord{}, err
+	}
 	opID := newID("op")
 	op, err := runner.FromGaleraPlan(plan, runner.GaleraBindings{
 		OpID: opID, InstallationID: st.InstallationID, VolumeBase: st.VolumeBase,
 		TokenIDs: tokens(plan.Nodes, slot), ServiceIDs: map[string]string{slot: c.ServiceID[slot]},
-		StepTimeout: o.StepTimeout, MaxRetries: o.MaxRetries,
+		StepTimeout: o.StepTimeout, MaxRetries: o.MaxRetries, ServiceHost: svcHost,
 	})
 	if err != nil {
+		return OperationRecord{}, err
+	}
+	if err := o.allowReferenced(&op, c.Swarm, st.InstallationID, append(nodeHosts(plan.Nodes), svcHost), clusterRefs(plan.Cluster)); err != nil {
 		return OperationRecord{}, err
 	}
 	rec := OperationRecord{ID: opID, Kind: op.Kind, Swarm: c.Swarm, Cluster: c.ID, RequestedBy: actor.ID,

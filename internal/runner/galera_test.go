@@ -94,7 +94,7 @@ func TestFromGaleraPlanCreate(t *testing.T) {
 	for range 3 {
 		want = append(want, "create-volume", "init-identity", "init-volume-dirs", "create-service", "")
 	}
-	want = append(want, "update-service", "")
+	want = append(want, "update-service", "await-service", "")
 	if !slices.Equal(kinds, want) {
 		t.Errorf("commands %q\nwant %q", kinds, want)
 	}
@@ -285,15 +285,15 @@ func TestCreatePlanEndToEndWithFakes(t *testing.T) {
 			t.Errorf("effect %s executed %d times", e, n)
 		}
 	}
-	if n := len(countEffects(h.agents)); n != 13 {
-		t.Errorf("%d distinct effects; want 13 agent commands", n)
+	if n := len(countEffects(h.agents)); n != 14 {
+		t.Errorf("%d distinct effects; want 14 agent commands", n)
 	}
 	for _, c := range h.agents[p.Nodes[2].HostID].Received() {
 		if c.StepID == "14-create-service-n3" && c.Term != 2 {
 			t.Errorf("n3 created under term %d", c.Term)
 		}
 	}
-	if !strings.HasPrefix(v2.Kind, "galera/") || len(v2.Steps) != 17 {
+	if !strings.HasPrefix(v2.Kind, "galera/") || len(v2.Steps) != 18 {
 		t.Errorf("view %s %d", v2.Kind, len(v2.Steps))
 	}
 }
@@ -345,5 +345,56 @@ func TestFromGaleraPlanAccounts(t *testing.T) {
 	var dirs agent.InitVolumeDirsArgs
 	if err := json.Unmarshal(op.Steps[2].Args, &dirs); err != nil || dirs.UID != 999 || dirs.GID != 999 || dirs.Expected.ClusterID != "clu-1" {
 		t.Errorf("init-volume-dirs args %+v (%v)", dirs, err)
+	}
+}
+
+// TestExecSQLIsIdempotent: the bootstrap account step is retried while the
+// new server does not accept the root login yet (lab E4); its templates are
+// idempotent statements.
+func TestExecSQLIsIdempotent(t *testing.T) {
+	if !Idempotent(agent.KindExecSQL) {
+		t.Fatal("exec-sql is not retried")
+	}
+	if Idempotent(agent.KindCreateService) {
+		t.Fatal("create-service must not be blindly retried")
+	}
+}
+
+// TestFromGaleraPlanServiceHost: Swarm service commands go to the service
+// host (a Swarm manager node, lab E4); node-local steps stay on the node.
+func TestFromGaleraPlanServiceHost(t *testing.T) {
+	p, err := galera.PlanCreate(galera.Topology{Cluster: testGaleraCluster(), Size: 3,
+		Resources: galera.Resources{Limits: galera.ResourceAmount{MilliCPU: 1000, MemoryBytes: 2 * gib}},
+		NewUUID:   seqUUIDs("00000000")}, testHosts("h1", "h2", "h3"), galera.PlacementPolicy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := createBindings("op-svc")
+	b.ServiceHost = "mgr"
+	op, err := FromGaleraPlan(p, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostOf := map[string]string{}
+	for _, gs := range p.Steps {
+		hostOf[gs.ID] = gs.HostID
+	}
+	services := 0
+	for _, s := range op.Steps {
+		switch s.Command {
+		case agent.KindCreateService, KindUpdateService, agent.KindAwaitService:
+			services++
+			if s.Target != "mgr" {
+				t.Errorf("%s on %s, want the service host", s.ID, s.Target)
+			}
+		case "":
+		default:
+			if s.Target != hostOf[s.ID] {
+				t.Errorf("%s on %s, want its node host %s", s.ID, s.Target, hostOf[s.ID])
+			}
+		}
+	}
+	if services != 5 {
+		t.Fatalf("service steps %d, want 3 creates, 1 update and 1 await", services)
 	}
 }

@@ -155,8 +155,8 @@ func TestCreatePlanEndToEndOnMetastoreCluster(t *testing.T) {
 		t.Fatalf("second leader: err %v status %s (%s)", err, v2.Status, v2.Reason)
 	}
 	effects := countEffects(agents)
-	if len(effects) != 13 {
-		t.Errorf("%d distinct effects, want 13: %v", len(effects), effects)
+	if len(effects) != 14 {
+		t.Errorf("%d distinct effects, want 14: %v", len(effects), effects)
 	}
 	for e, n := range effects {
 		if n != 1 {

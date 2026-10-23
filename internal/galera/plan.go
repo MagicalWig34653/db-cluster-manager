@@ -51,6 +51,10 @@ const (
 	// StepExecSQL runs one allow-listed SQL template on the node through
 	// its unix socket (agent KindExecSQL).
 	StepExecSQL StepKind = "exec-sql"
+	// StepAwaitUpdate waits until Swarm has replaced the task after an
+	// update-service (agent KindAwaitService); a following wait-synced
+	// would otherwise observe the old task (lab E4).
+	StepAwaitUpdate StepKind = "await-update"
 )
 
 // DirOwner is the numeric owner of the database directories.
@@ -320,12 +324,17 @@ func PlanCreate(topo Topology, hosts []Host, policy PlacementPolicy) (Plan, erro
 			note = "bootstrap node: forms the new cluster"
 		}
 		l.add(Step{Kind: StepCreateService, Slot: n.Slot, HostID: n.HostID, NodeUUID: n.NodeUUID, Spec: specPtr(spec), Note: note}, joinPre...)
-		l.add(Step{Kind: StepWaitSynced, Slot: n.Slot, HostID: n.HostID, ClusterSize: i + 1})
 		if i == 0 {
+			// The accounts come before the bootstrap node's wait-synced: that
+			// check reads wsrep status through the monitoring account, so it
+			// could never pass before the account exists (found in lab E4
+			// preparation). exec-sql is idempotent and retried until the
+			// server accepts the root login over the socket.
 			for _, s := range accountSteps(c, n) {
-				l.add(s, synced(n.Slot, 1))
+				l.add(s)
 			}
 		}
+		l.add(Step{Kind: StepWaitSynced, Slot: n.Slot, HostID: n.HostID, ClusterSize: i + 1})
 	}
 	if c.Accounts.MonitorSecret == "" {
 		warns = append(warns, "no monitoring account configured: health collection through the node socket will fail")
@@ -337,6 +346,8 @@ func PlanCreate(topo Topology, hosts []Host, policy PlacementPolicy) (Plan, erro
 	boot := nodes[0]
 	l.add(Step{Kind: StepUpdateService, Slot: boot.Slot, HostID: boot.HostID, NodeUUID: boot.NodeUUID, Spec: specPtr(desired[0]),
 		Note: "remove " + BootstrapFlag + "; the node restarts and rejoins by IST"}, all...)
+	l.add(Step{Kind: StepAwaitUpdate, Slot: boot.Slot, HostID: boot.HostID, NodeUUID: boot.NodeUUID, Spec: specPtr(desired[0]),
+		Note: "wait until Swarm has replaced the bootstrap task"})
 	l.add(Step{Kind: StepWaitSynced, Slot: boot.Slot, HostID: boot.HostID, ClusterSize: len(nodes)})
 
 	return Plan{

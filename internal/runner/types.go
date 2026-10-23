@@ -174,6 +174,14 @@ func Idempotent(k agent.Kind) bool {
 	case agent.KindInspect, agent.KindListOwned, agent.KindVerifyIdentity, agent.KindAllowObjects,
 		agent.KindCollectHealth, agent.KindReadGrastate:
 		return true
+	case agent.KindAwaitService:
+		// Changes nothing: polled until Swarm finished replacing the task.
+		return true
+	case agent.KindExecSQL:
+		// Only allow-listed templates that are idempotent statements
+		// (CREATE USER IF NOT EXISTS, ALTER USER, REVOKE, GRANT); a retry is
+		// needed while the database does not accept the login yet.
+		return true
 	}
 	return false
 }

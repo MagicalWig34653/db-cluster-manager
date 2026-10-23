@@ -408,15 +408,23 @@ func (b *Backups) start(actor authz.Subject, clusterID, trigger string) (Operati
 	if err != nil {
 		return OperationRecord{}, err
 	}
+	svcHost, err := b.Ops.serviceHostFor(c.Swarm)
+	if err != nil {
+		return OperationRecord{}, err
+	}
 	opID := newID("op")
 	plan, err := dbbackup.BackupPlan(dbbackup.BackupRequest{
 		OpID: opID, BackupID: backupID, InstallationID: st.InstallationID, ClusterID: c.ID, ClusterName: c.Name,
 		Method: dbbackup.MethodPhysical, JobImage: st.Backup.JobImage, Network: c.Spec.Network,
 		DBCredentialSecret: st.Backup.DBCredentialSecret, BackendSecret: st.Backup.BackendSecret,
 		RecipientKey: st.Backup.RecipientKey, VolumeBase: st.VolumeBase, Job: st.Backup.job(),
-		StepTimeout: b.Ops.StepTimeout, MaxRetries: b.Ops.MaxRetries,
+		StepTimeout: b.Ops.StepTimeout, MaxRetries: b.Ops.MaxRetries, ServiceHost: svcHost,
 	}, nodes, dbbackup.SourcePolicy{ClusterSize: c.Size})
 	if err != nil {
+		return OperationRecord{}, err
+	}
+	if err := b.Ops.allowReferenced(&plan.Operation, c.Swarm, st.InstallationID, []string{plan.Source.HostID, svcHost},
+		objectRefs{Networks: []string{c.Spec.Network}, Secrets: []string{st.Backup.DBCredentialSecret, st.Backup.BackendSecret}}); err != nil {
 		return OperationRecord{}, err
 	}
 	rec := OperationRecord{ID: opID, Kind: plan.Operation.Kind, Swarm: c.Swarm, Cluster: c.ID, RequestedBy: actor.ID,
@@ -629,12 +637,8 @@ func (b *Backups) startInspection(ctx context.Context, actor authz.Subject, in a
 		Source: dbbackup.RestoreSource{Manifest: m, ClusterID: c.ID, BackendSecret: bs.BackendSecret, KeySecret: keySecret},
 		Host:   host, InstallationID: st.InstallationID, VolumeBase: st.VolumeBase, Image: c.Spec.Image, JobImage: bs.JobImage,
 		Network: bs.InspectionNetwork, InitSecret: initSecret, Resources: res, Job: bs.job(), TTL: ttl, Now: now,
-		TokenID: newID("tok"), StepTimeout: b.Ops.StepTimeout,
+		TokenID: newID("tok"), StepTimeout: b.Ops.StepTimeout, MaxRetries: b.Ops.MaxRetries,
 	}, mustInventory(b.store()))
-	if err != nil {
-		return api.InspectionStarted{}, err
-	}
-	digest, err := DefinitionDigest(plan.Operation)
 	if err != nil {
 		return api.InspectionStarted{}, err
 	}
@@ -647,6 +651,16 @@ func (b *Backups) startInspection(ctx context.Context, actor authz.Subject, in a
 		return api.InspectionStarted{}, err
 	}
 	if err := b.createSecret(ctx, c.Swarm, initSecret, st.InstallationID, session, []byte(sql)); err != nil {
+		return api.InspectionStarted{}, err
+	}
+	// The allow-objects step is not destructive (no approval) and is part
+	// of the approved definition, so it is added before the digest.
+	if err := b.Ops.allowReferenced(&plan.Operation, c.Swarm, st.InstallationID, []string{host.ID},
+		objectRefs{Networks: []string{bs.InspectionNetwork}, Secrets: []string{bs.BackendSecret, keySecret, initSecret}}); err != nil {
+		return api.InspectionStarted{}, err
+	}
+	digest, err := DefinitionDigest(plan.Operation)
+	if err != nil {
 		return api.InspectionStarted{}, err
 	}
 	rec := OperationRecord{ID: opID, Kind: plan.Operation.Kind, Swarm: c.Swarm, Cluster: c.ID, RequestedBy: actor.ID,

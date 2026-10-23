@@ -42,6 +42,9 @@ type Object struct {
 	// update-service compares them to refuse changes it must not make.
 	Constraints []string `json:"constraints,omitempty"` // services only
 	Replicas    uint64   `json:"replicas,omitempty"`    // replicated services only
+	// UpdateState is the Swarm UpdateStatus.State of a service ("" when it
+	// was never updated, "updating", "completed", "paused", "rollback_...").
+	UpdateState string `json:"update_state,omitempty"` // services only
 }
 
 // VolumeSpec describes a local Docker volume whose data lives in the host
@@ -77,8 +80,10 @@ type ServiceSpec struct {
 	Labels map[string]string `json:"labels,omitempty"`
 	Env    []string          `json:"env,omitempty"`
 	// Command overrides the image entrypoint; Args are its arguments.
-	Command       []string       `json:"command,omitempty"`
-	Args          []string       `json:"args,omitempty"`
+	Command []string `json:"command,omitempty"`
+	Args    []string `json:"args,omitempty"`
+	// User overrides the image user ("uid:gid"); empty keeps the image's.
+	User          string         `json:"user,omitempty"`
 	Mounts        []Mount        `json:"mounts,omitempty"`
 	Constraints   []string       `json:"constraints,omitempty"` // for example "node.id==abc"
 	Replicas      uint64         `json:"replicas"`

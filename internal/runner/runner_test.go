@@ -451,6 +451,36 @@ func TestAbortRequestedDuringStepTakesEffectAtBoundary(t *testing.T) {
 	}
 }
 
+// TestAbortDuringPreconditionWait: an abort requested while a step waits
+// for its preconditions takes effect at the next poll, not after all
+// polls (lab E4: a backup gate kept the operation for minutes).
+func TestAbortDuringPreconditionWait(t *testing.T) {
+	h := newHarness(t, "h1")
+	h.checker = checkerFunc(func(context.Context, string, Step, Condition) (bool, string, error) { return false, "not yet", nil })
+	r := h.runner("m1")
+	h.sleeper.hook = func(n int) {
+		if n == 2 {
+			if err := r.Abort("op1"); err != nil {
+				t.Error(err)
+			}
+		}
+	}
+	op := Operation{ID: "op1", Kind: "test", Locks: []string{"x"}, Steps: []Step{
+		{ID: "gate", Preconditions: []Condition{{Kind: "quorum", ClusterSize: 2}}, MaxRetries: 30},
+		{ID: "act", Target: "h1", Command: agent.KindStopDB, Args: svcArgs("a")},
+	}}
+	v, err := r.Run(context.Background(), op)
+	if err != nil || v.Status != StatusAborted {
+		t.Fatalf("err %v status %s", err, v.Status)
+	}
+	if n := len(h.sleeper.Slept()); n > 3 {
+		t.Errorf("%d polls after the abort request", n)
+	}
+	if len(h.agents["h1"].Received()) != 0 {
+		t.Error("step after the gate was sent")
+	}
+}
+
 func TestAbortPausedOperationReleasesLocks(t *testing.T) {
 	h := newHarness(t, "h1", "h2", "h3")
 	h.agents["h2"].addFault("s2", crashInDoubt)

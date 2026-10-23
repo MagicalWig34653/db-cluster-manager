@@ -36,14 +36,21 @@ import (
 
 // Labels and defaults of the agent service.
 const (
-	LabelRole        = "dbcm.role"
-	RoleAgent        = "agent"
-	AgentListen      = "127.0.0.1:7070" // lab transport
-	AgentPort        = 7443             // default mTLS port on the host
-	AgentStateDir    = "/var/lib/dbcm-agent"
-	DockerSocket     = "/var/run/docker.sock"
-	HostNetwork      = "host"
-	HostIDEnv        = "DBCM_HOST_ID"
+	LabelRole     = "dbcm.role"
+	RoleAgent     = "agent"
+	AgentListen   = "127.0.0.1:7070" // lab transport
+	AgentPort     = 7443             // default mTLS port on the host
+	AgentStateDir = "/var/lib/dbcm-agent"
+	DockerSocket  = "/var/run/docker.sock"
+	HostNetwork   = "host"
+	HostIDEnv     = "DBCM_HOST_ID"
+	// AgentCommand is the agent binary in the product image
+	// (deploy/Dockerfile), whose entrypoint is the manager.
+	AgentCommand = "/usr/local/bin/agent"
+	// AgentUser: the agent needs root on its host (Docker socket, chown of
+	// node directories in init-volume-dirs); the product image's default
+	// user is the distroless nonroot user 65532.
+	AgentUser        = "0:0"
 	agentLabelSuffix = ".enrolled"
 )
 
@@ -90,6 +97,10 @@ type AgentMTLS struct {
 	// collect-health; both empty leaves health collection unconfigured.
 	MonitorUser   string
 	MonitorSecret string
+	// DBSecrets are further existing secrets the agent mounts below
+	// /run/secrets (exec-sql reads the cluster root and account passwords
+	// from there by secret name, ADR 0011).
+	DBSecrets []string
 }
 
 func (m *AgentMTLS) port() int {
@@ -108,6 +119,10 @@ func AgentSpec(d AgentDeployment) agent.ServiceSpec {
 		Name:   AgentServiceName(d.InstallationID),
 		Image:  d.Image,
 		Labels: labels,
+		// Lab E4: with only Args, the image entrypoint (the manager) received
+		// the agent flags and exited; the agent must also run as root.
+		Command: []string{AgentCommand},
+		User:    AgentUser,
 		Mounts: []agent.Mount{
 			{Type: "bind", Source: DockerSocket, Target: DockerSocket},
 			{Type: "bind", Source: AgentStateDir, Target: AgentStateDir},
@@ -128,6 +143,11 @@ func AgentSpec(d AgentDeployment) agent.ServiceSpec {
 	if m.MonitorUser != "" && m.MonitorSecret != "" {
 		spec.Args = append(spec.Args, "-monitor-user", m.MonitorUser, "-monitor-password-file", "/run/secrets/"+m.MonitorSecret)
 		spec.Secrets = append(spec.Secrets, m.MonitorSecret)
+	}
+	for _, sec := range m.DBSecrets {
+		if !slices.Contains(spec.Secrets, sec) {
+			spec.Secrets = append(spec.Secrets, sec)
+		}
 	}
 	spec.Env = []string{HostIDEnv + "={{.Node.ID}}"}
 	spec.Networks = []string{HostNetwork}
@@ -154,6 +174,11 @@ func (d AgentDeployment) validate() error {
 			return fmt.Errorf("%w: port %d", ErrInvalidDeployment, m.Port)
 		case (m.MonitorUser == "") != (m.MonitorSecret == ""):
 			return fmt.Errorf("%w: monitor user and secret go together", ErrInvalidDeployment)
+		}
+		for _, sec := range m.DBSecrets {
+			if sec == "" || strings.ContainsAny(sec, "/\\ \t\r\n") {
+				return fmt.Errorf("%w: secret name %q", ErrInvalidDeployment, sec)
+			}
 		}
 		if _, err := certs.NormalizeFingerprint(m.CAFingerprint); err != nil {
 			return fmt.Errorf("%w: %v", ErrInvalidDeployment, err)

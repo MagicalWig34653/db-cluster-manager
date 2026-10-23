@@ -34,3 +34,18 @@ The agent served an unauthenticated HTTP lab transport on a loopback address ins
 - If the agent fails to persist a renewed certificate after the manager recorded it, it keeps the old (now denied) certificate and must enroll again.
 - The CA key's availability depends on the unsolved data-key provisioning across replicas.
 - Nothing here has run on a real Swarm: the `host` network attachment by name, the `{{.Node.ID}}` env template and secret mounting are taken from the Docker documentation, not observed.
+
+## Evidence (lab VMs, E4, 2026-10-23)
+
+Three arm64 Lima VMs, Docker 29.9.2, one Swarm manager node; the real manager (managed mode) and the agent image built from the runtime stage of `deploy/Dockerfile` ([results](../../tests/p0/results/e4-manager-galera.md)).
+
+| Assumption | Result |
+| --- | --- |
+| The global agent service attaches to the `host` network by name and the listener on 7443 is reachable at the node's Swarm address | **Confirmed**: the agents listened on `[::]:7443`; the manager reached all three at their user-v2 addresses. |
+| `{{.Node.ID}}` in `DBCM_HOST_ID` gives each task its node ID | **Confirmed**: each agent logged its own node ID and enrolled for it. |
+| The enrollment token reaches the agents as a Swarm secret; the pinned CA fingerprint and manager URL in the arguments suffice | **Confirmed**: all three enrolled within about 2 s of the deployment (`enroll: agent enrolled host=... serial=...`), each once. |
+| Source-address check (default on) accepts the real hosts | **Confirmed** for agents connecting from their own user-v2 address, including the agent on the manager's own host. Not tested: NAT, a refused foreign source. |
+| mTLS command path manager -> agent | **Confirmed** for every step of cluster creation, health collection every 15 s, backup and inspection commands. |
+| Renewal, revocation, token expiry, deny list | **Untested** (the run lasted hours, certificates 30 days). |
+
+Refuted or missing in the implementation (fixed during E4): the agent service ran the image entrypoint (the manager) and the distroless non-root user; it now sets `Command` `/usr/local/bin/agent` and `User` `0:0`. Bind sources (`/var/lib/dbcm-agent`, the volume base) must exist on every host; Swarm rejects the task otherwise (documented host prerequisite, not created by the manager). Lima forwards the agent's `0.0.0.0:7443` listener to host loopback; it is mTLS-only.

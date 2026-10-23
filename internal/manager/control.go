@@ -178,7 +178,7 @@ func MapCommandError(err error) error {
 		sentinel = api.ErrNoCapacity
 	case errors.Is(err, galera.ErrPolicyConflict):
 		sentinel = api.ErrPolicyConflict
-	case errors.Is(err, ErrSettingsIncomplete), errors.Is(err, ErrNoInstallation), errors.Is(err, errNoDial):
+	case errors.Is(err, ErrSettingsIncomplete), errors.Is(err, ErrNoInstallation), errors.Is(err, errNoDial), errors.Is(err, ErrNoServiceHost):
 		sentinel = api.ErrSettingsIncomplete
 	case errors.Is(err, ErrClusterExists):
 		sentinel = api.ErrClusterExists
@@ -197,7 +197,7 @@ func MapCommandError(err error) error {
 		errors.Is(err, galera.ErrReplacementPaused), errors.Is(err, ErrMissingServiceID), errors.Is(err, ErrConflict),
 		errors.Is(err, dbbackup.ErrNoSource), errors.Is(err, dbbackup.ErrProductionTarget), errors.Is(err, dbbackup.ErrIdentityMismatch):
 		sentinel = api.ErrConflict
-	case errors.Is(err, galera.ErrInvalidTopology), errors.Is(err, galera.ErrInvalidSpec), errors.Is(err, dbbackup.ErrInvalidRequest),
+	case errors.Is(err, galera.ErrInvalidTopology), errors.Is(err, galera.ErrInvalidSpec), errors.Is(err, ErrUnknownReference), errors.Is(err, dbbackup.ErrInvalidRequest),
 		errors.Is(err, dbbackup.ErrSchedule), errors.Is(err, ErrInvalidSettings), errors.Is(err, dbbackup.ErrNoNextRun), errors.Is(err, dbbackup.ErrInvalidManifest):
 		sentinel = api.ErrInvalidInput
 	default:

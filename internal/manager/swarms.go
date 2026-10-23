@@ -43,6 +43,9 @@ type AgentTransport struct {
 	// MonitorUser and MonitorSecret (an existing Swarm secret with the
 	// password) give agents the database monitoring credential.
 	MonitorUser, MonitorSecret string
+	// DBSecrets are further existing Swarm secrets mounted into the agent
+	// service (cluster root and backup account passwords for exec-sql).
+	DBSecrets []string
 	// TokenTTL is the lifetime of a new enrollment token (default
 	// DefaultTokenTTL).
 	TokenTTL time.Duration
@@ -256,7 +259,8 @@ func (s *Swarms) mtlsDeployment(ctx context.Context, conn swarm.Connector, t *Ag
 	if err != nil {
 		return nil, err
 	}
-	m := &swarm.AgentMTLS{ManagerURL: t.ManagerURL, CAFingerprint: fp, Port: t.Port, MonitorUser: t.MonitorUser, MonitorSecret: t.MonitorSecret}
+	m := &swarm.AgentMTLS{ManagerURL: t.ManagerURL, CAFingerprint: fp, Port: t.Port, MonitorUser: t.MonitorUser, MonitorSecret: t.MonitorSecret,
+		DBSecrets: t.DBSecrets}
 	existing, err := conn.ListByLabel(ctx, agent.KindService, agent.LabelInstallation, inst)
 	if err != nil {
 		return nil, fmt.Errorf("swarm: list services: %w", err)

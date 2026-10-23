@@ -230,6 +230,18 @@ func TestCreateServiceMinimalSendsZeroReplicas(t *testing.T) {
 	jsonEqual(t, f.last().Body, `{"Name":"s","TaskTemplate":{"ContainerSpec":{"Image":"busybox"}},"Mode":{"Replicated":{"Replicas":0}}}`)
 }
 
+// TestCreateServiceSendsUser: the agent service runs as root (lab E4); the
+// user goes into ContainerSpec.User.
+func TestCreateServiceSendsUser(t *testing.T) {
+	f := newFakeDaemon(t)
+	f.route("POST /v1.47/services/create", reply{status: 201, body: cannedServiceCreate})
+	c := f.client(Options{})
+	if _, err := c.CreateService(context.Background(), agent.ServiceSpec{Name: "s", Image: "busybox", User: "0:0"}); err != nil {
+		t.Fatal(err)
+	}
+	jsonEqual(t, f.last().Body, `{"Name":"s","TaskTemplate":{"ContainerSpec":{"Image":"busybox","User":"0:0"}},"Mode":{"Replicated":{"Replicas":0}}}`)
+}
+
 func TestCreateServiceValidation(t *testing.T) {
 	f := newFakeDaemon(t)
 	c := f.client(Options{})
@@ -640,5 +652,17 @@ func TestTCPHost(t *testing.T) {
 	defer c.Close()
 	if v, err := c.Inspect(context.Background(), agent.KindVolume, "tardis"); err != nil || v.Name != "tardis" {
 		t.Fatalf("inspect = %+v, %v", v, err)
+	}
+}
+
+// TestInspectServiceUpdateState: UpdateStatus.State (Docker Engine API
+// v1.47 Service object) is reported for await-service (lab E4).
+func TestInspectServiceUpdateState(t *testing.T) {
+	f := newFakeDaemon(t)
+	f.route("GET /v1.47/services/svcu", reply{status: 200, body: `{"ID":"svcu","Version":{"Index":3},"Spec":{"Name":"db-u","Labels":{"dbcm.installation":"i"}},"UpdateStatus":{"State":"updating","Message":"update in progress"}}`})
+	c := f.client(Options{})
+	o, err := c.Inspect(context.Background(), agent.KindService, "svcu")
+	if err != nil || o.UpdateState != "updating" {
+		t.Fatalf("%+v %v", o, err)
 	}
 }

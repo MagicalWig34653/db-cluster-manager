@@ -4,6 +4,7 @@ package agent
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -188,5 +189,31 @@ func TestUpdateServiceOnlyOwnedServices(t *testing.T) {
 	}
 	if _, err := f.do(1, "op", "bad", KindUpdateService, UpdateServiceArgs{ServiceName: "a", Spec: ServiceSpec{Name: "b", Image: "x"}}); err == nil {
 		t.Fatal("name mismatch accepted")
+	}
+}
+
+// TestAwaitServiceReportsUpdateState: lab E4 observed a wait-synced right
+// after update-service pass on the old task; await-service fails while
+// Swarm still replaces the task and succeeds once the update completed.
+func TestAwaitServiceReportsUpdateState(t *testing.T) {
+	f, s, id := updateFixture(t)
+	for i, c := range []struct {
+		state  string
+		status Status
+		code   Code
+	}{{"updating", StatusFailed, CodeUpdatePending}, {"paused", StatusFailed, CodeUpdateFailed}, {"completed", StatusSucceeded, ""}, {"", StatusSucceeded, ""}} {
+		f.docker.mu.Lock()
+		o := f.docker.objects[id]
+		o.UpdateState = c.state
+		f.docker.objects[id] = o
+		f.docker.mu.Unlock()
+		r := f.mustDo(1, "op3", fmt.Sprintf("await-%d", i), KindAwaitService, AwaitServiceArgs{ServiceName: s.Name})
+		if r.Status != c.status || r.Code != c.code {
+			t.Errorf("state %q: %+v", c.state, r)
+		}
+	}
+	r := f.mustDo(1, "op3", "await-x", KindAwaitService, AwaitServiceArgs{ServiceName: "not-owned"})
+	if r.Status == StatusSucceeded {
+		t.Fatalf("unknown service: %+v", r)
 	}
 }
