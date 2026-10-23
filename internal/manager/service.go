@@ -37,6 +37,14 @@ type Config struct {
 	BindAddr      string
 	AdvertiseAddr string
 	Transport     metastore.Transport
+	// PeerTLS makes the BindAddr transport mutually authenticated TLS 1.3
+	// between replicas (metastore.PeerTLS).
+	PeerTLS *metastore.PeerTLS
+	// Keyring, when set, distributes the data key through the replicated
+	// keyring (keyring.go): a new leader bootstraps or refreshes it before
+	// anything else and hands leadership over when it cannot unwrap the
+	// current key.
+	Keyring *Keyring
 	// Peers is the initial voting membership including this node. Empty
 	// means single-instance mode: a one-member group of this node.
 	Peers []metastore.Peer
@@ -109,7 +117,7 @@ func New(cfg Config) (*Service, error) {
 	}
 	mc := metastore.Config{
 		ID: cfg.NodeID, Transport: cfg.Transport, BindAddr: cfg.BindAddr, AdvertiseAddr: cfg.AdvertiseAddr,
-		DataDir: cfg.DataDir, Peers: cfg.Peers, Bootstrap: cfg.Bootstrap,
+		DataDir: cfg.DataDir, Peers: cfg.Peers, Bootstrap: cfg.Bootstrap, TLS: cfg.PeerTLS,
 	}
 	if len(mc.Peers) == 0 {
 		addr := cfg.AdvertiseAddr
@@ -132,7 +140,11 @@ func New(cfg Config) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Service{cfg: cfg, node: node, store: NewStore(node), log: cfg.Logger}, nil
+	s := &Service{cfg: cfg, node: node, store: NewStore(node), log: cfg.Logger}
+	if cfg.Keyring != nil {
+		cfg.Keyring.Attach(s.store)
+	}
+	return s, nil
 }
 
 // Store returns the replicated store.

@@ -123,6 +123,19 @@ func (s *Service) becomeLeader(parent context.Context) error {
 	if !s.node.IsLeader() || s.node.Term() != term {
 		return fmt.Errorf("%w: term changed during barrier", ErrNotLeader)
 	}
+	if kr := s.cfg.Keyring; kr != nil {
+		if err := kr.ensureLeader(s); err != nil {
+			if errors.Is(err, ErrNoKey) {
+				// Sealed documents (sessions, passkeys, CA) would be
+				// unreadable: this replica must not act as leader.
+				s.log.Warn("manager: this replica cannot unwrap the data key; handing leadership over", "err", err)
+				if terr := s.node.TransferLeadership(); terr != nil {
+					s.log.Warn("manager: leadership transfer failed", "err", terr)
+				}
+			}
+			return fmt.Errorf("manager: keyring: %w", err)
+		}
+	}
 	ctx, cancel := context.WithCancel(parent)
 	l := &Leadership{Term: term, svc: s, ctx: ctx, cancel: cancel}
 	l.Agents = fencedAgents{inner: s.cfg.Agents, l: l}

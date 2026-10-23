@@ -346,6 +346,28 @@ func (n *Node) Leader() (id, address string) {
 // Term returns the current consensus term of this node.
 func (n *Node) Term() uint64 { return n.raft.CurrentTerm() }
 
+// Members returns the voting members of the latest Raft configuration this
+// node knows.
+func (n *Node) Members() ([]Peer, error) {
+	f := n.raft.GetConfiguration()
+	if err := f.Error(); err != nil {
+		return nil, err
+	}
+	var out []Peer
+	for _, s := range f.Configuration().Servers {
+		if s.Suffrage == raft.Voter {
+			out = append(out, Peer{ID: string(s.ID), Address: string(s.Address)})
+		}
+	}
+	return out, nil
+}
+
+// TransferLeadership asks the leader to hand leadership to another voter
+// (for example a replica that cannot act as leader because it lacks the
+// data key). It fails when this node is not the leader or no other voter
+// is reachable.
+func (n *Node) TransferLeadership() error { return n.raft.LeadershipTransfer().Error() }
+
 // Journal returns the local replica of the journal for reading. Restoring a
 // snapshot replaces the journal, so callers should not keep the pointer.
 // Mutating it directly bypasses replication and must not be done.
