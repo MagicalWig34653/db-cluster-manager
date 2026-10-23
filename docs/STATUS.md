@@ -157,7 +157,7 @@ Deviations and gaps: the host table cannot show an agent version or last seen, b
 
 ## Scope broadened (2026-10-22)
 
-The owner broadened the product to a general self-hosted platform for clusters and services ([ADR 0012](decisions/0012-broadened-scope-platform.md)): Swarm/Kubernetes including provisioning, web servers with detailed composition, storage protocol servers, generic containers, Traefik, image builds with a managed or external registry and Docker engine updates, all through the UI with visible plans. Documented as requirements X01–X12, proposed phases R6–R9 and work packages W07–W10 (all PENDING). Nothing of the extension is implemented. Galera stays priority 1; W05/W06 and the R1 gates are unchanged. A09 is partly superseded by X09; the Docker update boundaries, product name and other choices are open in [ENTSCHEIDUNGEN.md](ENTSCHEIDUNGEN.md#open-decisions-from-the-scope-extension).
+The owner broadened the product to a general self-hosted platform for clusters and services ([ADR 0012](decisions/0012-broadened-scope-platform.md)): Swarm/Kubernetes including provisioning, web servers with detailed composition, storage protocol servers, generic containers, Traefik, image builds with a managed or external registry and Docker engine updates, all through the UI with visible plans. Documented as requirements X01–X13, proposed phases R6–R9 and work packages W07–W10 (all PENDING). Nothing of the extension is implemented. Galera stays priority 1; W05/W06 and the R1 gates are unchanged. A09 is partly superseded by X09; the Docker update boundaries, product name and other choices are open in [ENTSCHEIDUNGEN.md](ENTSCHEIDUNGEN.md#open-decisions-from-the-scope-extension).
 
 ## Next action
 
