@@ -31,7 +31,9 @@ Set explicit Docker contexts in commands. Keep a project inventory of VM/profile
 - Restart during cleanup, resource exhaustion and capacity denial.
 - Unrelated sentinel containers retain configuration/data and continue serving.
 
-ARM64 runs can provide native local evidence. AMD64 emulation, if used, must be identified as emulation and cannot substantiate native performance. A strategy for native AMD64 evidence remains open.
+ARM64 runs can provide native local evidence. AMD64 emulation, if used, must be identified as emulation and cannot substantiate native performance. A strategy for native AMD64 evidence remains open. Candidates, none decided: an amd64 host or cloud VM that the owner provides, for the multi-VM experiments, or GitHub-hosted amd64 runners for single-host functional checks such as image builds, agent and manager start, and a single-node MariaDB backup/restore.
+
+Start lab experiments only when the foreign host load is low. Record `uptime` per phase. On 2026-10-23 a planned E4 re-run did not start because the 1-minute load stayed at 30-970 for about 4.5 h ([record](../tests/p0/results/e4-rerun-not-run.md)).
 
 ## Cleanup and retained evidence
 
