@@ -89,6 +89,27 @@ export interface Operation {
 	approval?: OperationApproval;
 	/** The runner's short status reason (for example the unmet precondition of a pause). */
 	reason?: string;
+	/** Step progress as last stored by the leader; absent for operations that report none. */
+	progress?: OperationProgress;
+}
+
+/** Mirrors api.OperationProgress: step is the first step that has not succeeded. */
+export interface OperationProgress {
+	stepsDone: number;
+	stepsTotal: number;
+	step?: string;
+	/** Agent command kind; empty for a gate. */
+	command?: string;
+	/** Host that receives the command. */
+	target?: string;
+	/** Journal state of the step (pending, running, failed, unknown). */
+	state?: string;
+	attempts?: number;
+	/** Latest unmet precondition or retry reason of the step. */
+	waiting?: string;
+	polls?: number;
+	since?: string;
+	updatedAt?: string;
 }
 
 export interface ManagerEvent {
@@ -254,6 +275,21 @@ const digestRE = /^[0-9a-f]{64}$/;
 export const isApproval = (v: unknown): v is OperationApproval =>
 	isObj(v) && isStr(v.digest) && digestRE.test(v.digest) && optStr(v.approvedBy) && optDate(v.approvedAt);
 
+const nonNegInt = (v: unknown): v is number => isNum(v) && Number.isInteger(v) && v >= 0;
+export const isProgress = (v: unknown): v is OperationProgress =>
+	isObj(v) &&
+	nonNegInt(v.stepsDone) &&
+	nonNegInt(v.stepsTotal) &&
+	optStr(v.step) &&
+	optStr(v.command) &&
+	optStr(v.target) &&
+	optStr(v.state) &&
+	(v.attempts === undefined || nonNegInt(v.attempts)) &&
+	optStr(v.waiting) &&
+	(v.polls === undefined || nonNegInt(v.polls)) &&
+	optDate(v.since) &&
+	optDate(v.updatedAt);
+
 export const isOperation: Guard<Operation> = (v): v is Operation =>
 	isObj(v) &&
 	isStr(v.id) &&
@@ -264,7 +300,8 @@ export const isOperation: Guard<Operation> = (v): v is Operation =>
 	optDate(v.startedAt) &&
 	optDate(v.endedAt) &&
 	(v.approval === undefined || isApproval(v.approval)) &&
-	optStr(v.reason);
+	optStr(v.reason) &&
+	(v.progress === undefined || isProgress(v.progress));
 
 export const isEvent: Guard<ManagerEvent> = (v): v is ManagerEvent =>
 	isObj(v) &&
@@ -303,6 +340,8 @@ const listOf =
 		isObj(v) && Array.isArray(v.items) && v.items.every(item);
 
 const isAny = (_v: unknown): _v is unknown => true;
+const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+const optNum = (v: unknown) => v === undefined || isNum(v);
 
 // ---------------------------------------------------------------------------
 // Command and monitoring contract (api/openapi.yaml, internal/api). Field
@@ -360,6 +399,8 @@ export interface NodePosition {
 	source: string;
 	seqno?: number;
 	uuid?: string;
+	safe_to_bootstrap?: boolean;
+	empty?: boolean;
 }
 
 /** Mirrors galera.Diagnosis (advice only; requires_approval is always true). */
@@ -371,10 +412,25 @@ export interface Diagnosis {
 	requires_approval: boolean;
 }
 
+export const missedPolicies = ['skip', 'run-once'] as const;
+export type MissedPolicy = (typeof missedPolicies)[number];
+
+/** Mirrors api.BackupPolicy (PUT /clusters/{id}/backup-policy). */
+export interface BackupPolicy {
+	enabled: boolean;
+	/** Five-field cron-like spec. */
+	schedule: string;
+	/** IANA zone; the manager defaults to UTC. */
+	timezone?: string;
+	missed?: MissedPolicy;
+	method?: 'physical';
+}
+
 export interface BackupSummary {
 	cluster: string;
 	swarm?: string;
 	policy?: string;
+	backupPolicy?: BackupPolicy;
 	lastBackupAt?: string;
 	lastBackupId?: string;
 	lastVerifiedRestoreAt?: string;
@@ -495,24 +551,52 @@ export interface AppNotification {
 	id: string;
 	time: string;
 	severity: NotificationSeverity;
+	kind?: string;
 	message: string;
 	cluster?: string;
 	read: boolean;
 	acknowledged: boolean;
 }
 
+export const minSeverities = ['info', 'warning', 'error', 'critical'] as const;
+export type MinSeverity = (typeof minSeverities)[number];
+export type NotificationChannel = 'webhook' | 'email';
+
 export interface NotificationSettings {
-	webhook: { enabled: boolean; url?: string; secretSet: boolean };
-	email: { enabled: boolean; recipients: string[] };
+	minSeverity?: MinSeverity;
+	webhook: { enabled: boolean; url?: string; secretSet: boolean; allowPrivate?: boolean };
+	email: {
+		enabled: boolean;
+		recipients: string[];
+		addr?: string;
+		from?: string;
+		username?: string;
+		passwordSet?: boolean;
+	};
 }
-/** The webhook secret is write-only: sent only when changed, never returned. */
+/** The webhook secret and the SMTP password are write-only: sent only when changed, never returned. */
 export interface NotificationSettingsInput {
-	webhook: { enabled: boolean; url: string; secret?: string };
-	email: { enabled: boolean; recipients: string[] };
+	minSeverity?: MinSeverity;
+	webhook: { enabled: boolean; url: string; secret?: string; allowPrivate?: boolean };
+	email: { enabled: boolean; recipients: string[]; addr?: string; from?: string; username?: string; password?: string };
 }
 
-const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
-const optNum = (v: unknown) => v === undefined || isNum(v);
+/** Mirrors api.ClusterDeletion: nothing is removed until the digest is approved. */
+export interface ClusterDeletion {
+	id: string;
+	kind: string;
+	approval: OperationApproval;
+}
+
+/** Answer of POST /clusters/{id}/outage-recovery: the plan waits for the approval. */
+export interface OutageRecoveryStarted {
+	id: string;
+	kind: string;
+	candidate: string;
+	approval: OperationApproval;
+	diagnosis: Diagnosis;
+}
+
 const strArray = (v: unknown): v is string[] => Array.isArray(v) && v.every(isStr);
 
 export const isHost: Guard<Host> = (v): v is Host =>
@@ -554,17 +638,26 @@ export const isDiagnosis: Guard<Diagnosis> = (v): v is Diagnosis =>
 	isObj(v) &&
 	optStr(v.candidate) &&
 	Array.isArray(v.positions) &&
-	v.positions.every((p) => isObj(p) && isStr(p.slot) && isStr(p.source) && optNum(p.seqno) && optStr(p.uuid)) &&
+	v.positions.every((p) => isObj(p) && isStr(p.slot) && isStr(p.source) && optNum(p.seqno) && optStr(p.uuid) && (p.safe_to_bootstrap === undefined || isBool(p.safe_to_bootstrap)) && (p.empty === undefined || isBool(p.empty))) &&
 	strArray(v.reasons) &&
 	(v.risks === undefined ||
 		(Array.isArray(v.risks) && v.risks.every((r) => isObj(r) && isStr(r.kind) && optStr(r.slot) && isStr(r.detail)))) &&
 	isBool(v.requires_approval);
+
+export const isBackupPolicy = (v: unknown): v is BackupPolicy =>
+	isObj(v) &&
+	isBool(v.enabled) &&
+	isStr(v.schedule) &&
+	optStr(v.timezone) &&
+	(v.missed === undefined || oneOf(missedPolicies)(v.missed)) &&
+	(v.method === undefined || v.method === 'physical');
 
 export const isBackupSummary: Guard<BackupSummary> = (v): v is BackupSummary =>
 	isObj(v) &&
 	isStr(v.cluster) &&
 	optStr(v.swarm) &&
 	optStr(v.policy) &&
+	(v.backupPolicy === undefined || isBackupPolicy(v.backupPolicy)) &&
 	optDate(v.lastBackupAt) &&
 	optStr(v.lastBackupId) &&
 	optDate(v.lastVerifiedRestoreAt) &&
@@ -636,9 +729,21 @@ export const isNotificationSettings: Guard<NotificationSettings> = (v): v is Not
 	isBool(v.webhook.enabled) &&
 	optStr(v.webhook.url) &&
 	isBool(v.webhook.secretSet) &&
+	(v.webhook.allowPrivate === undefined || isBool(v.webhook.allowPrivate)) &&
+	(v.minSeverity === undefined || oneOf(minSeverities)(v.minSeverity)) &&
 	isObj(v.email) &&
 	isBool(v.email.enabled) &&
-	strArray(v.email.recipients);
+	strArray(v.email.recipients) &&
+	optStr(v.email.addr) &&
+	optStr(v.email.from) &&
+	optStr(v.email.username) &&
+	(v.email.passwordSet === undefined || isBool(v.email.passwordSet));
+
+export const isClusterDeletion = (v: unknown): v is ClusterDeletion =>
+	isObj(v) && isStr(v.id) && isStr(v.kind) && isApproval(v.approval);
+
+export const isOutageRecoveryStarted = (v: unknown): v is OutageRecoveryStarted =>
+	isObj(v) && isStr(v.id) && isStr(v.kind) && isStr(v.candidate) && isApproval(v.approval) && isDiagnosis(v.diagnosis);
 
 // ---------------------------------------------------------------------------
 // Client
@@ -749,6 +854,23 @@ export function createClient(fetchFn: FetchFn) {
 			),
 		outageDiagnosis: (cluster: string) =>
 			call('GET', `/clusters/${encodeURIComponent(cluster)}/outage-diagnosis`, isDiagnosis),
+		/** Plans a deletion; nothing is removed before approveOperation with the returned digest. */
+		deleteCluster: (id: string) => call('DELETE', `/clusters/${encodeURIComponent(id)}`, isClusterDeletion),
+		/** Also runs wsrep-recover on nodes without a saved seqno (operate permission); starts no service. */
+		recoverOutagePositions: (cluster: string) =>
+			call('POST', `/clusters/${encodeURIComponent(cluster)}/outage-diagnosis`, isDiagnosis, {}),
+		requestOutageRecovery: (cluster: string, candidate: string) =>
+			call('POST', `/clusters/${encodeURIComponent(cluster)}/outage-recovery`, isOutageRecoveryStarted, { candidate }),
+		startBackup: (cluster: string) => call('POST', `/clusters/${encodeURIComponent(cluster)}/backups`, isOperationRef, {}),
+		setBackupPolicy: (cluster: string, p: BackupPolicy) =>
+			call('PUT', `/clusters/${encodeURIComponent(cluster)}/backup-policy`, isBackupSummary, p),
+		testNotification: (channel: NotificationChannel) =>
+			call(
+				'POST',
+				'/settings/notifications/test',
+				(v): v is { channel: string; delivered: boolean } => isObj(v) && isStr(v.channel) && isBool(v.delivered),
+				{ channel }
+			),
 		backups: () => items(call('GET', '/backups', listOf(isBackupSummary))),
 		inspectRestore: (req: InspectionInput) => call('POST', '/restores/inspect', isInspectionStarted, req),
 		dashboards: () => items(call('GET', '/dashboards', listOf(isDashboard))),

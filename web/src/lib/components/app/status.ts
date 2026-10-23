@@ -34,7 +34,8 @@ const operationViews: Record<OperationState, StatusView> = {
 	unknown
 };
 
-const severityViews: Record<Severity, StatusView> = {
+const severityViews: Record<Severity | 'error', StatusView> = {
+	error: { icon: CircleX, label: 'sevError', tone: 'bad' },
 	info: { icon: Info, label: 'sevInfo', tone: 'neutral' },
 	warning: { icon: TriangleAlert, label: 'sevWarning', tone: 'warn' },
 	critical: { icon: OctagonAlert, label: 'sevCritical', tone: 'bad' },

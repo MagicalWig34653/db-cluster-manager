@@ -9,6 +9,7 @@
 	import * as Alert from '../../../lib/components/ui/alert/index.js';
 	import { Button } from '../../../lib/components/ui/button/index.js';
 	import { Label } from '../../../lib/components/ui/label/index.js';
+	import BackupControls from '../../../lib/components/app/BackupControls.svelte';
 	import OperationCard from '../../../lib/components/app/OperationCard.svelte';
 	import PageHeader from '../../../lib/components/app/PageHeader.svelte';
 	import Freshness from '../../../lib/components/app/Freshness.svelte';
@@ -125,6 +126,14 @@
 				</Table.Body>
 			</Table.Root>
 		</div>
+		<Card.Root>
+			<Card.Header><Card.Title><h2>{t('backupManage')}</h2></Card.Title></Card.Header>
+			<Card.Content class="grid gap-6 md:grid-cols-2">
+				{#each clusters.state.value as c (c.id)}
+					<BackupControls cluster={c.id} name={c.name} summary={summary(c.id)} onchange={backups.refresh} />
+				{/each}
+			</Card.Content>
+		</Card.Root>
 	{/if}
 
 	<Card.Root>
@@ -197,6 +206,7 @@
 					<p class="text-sm text-muted-foreground">{t('inspectionPasswordGone')}</p>
 				{/if}
 				<Alert.Root><Alert.Description>{t('restoreApprovalNote')}</Alert.Description></Alert.Root>
+				<Alert.Root><Alert.Description>{t('restoreVerifyNote')}</Alert.Description></Alert.Root>
 				<!-- The approval is offered by the operation view: only a digest requirement enables it. -->
 				{#if ops.state.status === 'error'}
 					<ApiGate error={ops.state.error} retry={ops.reload} />
