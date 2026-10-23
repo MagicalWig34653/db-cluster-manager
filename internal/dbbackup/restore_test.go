@@ -341,3 +341,20 @@ func TestSelectInspectionHost(t *testing.T) {
 		t.Fatalf("approved: %s %v", got.ID, err)
 	}
 }
+
+// TestInspectionRestorePlanCarriesRetries: every step gets the requested
+// retry budget (lab E4: the inspection paused at its first poll of the
+// restore-complete gate).
+func TestInspectionRestorePlanCarriesRetries(t *testing.T) {
+	req := inspectionRequest(t.TempDir())
+	req.MaxRetries = 7
+	res, err := InspectionRestorePlan(req, prodInventory())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range res.Operation.Steps {
+		if s.MaxRetries != 7 {
+			t.Fatalf("step %s retries %d", s.ID, s.MaxRetries)
+		}
+	}
+}

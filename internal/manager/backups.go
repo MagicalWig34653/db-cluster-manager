@@ -633,7 +633,7 @@ func (b *Backups) startInspection(ctx context.Context, actor authz.Subject, in a
 		Source: dbbackup.RestoreSource{Manifest: m, ClusterID: c.ID, BackendSecret: bs.BackendSecret, KeySecret: keySecret},
 		Host:   host, InstallationID: st.InstallationID, VolumeBase: st.VolumeBase, Image: c.Spec.Image, JobImage: bs.JobImage,
 		Network: bs.InspectionNetwork, InitSecret: initSecret, Resources: res, Job: bs.job(), TTL: ttl, Now: now,
-		TokenID: newID("tok"), StepTimeout: b.Ops.StepTimeout,
+		TokenID: newID("tok"), StepTimeout: b.Ops.StepTimeout, MaxRetries: b.Ops.MaxRetries,
 	}, mustInventory(b.store()))
 	if err != nil {
 		return api.InspectionStarted{}, err
