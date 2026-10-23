@@ -8,6 +8,7 @@
 	import * as Alert from '../../../lib/components/ui/alert/index.js';
 	import { Button } from '../../../lib/components/ui/button/index.js';
 	import PageHeader from '../../../lib/components/app/PageHeader.svelte';
+	import Freshness from '../../../lib/components/app/Freshness.svelte';
 	import Status from '../../../lib/components/app/Status.svelte';
 	import ApiGate from '../../../lib/components/app/ApiGate.svelte';
 	import ErrorNotice from '../../../lib/components/app/ErrorNotice.svelte';
@@ -58,6 +59,8 @@
 					<Table.Head>{t('colEnrollment')}</Table.Head>
 					<Table.Head>{t('colState')}</Table.Head>
 					<Table.Head>{t('colAgentIdentity')}</Table.Head>
+					<Table.Head>Docker</Table.Head>
+					<Table.Head>{t('colLastObserved')}</Table.Head>
 					<Table.Head>{t('colActions')}</Table.Head>
 				</Table.Row>
 			</Table.Header>
@@ -72,6 +75,8 @@
 						<Table.Cell>{t(enrollLabel[h.enrollment])}</Table.Cell>
 						<Table.Cell><Status value={nodeState(h.state)} /></Table.Cell>
 						<Table.Cell>{h.agentIdentity ? t('identityRecorded') : t('identityNone')}</Table.Cell>
+						<Table.Cell class="font-mono text-xs">{h.engineVersion ?? t('stateUnknown')}</Table.Cell>
+						<Table.Cell><Freshness at={h.observedAt} /></Table.Cell>
 						<Table.Cell>
 							<div class="flex flex-wrap gap-2">
 								{#if canEnroll(h)}
@@ -99,5 +104,5 @@
 			</Table.Body>
 		</Table.Root>
 	</div>
-	<p class="mt-3 text-xs text-muted-foreground">{t('hostsHint')}</p>
+	<p class="mt-3 text-xs text-muted-foreground">{t('hostsHint')} {t('hostsAgentNote')}</p>
 {/if}

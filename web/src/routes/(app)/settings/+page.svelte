@@ -163,7 +163,7 @@
 			<p class="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
 				<CircleDashed class="size-4" aria-hidden="true" />{t('managerSettingsEditNA')}
 			</p>
-			<p class="mt-2 text-sm"><a class="underline underline-offset-4" href="/notifications">{t('navNotifications')}</a></p>
+			<p class="mt-2 text-sm"><a class="underline underline-offset-4" href="/notifications/settings">{t('notifySettingsTitle')}</a></p>
 		</Card.Content>
 	</Card.Root>
 </div>

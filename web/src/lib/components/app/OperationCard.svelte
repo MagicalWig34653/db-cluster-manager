@@ -2,6 +2,7 @@
 	import { api, asApiError, type ApiError, type Operation } from '../../api';
 	import { dateTime, relativeAge } from '../../format';
 	import { approvalView, canAbort, canApprove, canResume } from '../../operations';
+	import { phase, phaseLabel, planKept, planSteps, progressView } from '../../lifecycle';
 	import { locale, t } from '../../locale.svelte';
 	import * as Alert from '../ui/alert/index.js';
 	import { Button } from '../ui/button/index.js';
@@ -20,6 +21,10 @@
 	let confirmAbort = $state(false);
 	let reviewed = $state(false);
 	const approval = $derived(approvalView(op));
+	const ph = $derived(phase(op));
+	const prog = $derived(progressView(op.progress));
+	const steps = $derived(planSteps(op.kind));
+	const kept = $derived(planKept(op.kind));
 
 	async function run(fn: () => Promise<unknown>, done: 'requested' | 'approved') {
 		busy = true;
@@ -44,6 +49,7 @@
 <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
 	<span class="font-medium">{op.kind}</span>
 	<Status kind="operation" value={op.state} />
+	{#if ph === 'awaitingApproval' || ph === 'paused'}<span class="rounded border px-1.5 text-xs">{t(phaseLabel[ph])}</span>{/if}
 </div>
 <p class="mt-0.5 text-sm text-muted-foreground">
 	{#if op.cluster}<a class="underline-offset-4 hover:underline" href="/clusters/{encodeURIComponent(op.cluster)}">{op.cluster}</a>{/if}
@@ -64,10 +70,38 @@
 	<p class="mt-1 text-sm"><span class="text-muted-foreground">{t('opReason')}:</span> {op.reason}</p>
 {/if}
 
+{#if prog}
+	<div class="mt-2 text-sm">
+		<div class="flex items-center gap-2">
+			<progress class="h-2 w-40 accent-primary" max={prog.total || 1} value={prog.done} aria-label={t('progressLabel')}></progress>
+			<span>{t('progressSteps', { done: prog.done, total: prog.total })}</span>
+		</div>
+		{#if prog.step && op.state !== 'succeeded'}
+			<p class="mt-1 text-xs text-muted-foreground">
+				{t('progressCurrent')}: <span class="font-mono">{prog.step}</span>{#if prog.target} · {t('progressTarget')}: <span class="font-mono">{prog.target}</span>{/if}
+				{#if prog.attempts > 0 || prog.polls > 0} · {t('progressAttempts', { attempts: prog.attempts, polls: prog.polls })}{/if}
+			</p>
+		{/if}
+		{#if prog.waiting && op.state !== 'succeeded'}<p class="text-xs"><span class="text-muted-foreground">{t('progressWaiting')}:</span> {prog.waiting}</p>{/if}
+		{#if prog.stepFailed}<p class="text-xs text-red-700 dark:text-red-400">{t('progressStepFailed')}</p>{/if}
+	</div>
+{/if}
+
 <div class="mt-2 space-y-2 text-sm">
+	{#if ph === 'paused'}<p class="text-xs text-muted-foreground">{t('pausedHint')}</p>{/if}
 	{#if approval.kind === 'required'}
 		<div class="space-y-2 rounded-md border p-3">
 			<p class="font-medium">{t('opApproval')}: {t('approvalWaiting')}</p>
+			<p class="text-xs text-muted-foreground">{t('awaitingHint')}</p>
+			<div>
+				<h4 class="text-xs font-medium">{t('planTitle')}</h4>
+				{#if steps}
+					<ol class="list-decimal pl-5 text-xs">{#each steps as k (k)}<li>{t(k)}</li>{/each}</ol>
+					{#if kept}<p class="mt-1 text-xs">{t(kept)}</p>{/if}
+				{:else}
+					<p class="text-xs text-muted-foreground">{t('planNoSteps')}</p>
+				{/if}
+			</div>
 			<p class="text-xs text-muted-foreground">{t('planDigest')}: <code class="font-mono break-all">{approval.digest}</code></p>
 			<label class="flex items-start gap-2">
 				<input type="checkbox" class="{checkClass} mt-0.5" bind:checked={reviewed} disabled={!canApprove(op)} />
