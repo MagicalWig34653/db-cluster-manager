@@ -293,11 +293,21 @@ func runBackupJob(ctx context.Context, s JobSpec, env JobEnv, be backup.Backend)
 		err error
 	}
 	done := make(chan produced, 1)
+	// The physical stream is scanned for the Galera info file on its way to
+	// the sealing writer (MariaDB 11.4 does not copy it to --extra-lsndir).
+	var tap *galeraInfoTap
+	if m.Method == MethodPhysical {
+		tap = newGaleraInfoTap()
+	}
 	go func() {
 		var p produced
 		sw, err := backup.NewSealWriter(pw, meta, pub)
 		if err == nil {
-			err = env.run(ctx, BackupArgv(s, env.TempDir), nil, sw)
+			var out io.Writer = sw
+			if tap != nil {
+				out = io.MultiWriter(sw, tap)
+			}
+			err = env.run(ctx, BackupArgv(s, env.TempDir), nil, out)
 			if err == nil {
 				err = sw.Close()
 				p.sum = sw.Summary()
@@ -338,9 +348,17 @@ func runBackupJob(ctx context.Context, s JobSpec, env JobEnv, be backup.Backend)
 			if err != nil {
 				return Manifest{}, err
 			}
+			gp.Source = GaleraFromLSNDir
 			m.Galera = &gp
+		} else if raw, ok := tap.Content(); ok {
+			if gp, err := ParseGaleraInfo(raw); err == nil {
+				gp.Source = GaleraFromStream
+				m.Galera = &gp
+			} else {
+				m.Warnings = append(m.Warnings, "galera_info in the stream is not parseable; Galera position not recorded")
+			}
 		} else {
-			m.Warnings = append(m.Warnings, "galera_info not found in --extra-lsndir; Galera position not recorded")
+			m.Warnings = append(m.Warnings, "galera_info found neither in --extra-lsndir nor in the stream; Galera position not recorded")
 		}
 	}
 	if err := m.Validate(); err != nil {

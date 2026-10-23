@@ -63,7 +63,16 @@ type Checkpoints struct {
 type GaleraPosition struct {
 	StateUUID string `json:"state_uuid"`
 	Seqno     int64  `json:"seqno"`
+	// Source is where the job found it: GaleraFromLSNDir (--extra-lsndir)
+	// or GaleraFromStream (the file inside the xbstream).
+	Source string `json:"source,omitempty"`
 }
+
+// Sources of a GaleraPosition.
+const (
+	GaleraFromLSNDir = "extra-lsndir"
+	GaleraFromStream = "stream"
+)
 
 // Manifest is the integrity and provenance record of one backup object.
 // It is stored next to the stream as ManifestName(Object) and written last.
