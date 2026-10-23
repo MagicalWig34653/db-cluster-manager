@@ -59,6 +59,8 @@ type Config struct {
 	Control  Control
 	Backups  Backups
 	Settings Settings
+	// Replicas backs the data keyring endpoints; nil answers 503.
+	Replicas Replicas
 	// RecoveryCodeIterations is passed to recovery.GenerateCodes; 0 selects
 	// the default.
 	RecoveryCodeIterations int
@@ -301,6 +303,14 @@ func (s *server) endpoints() []endpoint {
 		{
 			method: "POST", path: "/settings/notifications/test", access: accessPermission,
 			action: authz.ActionOperate, resolve: s.resolveSettings, handle: s.handleNotificationTest,
+		},
+		{
+			method: "GET", path: "/settings/replicas", access: accessPermission,
+			action: authz.ActionRead, resolve: s.resolveSettings, handle: s.handleReplicas,
+		},
+		{
+			method: "PUT", path: "/settings/replicas/{id}/data-key-recipient", access: accessPermission,
+			action: authz.ActionUpdate, resolve: s.resolveSettings, handle: s.handleReplicaKey,
 		},
 	}
 }

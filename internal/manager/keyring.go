@@ -459,28 +459,29 @@ func (r RecoveredKeys) Key(id string) ([]byte, error) {
 }
 
 // ReplicaKeyStatus is one replica in the keyring view.
-type ReplicaKeyStatus struct {
-	ID           string    `json:"id"`
-	Address      string    `json:"address"`
-	Leader       bool      `json:"leader"`
-	PublicKeyID  string    `json:"publicKeyId,omitempty"`
-	RegisteredBy string    `json:"registeredBy,omitempty"`
-	RegisteredAt time.Time `json:"registeredAt,omitzero"`
-	// HasCurrentKey reports whether the current data key is wrapped for it.
-	HasCurrentKey bool `json:"hasCurrentKey"`
-}
+type ReplicaKeyStatus = api.ReplicaKeyStatus
 
 // KeyringStatus is the non-secret view of the keyring.
-type KeyringStatus struct {
-	CurrentKey  string             `json:"currentKey"`
-	Recoverable bool               `json:"recoverable"`
-	Replicas    []ReplicaKeyStatus `json:"replicas"`
+type KeyringStatus = api.KeyringStatus
+
+var _ api.Replicas = (*KeyringService)(nil)
+
+// Keyring implements api.Replicas.
+func (k *KeyringService) Keyring(_ context.Context, actor authz.Subject) (KeyringStatus, error) {
+	st, err := k.Status(actor)
+	return st, MapCommandError(err)
+}
+
+// RegisterReplicaKey implements api.Replicas.
+func (k *KeyringService) RegisterReplicaKey(_ context.Context, actor authz.Subject, replicaID, publicKey string) (ReplicaKeyStatus, error) {
+	st, err := k.Register(actor, replicaID, publicKey)
+	return st, MapCommandError(err)
 }
 
 // KeyringService registers replicas and reports the keyring.
 type KeyringService struct {
 	Svc        *Service
-	Keyring    *Keyring
+	Ring       *Keyring
 	Authorizer *authz.Authorizer
 }
 
@@ -560,7 +561,7 @@ func (k *KeyringService) Register(actor authz.Subject, replicaID, publicKey stri
 			}
 		}
 		cur.Replicas[replicaID] = ReplicaRegistration{PublicKey: p.String(), RegisteredBy: actor.ID, RegisteredAt: now}
-		return cur, k.Keyring.distribute(k.Svc, &cur)
+		return cur, k.Ring.distribute(k.Svc, &cur)
 	})
 	if err != nil {
 		return ReplicaKeyStatus{}, err

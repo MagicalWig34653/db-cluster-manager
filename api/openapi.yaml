@@ -1195,6 +1195,61 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
+  /settings/replicas:
+    get:
+      summary: Manager replicas and the data keyring
+      description: >-
+        Lists the metastore voters with the fingerprint of their registered
+        public identity and whether the current data key (which seals
+        sessions, passkeys and the agent CA at rest) is wrapped for them, and
+        whether the key has an envelope for the backup recovery key.
+        No key material is returned. Needs settings read permission; read
+        decisions are audited only when denied.
+      operationId: listReplicas
+      responses:
+        "200":
+          description: Keyring status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KeyringStatus" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /settings/replicas/{id}/data-key-recipient:
+    put:
+      summary: Register a replica's public identity and wrap the data key for it
+      description: >-
+        Registers the public identity a replica prints with
+        `manager -print-replica-key` (compare it out of band before
+        registering) and wraps every data key for it, so that replica can
+        unseal secrets and act as leader. Only current metastore voters can
+        be registered (400 otherwise); a changed identity replaces the old
+        envelopes. Leader only (503 not_leader elsewhere). Needs settings
+        update permission; audited, and recorded as an event.
+      operationId: registerReplicaKey
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [publicKey]
+              properties:
+                publicKey: { type: string, maxLength: 256, description: "dbcmpk1:<base64url X25519 public key>" }
+      responses:
+        "200":
+          description: Registered replica
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReplicaKeyStatus" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
 security:
   - sessionCookie: []
 components:
@@ -1268,6 +1323,26 @@ components:
       required: [error]
       properties:
         error: { type: string }
+    ReplicaKeyStatus:
+      type: object
+      required: [id, leader, hasCurrentKey]
+      properties:
+        id: { type: string }
+        address: { type: string }
+        leader: { type: boolean }
+        publicKeyId: { type: string, description: Fingerprint of the registered public identity }
+        registeredBy: { type: string }
+        registeredAt: { type: string, format: date-time }
+        hasCurrentKey: { type: boolean }
+    KeyringStatus:
+      type: object
+      required: [currentKey, recoverable, replicas]
+      properties:
+        currentKey: { type: string, description: ID of the current data key (not the key) }
+        recoverable: { type: boolean, description: The current key has a backup recovery key envelope }
+        replicas:
+          type: array
+          items: { $ref: "#/components/schemas/ReplicaKeyStatus" }
     AccountId:
       type: string
       minLength: 1
