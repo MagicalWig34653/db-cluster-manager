@@ -16,19 +16,19 @@ An AGPLv3, self-hosted manager for clusters and services, starting with MariaDB 
 
 ## Features and verification status
 
-Nothing has run on a production Swarm; the first Swarm trial has not started. Levels: **Lab VMs** = ran with the real manager, agents and MariaDB 11.4 on dedicated Lima VMs (arm64), a few times; **Fakes** = unit tests against fakes only; **Mock only** = UI against invented data; **Planned** = not implemented. Details: [current status](docs/STATUS.md).
+Nothing has run on a production Swarm; the first Swarm trial has not started. Levels: **Lab VMs** = ran with the real manager, agents and MariaDB 11.4 on dedicated Lima VMs (arm64), a few times; **Fakes** = unit tests against fakes only; **Mock only** = UI against invented data; **Planned** = not implemented. Details: [current status](docs/STATUS.md). Setup and options: [user guides](docs/guides/en/index.md) and the [configuration reference](docs/guides/en/12-configuration-reference.md) ([Deutsch](docs/guides/de/12-configuration-reference.md)).
 
 | Feature | Level |
 | --- | --- |
 | Create a 3-node Galera cluster through the manager API with manager-deployed agents | Lab VMs (E4) |
-| Agent enrollment and mTLS 1.3 transport | Lab VMs (E4); revocation and deny-list distribution: Fakes |
-| Health collection and node-outage detection | Lab VMs (E4); outage events and notifications: Fakes |
-| Full-outage diagnosis, position recovery and approved guided recovery | Lab VMs (E6) |
+| Agent enrollment and mTLS 1.3 transport | Lab VMs (E4); revocation, deny-list distribution to agents and revoking manager certificates: Fakes |
+| Health collection and node-outage detection | Lab VMs (E4); node-outage and full-outage events and notifications: Fakes |
+| Full-outage diagnosis, position recovery and approved guided recovery | Lab VMs (E6); separate `recover` permission and outage notification: Fakes |
 | Physical backup to SFTP and inspection restore with digest-bound approval | Lab VMs (E4) |
-| Logical backups, schedules and retention | Fakes |
+| Logical backups, schedules, retention and keyed (HMAC) manifest digests | Fakes |
 | SQL proxy: writer selection, read routing, TLS termination | Lab VMs (E5, lab container); deployment by the manager: Planned |
 | Cluster deletion as an approved plan, host maintenance, drift detection | Fakes |
-| Replicated manager (Raft metastore, peer mTLS, wrapped data keys) | Fakes |
+| Replicated manager (Raft metastore, peer mTLS with `-issue-peer-certs`, wrapped data keyring with `-print-replica-key`) | Fakes; no multi-replica run on VMs |
 | Web UI in German and English, light and dark | Mock only |
 | Kubernetes, provisioning, web/storage servers, Traefik, image builds, engine updates | Planned ([ADR 0012](docs/decisions/0012-broadened-scope-platform.md)) |
 

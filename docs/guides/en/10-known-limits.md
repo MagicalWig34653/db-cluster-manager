@@ -15,13 +15,13 @@ Real-component evidence exists only from Lima VMs on one Apple-silicon host (arm
 ## Not proven or missing
 
 - **Platforms:** amd64 has no evidence. Only Docker 29.x is in the compatibility matrix. Kubernetes is out of scope for R1.
-- **Manager HA:** a multi-replica manager has not run on VMs. The metastore transport has no TLS, the data key must be copied to replicas by hand, and the agent deny list is not distributed. `deploy/stack.yaml` is not an HA deployment.
+- **Manager HA:** a multi-replica manager has not run on VMs. Keyring, peer mTLS and deny-list distribution exist but only with fakes and loopback TLS [Fakes]. Not done: key rotation and re-encryption, membership changes (a single instance cannot become HA without reinstalling), peer certificate renewal, pruning of the deny list. Every replica needs a local Swarm-manager Docker socket. `deploy/stack.yaml` is not an HA deployment.
 - **Packaging:** the container image and the job image were never built by the project; the release workflow never ran; the shipped compose file starts only prototype mode.
 - **Database access:** the manager does not deploy proxies; no redundant proxies, no VIP, no node TLS or proxy-to-node TLS. Client-facing TLS exists only in the proxy, without certificate issuance (no ACME).
-- **Operations:** no drift handling, maintenance mode, spare-host workflow, update workflow, migration, phpMyAdmin, or PITR. Joiners always use SST.
-- **Backups:** no verified full restore of production data; restore into a new cluster, logical backup and the scheduler were not run on VMs; manager-config backup is a library with no scheduler or API. Manifests carry plaintext chunk digests. Restore verification does not compare table contents.
-- **Monitoring:** no event or notification for a full outage; many default alert series have no real collector; notification channels untested against real receivers.
-- **Authorization:** outage-recovery approval uses the restore permission. Real hardware authenticators, Safari/Firefox and screen readers untested.
+- **Operations:** host maintenance, drift detection and cluster deletion exist [Fakes]; the product never reboots or drains a host and drift only proposes manual actions. No spare-host workflow, update workflow, migration, phpMyAdmin, or PITR. Joiners always use SST.
+- **Backups:** no verified full restore of production data; restore into a new cluster, logical backup, retention and the scheduler were not run on VMs; manager-config backup is a library with no scheduler or API. Format 2 manifests use keyed digests, older ones plaintext digests. Restore verification does not compare table contents.
+- **Monitoring:** the full-outage event and notification exist only with fakes; many default alert series have no real collector; notification channels untested against real receivers.
+- **Authorization:** outage-recovery approval needs the `recover` permission (administrator preset only) [Fakes]. Real hardware authenticators, Safari/Firefox and screen readers untested.
 - **Deletion:** cluster deletion keeps host directories of local volumes and backend backups by design, and ran only against fakes.
 - **Resilience:** resource exhaustion and capacity denial, restart during cleanup, VM power loss and graceful host drain were not tested.
 - **Lab hazard:** Lima exposes guest listeners (including unauthenticated lab harness ports) on host loopback.

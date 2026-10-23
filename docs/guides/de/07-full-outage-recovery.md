@@ -16,7 +16,7 @@ Ein Totalausfall heißt: Kein Knoten ist in einer Primary-Komponente. Der Manage
 4. **Freigeben:** `POST /api/v1/operations/{id}/approve` mit dem Digest (sonst `409 approval_mismatch`).
 5. Der Plan: alle Knoten stoppen, warten bis kein Task läuft, jeden Identitätsmarker prüfen, Position des Kandidaten erneut prüfen und `safe_to_bootstrap` setzen, Kandidaten bootstrappen, übrige Knoten nacheinander starten, Bootstrap-Flag entfernen.
 
-Die Operation braucht die Berechtigung Betreiben auf dem Cluster; die Freigabe nutzt derzeit die Berechtigung **Wiederherstellen** auf den Backups des Clusters (bekannte Unstimmigkeit, siehe [Bekannte Grenzen](10-known-limits.md)).
+Den Plan anzufordern braucht die Berechtigung Betreiben auf dem Cluster. **Die Freigabe braucht die eigene Aktion `recover` auf dem Cluster, die nur das Administrator-Preset besitzt**; Betreiber- und Restore-Presets decken sie nicht mehr ab [Fakes]. Wird ein Cluster unerreichbar, erfasst der Manager ein kritisches Ereignis und sendet die Benachrichtigung `health.cluster_outage` (danach `health.cluster_outage_ended`) [Fakes]; er plant nichts selbstständig.
 
 ![Diagnose bei Komplettausfall und geplante Wiederherstellung mit Freigabe](../../assets/screenshots/de-light-outage-recovery.png)
 
@@ -33,4 +33,4 @@ Folgen Sie der Diagnose. Nennt sie keinen, erzwingen Sie keinen. Bei Verdacht au
 | Totalausfall nach sauberem Herunterfahren und nach Absturz auf einem 3-Knoten-MariaDB-11.4-Cluster: korrekte lesende Diagnose (Gleichstand; kein Kandidat bis `--wsrep-recover`), 120 s keine Änderung, Wiederherstellung nach Freigabe in 40 s und 61 s, Daten und State-UUID erhalten | [Lab-VMs] (E6, letzter Lauf Exit 0) |
 | Eine Wiederherstellung, die still eine neue Historie ab `seqno: -1` begann, wurde gefunden und behoben | [Lab-VMs] (E6, mit Regressionstest) |
 | 5-Knoten-Cluster, abweichende Datadir-Layouts, Stromausfall einer VM | [Ungetestet] |
-| Ereignis oder Benachrichtigung bei Totalausfall | [Ungetestet]: nicht implementiert |
+| Ereignis und Benachrichtigung bei Totalausfall; Berechtigung `recover` für die Freigabe | [Fakes]: nicht auf VMs gelaufen |

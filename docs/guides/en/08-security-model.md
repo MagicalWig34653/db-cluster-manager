@@ -21,16 +21,16 @@ Deny by default. Preset roles: viewer, operator, database administrator, adminis
 
 ## Manager-agent channel (mTLS)
 
-Agents enroll with a one-time token (delivered as a Swarm secret), pin the CA fingerprint, submit a CSR and are checked by source address. Afterwards both sides use TLS 1.3 with client certificates; agent commands are fenced by a term, idempotent and checked against an ownership allow-list, so an agent refuses objects the installation did not create. Enrollment and the mTLS transport ran on lab VMs [Lab VMs]. Revocation, renewal and distributing the deny list were not exercised [Untested].
+Agents enroll with a one-time token (delivered as a Swarm secret), pin the CA fingerprint, submit a CSR and are checked by source address. Afterwards both sides use TLS 1.3 with client certificates; agent commands are fenced by a term, idempotent and checked against an ownership allow-list, so an agent refuses objects the installation did not create. Enrollment and the mTLS transport ran on lab VMs [Lab VMs]. Deny-list distribution to agents and revoking a manager replica's certificates are implemented and tested on loopback [Fakes]; revocation and renewal with real agents on VMs were not exercised [Untested]. See [Hosts and agents](02-hosts-and-agents.md).
 
 ## Secrets and data at rest
 
-Database passwords live in Swarm secrets, never in the API or tracked files. Notification secrets are write-only and stored encrypted (AES-GCM). The manager's data key is created in the data directory on first start and **must be copied to every replica out of band**: key provisioning is not solved. Backups are encrypted with a recovery key that you must keep outside the cluster; losing it makes backups unreadable.
+Database passwords live in Swarm secrets, never in the API or tracked files. Notification secrets are write-only and stored encrypted (AES-GCM). The manager's data key is created in the data directory on first start. For several replicas set `manager.keyring`: the key is then stored only wrapped for each registered replica's identity (`<dataDir>/replica.key`) and for the backup recovery key; an administrator registers each replica by comparing the public key printed by `manager -print-replica-key` (`PUT /settings/replicas/{id}/data-key-recipient`, voters only, audited), and a replica without the key hands leadership over ([ADR 0013](../../decisions/0013-replica-keys-peer-tls-and-revocation.md)) [Fakes]. Without `keyring` the key file must still be copied to every replica by hand. There is no key rotation or re-encryption, and withdrawing a registration does not take back keys a replica already unwrapped. Backups are encrypted with a recovery key that you must keep outside the cluster; losing it makes backups unreadable.
 
 ## Known weaknesses
 
-- The metastore transport between manager replicas has no TLS.
-- Backup manifests contain plaintext chunk digests (ADR 0009 question).
+- The metastore transport between manager replicas is plain TCP unless `manager.peerTLS` is configured (TLS 1.3, mutual, peer CA from `manager -issue-peer-certs`) [Fakes]. Peer certificates are not renewed by the product, and the peer CA is kept offline by you.
+- Backup manifests of format 1 contain plaintext chunk digests; format 2 uses keyed HMACs [Fakes]. Old backups keep the weaker format.
 - The UI/API has no TLS of its own; use a TLS reverse proxy.
 - Lima forwards guest listeners to host loopback: in the lab, the unauthenticated metastore harness and agent ports were reachable on the host. Lab-only, but do not run lab harnesses on shared machines.
 - Client-facing database TLS exists only in the proxy; node-to-node and proxy-to-node TLS do not exist. The manager configures no TLS between Galera nodes; encrypting the operator-provided overlay network (`--opt encrypted`) is your decision and was not tested.

@@ -36,7 +36,9 @@ Beobachtet: drei Agenten innerhalb von 2 s eingebunden, `agentIdentity: true` [L
 
 ## Host sperren
 
-`POST /api/v1/hosts/{id}/revoke` markiert den Host als gesperrt und widerruft das Agentenzertifikat. Der Widerruf mit echtem Agenten, die Zertifikatserneuerung und die Verteilung der Sperrliste an Agenten wurden **nicht** geprüft [Ungetestet]; die Verteilung der Sperrliste ist eine bekannte Lücke.
+`POST /api/v1/hosts/{id}/revoke` markiert den Host als gesperrt und widerruft das Agentenzertifikat. Der Leader schiebt die replizierte Sperrliste (widerrufene und ersetzte Agentenzertifikate, widerrufene Manager-Zertifikate) jetzt mit dem Befehl `set-deny-list` an jeden eingebundenen Agenten; der Agent speichert sie, und sein mTLS-Listener weist gesperrte Zertifikate ab. Ein Ende-zu-Ende-Test auf Loopback (Einbindung, Erneuerung, Verteilung, ein widerrufenes Manager-Zertifikat im TLS-Handshake abgewiesen) bestand [Fakes]. Der Weg mit einem echten Agenten auf VMs und die Zertifikatserneuerung dort wurden **nicht** geprüft [Ungetestet]. Einträge der Sperrliste werden nie bereinigt.
+
+Um ein Manager-Replikat abzuschneiden, sperrt `POST /api/v1/settings/replicas/{id}/revoke-certificates` (Berechtigung Einstellungen ändern, auditiert, nur Leader) alle seine noch nicht abgelaufenen Manager-Zertifikate; ein Replikat im Betrieb erhält bei nächster Nutzung neue [Fakes].
 
 ## Secrets erneuern
 

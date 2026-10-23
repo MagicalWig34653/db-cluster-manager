@@ -36,7 +36,9 @@ Observed: three agents enrolled within 2 s and reported `agentIdentity: true` [L
 
 ## Revoke a host
 
-`POST /api/v1/hosts/{id}/revoke` marks the host revoked and revokes the agent certificate. The revocation path with a real agent, certificate renewal and the distribution of the deny list to agents were **not** exercised [Untested]; deny-list distribution is a known gap.
+`POST /api/v1/hosts/{id}/revoke` marks the host revoked and revokes the agent certificate. The leader now pushes the replicated deny list (revoked and superseded agent certificates, revoked manager certificates) to every enrolled agent with the command `set-deny-list`; the agent stores it and its mTLS listener refuses denied certificates. An end-to-end test on loopback (enrollment, renewal, distribution, a revoked manager certificate refused in the TLS handshake) passed [Fakes]. The path with a real agent on VMs and certificate renewal there were **not** exercised [Untested]. Deny-list entries are never pruned.
+
+To cut off a manager replica, `POST /api/v1/settings/replicas/{id}/revoke-certificates` (settings update permission, audited, leader only) denies all its unexpired manager certificates; a replica still in service gets fresh ones on next use [Fakes].
 
 ## Rotating secrets
 

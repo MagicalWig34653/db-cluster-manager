@@ -48,6 +48,23 @@ bin/lab cleanup -apply     # executes it; fails if an unrelated entry disappeare
 
 The experiment scripts under `tests/p0/` create and remove their own VMs and run `bin/lab cleanup -apply` in an exit trap [Lab VMs]. Rules: respect the lab budget (16 GB RAM, 50% CPU, about 100 GB disk), never use `docker system prune`, never remove unrelated Colima or Lima profiles, and keep production credentials and backups out of the lab. Reclaimed disk space after cleanup was not verified (the free space was lower afterwards in W04). Host-side build artifacts in the git-ignored `.lab/` directory can be deleted by hand.
 
-## 4. Remove a manager installation
+## 4. Host maintenance and drift
+
+**Host maintenance** [Fakes]: `GET /api/v1/hosts/{id}/maintenance-plan` previews, per cluster with a node on the host, the steps, warnings and why a cluster refuses (fewer than a strict majority of its nodes outside the host, an unfinished operation). `POST /api/v1/hosts/{id}/maintenance` (optional `reason`) stops those nodes gracefully one at a time, each only after every node of the cluster on other hosts is Synced; replacement on that host is paused. It refuses with 409 and changes nothing if any cluster refuses. `Host.maintenance.ready` says when you may reboot the host yourself: **the product never reboots or drains a host and does not change its Swarm availability.** `DELETE /api/v1/hosts/{id}/maintenance` checks each volume identity marker, starts the nodes one at a time and waits for Synced (IST or SST). Needs operate permission on the host and its clusters; audited.
+
+**Drift** [Fakes]: `GET /api/v1/clusters/{id}/drift` compares the cluster record with the Swarm services carrying its label (missing, recreated outside the manager, foreign labels, changed placement, scaled to 0 or not running outside maintenance and operations, unexpected services). Each finding proposes a manual action; nothing is changed. The leader also checks periodically and records an event when the findings change.
+
+## 5. Replicas, key ring and peer certificates
+
+None of this has run with several manager replicas on VMs [Untested]; the pieces are tested with fakes and loopback TLS [Fakes]. Reference: [configuration reference](12-configuration-reference.md), [ADR 0013](../../decisions/0013-replica-keys-peer-tls-and-revocation.md).
+
+1. **Peer certificates:** `DBCM_PEER_CA_PASSPHRASE=<at least 12 characters> manager -issue-peer-certs ./peers -installation inst-1 -peer-ids manager-1,manager-2,manager-3`. This writes `ca.pem`, `ca.sealed` (the encrypted CA) and one directory per replica with `peer.pem` and `peer-key.pem`. Copy each replica directory to its host; keep `ca.sealed` and the passphrase offline. The command refuses to overwrite an existing CA.
+2. **Configuration:** on every replica set `peers` (the same list), `bootstrap: true` for the first start, `keyring: true` and `peerTLS`. Peer certificates are not renewed by the product: reissue them with the sealed CA before they expire (default validity 365 days); the replica re-reads a changed certificate file without a restart.
+3. **First replica:** start it. An existing `data.key` is adopted as the first key of the keyring; no new key file is created.
+4. **Register further replicas:** on each, run `manager -print-replica-key -config <file>` (creates `<dataDir>/replica.key` if needed) and note the public key and its fingerprint. Compare them out of band, then as an administrator call `PUT /api/v1/settings/replicas/{id}/data-key-recipient` with the public key (`dbcmpk1:...`). Only current voters are accepted; nothing is registered automatically. A replica that becomes leader without the key hands leadership over, so an unregistered replica will not serve the API. `GET /api/v1/settings/replicas` shows the keyring status and whether the keys are `recoverable`.
+5. **Recovery:** with `settings.backup.recipientKey` configured, every data key also has an envelope for the backup recovery key; keep that private key outside the cluster. Back up `<dataDir>` as in section 1.
+6. **Cut off a replica:** `POST /api/v1/settings/replicas/{id}/revoke-certificates` denies its manager certificates at every agent. It does not take back keys the replica already unwrapped; rotation is not implemented.
+
+## 6. Remove a manager installation
 
 `docker compose -f deploy/compose.yaml down` (add `-v` to delete the `manager-data` volume), or `docker stack rm dbcm` and the volume on each node. The manager does not remove agents, database services or volumes it created. Delete clusters through the API first (approval needed, see [Creating a cluster](03-create-cluster.md)); remove the agent service, host directories under the volume base, and the operator networks and secrets by name. Never prune globally.

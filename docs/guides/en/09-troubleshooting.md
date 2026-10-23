@@ -18,10 +18,13 @@ Entries marked "seen in lab" were observed in experiments E4-E6 (see `tests/p0/r
 | Setup token lost | Token only printed at start | Restart while no administrator exists; read the new token from the log. |
 | No passkey prompt, or origin mismatch | `rpId` or `origins` do not match the HTTPS URL you use | Fix the config; passkeys need the exact HTTPS origin. |
 | All passkeys lost | - | Redeem a recovery code (`/auth/recovery/code`), then register a new passkey. There is no command line to issue recovery URLs yet. |
-| API answers 503 with `X-DCM-Leader` | This replica is not the metastore leader (no forwarding) | Ask the leader. Multi-replica operation is untested on VMs. |
+| API answers 503 with `X-DCM-Leader` | This replica is not the metastore leader (no forwarding) | Ask the leader. Multi-replica operation is untested on VMs. If no replica leads and the log says it cannot unwrap the data key, the replica is not registered in the keyring yet: see the [runbook](11-operator-runbook.md#5-replicas-key-ring-and-peer-certificates). |
 | Operation `paused` or a step keeps polling | An unmet precondition (for example a node not `Synced`) | Read `progress` in `GET /api/v1/operations`, fix the cause, then `POST /api/v1/operations/{id}/resume`. Abort works at the next poll or step boundary (`.../abort`). |
 | `409 busy` or `resource locked` | Another operation holds the cluster | Wait, or abort the unfinished or failed operation first. |
 | `409 requires_guided_recovery` on replace | Quorum or a verified donor is not observed | Use the [full-outage recovery](07-full-outage-recovery.md) path; there is no override. |
+| `403` on approving a full-outage recovery | The `recover` permission is held by the administrator preset only | Approve as an administrator. |
+| Replicas cannot reach each other with `peerTLS` | Wrong installation ID, wrong replica ID for an address, certificate of another CA, or a revoked serial | Compare `installation`, `peers[].id` and the certificate identity `dbcm://<installation>/metastore/<id>`; reissue with `-issue-peer-certs`. |
+| `409` on entering host maintenance | A cluster would lose its majority outside the host, or an operation is unfinished | Read `GET /api/v1/hosts/{id}/maintenance-plan`; nothing was changed. |
 | `409 approval_mismatch` | The digest differs from the stored plan | Re-read the operation's `approval.digest` and approve that. |
 | Cluster create failed and the name is taken | A failed create keeps name and capacity | Delete the cluster (approval, administrator only), see [Creating a cluster](03-create-cluster.md). |
 | Backup fails with `docker-error` on a worker | Job created by a non-manager agent (seen in lab, fixed) | Ensure a manager-node agent is enrolled. |

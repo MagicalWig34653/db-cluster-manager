@@ -16,7 +16,7 @@ A full outage means no node is in a Primary component. The manager **never** boo
 4. **Approve:** `POST /api/v1/operations/{id}/approve` with the digest (`409 approval_mismatch` otherwise).
 5. The plan: stop every node, wait until no task runs, verify every identity marker, re-check the candidate position and set `safe_to_bootstrap`, bootstrap the candidate, start the others one at a time, drop the bootstrap flag.
 
-The operation needs operate permission on the cluster; approval currently uses the **restore** permission on the cluster's backups (a known mismatch, see [Known limits](10-known-limits.md)).
+Requesting the plan needs operate permission on the cluster. **Approval needs the separate `recover` action on the cluster, which only the administrator preset holds**; the operator and restore presets no longer cover it [Fakes]. When a cluster becomes unavailable the manager records a critical event and sends the notification `health.cluster_outage` (and `health.cluster_outage_ended` afterwards) [Fakes]; it plans nothing by itself.
 
 ![Full-outage diagnosis and planned recovery waiting for approval](../../assets/screenshots/en-light-outage-recovery.png)
 
@@ -33,4 +33,4 @@ Follow the diagnosis. If it names none, do not force one. If you suspect diverge
 | Clean-shutdown outage and crash outage on a 3-node MariaDB 11.4 cluster: correct read-only diagnosis (tie; no candidate until `--wsrep-recover`), no change for 120 s, recovery after approval in 40 s and 61 s, data and state UUID kept | [Lab VMs] (E6, final run exit 0) |
 | A recovery that silently started a new history from `seqno: -1` was found and fixed | [Lab VMs] (E6, with regression test) |
 | 5-node clusters, non-default datadir layouts, a VM power loss | [Untested] |
-| Event or notification for a full outage | [Untested]: not implemented |
+| Event and notification for a full outage; the `recover` permission for approval | [Fakes]: not run on VMs |

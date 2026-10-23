@@ -46,7 +46,7 @@ The manager creates a 3-node MariaDB Galera cluster through its API, using agent
 <div class="card" markdown="1">
 ### Authenticated agents <span class="tag lab">Lab VMs</span>
 
-Agents enroll with one-time tokens and talk mTLS 1.3 to the manager; revocation and deny-list distribution are [Fakes] only.
+Agents enroll with one-time tokens and talk mTLS 1.3 to the manager; revocation, deny-list distribution to agents and revoking manager certificates are <span class="tag fakes">Fakes</span> only.
 </div>
 
 <div class="card" markdown="1">
@@ -58,13 +58,13 @@ Node loss detected within seconds on the lab. Outage events and notifications ex
 <div class="card" markdown="1">
 ### Full-outage recovery <span class="tag lab">Lab VMs</span>
 
-Read-only diagnosis of all nodes, optional position recovery, then a guided bootstrap that runs only after a digest-bound approval (E6).
+Read-only diagnosis of all nodes, optional position recovery, then a guided bootstrap that runs only after a digest-bound approval (E6). The approval needs its own `recover` permission (administrators only) and an outage raises a notification: <span class="tag fakes">Fakes</span>.
 </div>
 
 <div class="card" markdown="1">
 ### Backups and inspection restore <span class="tag lab">Lab VMs</span>
 
-Physical backup to SFTP and an isolated inspection restore with approval (E4). Logical backups, schedules and retention: <span class="tag fakes">Fakes</span>.
+Physical backup to SFTP and an isolated inspection restore with approval (E4). Logical backups, schedules, retention and keyed manifest digests: <span class="tag fakes">Fakes</span>.
 </div>
 
 <div class="card" markdown="1">
@@ -76,13 +76,13 @@ Writer selection, read routing and TLS termination in front of the real cluster 
 <div class="card" markdown="1">
 ### Cluster deletion, maintenance, drift <span class="tag fakes">Fakes</span>
 
-Deletion as an approved plan, guided host maintenance without reboots or drains, and drift detection that only proposes manual actions.
+Deletion as an approved plan, guided host maintenance that never reboots or drains a host, and drift detection that only proposes manual actions.
 </div>
 
 <div class="card" markdown="1">
 ### Replicated manager <span class="tag fakes">Fakes</span>
 
-Raft metastore with peer mTLS, per-replica wrapped data keys and recovery keys. No multi-replica run on VMs yet.
+Raft metastore with peer mTLS (`-issue-peer-certs`), a data keyring wrapped per replica (`-print-replica-key`) and a recovery key. No multi-replica run on VMs yet.
 </div>
 
 <div class="card" markdown="1">
@@ -147,8 +147,8 @@ German interface: hosts and agent enrollment.
 
 ## User guides
 
-- [User guides (English)](guides/en/index.md): installation, hosts and agents, clusters, health and alerts, backup and restore, node replacement, full-outage recovery, security model, troubleshooting, known limits, operator runbook.
-- [Benutzerhandbuch (Deutsch)](guides/de/index.md): dieselben Themen auf Deutsch.
+- [User guides (English)](guides/en/index.md): installation, hosts and agents, clusters, health and alerts, backup and restore, node replacement, full-outage recovery, security model, troubleshooting, known limits, operator runbook, [configuration reference](guides/en/12-configuration-reference.md).
+- [Benutzerhandbuch (Deutsch)](guides/de/index.md): dieselben Themen auf Deutsch, einschließlich der [Konfigurationsreferenz](guides/de/12-configuration-reference.md).
 
 ## Project documentation
 

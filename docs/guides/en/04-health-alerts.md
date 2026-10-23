@@ -15,7 +15,7 @@ Observed after a `docker kill` of one container: `degraded` and the node `unavai
 ## Events and notifications
 
 - A node going unhealthy or healthy records an event and a UI notification once per transition (suppressed while the cluster is being deleted). [Fakes]: added after E4 and **not** re-run on VMs; in E4 itself no event existed for the outage.
-- There is **no** event or notification for a full-cluster outage yet.
+- When a cluster becomes unavailable (no Primary component) the collector records a critical event and sends the notification `health.cluster_outage`; `health.cluster_outage_ended` follows when it recovers. Nothing is planned automatically: recovery stays an approved, manual operation ([Full-outage recovery](07-full-outage-recovery.md)). [Fakes]: not re-run on VMs.
 - Notification channels: UI, webhook (SSRF-protected) and email, configured through `GET/PUT /api/v1/settings/notifications` (secrets are write-only, stored encrypted). `POST /api/v1/settings/notifications/test` sends a test event. A real webhook receiver or SMTP server was **not** tested [Fakes]. Acknowledge and read state: `POST /api/v1/notifications/{id}/ack` and `/read`.
 
 ![Notification settings](../../assets/screenshots/en-light-notification-settings.png)

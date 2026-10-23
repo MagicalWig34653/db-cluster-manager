@@ -15,7 +15,7 @@ Beobachtet nach `docker kill` eines Containers: nach 10 s `degraded` und Knoten 
 ## Ereignisse und Benachrichtigungen
 
 - Wird ein Knoten ungesund oder wieder gesund, entsteht je Übergang einmal ein Ereignis und eine UI-Benachrichtigung (unterdrückt, solange der Cluster gelöscht wird). [Fakes]: nach E4 ergänzt und **nicht** erneut auf VMs gelaufen; in E4 selbst gab es kein Ereignis für den Ausfall.
-- Für einen Totalausfall gibt es **noch kein** Ereignis und keine Benachrichtigung.
+- Wird ein Cluster unerreichbar (keine Primary-Komponente), erfasst der Sammler ein kritisches Ereignis und sendet die Benachrichtigung `health.cluster_outage`; `health.cluster_outage_ended` folgt bei Erholung. Nichts wird automatisch geplant: Die Wiederherstellung bleibt eine freigegebene, manuelle Operation ([Totalausfall](07-full-outage-recovery.md)). [Fakes]: nicht erneut auf VMs gelaufen.
 - Kanäle: Oberfläche, Webhook (SSRF-geschützt) und E-Mail, konfiguriert über `GET/PUT /api/v1/settings/notifications` (Secrets nur schreibbar, verschlüsselt gespeichert). `POST /api/v1/settings/notifications/test` sendet ein Testereignis. Ein echter Webhook-Empfänger oder SMTP-Server wurde **nicht** getestet [Fakes]. Quittieren und Gelesen-Markierung: `POST /api/v1/notifications/{id}/ack` und `/read`.
 
 ![Benachrichtigungseinstellungen](../../assets/screenshots/de-light-notification-settings.png)

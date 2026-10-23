@@ -31,5 +31,6 @@ Haben Teile einer Funktion verschiedene Stufen, sind sie einzeln gekennzeichnet.
 9. [Fehlersuche](09-troubleshooting.md)
 10. [Bekannte Grenzen](10-known-limits.md)
 11. [Betriebshandbuch](11-operator-runbook.md)
+12. [Konfigurationsreferenz](12-configuration-reference.md)
 
 Lesereihenfolge für einen ersten Test: 1, 2, 3, danach 10, bevor Sie irgendetwas vertrauen.
