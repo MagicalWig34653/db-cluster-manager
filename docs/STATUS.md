@@ -78,6 +78,7 @@ Dependencies added overall: hashicorp/raft and raft-boltdb (MPL-2.0), bbolt (MIT
 - Manager-config backup is a library; nothing schedules it, no cluster data backup/restore (physical/logical), no PITR, no verified full restore.
 - No ACME, client-facing database TLS is only a proxy feature without certificate issuance wiring; no email/webhook wiring of `internal/notify` into the manager; no metrics collection; no drift handling, maintenance mode, spare-host workflow, update workflow, migration, or phpMyAdmin deployment beyond data structures.
 - P0 gates not met: proxy/VIP on VMs, full-cluster outage, AMD64, resource exhaustion, restart during cleanup, real agent on VMs.
+- Update 2026-10-23: several items of this list now have code verified with fakes only (agent mTLS, metastore peer mTLS, data-key distribution, deny-list distribution, logical backups, retention, drift detection, host maintenance); see "R1 backend gaps closed" below. None of them has VM evidence yet.
 
 ## Fourth batch (2026-10-22/23)
 
@@ -114,7 +115,21 @@ On the E4 lab (real manager, mTLS agents, 3-node MariaDB 11.4 Galera), final run
 - **E6, full outage:** clean shutdown (all `safe_to_bootstrap: 0`, equal seqno) and crash (all seqno -1). The read-only diagnosis was correct in both cases (tie at equal seqno; no candidate after the crash with "run --wsrep-recover"), and the manager changed nothing for 120 s. New: `POST /clusters/{id}/outage-diagnosis` recovers positions with `mariadbd --wsrep-recover` in one-off agent containers, and `POST /clusters/{id}/outage-recovery` runs the guided plan only after a digest-bound approval. Both recoveries succeeded (40 s and 61 s after approval) with data and cluster state UUID kept.
 - Fixed with tests: no executable recovery (F-E6-1), no position recovery (F-E6-2), the `--wsrep-recover` command line (F-E6-3), a crash recovery that silently started a new cluster history from `seqno: -1` (F-E6-4), explicit `skip_name_resolve` (F-E5-2).
 
-Still open after E5/E6: no event/notification for a full outage; recovery approval uses the restore permission; joiners always take SST; redundant proxies, VIP, proxy deployment by the manager, node TLS and proxy-to-node TLS; probe log noise; a VM power loss; amd64.
+Still open after E5/E6 (the first two closed with fakes on 2026-10-23, see below): no event/notification for a full outage; recovery approval uses the restore permission; joiners always take SST; redundant proxies, VIP, proxy deployment by the manager, node TLS and proxy-to-node TLS; probe log noise; a VM power loss; amd64.
+
+### R1 backend gaps closed (2026-10-23, fakes and unit tests only)
+
+Implemented on branch `worktree-agent-a1a05632b4394fb3f` (from `integration` a5e3fff). Every item was verified **only with fakes** (in-memory Raft, fake agents, an in-memory Docker/Swarm connector, `httptest`, loopback TLS); nothing ran on VMs, against real Docker, MariaDB, mariabackup or several manager replicas.
+
+- **Outage recovery permission and notification (E6 gaps):** approving a `galera/full-outage-recovery` operation needs the new `recover` action on the cluster (administrator preset only; operate and restore no longer cover it; requesting the plan still needs operate). The health collector records a critical event and sends a `health.cluster_outage` notification when a cluster becomes unavailable (no Primary component), and `health.cluster_outage_ended` when it recovers; nothing is planned automatically.
+- **Data-key distribution and recovery ([ADR 0013](decisions/0013-replica-keys-peer-tls-and-revocation.md)):** `manager.keyring` stores the data key only wrapped, per replica identity (`<dataDir>/replica.key`) and for the backup recovery key; an existing key file is adopted. Replicas are registered by an administrator (`GET /settings/replicas`, `PUT /settings/replicas/{id}/data-key-recipient`; voters only, audited); a leader without the key hands leadership over. `RecoverDataKeys` recovers keys with the recovery key alone.
+- **Metastore peer mTLS:** `manager.peerTLS` (TLS 1.3, peer CA, `dbcm://<installation>/metastore/<id>` identities, expected replica per address, revocation hook); `manager -issue-peer-certs` creates the peer CA and certificates. Tested with three TLS nodes on loopback and with foreign-CA, foreign-installation and revoked certificates.
+- **Deny-list distribution and revocation:** agent command `set-deny-list` (persisted, monotonic revision, used by the agent's mTLS listener); the leader pushes the replicated revocation list to every enrolled agent; manager certificates are recorded per replica and `POST /settings/replicas/{id}/revoke-certificates` denies them. End-to-end test on loopback: enrollment, renewal, distribution, a revoked manager certificate refused by the agent's TLS handshake, the reissued one accepted.
+- **Backup manifest format 2 ([ADR 0009 amendment](decisions/0009-cluster-backup-method.md)):** chunk and plaintext digests are HMACs keyed from the per-stream data key; format 1 manifests stay restorable and verified.
+- **Host maintenance (A08) and drift:** `GET /hosts/{id}/maintenance-plan`, `POST`/`DELETE /hosts/{id}/maintenance`: graceful one-at-a-time stop after sync checks of the rest of the cluster, refusal without a majority outside the host, replacement paused, readiness reported, identity-checked restart and wait for Synced. The product never reboots or drains a host. `GET /clusters/{id}/drift` and a periodic detector compare cluster records with Swarm services (missing, recreated, foreign labels, placement, stopped, not running, unexpected) and propose manual actions; nothing is changed automatically.
+- **Backups:** scheduled and manual logical backups (`method: logical`, databases) and a retention policy (`keepLast/keepDaily/keepWeekly`) applied by the scheduler (newest, newest verified and inspected sets kept; skipped while an operation runs; manifest deleted before stream). End-to-end test over four scheduled days with fake jobs writing to an in-memory backend.
+
+Checks run on this branch: `gofmt -l .` (no output), `go vet ./...`, `go test -race -count=1 -p 4 ./...` (38 packages ok), `python3 scripts/check_docs.py` (0 errors). Frontend checks were not run (no UI change). Not done: PITR; key rotation and re-encryption; metastore membership changes; peer certificate renewal; UI for the new endpoints; bilingual user guides; any VM evidence for these features.
 
 ## Scope broadened (2026-10-22)
 
@@ -123,7 +138,7 @@ The owner broadened the product to a general self-hosted platform for clusters a
 ## Next action
 
 
-Continue W05: resource exhaustion and capacity denial, restart during cleanup, redundant proxies/VIP evaluation, a multi-replica manager on VMs, a VM power-loss outage, and native amd64 evidence; close the E4 gaps (cluster delete/discard, worker-host jobs, restore verification) and the E6 gaps (outage event, recovery permission). The first working version must be validated locally before the user's Swarm trial. Most R1 scope (cluster creation through the manager, backups, TLS, passkeys, UI flows, notifications, restore, packaging) is not started.
+Continue W05: resource exhaustion and capacity denial, restart during cleanup, redundant proxies/VIP evaluation, a multi-replica manager on VMs (now with keyring, peer TLS and deny-list distribution to exercise), a VM power-loss outage, and native amd64 evidence; re-run E4/E6 with the gap work (deletion, worker-host jobs, verification, outage notification, recover permission, maintenance, drift, logical backups and retention). The first working version must be validated locally before the user's Swarm trial. Most R1 scope (cluster creation through the manager, backups, TLS, passkeys, UI flows, notifications, restore, packaging) is not started.
 
 ## Verification and limits
 
