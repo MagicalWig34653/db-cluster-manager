@@ -31,6 +31,7 @@ Nothing has run on a production Swarm; the first Swarm trial has not started. Le
 | Replicated manager (Raft metastore, peer mTLS with `-issue-peer-certs`, wrapped data keyring with `-print-replica-key`) | Fakes; no multi-replica run on VMs |
 | Web UI in German and English, light and dark | Mock only |
 | Kubernetes, provisioning, web/storage servers, Traefik, image builds, engine updates | Planned ([ADR 0012](docs/decisions/0012-broadened-scope-platform.md)) |
+| AI-assisted vulnerability response (advisory feeds, patched rebuilds or mitigations, selectable AI providers, approval by default) | Planned, proposed ([ADR 0015](docs/decisions/0015-ai-assisted-vulnerability-response.md)) |
 
 ## Screenshots
 

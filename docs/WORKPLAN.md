@@ -15,8 +15,9 @@ Status labels: READY, PENDING, IN PROGRESS, DONE, BLOCKED. Only mark DONE with r
 | W08 | PENDING | R7 (proposal): image build service, managed/external registries, web server composer (Nginx/PHP/extensions/config) | R7 exit gates; depends on build-tool and registry decisions; no evidence yet |
 | W09 | PENDING | R8 (proposal): storage protocol servers (SFTP, FTP(S), S3-compatible, NFS) and Traefik UI management | R8 exit gates; depends on storage/Traefik scope decisions; no evidence yet |
 | W10 | PENDING | R9 (proposal): Kubernetes back end and Swarm/Kubernetes cluster provisioning | R9 exit gates; depends on Kubernetes timing decision; no evidence yet |
+| W11 | PENDING | R10 (proposal): AI-assisted vulnerability response (X13): advisory feed polling and inventory matching, optional AI analysis with selectable providers/models, approval-gated or policy-gated patched rebuilds and mitigations | R10 exit gates; depends on W07 and W08 and on the open decisions in ADR 0015; nothing implemented, no evidence yet |
 
-W07–W10 come from the 2026-10-22 scope extension ([ADR 0012](decisions/0012-broadened-scope-platform.md)). They do not change the current next action; Galera/R1 (W05, W06) stays first.
+W11 comes from the owner's 2026-10-23 proposal ([ADR 0015](decisions/0015-ai-assisted-vulnerability-response.md), proposed). W07–W10 come from the 2026-10-22 scope extension ([ADR 0012](decisions/0012-broadened-scope-platform.md)). They do not change the current next action; Galera/R1 (W05, W06) stays first.
 
 W03 experiments requiring VMs depend on the safe lab controls from W04. Design work can start first; do not run ad hoc experiments before ownership and cleanup are in place.
 

@@ -112,6 +112,18 @@ Exit gates:
 - Service types declare and enforce their supported platforms; no Swarm/Docker assumption leaks into the Kubernetes back end.
 - SSH credentials and provisioning privileges reviewed; provisioning never touches unregistered hosts.
 
+### R10 — AI-assisted vulnerability response (proposal, X13)
+
+Proposed 2026-10-23 ([ADR 0015](decisions/0015-ai-assisted-vulnerability-response.md)); **not started, no code or test exists.** Depends on R6 (service types) and R7 (build service, registry, SBOM, scan hook). Deterministic part: SBOM-backed inventory, advisory feed polling (NVD, OSV, distribution/vendor and upstream feeds, offline mirror), matching, findings with VEX-like status, notifications. AI part (optional): provider adapters (Claude Code login, Claude API, Codex login, OpenAI API, OpenAI-compatible endpoints such as LM Studio/Ollama) with selectable models, redaction and egress consent, structured proposals validated against typed models and allow-lists, digest-bound approval, optional opt-in auto-apply with canary, health gate and rollback (never for databases, major upgrades or Galera quorum rules), mitigation tracking with expiry, audit of prompt hashes, model, proposal and decision.
+
+Exit gates:
+
+- Matcher precision/recall on a corpus of past advisories; false positives handled by VEX-like status.
+- Injection corpus: no proposal outside the allow-list is accepted; the AI has no tool access to the cluster.
+- Redaction corpus: no secret pattern leaves the manager; per-provider consent enforced; local-only operation works without network egress.
+- Approved patched rebuild rolled out on a lab Swarm with canary and rollback on a deliberately failing image; auto-apply refused for database services.
+- Mitigations expire and re-alert; the audit log lets an admin reconstruct each decision.
+
 ## Requirement coverage
 
 | Requirements | Earliest planned delivery / expansion |
@@ -143,6 +155,7 @@ Exit gates:
 | X05, X07 | R8 |
 | X09 | R6, after the owner confirms the update boundaries |
 | X10 | Generic containers R6; per-type update strategies R7–R8 |
-| X11 | P0 and R1 unchanged; constrains R6–R9 ordering |
+| X11 | P0 and R1 unchanged; constrains R6–R10 ordering |
+| X13 | R10 (proposal; after R6 and R7) |
 
 R1 is still substantial. Re-slice its internal work packages after P0 rather than skipping its safety/recovery gates. Run test suites sequentially when simultaneous topology sizes would exceed the Mac budget.
