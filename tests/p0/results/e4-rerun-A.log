@@ -1,0 +1,235 @@
+
+## Phase build: cross-compile linux/arm64 binaries on the host
+
+### go build ./cmd/manager
+
+```
+$ env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o <repo>/.lab/e4/bin/manager ./cmd/manager
+(exit 0)
+```
+
+### go build ./cmd/agent
+
+```
+$ env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o <repo>/.lab/e4/bin/agent ./cmd/agent
+(exit 0)
+```
+
+### go build ./cmd/dbcm-job
+
+```
+$ env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o <repo>/.lab/e4/bin/dbcm-job ./cmd/dbcm-job
+(exit 0)
+```
+
+### go build ./tests/p0/e4client
+
+```
+$ env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o <repo>/.lab/e4/bin/e4client ./tests/p0/e4client
+(exit 0)
+```
+
+### git revision
+
+```
+$ git -C <repo> log -1 --format=%h %s
+81e0a24 Merge E4 re-run script (not yet run: host load)
+(exit 0)
+```
+
+
+## Phase vms: lab VMs (bin/lab) and rootful Docker
+
+host uptime: 15:11  up 4 days, 23:10, 5 users, load averages: 674.66 903.48 953.16
+
+13:11:17Z host load: { 674.66 903.48 953.16 }
+### host free disk before apply
+
+```
+$ host_free_disk
+host free disk (/System/Volumes/Data): 9.6Gi of 926Gi
+(exit 0)
+```
+
+### bin/lab status before
+
+```
+$ <repo>/bin/lab status
+host:
+  logical CPUs: 14
+  RAM: 48.0 GiB
+budget:
+  lab CPU limit: 7
+  lab RAM limit: 16.0 GiB
+  lab disk limit: 100.0 GiB
+manifest .lab/manifest.json:
+  (empty)
+inventory:
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+unrelated (never touched):
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+(exit 0)
+```
+
+### bin/lab apply -apply -vms 3 -cpus 2 -ram 4 -disk 20 -network lima:user-v2
+
+```
+$ <repo>/bin/lab apply -apply -vms 3 -cpus 2 -ram 4 -disk 20 -network lima:user-v2
+pre-snapshot:
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+executing actions:
+  # create Lima VM dbcm-lab-m1 (2 CPUs, 4 GiB RAM, 20 GiB disk, template docker, network lima:user-v2 (shared Lima state, not owned))
+  limactl create --name=dbcm-lab-m1 --cpus=2 --memory=4 --disk=20 --tty=false --network=lima:user-v2 template:docker
+  # start Lima VM dbcm-lab-m1
+  limactl start --tty=false dbcm-lab-m1
+  # create Lima VM dbcm-lab-m2 (2 CPUs, 4 GiB RAM, 20 GiB disk, template docker, network lima:user-v2 (shared Lima state, not owned))
+  limactl create --name=dbcm-lab-m2 --cpus=2 --memory=4 --disk=20 --tty=false --network=lima:user-v2 template:docker
+  # start Lima VM dbcm-lab-m2
+  limactl start --tty=false dbcm-lab-m2
+  # create Lima VM dbcm-lab-m3 (2 CPUs, 4 GiB RAM, 20 GiB disk, template docker, network lima:user-v2 (shared Lima state, not owned))
+  limactl create --name=dbcm-lab-m3 --cpus=2 --memory=4 --disk=20 --tty=false --network=lima:user-v2 template:docker
+  # start Lima VM dbcm-lab-m3
+  limactl start --tty=false dbcm-lab-m3
+lab: start Lima VM dbcm-lab-m1: lab: limactl start --tty=false dbcm-lab-m1: exit status 1: time="2026-10-23T15:11:20+02:00" level=info msg="Using the existing instance `dbcm-lab-m1`"
+time="2026-10-23T15:11:20+02:00" level=info msg="Starting the instance `dbcm-lab-m1` with internal VM driver `vz`"
+time="2026-10-23T15:11:27+02:00" level=info msg="[hostagent] hostagent socket created at ~/.lima/dbcm-lab-m1/ha.sock"
+time="2026-10-23T15:11:28+02:00" level=info msg="[hostagent] Starting VZ (hint: to watch the boot progress, see `~/.lima/dbcm-lab-m1/serial*.log`)"
+time="2026-10-23T15:11:28+02:00" level=info msg="[hostagent] [VZ] - vm state change: running"
+time="2026-10-23T15:11:43+02:00" level=info msg="[hostagent] Started vsock forwarder: 127.0.0.1:56490 -> vsock:22 on VM"
+time="2026-10-23T15:11:43+02:00" level=info msg="[hostagent] Detected SSH server is listening on the vsock port; changed 127.0.0.1:56490 to proxy for the vsock port"
+time="2026-10-23T15:11:43+02:00" level=info msg="SSH Local Port: 56490"
+time="2026-10-23T15:11:43+02:00" level=info msg="[hostagent] Waiting for the essential requirement 1 of 3: `ssh`"
+time="2026-10-23T15:11:45+02:00" level=info msg="[hostagent] The essential requirement 1 of 3 is satisfied"
+time="2026-10-23T15:11:45+02:00" level=info msg="[hostagent] Waiting for the essential requirement 2 of 3: `user session is ready for ssh`"
+time="2026-10-23T15:11:46+02:00" level=info msg="[hostagent] The essential requirement 2 of 3 is satisfied"
+time="2026-10-23T15:11:46+02:00" level=info msg="[hostagent] Waiting for the essential requirement 3 of 3: `Explicitly start ssh ControlMaster`"
+time="2026-10-23T15:11:47+02:00" level=info msg="[hostagent] The essential requirement 3 of 3 is satisfied"
+time="2026-10-23T15:11:47+02:00" level=info msg="[hostagent] Waiting for the optional requirement 1 of 1: `user probe 1/1`"
+time="2026-10-23T15:11:47+02:00" level=info msg="[hostagent] Forwarding `/run/user/501/docker.sock` (guest) to `~/.lima/dbcm-lab-m1/sock/docker.sock` (host)"
+time="2026-10-23T15:11:47+02:00" level=info msg="[hostagent] Guest agent is running"
+time="2026-10-23T15:11:47+02:00" level=info msg="[hostagent] Time sync: guest agent is alive, starting time synchronization"
+time="2026-10-23T15:11:47+02:00" level=info msg="[hostagent] Not forwarding TCP 127.0.0.54:53"
+time="2026-10-23T15:11:47+02:00" level=info msg="[hostagent] Not forwarding TCP 0.0.0.0:22"
+time="2026-10-23T15:11:47+02:00" level=info msg="[hostagent] Not forwarding TCP 127.0.0.53:53"
+time="2026-10-23T15:11:47+02:00" level=info msg="[hostagent] Not forwarding TCP [::]:22"
+time="2026-10-23T15:11:47+02:00" level=info msg="[hostagent] Forwarding UDP from 0.0.0.0:5353 to 127.0.0.1:5353"
+time="2026-10-23T15:11:47+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.54:53"
+time="2026-10-23T15:11:47+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.53:53"
+time="2026-10-23T15:11:47+02:00" level=info msg="[hostagent] Not forwarding UDP 192.168.104.1:68"
+time="2026-10-23T15:11:47+02:00" level=info msg="[hostagent] Forwarding UDP from 127.0.0.1:323 to 127.0.0.1:323"
+time="2026-10-23T15:11:47+02:00" level=info msg="[hostagent] Forwarding UDP from [::]:5353 to 127.0.0.1:5353"
+time="2026-10-23T15:11:47+02:00" level=info msg="[hostagent] Forwarding UDP from [::1]:323 to 127.0.0.1:323"
+time="2026-10-23T15:11:48+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-23T15:11:48+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-23T15:11:48+02:00" level=info msg="[hostagent] Not forwarding UDP 0.0.0.0:323"
+time="2026-10-23T15:11:48+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:323"
+time="2026-10-23T15:12:32+02:00" level=info msg="[hostagent] Time sync: guest clock adjusted (was 163ms off)"
+time="2026-10-23T15:12:42+02:00" level=info msg="[hostagent] Time sync: guest clock adjusted (was -158ms off)"
+time="2026-10-23T15:13:25+02:00" level=info msg="[hostagent] Time sync: guest clock adjusted (was 153ms off)"
+time="2026-10-23T15:13:33+02:00" level=info msg="[hostagent] Time sync: guest clock adjusted (was 166ms off)"
+time="2026-10-23T15:13:43+02:00" level=info msg="[hostagent] Time sync: guest clock adjusted (was -126ms off)"
+time="2026-10-23T15:14:07+02:00" level=info msg="[hostagent] Time sync: guest clock adjusted (was 299ms off)"
+time="2026-10-23T15:14:15+02:00" level=info msg="[hostagent] Time sync: guest clock adjusted (was -335ms off)"
+time="2026-10-23T15:14:26+02:00" level=info msg="[hostagent] Time sync: guest clock adjusted (was 627ms off)"
+time="2026-10-23T15:14:43+02:00" level=info msg="[hostagent] Time sync: guest clock adjusted (was -593ms off)"
+time="2026-10-23T15:14:57+02:00" level=info msg="[hostagent] Time sync: guest clock adjusted (was 767ms off)"
+time="2026-10-23T15:15:02+02:00" level=info msg="[hostagent] Time sync: guest clock adjusted (was -797ms off)"
+time="2026-10-23T15:15:45+02:00" level=info msg="[hostagent] Time sync: guest clock adjusted (was 1255ms off)"
+time="2026-10-23T15:16:25+02:00" level=info msg="[hostagent] Time sync: guest clock adjusted (was 3855ms off)"
+time="2026-10-23T15:16:26+02:00" level=info msg="[hostagent] Time sync: guest clock adjusted (was -5029ms off)"
+time="2026-10-23T15:16:43+02:00" level=info msg="[hostagent] Time sync: guest clock adjusted (was -119ms off)"
+time="2026-10-23T15:17:22+02:00" level=info msg="[hostagent] Time sync: guest clock adjusted (was 126ms off)"
+time="2026-10-23T15:17:32+02:00" level=info msg="[hostagent] Time sync: guest clock adjusted (was -123ms off)"
+time="2026-10-23T15:18:03+02:00" level=info msg="[hostagent] Time sync: guest clock adjusted (was 205ms off)"
+time="2026-10-23T15:18:12+02:00" level=info msg="[hostagent] Time sync: guest clock adjusted (was -155ms off)"
+time="2026-10-23T15:18:32+02:00" level=info msg="[hostagent] Time sync: guest clock adjusted (was 119ms off)"
+time="2026-10-23T15:18:43+02:00" level=info msg="[hostagent] Time sync: guest clock adjusted (was -117ms off)"
+time="2026-10-23T15:20:03+02:00" level=info msg="[hostagent] Time sync: guest clock adjusted (was 1141ms off)"
+time="2026-10-23T15:20:09+02:00" level=info msg="[hostagent] Time sync: guest clock adjusted (was -1076ms off)"
+time="2026-10-23T15:20:14+02:00" level=info msg="[hostagent] Time sync: guest clock adjusted (was 162ms off)"
+time="2026-10-23T15:20:26+02:00" level=info msg="[hostagent] Time sync: guest clock adjusted (was -120ms off)"
+time="2026-10-23T15:20:33+02:00" level=info msg="[hostagent] Time sync: guest clock adjusted (was -102ms off)"
+time="2026-10-23T15:21:20+02:00" level=fatal msg="did not receive an event with the `running` status"
+post-snapshot diff:
+  added: lima:dbcm-lab-m1
+  removed: (none)
+(exit 1)
+```
+
+
+## Scoped cleanup
+
+### bin/lab cleanup -apply
+
+```
+$ <repo>/bin/lab cleanup -apply
+pre-snapshot:
+  colima:default
+  lima:dbcm-lab-m1
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+unrelated (must survive):
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+executing actions:
+  # stop Lima VM dbcm-lab-m1
+  limactl stop --force dbcm-lab-m1
+  # delete Lima VM dbcm-lab-m1
+  limactl delete --force dbcm-lab-m1
+post-snapshot diff:
+  added: (none)
+  removed: lima:dbcm-lab-m1
+unrelated resources intact (3)
+(exit 0)
+```
+
+### bin/lab status after cleanup
+
+```
+$ <repo>/bin/lab status
+host:
+  logical CPUs: 14
+  RAM: 48.0 GiB
+budget:
+  lab CPU limit: 7
+  lab RAM limit: 16.0 GiB
+  lab disk limit: 100.0 GiB
+manifest .lab/manifest.json:
+  (empty)
+inventory:
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+unrelated (never touched):
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+(exit 0)
+```
+
+### limactl list after cleanup
+
+```
+$ limactl list
+NAME                         STATUS     SSH                VMTYPE    ARCH       CPUS    MEMORY    DISK     DIR
+thermoctl-e2e-basestation    Stopped    127.0.0.1:55325    vz        aarch64    2       3GiB      8GiB     ~/.lima/thermoctl-e2e-basestation
+thermoctl-test-vm            Stopped    127.0.0.1:50429    vz        aarch64    4       4GiB      20GiB    ~/.lima/thermoctl-test-vm
+(exit 0)
+```
+
+### host free disk after cleanup
+
+```
+$ host_free_disk
+host free disk (/System/Volumes/Data): 45Gi of 926Gi
+(exit 0)
+```
+
+13:22:27Z E4 re-run finished with exit 1
