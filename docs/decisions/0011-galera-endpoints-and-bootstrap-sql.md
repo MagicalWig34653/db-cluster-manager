@@ -71,3 +71,7 @@ MariaDB `mariadb:11.4.13@sha256:250e1609…` on three arm64 Lima VMs, cluster cr
 9. **Not exercised as designed:** the secrets were mounted when the agent service was created (`manager.agentTransport.dbSecrets`, added in E4); updating the running agent service to add secrets is still not implemented.
 
 Also found: the bootstrap node's wait-synced reads status through the monitoring account, so the account steps had to move before it (they run right after the bootstrap service is created and are retried, `exec-sql` is now idempotent for the runner).
+
+## Evidence (lab VMs, E5, 2026-10-23)
+
+The database proxy's greeting probes are aborted handshakes on the nodes ([E5/E6 results](../../tests/p0/results/e5-e6-proxy-outage.md): `Aborted_connects_preauth` 400-520 per node after about 4 minutes, one `Aborted connection` log line each). No host was blocked because the pinned image sets `skip-name-resolve` in its own configuration; the service args now set `--skip_name_resolve=ON` explicitly so another image cannot make `max_connect_errors` block a proxy host. The product's monitoring account is `@localhost` (socket), so a proxy on another host needs an operator-created account; nodes still have no product TLS, which leaves the proxy's monitor connection and the proxy-to-node link in plaintext.

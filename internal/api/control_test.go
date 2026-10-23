@@ -105,6 +105,21 @@ func (f *fakeControl) OutageDiagnosis(_ context.Context, a authz.Subject, c stri
 	return f.diag, nil
 }
 
+func (f *fakeControl) OutageDiagnosisRecover(_ context.Context, a authz.Subject, c string) (Diagnosis, error) {
+	if err := f.record(a, "diagnose-recover %s", c); err != nil {
+		return Diagnosis{}, err
+	}
+	return f.diag, nil
+}
+
+func (f *fakeControl) OutageRecovery(_ context.Context, a authz.Subject, c, cand string) (RecoveryStarted, error) {
+	if err := f.record(a, "recover %s %s", c, cand); err != nil {
+		return RecoveryStarted{}, err
+	}
+	return RecoveryStarted{ID: "op-rec", Kind: "galera/full-outage-recovery", Candidate: cand,
+		Approval: OperationApproval{Digest: digestA}, Diagnosis: f.diag}, nil
+}
+
 func (f *fakeControl) ResumeOperation(_ context.Context, a authz.Subject, id string) error {
 	return f.record(a, "resume %s", id)
 }
@@ -239,6 +254,8 @@ var commandRoutes = []route{
 	{"POST", "/api/v1/clusters", map[string]any{"swarm": "s1", "name": "gamma", "size": 3, "image": "mariadb:11", "network": "net", "rootPasswordSecret": "pw"}},
 	{"POST", "/api/v1/clusters/c1/nodes/n1/replace", map[string]any{}},
 	{"GET", "/api/v1/clusters/c1/outage-diagnosis", nil},
+	{"POST", "/api/v1/clusters/c1/outage-recovery", map[string]string{"candidate": "n1"}},
+	{"POST", "/api/v1/clusters/c1/outage-diagnosis", nil},
 	{"POST", "/api/v1/operations/op-c1/resume", nil},
 	{"POST", "/api/v1/operations/op-c1/abort", nil},
 	{"POST", "/api/v1/operations/op-r1/approve", map[string]string{"digest": digestA}},
@@ -503,6 +520,41 @@ func TestOutageDiagnosisReadOnly(t *testing.T) {
 	if !strings.Contains(r.Body.String(), `"positions":[]`) || !strings.Contains(r.Body.String(), `"reasons":[]`) {
 		t.Fatalf("%s", r.Body.String())
 	}
+}
+
+func TestOutageDiagnosisRecoverNeedsOperate(t *testing.T) {
+	cf := newControlFixture(t)
+	cf.ctl.diag = Diagnosis{Candidate: "n2", Positions: []galera.NodePosition{{Slot: "n2", Seqno: 42, Source: "wsrep-recover"}}}
+	viewer := cf.loggedIn("v", authz.RoleViewer, authz.SwarmScope("s1"))
+	wantError(t, viewer.do("POST", "/api/v1/clusters/c1/outage-diagnosis", nil), http.StatusForbidden, errForbidden)
+	op := cf.loggedIn("op", authz.RoleOperator, authz.ClusterScope("s1", "c1"))
+	var d Diagnosis
+	r := op.do("POST", "/api/v1/clusters/c1/outage-diagnosis", nil)
+	wantStatus(t, r, http.StatusOK)
+	r.decode(t, &d)
+	if d.Candidate != "n2" || !d.RequiresApproval || d.Reasons == nil {
+		t.Fatalf("%+v", d)
+	}
+}
+
+func TestOutageRecoveryNeedsOperateAndAKnownCandidate(t *testing.T) {
+	cf := newControlFixture(t)
+	viewer := cf.loggedIn("v", authz.RoleViewer, authz.SwarmScope("s1"))
+	wantError(t, viewer.do("POST", "/api/v1/clusters/c1/outage-recovery", map[string]string{"candidate": "n1"}), http.StatusForbidden, errForbidden)
+	op := cf.loggedIn("op", authz.RoleOperator, authz.ClusterScope("s1", "c1"))
+	wantError(t, op.do("POST", "/api/v1/clusters/c1/outage-recovery", map[string]string{"candidate": "n9"}), http.StatusBadRequest, errBadRequest)
+	wantError(t, op.do("POST", "/api/v1/clusters/c1/outage-recovery", map[string]string{}), http.StatusBadRequest, errBadRequest)
+	wantError(t, op.do("POST", "/api/v1/clusters/c2/outage-recovery", map[string]string{"candidate": "n1"}), http.StatusNotFound, errNotFound)
+	var out RecoveryStarted
+	r := op.do("POST", "/api/v1/clusters/c1/outage-recovery", map[string]string{"candidate": "n2"})
+	wantStatus(t, r, http.StatusAccepted)
+	r.decode(t, &out)
+	if out.ID != "op-rec" || out.Approval.Digest != digestA || !out.Diagnosis.RequiresApproval || out.Diagnosis.Positions == nil {
+		t.Fatalf("%+v", out)
+	}
+	// A refusal (no candidate, candidate changed) is a conflict, never an override.
+	cf.ctl.err = fmt.Errorf("%w: no candidate", ErrConflict)
+	wantError(t, op.do("POST", "/api/v1/clusters/c1/outage-recovery", map[string]string{"candidate": "n2"}), http.StatusConflict, "conflict")
 }
 
 func TestOperationControlAndApproval(t *testing.T) {

@@ -351,9 +351,16 @@ func sortedKeys(m map[string][]string) []string {
 	return ks
 }
 
-// recoverySteps builds the guided recovery order: stop everything, verify
-// every identity marker, mark and bootstrap the candidate, start the other
-// nodes one at a time, then drop the bootstrap flag from the candidate.
+// recoverySteps builds the guided recovery order: stop every node and wait
+// until no task runs, verify every identity marker on its host, re-check the
+// candidate's grastate position and mark it safe, bootstrap the candidate
+// (spec with the bootstrap flag, then one replica), start the other nodes
+// one at a time, then drop the bootstrap flag from the candidate. The first
+// step waits for the explicit approval (A06).
+//
+// The candidate's grastate.dat must have been read: mark-safe-to-bootstrap
+// binds the bootstrap to the position the diagnosis saw (seqno -1 after a
+// crash whose position came from wsrep-recover).
 func recoverySteps(nodes []NodeInfo, c NodePosition) Plan {
 	order := []string{c.Slot}
 	for _, n := range nodes {
@@ -361,21 +368,46 @@ func recoverySteps(nodes []NodeInfo, c NodePosition) Plan {
 			order = append(order, n.Slot)
 		}
 	}
+	mark := Position{UUID: c.UUID, Seqno: c.Seqno}
+	for _, n := range nodes {
+		if n.Slot == c.Slot && n.Grastate != nil {
+			mark = Position{UUID: n.Grastate.UUID, Seqno: n.Grastate.Seqno}
+		}
+	}
 	var l stepList
-	l.add(Step{Kind: StepStopAll, Note: "scale every database service of the cluster to 0 and confirm no task runs"},
-		Precondition{Kind: PreApproved})
+	for i, s := range order {
+		var pre []Precondition
+		if i == 0 {
+			pre = append(pre, Precondition{Kind: PreApproved})
+		}
+		l.add(Step{Kind: StepStopAll, Slot: s, Note: "scale the database service to 0 (idempotent)"}, pre...)
+	}
+	for _, s := range order {
+		l.add(Step{Kind: StepAwaitStopped, Slot: s, Note: "no task of the service runs"})
+	}
 	for _, s := range order {
 		l.add(Step{Kind: StepVerifyIdentity, Slot: s})
 	}
-	if !c.SafeToBootstrap {
-		l.add(Step{Kind: StepMarkSafe, Slot: c.Slot, Note: "set safe_to_bootstrap: 1 in the candidate's grastate.dat"},
-			Precondition{Kind: PreNoNodeRunning})
+	note := "set safe_to_bootstrap: 1 in the candidate's grastate.dat if it still holds the diagnosed position"
+	if c.SafeToBootstrap {
+		note = "re-check that the candidate's grastate.dat still holds the diagnosed position (already safe_to_bootstrap: 1)"
 	}
-	l.add(Step{Kind: StepUpdateService, Slot: c.Slot, Note: "bootstrap: start with " + BootstrapFlag},
+	ms := Step{Kind: StepMarkSafe, Slot: c.Slot, Position: &mark, Note: note}
+	if c.Source == SourceWsrepRecover && mark.Seqno < 0 {
+		// Lab E6: a bootstrap from "seqno: -1" (safe_to_bootstrap set, no
+		// start position) started a new cluster state UUID; the joiners then
+		// took a full SST from it. Writing the recovered seqno keeps the
+		// cluster history.
+		ms.Recovered = &Position{UUID: c.UUID, Seqno: c.Seqno}
+		ms.Note += "; write the recovered seqno " + strconv.FormatInt(c.Seqno, 10) + " (wsrep-recover) so the bootstrap keeps the cluster history"
+	}
+	l.add(ms, Precondition{Kind: PreNoNodeRunning})
+	l.add(Step{Kind: StepUpdateService, Slot: c.Slot, Note: "bootstrap spec with " + BootstrapFlag + ", still 0 replicas"},
 		Precondition{Kind: PreNoNodeRunning})
+	l.add(Step{Kind: StepStartNode, Slot: c.Slot, Note: "bootstrap the candidate"}, Precondition{Kind: PreNoNodeRunning})
 	l.add(Step{Kind: StepWaitSynced, Slot: c.Slot, ClusterSize: 1})
 	for i, s := range order[1:] {
-		l.add(Step{Kind: StepUpdateService, Slot: s, Note: "start; rejoins by IST or SST"}, synced(order[i], i+1))
+		l.add(Step{Kind: StepStartNode, Slot: s, Note: "start; rejoins by IST or SST"}, synced(order[i], i+1))
 		l.add(Step{Kind: StepWaitSynced, Slot: s, ClusterSize: i + 2})
 	}
 	all := make([]Precondition, len(order))
@@ -383,6 +415,7 @@ func recoverySteps(nodes []NodeInfo, c NodePosition) Plan {
 		all[i] = synced(s, len(order))
 	}
 	l.add(Step{Kind: StepUpdateService, Slot: c.Slot, Note: "steady-state spec without " + BootstrapFlag}, all...)
+	l.add(Step{Kind: StepAwaitUpdate, Slot: c.Slot, Note: "Swarm replaced the bootstrap task"})
 	l.add(Step{Kind: StepWaitSynced, Slot: c.Slot, ClusterSize: len(order)})
 	return Plan{Kind: PlanFullOutageRecovery, Steps: l.steps, RequiresApproval: true}
 }
@@ -423,14 +456,31 @@ func RecoveryPlan(d Diagnosis, c Cluster, nodes []Node) (Plan, error) {
 		if !ok {
 			return Plan{}, fmt.Errorf("%w: no node for slot %s", ErrBadRecoveryInput, s.Slot)
 		}
-		s.HostID, s.NodeUUID = n.HostID, n.NodeUUID
-		if s.Kind != StepUpdateService {
+		s.HostID, s.NodeUUID, s.Volume = n.HostID, n.NodeUUID, n.Volume
+		switch s.Kind {
+		case StepStopAll, StepAwaitStopped, StepStartNode, StepAwaitUpdate:
+			// These steps address the service by name; the spec is the
+			// steady-state one.
+			spec, err := BuildServiceSpec(c, n, SpecOptions{})
+			if err != nil {
+				return Plan{}, err
+			}
+			s.Spec = specPtr(spec)
+			continue
+		case StepUpdateService:
+		default:
 			continue
 		}
 		boot := s.Slot == d.Candidate && !bootDone
 		spec, err := BuildServiceSpec(c, n, SpecOptions{Bootstrap: boot})
 		if err != nil {
 			return Plan{}, err
+		}
+		if boot {
+			// The service is stopped: the bootstrap spec keeps 0 replicas
+			// (update-service never changes the replica count); the
+			// following start-node step starts it.
+			spec.Replicas = 0
 		}
 		bootDone = bootDone || boot
 		s.Spec = specPtr(spec)

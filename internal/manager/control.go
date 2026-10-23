@@ -150,6 +150,31 @@ func (c *Control) OutageDiagnosis(ctx context.Context, actor authz.Subject, clus
 		RequiresApproval: true}, nil
 }
 
+// OutageDiagnosisRecover implements api.Control: the diagnosis with
+// mariadbd --wsrep-recover on nodes without a saved seqno (operate
+// permission). Nothing is started.
+func (c *Control) OutageDiagnosisRecover(ctx context.Context, actor authz.Subject, clusterID string) (api.Diagnosis, error) {
+	d, _, err := c.Ops.DiagnoseOutageRecovering(ctx, actor, clusterID)
+	if err != nil {
+		return api.Diagnosis{}, MapCommandError(err)
+	}
+	return api.Diagnosis{Candidate: d.Candidate, Positions: d.Positions, Reasons: d.Reasons, Risks: d.Risks,
+		RequiresApproval: true}, nil
+}
+
+// OutageRecovery implements api.Control: guided full-outage recovery that
+// waits for an explicit approval (recovery.go).
+func (c *Control) OutageRecovery(ctx context.Context, actor authz.Subject, clusterID, candidate string) (api.RecoveryStarted, error) {
+	rec, d, err := c.Ops.RecoverOutage(ctx, actor, clusterID, candidate)
+	if err != nil {
+		return api.RecoveryStarted{}, MapCommandError(err)
+	}
+	return api.RecoveryStarted{ID: rec.ID, Kind: rec.Kind, Candidate: d.Candidate,
+		Approval: api.OperationApproval{Digest: rec.ApprovalDigest},
+		Diagnosis: api.Diagnosis{Candidate: d.Candidate, Positions: d.Positions, Reasons: d.Reasons, Risks: d.Risks,
+			RequiresApproval: true}}, nil
+}
+
 // ResumeOperation implements api.Control.
 func (c *Control) ResumeOperation(_ context.Context, actor authz.Subject, opID string) error {
 	return MapCommandError(c.Ops.Resume(actor, opID))
@@ -204,6 +229,7 @@ func MapCommandError(err error) error {
 	case errors.Is(err, ErrNoApproval), errors.Is(err, ErrOperationEnded), errors.Is(err, runner.ErrFinished),
 		errors.Is(err, runner.ErrNotPaused), errors.Is(err, galera.ErrNodeNotFailed), errors.Is(err, galera.ErrNotFullOutage),
 		errors.Is(err, galera.ErrReplacementPaused), errors.Is(err, ErrMissingServiceID), errors.Is(err, ErrConflict),
+		errors.Is(err, galera.ErrNoCandidate), errors.Is(err, ErrCandidateMismatch),
 		errors.Is(err, dbbackup.ErrNoSource), errors.Is(err, dbbackup.ErrProductionTarget), errors.Is(err, dbbackup.ErrIdentityMismatch):
 		sentinel = api.ErrConflict
 	case errors.Is(err, galera.ErrInvalidTopology), errors.Is(err, galera.ErrInvalidSpec), errors.Is(err, ErrUnknownReference), errors.Is(err, dbbackup.ErrInvalidRequest),

@@ -1,6 +1,6 @@
 # Current status
 
-Updated: 2026-10-18.
+Updated: 2026-10-23.
 
 ## Phase
 
@@ -106,13 +106,24 @@ Implemented, each verified **only with fakes** (fake agents, in-memory Docker fa
 
 Checks run on the branch: `gofmt -l .` (no output), `go vet ./...`, `go test -race -count=1 -p 4 ./...` (35 packages ok), `python3 scripts/check_docs.py`. Remaining limits: none of this ran on VMs; a deletion keeps the host directories of local volumes; an operation that succeeds in a resumed run still skips its `start` callback (create service IDs, replacement desired state; only the deletion moved its completion into `saveView`); verification does not compare tables; the manifest still carries plaintext chunk digests (ADR 0009 question).
 
+### E5 and E6 result (2026-10-23, lab VMs, arm64)
+
+On the E4 lab (real manager, mTLS agents, 3-node MariaDB 11.4 Galera), final run from scratch with exit 0 ([results](../tests/p0/results/e5-e6-proxy-outage.md)). Foreign host load was low (1-minute 5-10).
+
+- **E5, proxy:** `cmd/proxy` as a lab container in front of the real cluster, Galera sync state through a monitoring account. Writer selection, round-robin reads that never hit the writer, hysteresis (no flap back after the old writer returned), planned switch by reload with the 10 s drain, and TLS termination (go-sql-driver and the MariaDB 11.4 CLI with verification; plaintext refused) worked. A killed writer: the proxy switched within 0.2 s, but no write succeeded for 6.2 s (Galera's failure detection); when the returning node took SST the new writer became donor and the proxy switched a second time, closing long-lived connections at the drain deadline. Probes are aborted handshakes on the nodes (about two per second and node, one log line each).
+- **E6, full outage:** clean shutdown (all `safe_to_bootstrap: 0`, equal seqno) and crash (all seqno -1). The read-only diagnosis was correct in both cases (tie at equal seqno; no candidate after the crash with "run --wsrep-recover"), and the manager changed nothing for 120 s. New: `POST /clusters/{id}/outage-diagnosis` recovers positions with `mariadbd --wsrep-recover` in one-off agent containers, and `POST /clusters/{id}/outage-recovery` runs the guided plan only after a digest-bound approval. Both recoveries succeeded (40 s and 61 s after approval) with data and cluster state UUID kept.
+- Fixed with tests: no executable recovery (F-E6-1), no position recovery (F-E6-2), the `--wsrep-recover` command line (F-E6-3), a crash recovery that silently started a new cluster history from `seqno: -1` (F-E6-4), explicit `skip_name_resolve` (F-E5-2).
+
+Still open after E5/E6: no event/notification for a full outage; recovery approval uses the restore permission; joiners always take SST; redundant proxies, VIP, proxy deployment by the manager, node TLS and proxy-to-node TLS; probe log noise; a VM power loss; amd64.
+
 ## Scope broadened (2026-10-22)
 
 The owner broadened the product to a general self-hosted platform for clusters and services ([ADR 0012](decisions/0012-broadened-scope-platform.md)): Swarm/Kubernetes including provisioning, web servers with detailed composition, storage protocol servers, generic containers, Traefik, image builds with a managed or external registry and Docker engine updates, all through the UI with visible plans. Documented as requirements X01–X12, proposed phases R6–R9 and work packages W07–W10 (all PENDING). Nothing of the extension is implemented. Galera stays priority 1; W05/W06 and the R1 gates are unchanged. A09 is partly superseded by X09; the Docker update boundaries, product name and other choices are open in [ENTSCHEIDUNGEN.md](ENTSCHEIDUNGEN.md#open-decisions-from-the-scope-extension).
 
 ## Next action
 
-Re-run E4 on the lab with the E4 gap work (deletion of a failed and a healthy cluster, inspection on a worker host with verification and teardown, Galera position in the manifest, node-outage notification), then continue W05 (E5, E6, resource cases, amd64). The first working version must be validated locally before the user's Swarm trial. Most R1 scope (cluster creation through the manager, backups, TLS, passkeys, UI flows, notifications, restore, packaging) is not started.
+
+Continue W05: resource exhaustion and capacity denial, restart during cleanup, redundant proxies/VIP evaluation, a multi-replica manager on VMs, a VM power-loss outage, and native amd64 evidence; close the E4 gaps (cluster delete/discard, worker-host jobs, restore verification) and the E6 gaps (outage event, recovery permission). The first working version must be validated locally before the user's Swarm trial. Most R1 scope (cluster creation through the manager, backups, TLS, passkeys, UI flows, notifications, restore, packaging) is not started.
 
 ## Verification and limits
 

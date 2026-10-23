@@ -121,6 +121,21 @@ type Diagnosis struct {
 	RequiresApproval bool                  `json:"requires_approval"`
 }
 
+// RecoveryInput requests the guided full-outage recovery. Candidate must
+// be the slot the diagnosis proposes (the caller confirms what it saw).
+type RecoveryInput struct {
+	Candidate string `json:"candidate"`
+}
+
+// RecoveryStarted is a guided recovery operation waiting for approval.
+type RecoveryStarted struct {
+	ID        string            `json:"id"`
+	Kind      string            `json:"kind"`
+	Candidate string            `json:"candidate"`
+	Approval  OperationApproval `json:"approval"`
+	Diagnosis Diagnosis         `json:"diagnosis"`
+}
+
 // OperationApproval describes the approval an operation waits for. Digest
 // binds an approval to the exact stored operation definition.
 type OperationApproval struct {
@@ -172,6 +187,12 @@ type Control interface {
 	// create); its removals wait for an approval of the returned digest.
 	DeleteCluster(ctx context.Context, actor authz.Subject, clusterID string) (ClusterDeletion, error)
 	OutageDiagnosis(ctx context.Context, actor authz.Subject, clusterID string) (Diagnosis, error)
+	// OutageDiagnosisRecover is OutageDiagnosis after recovering the
+	// positions of crashed nodes (mariadbd --wsrep-recover).
+	OutageDiagnosisRecover(ctx context.Context, actor authz.Subject, clusterID string) (Diagnosis, error)
+	// OutageRecovery plans the guided full-outage recovery for the
+	// confirmed candidate and starts it waiting for an approval.
+	OutageRecovery(ctx context.Context, actor authz.Subject, clusterID, candidate string) (RecoveryStarted, error)
 	ResumeOperation(ctx context.Context, actor authz.Subject, opID string) error
 	AbortOperation(ctx context.Context, actor authz.Subject, opID string) error
 	ApproveOperation(ctx context.Context, actor authz.Subject, opID, digest string) (OperationApproval, error)
@@ -337,6 +358,16 @@ func (Unavailable) DeleteCluster(context.Context, authz.Subject, string) (Cluste
 }
 func (Unavailable) OutageDiagnosis(context.Context, authz.Subject, string) (Diagnosis, error) {
 	return Diagnosis{}, ErrUnavailable
+}
+
+// OutageDiagnosisRecover implements Control.
+func (Unavailable) OutageDiagnosisRecover(context.Context, authz.Subject, string) (Diagnosis, error) {
+	return Diagnosis{}, ErrUnavailable
+}
+
+// OutageRecovery implements Control.
+func (Unavailable) OutageRecovery(context.Context, authz.Subject, string, string) (RecoveryStarted, error) {
+	return RecoveryStarted{}, ErrUnavailable
 }
 func (Unavailable) ResumeOperation(context.Context, authz.Subject, string) error {
 	return ErrUnavailable

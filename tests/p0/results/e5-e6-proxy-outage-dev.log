@@ -1,0 +1,3555 @@
+
+## Phase build: cross-compile linux/arm64 binaries on the host
+
+### go build ./cmd/manager
+
+```
+$ env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o <repo>/.lab/e4/bin/manager ./cmd/manager
+(exit 0)
+```
+
+### go build ./cmd/agent
+
+```
+$ env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o <repo>/.lab/e4/bin/agent ./cmd/agent
+(exit 0)
+```
+
+### go build ./cmd/dbcm-job
+
+```
+$ env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o <repo>/.lab/e4/bin/dbcm-job ./cmd/dbcm-job
+(exit 0)
+```
+
+### go build ./cmd/proxy
+
+```
+$ env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o <repo>/.lab/e4/bin/proxy ./cmd/proxy
+(exit 0)
+```
+
+### go build ./tests/p0/e4client
+
+```
+$ env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o <repo>/.lab/e4/bin/e4client ./tests/p0/e4client
+(exit 0)
+```
+
+### go build ./tests/p0/e5client
+
+```
+$ env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o <repo>/.lab/e4/bin/e5client ./tests/p0/e5client
+(exit 0)
+```
+
+### git revision
+
+```
+$ git -C <repo> log -1 --format=%h %s
+62503f1 Record E4 results in status and workplan
+(exit 0)
+```
+
+
+## Phase vms: lab VMs (bin/lab) and rootful Docker
+
+host uptime:  5:07  up 4 days, 13:06, 6 users, load averages: 9.10 41.16 67.03
+
+03:07:09Z host load: { 9.10 41.16 67.03 }
+### host free disk before apply
+
+```
+$ host_free_disk
+host free disk (/System/Volumes/Data): 64Gi of 926Gi
+(exit 0)
+```
+
+### bin/lab status before
+
+```
+$ <repo>/bin/lab status
+host:
+  logical CPUs: 14
+  RAM: 48.0 GiB
+budget:
+  lab CPU limit: 7
+  lab RAM limit: 16.0 GiB
+  lab disk limit: 100.0 GiB
+manifest .lab/manifest.json:
+  (empty)
+inventory:
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+unrelated (never touched):
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+(exit 0)
+```
+
+### bin/lab apply -apply -vms 3 -cpus 2 -ram 4 -disk 20 -network lima:user-v2
+
+```
+$ <repo>/bin/lab apply -apply -vms 3 -cpus 2 -ram 4 -disk 20 -network lima:user-v2
+pre-snapshot:
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+executing actions:
+  # create Lima VM dbcm-lab-m1 (2 CPUs, 4 GiB RAM, 20 GiB disk, template docker, network lima:user-v2 (shared Lima state, not owned))
+  limactl create --name=dbcm-lab-m1 --cpus=2 --memory=4 --disk=20 --tty=false --network=lima:user-v2 template:docker
+  # start Lima VM dbcm-lab-m1
+  limactl start --tty=false dbcm-lab-m1
+  # create Lima VM dbcm-lab-m2 (2 CPUs, 4 GiB RAM, 20 GiB disk, template docker, network lima:user-v2 (shared Lima state, not owned))
+  limactl create --name=dbcm-lab-m2 --cpus=2 --memory=4 --disk=20 --tty=false --network=lima:user-v2 template:docker
+  # start Lima VM dbcm-lab-m2
+  limactl start --tty=false dbcm-lab-m2
+  # create Lima VM dbcm-lab-m3 (2 CPUs, 4 GiB RAM, 20 GiB disk, template docker, network lima:user-v2 (shared Lima state, not owned))
+  limactl create --name=dbcm-lab-m3 --cpus=2 --memory=4 --disk=20 --tty=false --network=lima:user-v2 template:docker
+  # start Lima VM dbcm-lab-m3
+  limactl start --tty=false dbcm-lab-m3
+post-snapshot diff:
+  added: lima:dbcm-lab-m1, lima:dbcm-lab-m2, lima:dbcm-lab-m3
+  removed: (none)
+(exit 0)
+```
+
+### switch dbcm-lab-m1 to rootful docker
+
+```
+$ vm_sh dbcm-lab-m1 
+			set -e
+			systemctl --user disable --now docker.service >/dev/null 2>&1 || true
+			sudo systemctl unmask containerd.service docker.service docker.socket >/dev/null 2>&1
+			sudo systemctl enable --now containerd.service docker.socket docker.service >/dev/null 2>&1
+			echo "rootful docker: $(systemctl is-active docker.service)"
+rootful docker: active
+(exit 0)
+```
+
+### facts dbcm-lab-m1
+
+```
+$ vm_sh dbcm-lab-m1 
+			echo "arch: $(uname -m) kernel: $(uname -r)"; grep PRETTY_NAME /etc/os-release; echo "nproc: $(nproc)"
+			free -m | head -2; df -h / | tail -1
+			sudo docker version --format "docker server {{.Server.Version}}"
+arch: aarch64 kernel: 7.0.0-28-generic
+PRETTY_NAME="Ubuntu 26.04 LTS"
+nproc: 2
+               total        used        free      shared  buff/cache   available
+Mem:            3896         538        2215           1        1304        3358
+/dev/vda1        19G  2.9G   16G  16% /
+docker server 29.9.2
+(exit 0)
+```
+
+### switch dbcm-lab-m2 to rootful docker
+
+```
+$ vm_sh dbcm-lab-m2 
+			set -e
+			systemctl --user disable --now docker.service >/dev/null 2>&1 || true
+			sudo systemctl unmask containerd.service docker.service docker.socket >/dev/null 2>&1
+			sudo systemctl enable --now containerd.service docker.socket docker.service >/dev/null 2>&1
+			echo "rootful docker: $(systemctl is-active docker.service)"
+rootful docker: active
+(exit 0)
+```
+
+### facts dbcm-lab-m2
+
+```
+$ vm_sh dbcm-lab-m2 
+			echo "arch: $(uname -m) kernel: $(uname -r)"; grep PRETTY_NAME /etc/os-release; echo "nproc: $(nproc)"
+			free -m | head -2; df -h / | tail -1
+			sudo docker version --format "docker server {{.Server.Version}}"
+arch: aarch64 kernel: 7.0.0-28-generic
+PRETTY_NAME="Ubuntu 26.04 LTS"
+nproc: 2
+               total        used        free      shared  buff/cache   available
+Mem:            3896         537        2219           1        1302        3359
+/dev/vda1        19G  2.9G   16G  16% /
+docker server 29.9.2
+(exit 0)
+```
+
+### switch dbcm-lab-m3 to rootful docker
+
+```
+$ vm_sh dbcm-lab-m3 
+			set -e
+			systemctl --user disable --now docker.service >/dev/null 2>&1 || true
+			sudo systemctl unmask containerd.service docker.service docker.socket >/dev/null 2>&1
+			sudo systemctl enable --now containerd.service docker.socket docker.service >/dev/null 2>&1
+			echo "rootful docker: $(systemctl is-active docker.service)"
+rootful docker: active
+(exit 0)
+```
+
+### facts dbcm-lab-m3
+
+```
+$ vm_sh dbcm-lab-m3 
+			echo "arch: $(uname -m) kernel: $(uname -r)"; grep PRETTY_NAME /etc/os-release; echo "nproc: $(nproc)"
+			free -m | head -2; df -h / | tail -1
+			sudo docker version --format "docker server {{.Server.Version}}"
+arch: aarch64 kernel: 7.0.0-28-generic
+PRETTY_NAME="Ubuntu 26.04 LTS"
+nproc: 2
+               total        used        free      shared  buff/cache   available
+Mem:            3896         556        2200           1        1302        3340
+/dev/vda1        19G  2.9G   16G  16% /
+docker server 29.9.2
+(exit 0)
+```
+
+### host free disk after apply
+
+```
+$ host_free_disk
+host free disk (/System/Volumes/Data): 62Gi of 926Gi
+(exit 0)
+```
+
+
+## Phase swarm: one manager node, two workers
+
+host uptime:  5:09  up 4 days, 13:08, 6 users, load averages: 12.61 31.37 59.32
+
+03:09:23Z host load: { 12.61 31.37 59.32 }
+03:09:23Z m1 user-v2 address: 192.168.104.1
+### swarm init on m1
+
+```
+$ vm_docker dbcm-lab-m1 swarm init --advertise-addr 192.168.104.1
+Swarm initialized: current node (l8ti5h5cgi60nvulbscycx2d7) is now a manager.
+
+To add a worker to this swarm, run the following command:
+
+    docker swarm join --token SWMTKN-<redacted><redacted><redacted><redacted><redacted><redacted> 192.168.104.1:2377
+
+To add a manager to this swarm, run 'docker swarm join-token manager' and follow the instructions.
+(exit 0)
+```
+
+### swarm join dbcm-lab-m2 (advertise 192.168.104.3, token not recorded)
+
+```
+$ vm_docker dbcm-lab-m2 swarm join --advertise-addr 192.168.104.3 --token SWMTKN-<redacted><redacted><redacted><redacted><redacted><redacted> 192.168.104.1:2377
+This node joined a swarm as a worker.
+(exit 0)
+```
+
+### swarm join dbcm-lab-m3 (advertise 192.168.104.4, token not recorded)
+
+```
+$ vm_docker dbcm-lab-m3 swarm join --advertise-addr 192.168.104.4 --token SWMTKN-<redacted><redacted><redacted><redacted><redacted><redacted> 192.168.104.1:2377
+This node joined a swarm as a worker.
+(exit 0)
+```
+
+### docker node ls
+
+```
+$ vm_docker dbcm-lab-m1 node ls
+ID                            HOSTNAME           STATUS    AVAILABILITY   MANAGER STATUS   ENGINE VERSION
+l8ti5h5cgi60nvulbscycx2d7 *   lima-dbcm-lab-m1   Ready     Active         Leader           29.9.2
+lbb5dl9ux5kh0t3q4tbix6has     lima-dbcm-lab-m2   Ready     Active                          29.9.2
+lzpg7z7lb8ibdsgazi0xj0wmz     lima-dbcm-lab-m3   Ready     Active                          29.9.2
+(exit 0)
+```
+
+
+## Phase images: binaries, agent and job images built inside m1, copied to m2/m3
+
+host uptime:  5:09  up 4 days, 13:08, 6 users, load averages: 12.61 31.37 59.32
+
+03:09:24Z host load: { 12.61 31.37 59.32 }
+### host-built linux/arm64 binaries (sha256)
+
+```
+$ sh -c cd '<repo>/.lab/e4/bin' && shasum -a 256 manager agent dbcm-job e4client && go version
+ccc2454f2ec21c5b5786bfdff6e5ca31de342148e1e382e1476f5cf9ecd727b6  manager
+e37d40735e690a507e6a9d96196405e70843ba2ad07d1023dbdb5025ff549ddc  agent
+99334b9468df0a744af8fdb2dc270a69277454ed3598777b3f5174add1750c70  dbcm-job
+4235b1a9553f5c4daab066a32f81c10ce67061424e940e6a2b4744f493513ed4  e4client
+go version go1.27.1 darwin/arm64
+(exit 0)
+```
+
+### install binaries in m1
+
+```
+$ vm_sh dbcm-lab-m1 
+		set -e
+		sudo install -m 0755 /tmp/manager /usr/local/bin/dbcm-e4-manager
+		sudo install -m 0755 /tmp/e4client /usr/local/bin/dbcm-e4-client
+		sudo mkdir -p /root/dbcm-e4-build/agent /root/dbcm-e4-build/job
+		sudo install -m 0755 /tmp/manager /tmp/agent /root/dbcm-e4-build/agent/
+		sudo install -m 0755 /tmp/dbcm-job /root/dbcm-e4-build/job/
+		rm -f /tmp/manager /tmp/agent /tmp/dbcm-job /tmp/e4client
+		/usr/local/bin/dbcm-e4-manager -version
+0.0.0-dev
+(exit 0)
+```
+
+### agent image Dockerfile (runtime stage of deploy/Dockerfile)
+
+```
+$ vm_args dbcm-lab-m1 
+		cat <<EOF | sudo tee /root/dbcm-e4-build/agent/Dockerfile
+FROM $1
+COPY manager agent /usr/local/bin/
+USER 65532:65532
+ENTRYPOINT ["/usr/local/bin/manager"]
+CMD ["-listen", "0.0.0.0:8080"]
+EOF gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
+COPY manager agent /usr/local/bin/
+USER 65532:65532
+ENTRYPOINT ["/usr/local/bin/manager"]
+CMD ["-listen", "0.0.0.0:8080"]
+(exit 0)
+```
+
+### build agent image in m1
+
+```
+$ vm_args dbcm-lab-m1 sudo docker build -q -t "$1" /root/dbcm-e4-build/agent && sudo docker image inspect --format "{{.Id}} {{.Architecture}} user={{.Config.User}} entrypoint={{.Config.Entrypoint}}" "$1" dbcm-agent:e4
+sha256:5b81b03670feb29a8e2245a18e038514d0d88665e0c40f86963b9b68dfeb90f5
+sha256:5b81b03670feb29a8e2245a18e038514d0d88665e0c40f86963b9b68dfeb90f5 arm64 user=65532:65532 entrypoint=[/usr/local/bin/manager]
+(exit 0)
+```
+
+### job image Dockerfile (final stage of deploy/Dockerfile.jobs)
+
+```
+$ vm_args dbcm-lab-m1 
+		cat <<EOF | sudo tee /root/dbcm-e4-build/job/Dockerfile
+FROM $1
+RUN set -eu; for t in mariabackup mbstream mariadb-dump mariadb; do test -x "/usr/bin/\$t"; done; \\
+    test "\$(id -u mysql):\$(id -g mysql)" = "999:999"
+COPY dbcm-job /usr/local/bin/dbcm-job
+USER 999:999
+HEALTHCHECK NONE
+ENTRYPOINT ["/usr/local/bin/dbcm-job"]
+CMD ["-version"]
+EOF mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+FROM mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+RUN set -eu; for t in mariabackup mbstream mariadb-dump mariadb; do test -x "/usr/bin/$t"; done; \
+    test "$(id -u mysql):$(id -g mysql)" = "999:999"
+COPY dbcm-job /usr/local/bin/dbcm-job
+USER 999:999
+HEALTHCHECK NONE
+ENTRYPOINT ["/usr/local/bin/dbcm-job"]
+CMD ["-version"]
+(exit 0)
+```
+
+### build job image in m1
+
+```
+$ vm_args dbcm-lab-m1 sudo docker build -q -t "$1" /root/dbcm-e4-build/job && sudo docker image inspect --format "{{.Id}} {{.Architecture}} user={{.Config.User}} volumes={{.Config.Volumes}}" "$1" && sudo docker run --rm "$1" -version dbcm-job:e4
+sha256:9e25774dc55d8786ffa8e1f2be9faf70220d36a2f33554998412ba6deb607e68
+sha256:9e25774dc55d8786ffa8e1f2be9faf70220d36a2f33554998412ba6deb607e68 arm64 user=999:999 volumes=map[/var/lib/mysql:map[]]
+dbcm-job 0.0.0-dev unknown
+(exit 0)
+```
+
+### copy images to dbcm-lab-m2 (docker save | docker load through the host)
+
+```
+$ sh -c limactl shell --workdir / dbcm-lab-m1 -- sudo docker save dbcm-agent:e4 dbcm-job:e4 | limactl shell --workdir / dbcm-lab-m2 -- sudo docker load
+Loaded image: dbcm-agent:e4
+Loaded image: dbcm-job:e4
+(exit 0)
+```
+
+### copy images to dbcm-lab-m3 (docker save | docker load through the host)
+
+```
+$ sh -c limactl shell --workdir / dbcm-lab-m1 -- sudo docker save dbcm-agent:e4 dbcm-job:e4 | limactl shell --workdir / dbcm-lab-m3 -- sudo docker load
+Loaded image: dbcm-agent:e4
+Loaded image: dbcm-job:e4
+(exit 0)
+```
+
+### pull pinned MariaDB image on dbcm-lab-m1
+
+```
+$ vm_docker dbcm-lab-m1 pull -q mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+docker.io/library/mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+(exit 0)
+```
+
+### pull pinned MariaDB image on dbcm-lab-m2
+
+```
+$ vm_docker dbcm-lab-m2 pull -q mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+docker.io/library/mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+(exit 0)
+```
+
+### pull pinned MariaDB image on dbcm-lab-m3
+
+```
+$ vm_docker dbcm-lab-m3 pull -q mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+docker.io/library/mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+(exit 0)
+```
+
+
+## Phase prereqs: operator-provided host directories, network and secrets (labelled with the installation)
+
+host uptime:  5:09  up 4 days, 13:08, 6 users, load averages: 11.87 29.70 57.90
+
+03:09:48Z host load: { 11.87 29.70 57.90 }
+### host directories on dbcm-lab-m1
+
+```
+$ vm_root dbcm-lab-m1 install -d -m 0700 /var/lib/dbcm-agent && install -d -m 0755 "$1" && ls -ld /var/lib/dbcm-agent "$1" /var/lib/dbcm/volumes
+drwx------ 2 root root 4096 Oct 23 05:09 /var/lib/dbcm-agent
+drwxr-xr-x 2 root root 4096 Oct 23 05:09 /var/lib/dbcm/volumes
+(exit 0)
+```
+
+### host directories on dbcm-lab-m2
+
+```
+$ vm_root dbcm-lab-m2 install -d -m 0700 /var/lib/dbcm-agent && install -d -m 0755 "$1" && ls -ld /var/lib/dbcm-agent "$1" /var/lib/dbcm/volumes
+drwx------ 2 root root 4096 Oct 23 05:09 /var/lib/dbcm-agent
+drwxr-xr-x 2 root root 4096 Oct 23 05:09 /var/lib/dbcm/volumes
+(exit 0)
+```
+
+### host directories on dbcm-lab-m3
+
+```
+$ vm_root dbcm-lab-m3 install -d -m 0700 /var/lib/dbcm-agent && install -d -m 0755 "$1" && ls -ld /var/lib/dbcm-agent "$1" /var/lib/dbcm/volumes
+drwx------ 2 root root 4096 Oct 23 05:09 /var/lib/dbcm-agent
+drwxr-xr-x 2 root root 4096 Oct 23 05:09 /var/lib/dbcm/volumes
+(exit 0)
+```
+
+### overlay network
+
+```
+$ vm_args dbcm-lab-m1 sudo docker network inspect -f "{{.Name}} exists" "$1" 2>/dev/null || sudo docker network create --driver overlay --attachable --label "dbcm.installation=$2" "$1" dbcm-e4-net e4lab
+
+2ufiodllqokylg6d0jdu7sjaf
+(exit 0)
+```
+
+### inspection network (operator-provided, labelled)
+
+```
+$ vm_args dbcm-lab-m1 sudo docker network inspect -f "{{.Name}} exists" dbcm-e4-inspect 2>/dev/null || sudo docker network create --driver overlay --attachable --label "dbcm.installation=$1" dbcm-e4-inspect e4lab
+
+r5ayf9126ekz3b3js48ndwwhh
+(exit 0)
+```
+
+### synthetic passwords and secrets (values never logged)
+
+```
+$ vm_root dbcm-lab-m1 
+		set -e
+		sudo install -d -m 0700 "$1"
+		for n in root monitor backup; do
+			[ -f "$1/$n.pw" ] || head -c 18 /dev/urandom | base64 | tr -d "\n" >"$1/$n.pw"
+		done
+		printf "[client]\nuser=dbcm_backup\npassword=%s\n" "$(sudo cat "$1/backup.pw")" | sudo tee "$1/backup.cnf" >/dev/null
+		sudo chmod 0600 "$1"/*
+		mk() { if sudo docker secret inspect "$1" >/dev/null 2>&1; then echo "secret $1 exists"; else sudo docker secret create --label "dbcm.installation=$2" "$1" "$3" >/dev/null && echo "secret $1"; fi; }
+		mk "$3" "$2" "$1/root.pw"; mk "$4" "$2" "$1/monitor.pw"; mk "$5" "$2" "$1/backup.pw"; mk "$6" "$2" "$1/backup.cnf" /root/dbcm-e4 e4lab dbcm-e4-root-pw dbcm-e4-monitor-pw dbcm-e4-backup-pw dbcm-e4-backup-cred
+secret dbcm-e4-root-pw
+secret dbcm-e4-monitor-pw
+secret dbcm-e4-backup-pw
+secret dbcm-e4-backup-cred
+(exit 0)
+```
+
+
+## Phase backend: SFTP backup target on m1 (OpenSSH of the VM, lab user)
+
+host uptime:  5:09  up 4 days, 13:08, 6 users, load averages: 11.87 29.70 57.90
+
+03:09:49Z host load: { 11.87 29.70 57.90 }
+### lab SFTP user and key
+
+```
+$ vm_root dbcm-lab-m1 
+		set -e
+		id dbcme4bak >/dev/null 2>&1 || sudo useradd -m -s /bin/sh dbcme4bak
+		sudo install -d -o dbcme4bak -g dbcme4bak -m 0700 /home/dbcme4bak/.ssh /home/dbcme4bak/backups
+		[ -f "$1/sftp_key" ] || sudo ssh-keygen -q -t ed25519 -N "" -f "$1/sftp_key"
+		sudo cp "$1/sftp_key.pub" /home/dbcme4bak/.ssh/authorized_keys
+		sudo chown dbcme4bak:dbcme4bak /home/dbcme4bak/.ssh/authorized_keys
+		sudo chmod 0600 /home/dbcme4bak/.ssh/authorized_keys
+		for t in ecdsa ed25519 rsa; do sudo ssh-keygen -lf /etc/ssh/ssh_host_${t}_key.pub | cut -d" " -f1,2,4; done /root/dbcm-e4
+256 SHA256:sZNiZFeDbQpeDbEcAniD+MG3gSBkCwxg0sab8iCV6qg (ECDSA)
+256 SHA256:8gynoA8s4lqAyrF7joc4JaZbiCP0IweuJlQ50vctNxw (ED25519)
+3072 SHA256:sZQa+CJzrPGAOublWNCuSGX26LlI49RMJTa0AOGaGIQ (RSA)
+(exit 0)
+```
+
+03:09:49Z pinned host key fingerprint (ecdsa): SHA256:sZNiZFeDbQpeDbEcAniD+MG3gSBkCwxg0sab8iCV6qg
+### backend config (private key not logged) and recovery key
+
+```
+$ vm_root dbcm-lab-m1 
+		set -e
+		key=$(sudo cat "$1/sftp_key" | python3 -c "import json,sys; print(json.dumps(sys.stdin.read()))")
+		printf "{\"type\":\"sftp\",\"sftp\":{\"addr\":\"%s:22\",\"user\":\"dbcme4bak\",\"dir\":\"/home/dbcme4bak/backups\",\"host_key_fingerprint\":\"%s\",\"private_key_pem\":%s}}\n" "$2" "$3" "$key" | sudo tee "$1/backend.json" >/dev/null
+		sudo chmod 0600 "$1/backend.json"
+		sudo python3 -c "import json,sys; c=json.load(open(sys.argv[1])); c[\"sftp\"][\"private_key_pem\"]=\"<redacted>\"; print(json.dumps(c))" "$1/backend.json"
+		[ -f "$1/recipient.pub" ] || /usr/local/bin/dbcm-e4-client -state "$1/client.json" keygen "$1/recovery.key" >"$1/recipient.pub"
+		cat "$1/recipient.pub"
+		for x in "$5:backend.json" "$6:recovery.key"; do
+			n=${x%%:*}; f=${x#*:}
+			if docker secret inspect "$n" >/dev/null 2>&1; then echo "secret $n exists"; else docker secret create --label "dbcm.installation=$4" "$n" "$1/$f" >/dev/null && echo "secret $n"; fi
+		done /root/dbcm-e4 192.168.104.1 SHA256:sZNiZFeDbQpeDbEcAniD+MG3gSBkCwxg0sab8iCV6qg e4lab dbcm-e4-backend dbcm-e4-recovery-key
+{"type": "sftp", "sftp": {"addr": "192.168.104.1:22", "user": "dbcme4bak", "dir": "/home/dbcme4bak/backups", "host_key_fingerprint": "SHA256:sZNiZFeDbQpeDbEcAniD+MG3gSBkCwxg0sab8iCV6qg", "private_key_pem": "<redacted>"}}
+dbcmpk1:XtQddbuJ5KyJ0EktUA9i1eaJYfL7hf-Px70yyGSe_Ak
+secret dbcm-e4-backend
+secret dbcm-e4-recovery-key
+(exit 0)
+```
+
+
+## Phase manager: start bin/manager (managed single-instance mode, auth, mTLS agents)
+
+host uptime:  5:09  up 4 days, 13:08, 6 users, load averages: 11.87 29.70 57.90
+
+03:09:49Z host load: { 11.87 29.70 57.90 }
+### manager config
+
+```
+$ vm_root dbcm-lab-m1 
+		set -e
+		sudo install -d -m 0700 /etc/dbcm-e4 /var/lib/dbcm-e4
+		cat <<EOF | sudo tee /etc/dbcm-e4/manager.json
+{
+  "auth": {"enabled": true, "rpId": "localhost", "rpDisplayName": "E4 lab", "origins": ["http://localhost:$2"]},
+  "manager": {
+    "nodeId": "manager-1", "dataDir": "/var/lib/dbcm-e4", "bind": "127.0.0.1:$3", "bootstrap": true,
+    "agentTransport": {
+      "enrollListen": "$1:$4", "managerUrl": "https://$1:$4", "agentPort": 7443,
+      "monitorUser": "dbcm_monitor", "monitorSecret": "$5", "dbSecrets": ["$6", "$7"]
+    },
+    "backup": {"backendConfigFile": "$9/backend.json", "scheduleIntervalSeconds": 30},
+    "settings": {
+      "installationId": "$8", "volumeBase": "/var/lib/dbcm/volumes", "agentImage": "dbcm-agent:e4",
+      "accounts": {"monitorUser": "dbcm_monitor", "monitorSecret": "$5", "backupSecret": "$7"},
+      "backup": {"jobImage": "dbcm-job:e4", "backendSecret": "dbcm-e4-backend", "dbCredentialSecret": "dbcm-e4-backup-cred",
+                 "recipientKey": "${10}", "keySecret": "dbcm-e4-recovery-key", "inspectionNetwork": "dbcm-e4-inspect"}
+    }
+  }
+}
+EOF 192.168.104.1 18480 18490 7444 dbcm-e4-monitor-pw dbcm-e4-root-pw dbcm-e4-backup-pw e4lab /root/dbcm-e4 dbcmpk1:XtQddbuJ5KyJ0EktUA9i1eaJYfL7hf-Px70yyGSe_Ak
+{
+  "auth": {"enabled": true, "rpId": "localhost", "rpDisplayName": "E4 lab", "origins": ["http://localhost:18480"]},
+  "manager": {
+    "nodeId": "manager-1", "dataDir": "/var/lib/dbcm-e4", "bind": "127.0.0.1:18490", "bootstrap": true,
+    "agentTransport": {
+      "enrollListen": "192.168.104.1:7444", "managerUrl": "https://192.168.104.1:7444", "agentPort": 7443,
+      "monitorUser": "dbcm_monitor", "monitorSecret": "dbcm-e4-monitor-pw", "dbSecrets": ["dbcm-e4-root-pw", "dbcm-e4-backup-pw"]
+    },
+    "backup": {"backendConfigFile": "/root/dbcm-e4/backend.json", "scheduleIntervalSeconds": 30},
+    "settings": {
+      "installationId": "e4lab", "volumeBase": "/var/lib/dbcm/volumes", "agentImage": "dbcm-agent:e4",
+      "accounts": {"monitorUser": "dbcm_monitor", "monitorSecret": "dbcm-e4-monitor-pw", "backupSecret": "dbcm-e4-backup-pw"},
+      "backup": {"jobImage": "dbcm-job:e4", "backendSecret": "dbcm-e4-backend", "dbCredentialSecret": "dbcm-e4-backup-cred",
+                 "recipientKey": "dbcmpk1:XtQddbuJ5KyJ0EktUA9i1eaJYfL7hf-Px70yyGSe_Ak", "keySecret": "dbcm-e4-recovery-key", "inspectionNetwork": "dbcm-e4-inspect"}
+    }
+  }
+}
+(exit 0)
+```
+
+### start manager unit
+
+```
+$ vm_args dbcm-lab-m1 sudo systemd-run --unit "$1" -p Restart=no --collect /usr/local/bin/dbcm-e4-manager -listen "127.0.0.1:$2" -config /etc/dbcm-e4/manager.json dbcm-e4-manager 18480
+Running as unit: dbcm-e4-manager.service; invocation ID: 83da225d9a0e48d19e0c9adc180e7a02
+(exit 0)
+```
+
+03:09:50Z wait ok after 1s: manager health
+03:09:52Z wait ok after 2s: manager leads (API not 503)
+### manager log (setup token line removed)
+
+```
+$ vm_args dbcm-lab-m1 sudo journalctl -u "$1" --no-pager | grep -v "setup token" | tail -20 dbcm-e4-manager
+Oct 23 05:09:49 lima-dbcm-lab-m1 systemd[1]: Started dbcm-e4-manager.service - [systemd-run] /usr/local/bin/dbcm-e4-manager -listen 127.0.0.1:18480 -config /etc/dbcm-e4/manager.json.
+Oct 23 05:09:50 lima-dbcm-lab-m1 dbcm-e4-manager[31111]: 2026/10/23 05:09:50 INFO manager: agent enrollment endpoint listening addr=192.168.104.1:7444
+Oct 23 05:09:50 lima-dbcm-lab-m1 dbcm-e4-manager[31111]: 2026/10/23 05:09:50 INFO manager listening addr=127.0.0.1:18480 version=0.0.0-dev auth=true
+Oct 23 05:09:51 lima-dbcm-lab-m1 dbcm-e4-manager[31111]: 2026/10/23 05:09:51 INFO manager: leadership started term=2 adopted=0
+Oct 23 05:09:51 lima-dbcm-lab-m1 dbcm-e4-manager[31111]: 2026/10/23 05:09:51 INFO manager: configured settings applied
+Oct 23 05:09:51 lima-dbcm-lab-m1 dbcm-e4-manager[31111]: 2026/10/23 05:09:51 INFO manager: bound the manager system subject to its system role
+(exit 0)
+```
+
+### listeners in m1
+
+```
+$ vm_sh dbcm-lab-m1 sudo ss -ltnp | grep -E 'dbcm-e4|:18480|:18490|:7444' || true
+LISTEN 0      4096       127.0.0.1:18480      0.0.0.0:*    users:(("dbcm-e4-manager",pid=31111,fd=9))             
+LISTEN 0      4096       127.0.0.1:18490      0.0.0.0:*    users:(("dbcm-e4-manager",pid=31111,fd=7))             
+LISTEN 0      4096   192.168.104.1:7444       0.0.0.0:*    users:(("dbcm-e4-manager",pid=31111,fd=8))             
+(exit 0)
+```
+
+
+## Phase setup: first administrator with a software passkey through the API
+
+host uptime:  5:09  up 4 days, 13:08, 6 users, load averages: 11.56 29.34 57.61
+
+03:09:52Z host load: { 11.56 29.34 57.61 }
+### setup status
+
+```
+$ api GET /api/v1/setup/status
+HTTP 200
+{"setupRequired":true}
+(exit 0)
+```
+
+### setup (WebAuthn registration, ES256 software key)
+
+```
+$ vm_args dbcm-lab-m1 sudo /usr/local/bin/dbcm-e4-client -state "$1/client.json" -base "http://127.0.0.1:$2" -origin "http://localhost:$2" setup -token-file "$1/setup.token" -account admin /root/dbcm-e4 18480
+setup finished: account admin, 10 recovery codes issued (not printed), session cookie set: true
+(exit 0)
+```
+
+### session
+
+```
+$ api GET /api/v1/auth/session
+HTTP 200
+{"accountId":"admin","restricted":false,"pendingPasskeyEnrollment":false,"createdAt":"2026-10-23T05:09:52.592356371+02:00"}
+(exit 0)
+```
+
+### setup status after
+
+```
+$ api GET /api/v1/setup/status
+HTTP 200
+{"setupRequired":false}
+(exit 0)
+```
+
+
+## Phase swarmapi: connect the Swarm, sync, enroll hosts, deploy agents
+
+host uptime:  5:09  up 4 days, 13:08, 6 users, load averages: 11.56 29.34 57.61
+
+03:09:52Z host load: { 11.56 29.34 57.61 }
+### connect swarm
+
+```
+$ api POST /api/v1/swarms {"name":"lab","dockerHost":"unix:///var/run/docker.sock"}
+HTTP 201
+{"id":"swarm-164e04f271496e15","name":"lab","state":"unknown"}
+(exit 0)
+```
+
+03:09:52Z swarm id: swarm-164e04f271496e15
+### sync swarm
+
+```
+$ api POST /api/v1/swarms/swarm-164e04f271496e15/sync
+HTTP 204
+
+(exit 0)
+```
+
+### swarms
+
+```
+$ api GET /api/v1/swarms
+HTTP 200
+{"items":[{"id":"swarm-164e04f271496e15","name":"lab","state":"healthy","observedAt":"2026-10-23T05:09:52.893929302+02:00"}]}
+(exit 0)
+```
+
+### hosts after sync
+
+```
+$ api GET /api/v1/hosts
+HTTP 200
+{"items":[{"swarm":"swarm-164e04f271496e15","nodeId":"l8ti5h5cgi60nvulbscycx2d7","hostname":"lima-dbcm-lab-m1","role":"manager","availability":"active","state":"ready","engineVersion":"29.9.2","enrollment":"discovered","nanoCpus":2000000000,"memoryBytes":4086222848,"observedAt":"2026-10-23T05:09:52.893929302+02:00"},{"swarm":"swarm-164e04f271496e15","nodeId":"lbb5dl9ux5kh0t3q4tbix6has","hostname":"lima-dbcm-lab-m2","role":"worker","availability":"active","state":"ready","engineVersion":"29.9.2","enrollment":"discovered","nanoCpus":2000000000,"memoryBytes":4086218752,"observedAt":"2026-10-23T05:09:52.893929302+02:00"},{"swarm":"swarm-164e04f271496e15","nodeId":"lzpg7z7lb8ibdsgazi0xj0wmz","hostname":"lima-dbcm-lab-m3","role":"worker","availability":"active","state":"ready","engineVersion":"29.9.2","enrollment":"discovered","nanoCpus":2000000000,"memoryBytes":4086222848,"observedAt":"2026-10-23T05:09:52.893929302+02:00"}]}
+(exit 0)
+```
+
+### enroll host l8ti5h5cgi60nvulbscycx2d7
+
+```
+$ api POST /api/v1/hosts/l8ti5h5cgi60nvulbscycx2d7/enroll {}
+HTTP 200
+{"swarm":"swarm-164e04f271496e15","nodeId":"l8ti5h5cgi60nvulbscycx2d7","hostname":"lima-dbcm-lab-m1","role":"manager","availability":"active","state":"ready","engineVersion":"29.9.2","enrollment":"enrolled","nanoCpus":2000000000,"memoryBytes":4086222848,"observedAt":"2026-10-23T05:09:52.893929302+02:00"}
+(exit 0)
+```
+
+### enroll host lbb5dl9ux5kh0t3q4tbix6has
+
+```
+$ api POST /api/v1/hosts/lbb5dl9ux5kh0t3q4tbix6has/enroll {}
+HTTP 200
+{"swarm":"swarm-164e04f271496e15","nodeId":"lbb5dl9ux5kh0t3q4tbix6has","hostname":"lima-dbcm-lab-m2","role":"worker","availability":"active","state":"ready","engineVersion":"29.9.2","enrollment":"enrolled","nanoCpus":2000000000,"memoryBytes":4086218752,"observedAt":"2026-10-23T05:09:52.893929302+02:00"}
+(exit 0)
+```
+
+### enroll host lzpg7z7lb8ibdsgazi0xj0wmz
+
+```
+$ api POST /api/v1/hosts/lzpg7z7lb8ibdsgazi0xj0wmz/enroll {}
+HTTP 200
+{"swarm":"swarm-164e04f271496e15","nodeId":"lzpg7z7lb8ibdsgazi0xj0wmz","hostname":"lima-dbcm-lab-m3","role":"worker","availability":"active","state":"ready","engineVersion":"29.9.2","enrollment":"enrolled","nanoCpus":2000000000,"memoryBytes":4086222848,"observedAt":"2026-10-23T05:09:52.893929302+02:00"}
+(exit 0)
+```
+
+### deploy agents
+
+```
+$ api POST /api/v1/swarms/swarm-164e04f271496e15/agents/deploy
+HTTP 200
+{"serviceId":"i6v9zvvswb6iqzffc0x5jzpdk","created":true,"labeled":["l8ti5h5cgi60nvulbscycx2d7","lbb5dl9ux5kh0t3q4tbix6has","lzpg7z7lb8ibdsgazi0xj0wmz"],"unlabeled":[],"failed":[]}
+(exit 0)
+```
+
+### agent service
+
+```
+$ vm_docker dbcm-lab-m1 service ls --filter label=dbcm.installation=e4lab
+ID             NAME               MODE      REPLICAS   IMAGE           PORTS
+i6v9zvvswb6i   dbcm-agent-e4lab   global    0/3        dbcm-agent:e4   
+(exit 0)
+```
+
+03:09:55Z wait ok after 2s: all 3 agents enrolled (agentIdentity true)
+### hosts after enrollment
+
+```
+$ api GET /api/v1/hosts
+HTTP 200
+{"items":[{"swarm":"swarm-164e04f271496e15","nodeId":"l8ti5h5cgi60nvulbscycx2d7","hostname":"lima-dbcm-lab-m1","role":"manager","availability":"active","state":"ready","engineVersion":"29.9.2","enrollment":"enrolled","nanoCpus":2000000000,"memoryBytes":4086222848,"observedAt":"2026-10-23T05:09:52.893929302+02:00","agentIdentity":true},{"swarm":"swarm-164e04f271496e15","nodeId":"lbb5dl9ux5kh0t3q4tbix6has","hostname":"lima-dbcm-lab-m2","role":"worker","availability":"active","state":"ready","engineVersion":"29.9.2","enrollment":"enrolled","nanoCpus":2000000000,"memoryBytes":4086218752,"observedAt":"2026-10-23T05:09:52.893929302+02:00","agentIdentity":true},{"swarm":"swarm-164e04f271496e15","nodeId":"lzpg7z7lb8ibdsgazi0xj0wmz","hostname":"lima-dbcm-lab-m3","role":"worker","availability":"active","state":"ready","engineVersion":"29.9.2","enrollment":"enrolled","nanoCpus":2000000000,"memoryBytes":4086222848,"observedAt":"2026-10-23T05:09:52.893929302+02:00","agentIdentity":true}]}
+(exit 0)
+```
+
+### agent tasks
+
+```
+$ vm_docker dbcm-lab-m1 service ps --format {{.Node}} {{.CurrentState}} {{.Error}} dbcm-agent-e4lab
+lima-dbcm-lab-m1 Running 1 second ago 
+lima-dbcm-lab-m2 Running 1 second ago 
+lima-dbcm-lab-m3 Running 1 second ago 
+(exit 0)
+```
+
+
+## Phase cluster: POST /clusters and wait for the operation
+
+host uptime:  5:09  up 4 days, 13:08, 6 users, load averages: 11.56 29.34 57.61
+
+03:09:55Z host load: { 11.56 29.34 57.61 }
+### create cluster
+
+```
+$ api POST /api/v1/clusters {"swarm":"swarm-164e04f271496e15","name":"e4db","size":3,"image":"mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873","network":"dbcm-e4-net","rootPasswordSecret":"dbcm-e4-root-pw","gcacheSize":"128M","resources":{"limits":{"milli_cpu":1000,"memory_bytes":1073741824},"reservations":{"milli_cpu":250,"memory_bytes":536870912}},"placement":{"reserve":{}}}
+HTTP 202
+{"id":"op-388470df93967c66","kind":"galera/create-cluster"}
+```
+
+03:09:55Z operation op-388470df93967c66 cluster clu-bb658915db82e300
+03:09:55Z operation: pending 
+03:10:15Z operation: running 
+03:10:36Z operation: running 
+03:10:56Z operation: running 
+03:11:16Z operation: running 
+03:11:36Z operation: succeeded all steps succeeded
+### operation
+
+```
+$ api GET /api/v1/operations
+HTTP 200
+{"items":[{"id":"op-388470df93967c66","kind":"galera/create-cluster","swarm":"swarm-164e04f271496e15","cluster":"clu-bb658915db82e300","state":"succeeded","startedAt":"2026-10-23T05:09:55.751460319+02:00","endedAt":"2026-10-23T05:11:20.084202238+02:00","reason":"all steps succeeded"}]}
+(exit 0)
+```
+
+### cluster
+
+```
+$ api GET /api/v1/clusters/clu-bb658915db82e300
+HTTP 200
+{"id":"clu-bb658915db82e300","swarm":"swarm-164e04f271496e15","name":"e4db","engine":"mariadb-galera","state":"healthy","nodes":[{"id":"n1","host":"l8ti5h5cgi60nvulbscycx2d7","state":"healthy","role":"synced","observedAt":"2026-10-23T05:11:21.530181772+02:00"},{"id":"n2","host":"lzpg7z7lb8ibdsgazi0xj0wmz","state":"healthy","role":"synced","observedAt":"2026-10-23T05:11:21.530265192+02:00"},{"id":"n3","host":"lbb5dl9ux5kh0t3q4tbix6has","state":"healthy","role":"synced","observedAt":"2026-10-23T05:11:21.53035757+02:00"}],"observedAt":"2026-10-23T05:11:21.530181772+02:00","endpoints":[{"name":"n1","host":"dbcm-e4db-n1","port":3306},{"name":"n2","host":"dbcm-e4db-n2","port":3306},{"name":"n3","host":"dbcm-e4db-n3","port":3306}],"automationPolicy":"manual"}
+(exit 0)
+```
+
+### events
+
+```
+$ api GET /api/v1/events
+HTTP 200
+{"items":[{"id":"01792725080086194596-288aa9df","time":"2026-10-23T05:11:20.086194596+02:00","swarm":"swarm-164e04f271496e15","cluster":"clu-bb658915db82e300","severity":"info","message":"operation op-388470df93967c66 (galera/create-cluster) succeeded"},{"id":"01792724995753458256-5629236f","time":"2026-10-23T05:09:55.753458256+02:00","swarm":"swarm-164e04f271496e15","cluster":"clu-bb658915db82e300","severity":"info","message":"admin requested cluster e4db (3 nodes), operation op-388470df93967c66"},{"id":"01792724993355945294-efd24e33","time":"2026-10-23T05:09:53.355945294+02:00","swarm":"swarm-164e04f271496e15","severity":"info","message":"admin deployed agents: service i6v9zvvswb6iqzffc0x5jzpdk, 3 enrolled, 0 revoked, 0 failed"},{"id":"01792724991524192237-68b29c61","time":"2026-10-23T05:09:51.524192237+02:00","severity":"info","message":"manager manager-1 leads term 2; 0 unfinished operation(s) taken over"}]}
+(exit 0)
+```
+
+### services
+
+```
+$ vm_docker dbcm-lab-m1 service ls
+ID             NAME               MODE         REPLICAS   IMAGE             PORTS
+i6v9zvvswb6i   dbcm-agent-e4lab   global       3/3        dbcm-agent:e4     
+d21vutejw3gh   dbcm-e4db-n1       replicated   1/1        mariadb:11.4.13   
+x8cdki68qlye   dbcm-e4db-n2       replicated   1/1        mariadb:11.4.13   
+vd5rtih840rb   dbcm-e4db-n3       replicated   1/1        mariadb:11.4.13   
+(exit 0)
+```
+
+### galera tasks
+
+```
+$ vm_sh dbcm-lab-m1 sudo docker service ps --no-trunc --format '{{.Name}} {{.Node}} {{.CurrentState}} {{.Error}}' $(sudo docker service ls -q --filter label=dbcm.cluster)
+dbcm-e4db-n1.1 lima-dbcm-lab-m1 Running 27 seconds ago 
+dbcm-e4db-n1.1 lima-dbcm-lab-m1 Shutdown 28 seconds ago 
+dbcm-e4db-n2.1 lima-dbcm-lab-m3 Running about a minute ago 
+dbcm-e4db-n3.1 lima-dbcm-lab-m2 Running about a minute ago 
+(exit 0)
+```
+
+
+## Phase verify: real MariaDB checks
+
+host uptime:  5:11  up 4 days, 13:10, 6 users, load averages: 8.02 22.99 51.99
+
+03:11:36Z host load: { 8.02 22.99 51.99 }
+### n1 placement and wsrep status
+
+```
+$ sh -c echo vm=$0; printf '%s\n' "$1" dbcm-lab-m1 dbcm-e4db-n1	/dbcm/run/mysqld.sock	/dbcm/data/
+wsrep_local_state_comment	Synced
+wsrep_cluster_size	3
+wsrep_cluster_state_uuid	3b2d2499-ce8f-11f1-a8b6-67c327274574
+wsrep_cluster_status	Primary
+wsrep_connected	ON
+wsrep_ready	ON
+vm=dbcm-lab-m1
+dbcm-e4db-n1	/dbcm/run/mysqld.sock	/dbcm/data/
+wsrep_local_state_comment	Synced
+wsrep_cluster_size	3
+wsrep_cluster_state_uuid	3b2d2499-ce8f-11f1-a8b6-67c327274574
+wsrep_cluster_status	Primary
+wsrep_connected	ON
+wsrep_ready	ON
+(exit 0)
+```
+
+### n2 placement and wsrep status
+
+```
+$ sh -c echo vm=$0; printf '%s\n' "$1" dbcm-lab-m3 dbcm-e4db-n2	/dbcm/run/mysqld.sock	/dbcm/data/
+wsrep_local_state_comment	Synced
+wsrep_cluster_size	3
+wsrep_cluster_state_uuid	3b2d2499-ce8f-11f1-a8b6-67c327274574
+wsrep_cluster_status	Primary
+wsrep_connected	ON
+wsrep_ready	ON
+vm=dbcm-lab-m3
+dbcm-e4db-n2	/dbcm/run/mysqld.sock	/dbcm/data/
+wsrep_local_state_comment	Synced
+wsrep_cluster_size	3
+wsrep_cluster_state_uuid	3b2d2499-ce8f-11f1-a8b6-67c327274574
+wsrep_cluster_status	Primary
+wsrep_connected	ON
+wsrep_ready	ON
+(exit 0)
+```
+
+### n3 placement and wsrep status
+
+```
+$ sh -c echo vm=$0; printf '%s\n' "$1" dbcm-lab-m2 dbcm-e4db-n3	/dbcm/run/mysqld.sock	/dbcm/data/
+wsrep_local_state_comment	Synced
+wsrep_cluster_size	3
+wsrep_cluster_state_uuid	3b2d2499-ce8f-11f1-a8b6-67c327274574
+wsrep_cluster_status	Primary
+wsrep_connected	ON
+wsrep_ready	ON
+vm=dbcm-lab-m2
+dbcm-e4db-n3	/dbcm/run/mysqld.sock	/dbcm/data/
+wsrep_local_state_comment	Synced
+wsrep_cluster_size	3
+wsrep_cluster_state_uuid	3b2d2499-ce8f-11f1-a8b6-67c327274574
+wsrep_cluster_status	Primary
+wsrep_connected	ON
+wsrep_ready	ON
+(exit 0)
+```
+
+### write on n1
+
+```
+$ rsql 1 CREATE DATABASE IF NOT EXISTS e4; CREATE TABLE IF NOT EXISTS e4.t (id INT PRIMARY KEY, v VARCHAR(64), at TIMESTAMP DEFAULT CURRENT_TIMESTAMP); REPLACE INTO e4.t (id, v) VALUES (1, 'written on n1'); SELECT COUNT(*) FROM e4.t
+1
+(exit 0)
+```
+
+### write on n3
+
+```
+$ rsql 3 REPLACE INTO e4.t (id, v) VALUES (3, 'written on n3')
+(exit 0)
+```
+
+### read on n1
+
+```
+$ rsql 1 SELECT id, v FROM e4.t ORDER BY id
+1	written on n1
+3	written on n3
+(exit 0)
+```
+
+### read on n2
+
+```
+$ rsql 2 SELECT id, v FROM e4.t ORDER BY id
+1	written on n1
+3	written on n3
+(exit 0)
+```
+
+### read on n3
+
+```
+$ rsql 3 SELECT id, v FROM e4.t ORDER BY id
+1	written on n1
+3	written on n3
+(exit 0)
+```
+
+### accounts and grants (n2, replicated)
+
+```
+$ rsql 2 SELECT user, host, plugin FROM mysql.user ORDER BY user, host; SHOW GRANTS FOR 'dbcm_monitor'@'localhost'; SHOW GRANTS FOR 'dbcm_backup'@'%'
+dbcm_backup	%	mysql_native_password
+dbcm_monitor	localhost	mysql_native_password
+healthcheck	127.0.0.1	mysql_native_password
+healthcheck	::1	mysql_native_password
+healthcheck	localhost	mysql_native_password
+mariadb.sys	localhost	mysql_native_password
+mysql	localhost	unix_socket
+root	%	mysql_native_password
+root	localhost	mysql_native_password
+GRANT USAGE ON *.* TO `dbcm_monitor`@`localhost` IDENTIFIED BY PASSWORD '<hash redacted>'
+GRANT RELOAD, PROCESS, LOCK TABLES, BINLOG MONITOR ON *.* TO `dbcm_backup`@`%` IDENTIFIED BY PASSWORD '<hash redacted>'
+(exit 0)
+```
+
+### monitoring account over the node socket (inside the n2 container, password from m1 state file via stdin)
+
+```
+$ sh -c limactl shell --workdir / dbcm-lab-m1 -- sudo cat /root/dbcm-e4/monitor.pw | limactl shell --workdir / dbcm-lab-m3 -- sudo docker exec -i 5dec1d66334a028fd4ff6e1ef784546b554a823e90c7048a7bf669f5f3ada7ce sh -c 'read -r pw; exec mariadb -S /dbcm/run/mysqld.sock -udbcm_monitor -p"$pw" -N -B -e "SELECT CURRENT_USER(); SHOW GLOBAL STATUS LIKE \"wsrep_cluster_size\""'
+dbcm_monitor@localhost
+wsrep_cluster_size	3
+(exit 0)
+```
+
+### volume layout on the n1 host
+
+```
+$ vm_sh dbcm-lab-m1 sudo ls -la /var/lib/dbcm/volumes/ && sudo ls -la /var/lib/dbcm/volumes/*n1*/ && sudo ls -la /var/lib/dbcm/volumes/*n1*/run/
+total 12
+drwxr-xr-x 3 root root 4096 Oct 23 05:09 .
+drwxr-xr-x 3 root root 4096 Oct 23 05:09 ..
+drwxr-xr-x 4 root root 4096 Oct 23 05:09 dbcm-e4db-n1-88b0a7cb
+total 20
+drwxr-xr-x 4 root root            4096 Oct 23 05:09 .
+drwxr-xr-x 3 root root            4096 Oct 23 05:09 ..
+drwxr-x--- 6 999  systemd-journal 4096 Oct 23 05:11 data
+-rw-r--r-- 1 root root             126 Oct 23 05:09 dbcm-identity.json
+drwxr-x--- 2 999  systemd-journal 4096 Oct 23 05:11 run
+total 8
+drwxr-x--- 2 999  systemd-journal 4096 Oct 23 05:11 .
+drwxr-xr-x 4 root root            4096 Oct 23 05:09 ..
+srwxrwxrwx 1 999  systemd-journal    0 Oct 23 05:11 mysqld.sock
+(exit 0)
+```
+
+### cluster via API (health)
+
+```
+$ api GET /api/v1/clusters/clu-bb658915db82e300
+HTTP 200
+{"id":"clu-bb658915db82e300","swarm":"swarm-164e04f271496e15","name":"e4db","engine":"mariadb-galera","state":"healthy","nodes":[{"id":"n1","host":"l8ti5h5cgi60nvulbscycx2d7","state":"healthy","role":"synced","observedAt":"2026-10-23T05:11:36.528025018+02:00"},{"id":"n2","host":"lzpg7z7lb8ibdsgazi0xj0wmz","state":"healthy","role":"synced","observedAt":"2026-10-23T05:11:36.528939048+02:00"},{"id":"n3","host":"lbb5dl9ux5kh0t3q4tbix6has","state":"healthy","role":"synced","observedAt":"2026-10-23T05:11:36.528983841+02:00"}],"observedAt":"2026-10-23T05:11:36.528025018+02:00","endpoints":[{"name":"n1","host":"dbcm-e4db-n1","port":3306},{"name":"n2","host":"dbcm-e4db-n2","port":3306},{"name":"n3","host":"dbcm-e4db-n3","port":3306}],"automationPolicy":"manual"}
+(exit 0)
+```
+
+03:11:39Z E5_KEEP_VMS=1: VMs kept; run bin/lab cleanup -apply manually
+03:11:39Z E5/E6 finished with exit 0
+
+## Phase proxyprep (E5): accounts, certificates, proxy container on m1
+
+host uptime:  5:12  up 4 days, 13:11, 6 users, load averages: 8.01 20.80 49.53
+
+03:12:26Z host load: { 8.01 20.80 49.53 }
+### install proxy and e5client in /root/dbcm-e5
+
+```
+$ vm_root dbcm-lab-m1 
+		set -e
+		install -d -m 0700 "$1" "$1/out"
+		install -m 0755 /tmp/proxy /tmp/e5client "$1/"
+		rm -f /tmp/proxy /tmp/e5client
+		for n in monitor app; do [ -f "$1/$n.pw" ] || head -c 18 /dev/urandom | base64 | tr -d "/+\n" >"$1/$n.pw"; done
+		chmod 0600 "$1"/*.pw
+		"$1/e5client" gencert -dir "$1" -name dbcm-e5-proxy
+		ls -l "$1" /root/dbcm-e5
+certificate for dbcm-e5-proxy (and localhost, 127.0.0.1) written to /root/dbcm-e5: ca.pem cert.pem key.pem
+total 21560
+-rw------- 1 root root       24 Oct 23 05:12 app.pw
+-rw-r--r-- 1 root root      542 Oct 23 05:12 ca.pem
+-rw-r--r-- 1 root root     1149 Oct 23 05:12 cert.pem
+-rwxr-xr-x 1 root root 10230599 Oct 23 05:12 e5client
+-rw-r--r-- 1 root root      241 Oct 23 05:12 key.pem
+-rw------- 1 root root       23 Oct 23 05:12 monitor.pw
+drwx------ 2 root root     4096 Oct 23 05:12 out
+-rwxr-xr-x 1 root root 11817414 Oct 23 05:12 proxy
+(exit 0)
+```
+
+### proxy accounts (n2, replicated)
+
+```
+$ rsql 2 SHOW GRANTS FOR 'dbcm_e5mon'@'%'; SHOW GRANTS FOR 'e5app'@'%'
+GRANT USAGE ON *.* TO `dbcm_e5mon`@`%` IDENTIFIED BY PASSWORD '<hash redacted>'
+GRANT USAGE ON *.* TO `e5app`@`%` IDENTIFIED BY PASSWORD '<hash redacted>'
+GRANT ALL PRIVILEGES ON `e5`.* TO `e5app`@`%`
+(exit 0)
+```
+
+### node settings relevant to a proxy
+
+```
+$ rsql 1 SELECT @@version, @@skip_name_resolve, @@max_connect_errors, @@max_connections, @@have_ssl, @@require_secure_transport
+11.4.13-MariaDB-ubu2404	1	100	151	YES	0
+(exit 0)
+```
+
+### proxy configuration
+
+```
+$ vm_root dbcm-lab-m1 cat "$1/proxy.json" /root/dbcm-e5
+{
+  "write_listen": "0.0.0.0:3306",
+  "read_listen": "0.0.0.0:3307",
+  "control_listen": "127.0.0.1:9306",
+  "nodes": [
+    {"id": "n1", "address": "dbcm-e4db-n1:3306", "role": "writer-eligible"},
+    {"id": "n2", "address": "dbcm-e4db-n2:3306", "role": "writer-eligible"},
+    {"id": "n3", "address": "dbcm-e4db-n3:3306", "role": "writer-eligible"}
+  ],
+  "policy": {"mode": "single-writer-stable", "read": "exclude-writer", "stale_after": "5s", "drain_deadline": "10s"},
+  "probe": {"liveness": "mysql-greeting", "sync": "galera", "interval": "1s", "timeout": "1s",
+            "monitor": {"user": "dbcm_e5mon", "password_file": "monitor.pw", "tls": "disabled"}},
+  "limits": {"max_connections": 200, "idle_timeout": "10m", "dial_timeout": "2s", "handshake_timeout": "5s"}
+}
+(exit 0)
+```
+
+### start dbcm-e5-proxy
+
+```
+$ vm_args dbcm-lab-m1 
+			sudo docker rm -f "$1" >/dev/null 2>&1 || true
+			sudo docker run -d --name "$1" --hostname "$1" --network "$2" --label dbcm.e5=lab \
+				-v "$3:/e5:ro" -v "$3/out:/e5out" --entrypoint /e5/proxy "$4" -config "/e5/$5" dbcm-e5-proxy dbcm-e4-net /root/dbcm-e5 mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873 proxy.json
+ee36d96907a677fb580b67206278382e3c44c70a1cbf7e01ab175264ed69151d
+(exit 0)
+```
+
+### start dbcm-e5-proxy-tls
+
+```
+$ vm_args dbcm-lab-m1 
+			sudo docker rm -f "$1" >/dev/null 2>&1 || true
+			sudo docker run -d --name "$1" --hostname "$1" --network "$2" --label dbcm.e5=lab \
+				-v "$3:/e5:ro" -v "$3/out:/e5out" --entrypoint /e5/proxy "$4" -config "/e5/$5" dbcm-e5-proxy-tls dbcm-e4-net /root/dbcm-e5 mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873 proxy-tls.json
+c4674bee399d3ceaf65ad645edf80e7964d946982298f921559ec4f884b45509
+(exit 0)
+```
+
+03:12:30Z wait ok after 2s: proxy has a writer
+### proxy status
+
+```
+$ pstatus
+{
+  "now": "2026-10-23T03:12:30.799934192Z",
+  "writer": "n1",
+  "has_writer": true,
+  "writer_address": "dbcm-e4db-n1:3306",
+  "readers": [
+    "n2",
+    "n3"
+  ],
+  "decided_at": "2026-10-23T03:12:30.429489825Z",
+  "reasons": [
+    "keeping writer n1"
+  ],
+  "writer_changes": 1,
+  "policy": {
+    "mode": "single-writer-stable",
+    "stale_after": "5s",
+    "drain_deadline": "10s",
+    "probe_interval": "1s",
+    "sync_source": "galera",
+    "tls": false
+  },
+  "nodes": [
+    {
+      "id": "n1",
+      "address": "dbcm-e4db-n1:3306",
+      "role": "writer-eligible",
+      "health": "healthy",
+      "sync": "synced",
+      "latency_ewma": "1.708728ms",
+      "samples": 3,
+      "last_seen": "2026-10-23T03:12:30.426189347Z",
+      "age": "374ms",
+      "detail": "server 11.4.13-MariaDB-ubu2404; wsrep synced",
+      "connections": 0,
+      "draining": 0
+    },
+    {
+      "id": "n2",
+      "address": "dbcm-e4db-n2:3306",
+      "role": "writer-eligible",
+      "health": "healthy",
+      "sync": "synced",
+      "latency_ewma": "3.147738ms",
+      "samples": 2,
+      "last_seen": "2026-10-23T03:12:30.42941953Z",
+      "age": "371ms",
+      "detail": "server 11.4.13-MariaDB-ubu2404; wsrep synced",
+      "connections": 0,
+      "draining": 0
+    },
+    {
+      "id": "n3",
+      "address": "dbcm-e4db-n3:3306",
+      "role": "writer-eligible",
+      "health": "healthy",
+      "sync": "synced",
+      "latency_ewma": "3.499232ms",
+      "samples": 2,
+      "last_seen": "2026-10-23T03:12:30.429486616Z",
+      "age": "370ms",
+      "detail": "server 11.4.13-MariaDB-ubu2404; wsrep synced",
+      "connections": 0,
+      "draining": 0
+    }
+  ],
+  "connections": {
+    "write": 0,
+    "read": 0
+  }
+}
+(exit 0)
+```
+
+### proxy log
+
+```
+$ vm_docker dbcm-lab-m1 logs --tail 20 dbcm-e5-proxy
+time=2026-10-23T03:12:28.156Z level=INFO msg="proxy started" write=[::]:3306 read=[::]:3307 control=127.0.0.1:9306
+time=2026-10-23T03:12:28.157Z level=INFO msg="proxy running" version=0.0.0-dev config=/e5/proxy.json
+time=2026-10-23T03:12:29.164Z level=WARN msg="writer changed" from="" to=n1 has_writer=true reasons="[n2: unhealthy n3: unhealthy no current writer: immediate choice of lowest latency node n1 no read endpoint available]"
+(exit 0)
+```
+
+
+## Phase e5select (E5): writer selection, read endpoint, latency through the proxy
+
+host uptime:  5:12  up 4 days, 13:11, 6 users, load averages: 7.69 20.52 49.27
+
+03:12:30Z host load: { 7.69 20.52 49.27 }
+### status (stable mode)
+
+```
+$ pbrief
+{"writer":"n1","writer_changes":1,"readers":["n2","n3"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=0 drain=0 "],"conns":{"write":0,"read":0}}
+(exit 0)
+```
+
+### status (prefer-node n2, TLS proxy)
+
+```
+$ pbrief dbcm-e5-proxy-tls
+{"writer":"n1","writer_changes":1,"readers":["n2","n3"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=0 drain=0 "],"conns":{"write":0,"read":0}}
+(exit 0)
+```
+
+### direct round trips to n1 (from the proxy container)
+
+```
+$ px dbcm-e5-proxy bench -addr dbcm-e4db-n1:3306 -user e5app -password-file /e5/app.pw -n 300
+addr dbcm-e4db-n1:3306 connect+auth 590µs, 300 x SELECT 1: p50 50µs p90 60µs p99 84µs max 147µs
+(exit 0)
+```
+
+### direct round trips to n2 (from the proxy container)
+
+```
+$ px dbcm-e5-proxy bench -addr dbcm-e4db-n2:3306 -user e5app -password-file /e5/app.pw -n 300
+addr dbcm-e4db-n2:3306 connect+auth 1.143ms, 300 x SELECT 1: p50 108µs p90 119µs p99 163µs max 210µs
+(exit 0)
+```
+
+### direct round trips to n3 (from the proxy container)
+
+```
+$ px dbcm-e5-proxy bench -addr dbcm-e4db-n3:3306 -user e5app -password-file /e5/app.pw -n 300
+addr dbcm-e4db-n3:3306 connect+auth 1.187ms, 300 x SELECT 1: p50 122µs p90 134µs p99 165µs max 239µs
+(exit 0)
+```
+
+### round trips through the write endpoint
+
+```
+$ px dbcm-e5-proxy bench -addr 127.0.0.1:3306 -user e5app -password-file /e5/app.pw -n 300
+addr 127.0.0.1:3306 connect+auth 704µs, 300 x SELECT 1: p50 64µs p90 72µs p99 128µs max 291µs
+(exit 0)
+```
+
+### round trips through the read endpoint
+
+```
+$ px dbcm-e5-proxy bench -addr 127.0.0.1:3307 -user e5app -password-file /e5/app.pw -n 300
+addr 127.0.0.1:3307 connect+auth 1.32ms, 300 x SELECT 1: p50 137µs p90 153µs p99 196µs max 245µs
+(exit 0)
+```
+
+### 10 s per-connection writes on the write endpoint
+
+```
+$ px dbcm-e5-proxy load -addr 127.0.0.1:3306 -user e5app -password-file /e5/app.pw -mode per-connection -duration 10s -interval 100ms -label select-w
+03:12:31.589 first success on dbcm-e4db-n1
+SUMMARY {"label":"select-w","mode":"per-connection","duration":"10s","attempts":99,"ok":99,"errors":0,"per_node":{"dbcm-e4db-n1":99},"max_gap_without_success":"118ms","max_gap_from":"03:12:37.413","reconnects":0,"transitions":[{"at":"03:12:31.589","event":"first success on dbcm-e4db-n1"}]}
+(exit 0)
+```
+
+### 10 s per-connection writes on the read endpoint (round-robin over non-writers)
+
+```
+$ px dbcm-e5-proxy load -addr 127.0.0.1:3307 -user e5app -password-file /e5/app.pw -mode per-connection -duration 10s -interval 100ms -label select-r
+03:12:41.818 first success on dbcm-e4db-n2
+SUMMARY {"label":"select-r","mode":"per-connection","duration":"10s","attempts":99,"ok":99,"errors":0,"per_node":{"dbcm-e4db-n2":99},"max_gap_without_success":"125ms","max_gap_from":"03:12:49.679","reconnects":0,"transitions":[{"at":"03:12:41.818","event":"first success on dbcm-e4db-n2"}]}
+(exit 0)
+```
+
+
+## Phase e5failover (E5): kill the writer's container under load; hysteresis when it returns
+
+host uptime:  5:12  up 4 days, 13:11, 6 users, load averages: 8.40 19.84 48.35
+
+03:12:51Z host load: { 8.40 19.84 48.35 }
+03:12:52Z writer before: n1 on dbcm-lab-m1
+### kill the writer's container (n1) on dbcm-lab-m1
+
+```
+$ vm_docker dbcm-lab-m1 kill bd59bc6dce633e2a1feef62f78f4708aad2ff4773ca28e55e92949471d10718c
+bd59bc6dce633e2a1feef62f78f4708aad2ff4773ca28e55e92949471d10718c
+(exit 0)
+```
+
+03:13:02Z kill sent at 03:13:02
+03:13:02Z t+1s {"writer":"n1","writer_changes":1,"readers":["n2","n3"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=0 drain=0 "],"conns":{"write":0,"read":0}}
+03:13:03Z t+2s {"writer":"n2","writer_changes":2,"readers":["n3"],"nodes":["n1 unhealthy/unknown conns=0 drain=0 dial tcp: lookup dbcm-e4db-n1 on 127.0.0.11:53: server misbe","n2 healthy/synced conns=2 drain=0 ","n3 healthy/synced conns=0 drain=0 "],"conns":{"write":2,"read":0}}
+03:13:04Z t+3s {"writer":"n2","writer_changes":2,"readers":["n3"],"nodes":["n1 unhealthy/unknown conns=0 drain=0 dial tcp: lookup dbcm-e4db-n1 on 127.0.0.11:53: server misbe","n2 healthy/synced conns=2 drain=0 ","n3 healthy/synced conns=0 drain=0 "],"conns":{"write":2,"read":0}}
+03:13:06Z t+4s {"writer":"n2","writer_changes":2,"readers":["n3"],"nodes":["n1 unhealthy/unknown conns=0 drain=0 dial tcp: lookup dbcm-e4db-n1 on 127.0.0.11:53: server misbe","n2 healthy/synced conns=2 drain=0 ","n3 healthy/synced conns=0 drain=0 "],"conns":{"write":2,"read":0}}
+03:13:07Z t+5s {"writer":"n2","writer_changes":2,"readers":["n3"],"nodes":["n1 unhealthy/unknown conns=0 drain=0 dial tcp: lookup dbcm-e4db-n1 on 127.0.0.11:53: server misbe","n2 healthy/synced conns=2 drain=0 ","n3 healthy/synced conns=0 drain=0 "],"conns":{"write":2,"read":0}}
+03:13:08Z t+6s {"writer":"n2","writer_changes":2,"readers":["n3"],"nodes":["n1 unhealthy/unknown conns=0 drain=0 dial tcp: lookup dbcm-e4db-n1 on 127.0.0.11:53: server misbe","n2 healthy/synced conns=2 drain=0 ","n3 healthy/synced conns=0 drain=0 "],"conns":{"write":2,"read":0}}
+03:13:09Z t+7s {"writer":"n2","writer_changes":2,"readers":["n3"],"nodes":["n1 unhealthy/unknown conns=0 drain=0 dial tcp 10.0.1.11:3306: connect: connection refused","n2 healthy/synced conns=1 drain=0 ","n3 healthy/synced conns=0 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:10Z t+8s {"writer":"n2","writer_changes":2,"readers":["n3"],"nodes":["n1 unhealthy/unknown conns=0 drain=0 dial tcp 10.0.1.11:3306: connect: connection refused","n2 healthy/synced conns=1 drain=0 ","n3 healthy/synced conns=0 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:11Z t+9s {"writer":"n2","writer_changes":2,"readers":["n3"],"nodes":["n1 unhealthy/unknown conns=0 drain=0 dial tcp 10.0.1.11:3306: connect: connection refused","n2 healthy/synced conns=1 drain=0 ","n3 healthy/synced conns=0 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:12Z t+10s {"writer":"n2","writer_changes":2,"readers":["n3"],"nodes":["n1 unhealthy/unknown conns=0 drain=0 dial tcp 10.0.1.11:3306: connect: connection refused","n2 healthy/synced conns=2 drain=0 ","n3 healthy/synced conns=0 drain=0 "],"conns":{"write":2,"read":0}}
+03:13:13Z t+11s {"writer":"n2","writer_changes":2,"readers":["n3"],"nodes":["n1 unhealthy/unknown conns=0 drain=0 dial tcp 10.0.1.11:3306: connect: connection refused","n2 healthy/synced conns=2 drain=0 ","n3 healthy/synced conns=0 drain=0 "],"conns":{"write":2,"read":0}}
+03:13:14Z t+12s {"writer":"n2","writer_changes":2,"readers":["n3"],"nodes":["n1 unhealthy/unknown conns=0 drain=0 dial tcp 10.0.1.11:3306: connect: connection refused","n2 healthy/synced conns=1 drain=0 ","n3 healthy/synced conns=0 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:16Z t+13s {"writer":"n3","writer_changes":3,"readers":[],"nodes":["n1 unhealthy/unknown conns=0 drain=0 dial tcp 10.0.1.11:3306: connect: connection refused","n2 healthy/donor conns=1 drain=1 ","n3 healthy/synced conns=0 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:17Z t+14s {"writer":"n3","writer_changes":3,"readers":[],"nodes":["n1 unhealthy/unknown conns=0 drain=0 dial tcp 10.0.1.11:3306: connect: connection refused","n2 healthy/donor conns=1 drain=1 ","n3 healthy/synced conns=0 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:18Z t+15s {"writer":"n3","writer_changes":3,"readers":[],"nodes":["n1 unhealthy/unknown conns=0 drain=0 dial tcp 10.0.1.11:3306: connect: connection refused","n2 healthy/donor conns=1 drain=1 ","n3 healthy/synced conns=0 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:19Z t+16s {"writer":"n3","writer_changes":3,"readers":[],"nodes":["n1 unhealthy/unknown conns=0 drain=0 dial tcp 10.0.1.11:3306: connect: connection refused","n2 healthy/donor conns=1 drain=1 ","n3 healthy/synced conns=0 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:20Z t+17s {"writer":"n3","writer_changes":3,"readers":[],"nodes":["n1 unhealthy/unknown conns=0 drain=0 dial tcp 10.0.1.11:3306: connect: connection refused","n2 healthy/donor conns=1 drain=1 ","n3 healthy/synced conns=0 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:21Z t+18s {"writer":"n3","writer_changes":3,"readers":[],"nodes":["n1 unhealthy/unknown conns=0 drain=0 dial tcp 10.0.1.11:3306: connect: connection refused","n2 healthy/donor conns=1 drain=1 ","n3 healthy/synced conns=0 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:22Z t+19s {"writer":"n3","writer_changes":3,"readers":[],"nodes":["n1 unhealthy/unknown conns=0 drain=0 dial tcp 10.0.1.11:3306: connect: connection refused","n2 healthy/donor conns=1 drain=1 ","n3 healthy/synced conns=0 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:23Z t+20s {"writer":"n3","writer_changes":3,"readers":[],"nodes":["n1 unhealthy/unknown conns=0 drain=0 dial tcp 10.0.1.11:3306: connect: connection refused","n2 healthy/donor conns=1 drain=1 ","n3 healthy/synced conns=0 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:24Z t+21s {"writer":"n3","writer_changes":3,"readers":[],"nodes":["n1 unhealthy/unknown conns=0 drain=0 dial tcp 10.0.1.11:3306: connect: connection refused","n2 healthy/donor conns=1 drain=1 ","n3 healthy/synced conns=0 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:26Z t+22s {"writer":"n3","writer_changes":3,"readers":[],"nodes":["n1 unhealthy/unknown conns=0 drain=0 dial tcp 10.0.1.11:3306: connect: connection refused","n2 healthy/donor conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:27Z t+23s {"writer":"n3","writer_changes":3,"readers":["n2"],"nodes":["n1 unhealthy/unknown conns=0 drain=0 dial tcp 10.0.1.11:3306: connect: connection refused","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:28Z t+24s {"writer":"n3","writer_changes":3,"readers":["n2","n1"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:29Z t+25s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:30Z t+26s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:31Z t+27s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:32Z t+28s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:33Z t+29s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:34Z t+30s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:36Z t+31s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=2 drain=0 "],"conns":{"write":2,"read":0}}
+03:13:37Z t+32s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:38Z t+33s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:39Z t+34s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:40Z t+35s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:41Z t+36s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:42Z t+37s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:43Z t+38s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:44Z t+39s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:46Z t+40s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:47Z t+41s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:48Z t+42s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:49Z t+43s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:50Z t+44s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:51Z t+45s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:52Z t+46s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:53Z t+47s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:54Z t+48s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:56Z t+49s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:57Z t+50s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:58Z t+51s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:13:59Z t+52s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:00Z t+53s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:01Z t+54s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:02Z t+55s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:03Z t+56s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:05Z t+57s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:06Z t+58s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:07Z t+59s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:08Z t+60s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:09Z t+61s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:10Z t+62s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:11Z t+63s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:12Z t+64s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:14Z t+65s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:15Z t+66s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:16Z t+67s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:17Z t+68s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:18Z t+69s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:19Z t+70s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:20Z t+71s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:21Z t+72s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:22Z t+73s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:24Z t+74s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:25Z t+75s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:26Z t+76s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:27Z t+77s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:28Z t+78s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:29Z t+79s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:30Z t+80s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:31Z t+81s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:32Z t+82s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:34Z t+83s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:35Z t+84s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:36Z t+85s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:37Z t+86s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:38Z t+87s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:39Z t+88s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:40Z t+89s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:41Z t+90s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:42Z t+91s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:44Z t+92s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:45Z t+93s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:46Z t+94s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:47Z t+95s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:48Z t+96s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:49Z t+97s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:50Z t+98s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:51Z t+99s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:52Z t+100s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:54Z t+101s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:55Z t+102s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:56Z t+103s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:57Z t+104s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:58Z t+105s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:14:59Z t+106s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:15:00Z t+107s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:15:01Z t+108s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:15:02Z t+109s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:15:04Z t+110s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=2 drain=0 "],"conns":{"write":2,"read":0}}
+03:15:05Z t+111s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=2 drain=0 "],"conns":{"write":2,"read":0}}
+03:15:06Z t+112s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:15:07Z t+113s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:15:08Z t+114s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:15:09Z t+115s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:15:10Z t+116s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:15:11Z t+117s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:15:13Z t+118s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:15:14Z t+119s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:15:15Z t+120s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:15:16Z t+121s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:15:17Z t+122s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:15:18Z t+123s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:15:19Z t+124s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:15:20Z t+125s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+### persistent client (one connection, replaced after errors)
+
+```
+$ vm_root dbcm-lab-m1 cat "$1/out/fo-persistent.out" /root/dbcm-e5
+03:12:52.316 first success on dbcm-e4db-n1
+[mysql] 2026/10/23 03:13:02 packets.go:58 unexpected EOF
+03:13:02.548 error: invalid connection
+03:13:08.789 recovered on dbcm-e4db-n2
+[mysql] 2026/10/23 03:13:25 packets.go:58 unexpected EOF
+03:13:25.831 error: invalid connection
+03:13:25.949 recovered on dbcm-e4db-n3
+SUMMARY {"label":"fo-persistent","mode":"persistent","duration":"2m30s","attempts":1391,"ok":1386,"errors":5,"per_node":{"dbcm-e4db-n1":101,"dbcm-e4db-n2":141,"dbcm-e4db-n3":1144},"max_gap_without_success":"6.341s","max_gap_from":"03:13:02.448","reconnects":3,"transitions":[{"at":"03:12:52.316","event":"first success on dbcm-e4db-n1"},{"at":"03:13:02.548","event":"error: invalid connection"},{"at":"03:13:08.789","event":"recovered on dbcm-e4db-n2"},{"at":"03:13:25.831","event":"error: invalid connection"},{"at":"03:13:25.949","event":"recovered on dbcm-e4db-n3"}],"error_examples":["invalid connection","Error 1105: dbcm-proxy: backend n1 unreachable","context deadline exceeded"]}
+(exit 0)
+```
+
+### per-connection client
+
+```
+$ vm_root dbcm-lab-m1 cat "$1/out/fo-perconn.out" /root/dbcm-e5
+03:12:52.384 first success on dbcm-e4db-n1
+03:13:02.600 error: Error 1105: dbcm-proxy: backend n1 unreachable
+03:13:08.795 recovered on dbcm-e4db-n2
+[mysql] 2026/10/23 03:13:14 packets.go:58 read tcp 127.0.0.1:53204->127.0.0.1:3306: i/o timeout
+03:13:14.742 error: invalid connection
+03:13:14.763 recovered on dbcm-e4db-n2
+03:13:15.876 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+SUMMARY {"label":"fo-perconn","mode":"per-connection","duration":"2m30s","attempts":1389,"ok":1384,"errors":5,"per_node":{"dbcm-e4db-n1":100,"dbcm-e4db-n2":41,"dbcm-e4db-n3":1243},"max_gap_without_success":"6.345s","max_gap_from":"03:13:02.449","reconnects":0,"transitions":[{"at":"03:12:52.384","event":"first success on dbcm-e4db-n1"},{"at":"03:13:02.600","event":"error: Error 1105: dbcm-proxy: backend n1 unreachable"},{"at":"03:13:08.795","event":"recovered on dbcm-e4db-n2"},{"at":"03:13:14.742","event":"error: invalid connection"},{"at":"03:13:14.763","event":"recovered on dbcm-e4db-n2"},{"at":"03:13:15.876","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"}],"error_examples":["Error 1105: dbcm-proxy: backend n1 unreachable","context deadline exceeded","invalid connection"]}
+(exit 0)
+```
+
+### status after the old writer returned
+
+```
+$ pbrief
+{"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=0 drain=0 "],"conns":{"write":0,"read":0}}
+(exit 0)
+```
+
+### writer killed: Swarm tasks
+
+```
+$ vm_docker dbcm-lab-m1 service ps --format {{.Name}} {{.Node}} {{.CurrentState}} {{.Error}} dbcm-e4db-n1
+dbcm-e4db-n1.1 lima-dbcm-lab-m1 Running 2 minutes ago 
+dbcm-e4db-n1.1 lima-dbcm-lab-m1 Failed 2 minutes ago "task: non-zero exit (137)"
+dbcm-e4db-n1.1 lima-dbcm-lab-m1 Shutdown 4 minutes ago 
+(exit 0)
+```
+
+### proxy log (writer changes)
+
+```
+$ sh -c limactl shell --workdir / dbcm-lab-m1 -- sudo docker logs dbcm-e5-proxy 2>&1 | grep -iE 'writer|drain|reload' | tail -20
+time=2026-10-23T03:12:29.164Z level=WARN msg="writer changed" from="" to=n1 has_writer=true reasons="[n2: unhealthy n3: unhealthy no current writer: immediate choice of lowest latency node n1 no read endpoint available]"
+time=2026-10-23T03:13:02.758Z level=WARN msg="writer changed" from=n1 to=n2 has_writer=true reasons="[n1: unhealthy current writer n1 not usable: immediate choice of lowest latency node n2 draining n1 until 2026-10-23T03:13:12Z]"
+time=2026-10-23T03:13:15.793Z level=INFO msg="draining connections" endpoint=write node=n2 count=1 deadline=2026-10-23T03:13:25.793Z
+time=2026-10-23T03:13:15.793Z level=WARN msg="writer changed" from=n2 to=n3 has_writer=true reasons="[n1: unhealthy n2: sync state donor current writer n2 not usable: immediate choice of lowest latency node n3 draining n2 until 2026-10-23T03:13:25Z no read endpoint available]"
+(exit 0)
+```
+
+### rows per node and label (n1)
+
+```
+$ rsql 1 SELECT label, node, COUNT(*) FROM e5.load GROUP BY label, node ORDER BY label, node
+fo-perconn	dbcm-e4db-n1	100
+fo-perconn	dbcm-e4db-n2	43
+fo-perconn	dbcm-e4db-n3	1243
+fo-persistent	dbcm-e4db-n1	101
+fo-persistent	dbcm-e4db-n2	142
+fo-persistent	dbcm-e4db-n3	1144
+select-r	dbcm-e4db-n3	99
+select-w	dbcm-e4db-n1	99
+(exit 0)
+```
+
+
+## Phase e5drain (E5): planned writer switch by reload (prefer-node), existing connection drained at the deadline
+
+host uptime:  5:15  up 4 days, 13:14, 6 users, load averages: 43.34 23.96 44.32
+
+03:15:42Z host load: { 43.34 23.96 44.32 }
+03:15:42Z writer n3; reload to prefer-node n1
+### SIGHUP the proxy
+
+```
+$ vm_docker dbcm-lab-m1 kill -s HUP dbcm-e5-proxy
+dbcm-e5-proxy
+(exit 0)
+```
+
+03:15:47Z reload sent at 03:15:47
+03:15:47Z t+1s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:15:48Z t+2s {"writer":"n3","writer_changes":3,"readers":["n1","n2"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=0 "],"conns":{"write":1,"read":0}}
+03:15:49Z t+3s {"writer":"n1","writer_changes":4,"readers":["n2","n3"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=1 "],"conns":{"write":1,"read":0}}
+03:15:51Z t+4s {"writer":"n1","writer_changes":4,"readers":["n2","n3"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=1 "],"conns":{"write":1,"read":0}}
+03:15:52Z t+5s {"writer":"n1","writer_changes":4,"readers":["n2","n3"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=1 "],"conns":{"write":1,"read":0}}
+03:15:53Z t+6s {"writer":"n1","writer_changes":4,"readers":["n2","n3"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=1 "],"conns":{"write":1,"read":0}}
+03:15:54Z t+7s {"writer":"n1","writer_changes":4,"readers":["n2","n3"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=1 "],"conns":{"write":1,"read":0}}
+03:15:55Z t+8s {"writer":"n1","writer_changes":4,"readers":["n2","n3"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=1 "],"conns":{"write":1,"read":0}}
+03:15:56Z t+9s {"writer":"n1","writer_changes":4,"readers":["n2","n3"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=1 "],"conns":{"write":1,"read":0}}
+03:15:57Z t+10s {"writer":"n1","writer_changes":4,"readers":["n2","n3"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=1 "],"conns":{"write":1,"read":0}}
+03:15:58Z t+11s {"writer":"n1","writer_changes":4,"readers":["n2","n3"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=1 drain=1 "],"conns":{"write":1,"read":0}}
+03:16:00Z t+12s {"writer":"n1","writer_changes":4,"readers":["n2","n3"],"nodes":["n1 healthy/synced conns=1 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=0 drain=0 "],"conns":{"write":1,"read":0}}
+03:16:01Z t+13s {"writer":"n1","writer_changes":4,"readers":["n2","n3"],"nodes":["n1 healthy/synced conns=1 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=0 drain=0 "],"conns":{"write":1,"read":0}}
+03:16:02Z t+14s {"writer":"n1","writer_changes":4,"readers":["n2","n3"],"nodes":["n1 healthy/synced conns=1 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=0 drain=0 "],"conns":{"write":1,"read":0}}
+03:16:03Z t+15s {"writer":"n1","writer_changes":4,"readers":["n2","n3"],"nodes":["n1 healthy/synced conns=1 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=0 drain=0 "],"conns":{"write":1,"read":0}}
+03:16:04Z t+16s {"writer":"n1","writer_changes":4,"readers":["n2","n3"],"nodes":["n1 healthy/synced conns=1 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=0 drain=0 "],"conns":{"write":1,"read":0}}
+03:16:05Z t+17s {"writer":"n1","writer_changes":4,"readers":["n2","n3"],"nodes":["n1 healthy/synced conns=1 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=0 drain=0 "],"conns":{"write":1,"read":0}}
+03:16:06Z t+18s {"writer":"n1","writer_changes":4,"readers":["n2","n3"],"nodes":["n1 healthy/synced conns=1 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=0 drain=0 "],"conns":{"write":1,"read":0}}
+03:16:07Z t+19s {"writer":"n1","writer_changes":4,"readers":["n2","n3"],"nodes":["n1 healthy/synced conns=1 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=0 drain=0 "],"conns":{"write":1,"read":0}}
+03:16:09Z t+20s {"writer":"n1","writer_changes":4,"readers":["n2","n3"],"nodes":["n1 healthy/synced conns=1 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=0 drain=0 "],"conns":{"write":1,"read":0}}
+### persistent client across the planned switch
+
+```
+$ vm_root dbcm-lab-m1 cat "$1/out/drain-persistent.out" /root/dbcm-e5
+03:15:42.529 first success on dbcm-e4db-n3
+[mysql] 2026/10/23 03:15:59 packets.go:58 unexpected EOF
+03:15:59.719 error: invalid connection
+03:15:59.926 recovered on dbcm-e4db-n1
+SUMMARY {"label":"drain-persistent","mode":"persistent","duration":"45s","attempts":223,"ok":222,"errors":1,"per_node":{"dbcm-e4db-n1":137,"dbcm-e4db-n3":85},"max_gap_without_success":"404ms","max_gap_from":"03:15:59.523","reconnects":1,"transitions":[{"at":"03:15:42.529","event":"first success on dbcm-e4db-n3"},{"at":"03:15:59.719","event":"error: invalid connection"},{"at":"03:15:59.926","event":"recovered on dbcm-e4db-n1"}],"error_examples":["invalid connection"]}
+(exit 0)
+```
+
+### status after the switch
+
+```
+$ pbrief
+{"writer":"n1","writer_changes":4,"readers":["n2","n3"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=0 drain=0 "],"conns":{"write":0,"read":0}}
+(exit 0)
+```
+
+### proxy log (reload, drain)
+
+```
+$ sh -c limactl shell --workdir / dbcm-lab-m1 -- sudo docker logs dbcm-e5-proxy 2>&1 | grep -iE 'writer|drain|reload' | tail -10
+time=2026-10-23T03:12:29.164Z level=WARN msg="writer changed" from="" to=n1 has_writer=true reasons="[n2: unhealthy n3: unhealthy no current writer: immediate choice of lowest latency node n1 no read endpoint available]"
+time=2026-10-23T03:13:02.758Z level=WARN msg="writer changed" from=n1 to=n2 has_writer=true reasons="[n1: unhealthy current writer n1 not usable: immediate choice of lowest latency node n2 draining n1 until 2026-10-23T03:13:12Z]"
+time=2026-10-23T03:13:15.793Z level=INFO msg="draining connections" endpoint=write node=n2 count=1 deadline=2026-10-23T03:13:25.793Z
+time=2026-10-23T03:13:15.793Z level=WARN msg="writer changed" from=n2 to=n3 has_writer=true reasons="[n1: unhealthy n2: sync state donor current writer n2 not usable: immediate choice of lowest latency node n3 draining n2 until 2026-10-23T03:13:25Z no read endpoint available]"
+time=2026-10-23T03:15:47.686Z level=INFO msg="configuration reloaded" nodes=3 mode=prefer-node
+time=2026-10-23T03:15:49.701Z level=INFO msg="draining connections" endpoint=write node=n3 count=1 deadline=2026-10-23T03:15:59.701Z
+time=2026-10-23T03:15:49.701Z level=WARN msg="writer changed" from=n3 to=n1 has_writer=true reasons="[switching n3 -> n1 after 3 consecutive evaluations draining n3 until 2026-10-23T03:15:59Z]"
+(exit 0)
+```
+
+
+## Phase e5tls (E5): client-facing TLS termination (prefer-node n2 proxy with TLS)
+
+host uptime:  5:16  up 4 days, 13:15, 6 users, load averages: 74.45 35.58 47.47
+
+03:16:35Z host load: { 74.45 35.58 47.47 }
+### status TLS proxy
+
+```
+$ pbrief dbcm-e5-proxy-tls
+{"writer":"n2","writer_changes":4,"readers":["n1","n3"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=0 drain=0 "],"conns":{"write":0,"read":0}}
+(exit 0)
+```
+
+### go-sql-driver with the lab CA (TLS verified)
+
+```
+$ px dbcm-e5-proxy-tls query -addr 127.0.0.1:3306 -user e5app -password-file /e5/app.pw -tls /e5/ca.pem -server-name dbcm-e5-proxy SELECT @@hostname, CURRENT_USER(), @@version SHOW SESSION STATUS LIKE 'Ssl_cipher'
+dbcm-e4db-n2	e5app@%	11.4.13-MariaDB-ubu2404
+Ssl_cipher	
+(exit 0)
+```
+
+### go-sql-driver without TLS (must be refused)
+
+```
+$ px dbcm-e5-proxy-tls query -addr 127.0.0.1:3306 -user e5app -password-file /e5/app.pw SELECT 1
+e5client: Error 1043 (08S01): dbcm-proxy: TLS is required for this endpoint
+(exit 1)
+```
+
+### go-sql-driver with a wrong server name (must fail verification)
+
+```
+$ px dbcm-e5-proxy-tls query -addr 127.0.0.1:3306 -user e5app -password-file /e5/app.pw -tls /e5/ca.pem -server-name wrong.example SELECT 1
+e5client: tls: failed to verify certificate: x509: certificate is valid for dbcm-e5-proxy, localhost, not wrong.example
+(exit 1)
+```
+
+### mariadb CLI with --ssl-ca and server-cert verification
+
+```
+$ vm_docker dbcm-lab-m1 exec dbcm-e5-proxy-tls sh -c MYSQL_PWD=$(cat /e5/app.pw) mariadb -h dbcm-e5-proxy -P3306 -ue5app --ssl-ca=/e5/ca.pem --ssl-verify-server-cert -e "status" | grep -iE "SSL|Server version|Connection:"
+ERROR 2026 (HY000): TLS/SSL error: self-signed certificate
+(exit 1)
+```
+
+03:16:35Z E5_KEEP_VMS=1: VMs kept; run bin/lab cleanup -apply manually
+03:16:35Z E5/E6 finished with exit 1
+
+## Phase proxyprep (E5): accounts, certificates, proxy container on m1
+
+host uptime:  5:18  up 4 days, 13:16, 6 users, load averages: 53.44 43.30 49.60
+
+03:18:05Z host load: { 53.44 43.30 49.60 }
+### install proxy and e5client in /root/dbcm-e5
+
+```
+$ vm_root dbcm-lab-m1 
+		set -e
+		install -d -m 0700 "$1" "$1/out"
+		install -m 0755 /tmp/proxy /tmp/e5client "$1/"
+		rm -f /tmp/proxy /tmp/e5client
+		for n in monitor app; do [ -f "$1/$n.pw" ] || head -c 18 /dev/urandom | base64 | tr -d "/+\n" >"$1/$n.pw"; done
+		chmod 0600 "$1"/*.pw
+		"$1/e5client" gencert -dir "$1" -name dbcm-e5-proxy
+		ls -l "$1" /root/dbcm-e5
+certificate for dbcm-e5-proxy (and localhost, 127.0.0.1) written to /root/dbcm-e5: ca.pem cert.pem key.pem
+total 21568
+-rw------- 1 root root       24 Oct 23 05:12 app.pw
+-rw-r--r-- 1 root root      542 Oct 23 05:18 ca.pem
+-rw-r--r-- 1 root root     1149 Oct 23 05:18 cert.pem
+-rwxr-xr-x 1 root root 10230542 Oct 23 05:18 e5client
+-rw-r--r-- 1 root root      241 Oct 23 05:18 key.pem
+-rw------- 1 root root       23 Oct 23 05:12 monitor.pw
+drwx------ 2 root root     4096 Oct 23 05:15 out
+-rwxr-xr-x 1 root root 11817414 Oct 23 05:18 proxy
+-rw-r--r-- 1 root root      846 Oct 23 05:12 proxy-tls.json
+-rw-r--r-- 1 root root      777 Oct 23 05:16 proxy.json
+(exit 0)
+```
+
+### proxy accounts (n2, replicated)
+
+```
+$ rsql 2 SHOW GRANTS FOR 'dbcm_e5mon'@'%'; SHOW GRANTS FOR 'e5app'@'%'
+GRANT USAGE ON *.* TO `dbcm_e5mon`@`%` IDENTIFIED BY PASSWORD '<hash redacted>'
+GRANT USAGE ON *.* TO `e5app`@`%` IDENTIFIED BY PASSWORD '<hash redacted>'
+GRANT ALL PRIVILEGES ON `e5`.* TO `e5app`@`%`
+(exit 0)
+```
+
+### node settings relevant to a proxy
+
+```
+$ rsql 1 SELECT @@version, @@skip_name_resolve, @@max_connect_errors, @@max_connections, @@have_ssl, @@require_secure_transport
+11.4.13-MariaDB-ubu2404	1	100	151	YES	0
+(exit 0)
+```
+
+### proxy configuration
+
+```
+$ vm_root dbcm-lab-m1 cat "$1/proxy.json" /root/dbcm-e5
+{
+  "write_listen": "0.0.0.0:3306",
+  "read_listen": "0.0.0.0:3307",
+  "control_listen": "127.0.0.1:9306",
+  "nodes": [
+    {"id": "n1", "address": "dbcm-e4db-n1:3306", "role": "writer-eligible"},
+    {"id": "n2", "address": "dbcm-e4db-n2:3306", "role": "writer-eligible"},
+    {"id": "n3", "address": "dbcm-e4db-n3:3306", "role": "writer-eligible"}
+  ],
+  "policy": {"mode": "single-writer-stable", "read": "exclude-writer", "stale_after": "5s", "drain_deadline": "10s"},
+  "probe": {"liveness": "mysql-greeting", "sync": "galera", "interval": "1s", "timeout": "1s",
+            "monitor": {"user": "dbcm_e5mon", "password_file": "monitor.pw", "tls": "disabled"}},
+  "limits": {"max_connections": 200, "idle_timeout": "10m", "dial_timeout": "2s", "handshake_timeout": "5s"}
+}
+(exit 0)
+```
+
+### start dbcm-e5-proxy
+
+```
+$ vm_args dbcm-lab-m1 
+			sudo docker rm -f "$1" >/dev/null 2>&1 || true
+			sudo docker run -d --name "$1" --hostname "$1" --network "$2" --label dbcm.e5=lab \
+				-v "$3:/e5:ro" -v "$3/out:/e5out" --entrypoint /e5/proxy "$4" -config "/e5/$5" dbcm-e5-proxy dbcm-e4-net /root/dbcm-e5 mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873 proxy.json
+697da6bff36d7ef68c7e1467b888e313e9af3ffc47bfad0b4e7c15446e879939
+(exit 0)
+```
+
+### start dbcm-e5-proxy-tls
+
+```
+$ vm_args dbcm-lab-m1 
+			sudo docker rm -f "$1" >/dev/null 2>&1 || true
+			sudo docker run -d --name "$1" --hostname "$1" --network "$2" --label dbcm.e5=lab \
+				-v "$3:/e5:ro" -v "$3/out:/e5out" --entrypoint /e5/proxy "$4" -config "/e5/$5" dbcm-e5-proxy-tls dbcm-e4-net /root/dbcm-e5 mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873 proxy-tls.json
+0a2944c27db32ac3921874d779bcad61eb633a9997354f73499ce0829eabe251
+(exit 0)
+```
+
+03:18:09Z wait ok after 2s: proxy has a writer
+### proxy status
+
+```
+$ pstatus
+{
+  "now": "2026-10-23T03:18:09.401250872Z",
+  "writer": "n1",
+  "has_writer": true,
+  "writer_address": "dbcm-e4db-n1:3306",
+  "readers": [
+    "n2",
+    "n3"
+  ],
+  "decided_at": "2026-10-23T03:18:08.95379376Z",
+  "reasons": [
+    "keeping writer n1"
+  ],
+  "writer_changes": 1,
+  "policy": {
+    "mode": "single-writer-stable",
+    "stale_after": "5s",
+    "drain_deadline": "10s",
+    "probe_interval": "1s",
+    "sync_source": "galera",
+    "tls": false
+  },
+  "nodes": [
+    {
+      "id": "n1",
+      "address": "dbcm-e4db-n1:3306",
+      "role": "writer-eligible",
+      "health": "healthy",
+      "sync": "synced",
+      "latency_ewma": "1.78311ms",
+      "samples": 3,
+      "last_seen": "2026-10-23T03:18:08.948796853Z",
+      "age": "452ms",
+      "detail": "server 11.4.13-MariaDB-ubu2404; wsrep synced",
+      "connections": 0,
+      "draining": 0
+    },
+    {
+      "id": "n2",
+      "address": "dbcm-e4db-n2:3306",
+      "role": "writer-eligible",
+      "health": "healthy",
+      "sync": "synced",
+      "latency_ewma": "4.095526ms",
+      "samples": 2,
+      "last_seen": "2026-10-23T03:18:08.953679718Z",
+      "age": "448ms",
+      "detail": "server 11.4.13-MariaDB-ubu2404; wsrep synced",
+      "connections": 0,
+      "draining": 0
+    },
+    {
+      "id": "n3",
+      "address": "dbcm-e4db-n3:3306",
+      "role": "writer-eligible",
+      "health": "healthy",
+      "sync": "synced",
+      "latency_ewma": "4.187123ms",
+      "samples": 2,
+      "last_seen": "2026-10-23T03:18:08.953789635Z",
+      "age": "447ms",
+      "detail": "server 11.4.13-MariaDB-ubu2404; wsrep synced",
+      "connections": 0,
+      "draining": 0
+    }
+  ],
+  "connections": {
+    "write": 0,
+    "read": 0
+  }
+}
+(exit 0)
+```
+
+### proxy log
+
+```
+$ vm_docker dbcm-lab-m1 logs --tail 20 dbcm-e5-proxy
+time=2026-10-23T03:18:06.685Z level=INFO msg="proxy started" write=[::]:3306 read=[::]:3307 control=127.0.0.1:9306
+time=2026-10-23T03:18:06.685Z level=INFO msg="proxy running" version=0.0.0-dev config=/e5/proxy.json
+time=2026-10-23T03:18:07.688Z level=WARN msg="writer changed" from="" to=n1 has_writer=true reasons="[n2: unhealthy n3: unhealthy no current writer: immediate choice of lowest latency node n1 no read endpoint available]"
+(exit 0)
+```
+
+
+## Phase e5select (E5): writer selection, read endpoint, latency through the proxy
+
+host uptime:  5:18  up 4 days, 13:17, 6 users, load averages: 50.12 42.78 49.38
+
+03:18:09Z host load: { 50.12 42.78 49.38 }
+### status (stable mode)
+
+```
+$ pbrief
+{"writer":"n1","writer_changes":1,"readers":["n2","n3"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=0 drain=0 "],"conns":{"write":0,"read":0}}
+(exit 0)
+```
+
+### status (prefer-node n2, TLS proxy)
+
+```
+$ pbrief dbcm-e5-proxy-tls
+{"writer":"n1","writer_changes":1,"readers":["n2","n3"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=0 drain=0 "],"conns":{"write":0,"read":0}}
+(exit 0)
+```
+
+### direct round trips to n1 (from the proxy container)
+
+```
+$ px dbcm-e5-proxy bench -addr dbcm-e4db-n1:3306 -user e5app -password-file /e5/app.pw -n 300
+addr dbcm-e4db-n1:3306 connect+auth 540µs, 300 x SELECT 1: p50 44µs p90 58µs p99 92µs max 139µs
+(exit 0)
+```
+
+### direct round trips to n2 (from the proxy container)
+
+```
+$ px dbcm-e5-proxy bench -addr dbcm-e4db-n2:3306 -user e5app -password-file /e5/app.pw -n 300
+addr dbcm-e4db-n2:3306 connect+auth 1.124ms, 300 x SELECT 1: p50 124µs p90 143µs p99 206µs max 293µs
+(exit 0)
+```
+
+### direct round trips to n3 (from the proxy container)
+
+```
+$ px dbcm-e5-proxy bench -addr dbcm-e4db-n3:3306 -user e5app -password-file /e5/app.pw -n 300
+addr dbcm-e4db-n3:3306 connect+auth 1.181ms, 300 x SELECT 1: p50 136µs p90 146µs p99 173µs max 319µs
+(exit 0)
+```
+
+### round trips through the write endpoint
+
+```
+$ px dbcm-e5-proxy bench -addr 127.0.0.1:3306 -user e5app -password-file /e5/app.pw -n 300
+addr 127.0.0.1:3306 connect+auth 1.066ms, 300 x SELECT 1: p50 31µs p90 37µs p99 86µs max 237µs
+(exit 0)
+```
+
+### round trips through the read endpoint
+
+```
+$ px dbcm-e5-proxy bench -addr 127.0.0.1:3307 -user e5app -password-file /e5/app.pw -n 300
+addr 127.0.0.1:3307 connect+auth 1.366ms, 300 x SELECT 1: p50 154µs p90 170µs p99 232µs max 314µs
+(exit 0)
+```
+
+### 10 s per-connection writes on the write endpoint
+
+```
+$ px dbcm-e5-proxy load -addr 127.0.0.1:3306 -user e5app -password-file /e5/app.pw -mode per-connection -duration 10s -interval 100ms -label select-w
+03:18:10.207 first success on dbcm-e4db-n1
+SUMMARY {"label":"select-w","mode":"per-connection","duration":"10s","attempts":99,"ok":99,"errors":0,"per_node":{"dbcm-e4db-n1":99},"max_gap_without_success":"122ms","max_gap_from":"03:18:12.331","reconnects":0,"transitions":[{"at":"03:18:10.207","event":"first success on dbcm-e4db-n1"}]}
+(exit 0)
+```
+
+### 10 s per-connection writes on the read endpoint (round-robin over non-writers)
+
+```
+$ px dbcm-e5-proxy load -addr 127.0.0.1:3307 -user e5app -password-file /e5/app.pw -mode per-connection -duration 10s -interval 100ms -label select-r
+03:18:20.425 first success on dbcm-e4db-n3
+03:18:20.526 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:20.629 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:20.734 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:20.838 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:20.941 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:21.139 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:21.240 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:21.342 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:21.442 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:21.547 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:21.645 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:21.752 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:21.852 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:21.953 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:22.155 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:22.257 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:22.358 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:22.458 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:22.572 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:22.675 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:22.775 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:22.882 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:22.981 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:23.082 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:23.181 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:23.285 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:23.390 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:23.495 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:23.596 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:23.698 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:23.806 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:23.902 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:24.004 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:24.110 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:24.212 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:24.313 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:24.430 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:24.514 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:24.614 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:24.714 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:24.810 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:24.910 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:25.017 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:25.130 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:25.232 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:25.334 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:25.435 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:25.530 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:25.633 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:25.733 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:25.837 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:25.934 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:26.037 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:26.137 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:26.237 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:26.345 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:26.436 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:26.539 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:26.646 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:26.759 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:26.847 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:26.949 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:27.054 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:27.161 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:27.261 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:27.364 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:27.466 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:27.570 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:27.680 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:27.789 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:27.894 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:27.997 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:28.096 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:28.202 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:28.303 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:28.403 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:28.507 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:28.608 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:28.708 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:28.809 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:28.911 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:29.009 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:29.112 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:29.210 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:29.315 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:29.416 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:29.517 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:29.620 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:29.722 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:29.824 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:29.924 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:30.025 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:30.127 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:30.227 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+03:18:30.328 node changed dbcm-e4db-n3 -> dbcm-e4db-n2
+03:18:30.435 node changed dbcm-e4db-n2 -> dbcm-e4db-n3
+SUMMARY {"label":"select-r","mode":"per-connection","duration":"10s","attempts":99,"ok":99,"errors":0,"per_node":{"dbcm-e4db-n2":49,"dbcm-e4db-n3":50},"max_gap_without_success":"118ms","max_gap_from":"03:18:24.313","reconnects":0,"transitions":[{"at":"03:18:20.425","event":"first success on dbcm-e4db-n3"},{"at":"03:18:20.526","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:20.629","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:20.734","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:20.838","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:20.941","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:21.139","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:21.240","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:21.342","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:21.442","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:21.547","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:21.645","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:21.752","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:21.852","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:21.953","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:22.155","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:22.257","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:22.358","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:22.458","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:22.572","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:22.675","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:22.775","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:22.882","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:22.981","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:23.082","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:23.181","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:23.285","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:23.390","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:23.495","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:23.596","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:23.698","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:23.806","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:23.902","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:24.004","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:24.110","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:24.212","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:24.313","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:24.430","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:24.514","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:24.614","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:24.714","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:24.810","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:24.910","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:25.017","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:25.130","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:25.232","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:25.334","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:25.435","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:25.530","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:25.633","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:25.733","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:25.837","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:25.934","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:26.037","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:26.137","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:26.237","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:26.345","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:26.436","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:26.539","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:26.646","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:26.759","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:26.847","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:26.949","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:27.054","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:27.161","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:27.261","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:27.364","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:27.466","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:27.570","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:27.680","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:27.789","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:27.894","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:27.997","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:28.096","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:28.202","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:28.303","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:28.403","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:28.507","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:28.608","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:28.708","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:28.809","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:28.911","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:29.009","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:29.112","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:29.210","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:29.315","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:29.416","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:29.517","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:29.620","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:29.722","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:29.824","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:29.924","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:30.025","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:30.127","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:30.227","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"},{"at":"03:18:30.328","event":"node changed dbcm-e4db-n3 -\u003e dbcm-e4db-n2"},{"at":"03:18:30.435","event":"node changed dbcm-e4db-n2 -\u003e dbcm-e4db-n3"}]}
+(exit 0)
+```
+
+
+## Phase e5tls (E5): client-facing TLS termination (prefer-node n2 proxy with TLS)
+
+host uptime:  5:18  up 4 days, 13:17, 6 users, load averages: 48.14 42.79 49.22
+
+03:18:30Z host load: { 48.14 42.79 49.22 }
+### status TLS proxy
+
+```
+$ pbrief dbcm-e5-proxy-tls
+{"writer":"n2","writer_changes":2,"readers":["n1","n3"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=0 drain=0 "],"conns":{"write":0,"read":0}}
+(exit 0)
+```
+
+### go-sql-driver with the lab CA (TLS verified)
+
+```
+$ px dbcm-e5-proxy-tls query -addr 127.0.0.1:3306 -user e5app -password-file /e5/app.pw -tls /e5/ca.pem -server-name dbcm-e5-proxy SELECT @@hostname, CURRENT_USER(), @@version SHOW SESSION STATUS LIKE 'Ssl_cipher'
+dbcm-e4db-n2	e5app@%	11.4.13-MariaDB-ubu2404
+Ssl_cipher	
+(exit 0)
+```
+
+### go-sql-driver without TLS (must be refused)
+
+```
+$ px dbcm-e5-proxy-tls query -addr 127.0.0.1:3306 -user e5app -password-file /e5/app.pw SELECT 1
+e5client: Error 1043 (08S01): dbcm-proxy: TLS is required for this endpoint
+(exit 1)
+```
+
+### go-sql-driver with a wrong server name (must fail verification)
+
+```
+$ px dbcm-e5-proxy-tls query -addr 127.0.0.1:3306 -user e5app -password-file /e5/app.pw -tls /e5/ca.pem -server-name wrong.example SELECT 1
+e5client: tls: failed to verify certificate: x509: certificate is valid for dbcm-e5-proxy, localhost, not wrong.example
+(exit 1)
+```
+
+### mariadb CLI with --ssl-ca and server-cert verification
+
+```
+$ vm_docker dbcm-lab-m1 exec dbcm-e5-proxy-tls sh -c MYSQL_PWD=$(cat /e5/app.pw) mariadb -h 127.0.0.1 -P3306 -ue5app --ssl-ca=/e5/ca.pem --ssl-verify-server-cert -e "status" | grep -iE "SSL|Server version|Connection:"
+SSL:			Cipher in use is TLS_AES_128_GCM_SHA256, cert is OK
+Server version:		11.4.13-MariaDB-ubu2404 mariadb.org binary distribution
+Connection:		127.0.0.1 via TCP/IP
+(exit 0)
+```
+
+### mariadb CLI with TLS disabled (must be refused)
+
+```
+$ vm_docker dbcm-lab-m1 exec dbcm-e5-proxy-tls sh -c MYSQL_PWD=$(cat /e5/app.pw) mariadb -h 127.0.0.1 -P3306 -ue5app --skip-ssl -e "SELECT 1"
+ERROR 1043 (08S01): dbcm-proxy: TLS is required for this endpoint
+(exit 1)
+```
+
+### mariadb CLI default settings, no CA (11.4 client verifies by default)
+
+```
+$ vm_docker dbcm-lab-m1 exec dbcm-e5-proxy-tls sh -c MYSQL_PWD=$(cat /e5/app.pw) mariadb -h 127.0.0.1 -P3306 -ue5app -e "SELECT @@hostname"
+WARNING: option --ssl-verify-server-cert is disabled, because of an insecure passwordless login.
+@@hostname
+dbcm-e4db-n2
+(exit 0)
+```
+
+### mariadb CLI through the plaintext proxy (no termination; client and node negotiate)
+
+```
+$ vm_docker dbcm-lab-m1 exec dbcm-e5-proxy sh -c MYSQL_PWD=$(cat /e5/app.pw) mariadb -h 127.0.0.1 -P3306 -ue5app -e "status" | grep -iE "SSL|Server version|Connection:"
+WARNING: option --ssl-verify-server-cert is disabled, because of an insecure passwordless login.
+SSL:			Cipher in use is TLS_AES_256_GCM_SHA384, cert is UNKNOWN
+Server version:		11.4.13-MariaDB-ubu2404 mariadb.org binary distribution
+Connection:		127.0.0.1 via TCP/IP
+(exit 0)
+```
+
+### mariadb CLI through the plaintext proxy with --ssl-verify-server-cert and the lab CA (node certificate is not from that CA)
+
+```
+$ vm_docker dbcm-lab-m1 exec dbcm-e5-proxy sh -c MYSQL_PWD=$(cat /e5/app.pw) mariadb -h 127.0.0.1 -P3306 -ue5app --ssl-ca=/e5/ca.pem --ssl-verify-server-cert -e "SELECT 1"
+ERROR 2026 (HY000): TLS/SSL error: self-signed certificate
+(exit 1)
+```
+
+### TLS proxy: 10 s per-connection writes with verified TLS
+
+```
+$ px dbcm-e5-proxy-tls load -addr 127.0.0.1:3306 -user e5app -password-file /e5/app.pw -tls /e5/ca.pem -server-name dbcm-e5-proxy -mode per-connection -duration 10s -interval 100ms -label tls
+03:18:31.343 first success on dbcm-e4db-n2
+SUMMARY {"label":"tls","mode":"per-connection","duration":"10s","attempts":98,"ok":98,"errors":0,"per_node":{"dbcm-e4db-n2":98},"max_gap_without_success":"118ms","max_gap_from":"03:18:32.063","reconnects":0,"transitions":[{"at":"03:18:31.343","event":"first success on dbcm-e4db-n2"}]}
+(exit 0)
+```
+
+### TLS round trips
+
+```
+$ px dbcm-e5-proxy-tls bench -addr 127.0.0.1:3306 -user e5app -password-file /e5/app.pw -tls /e5/ca.pem -server-name dbcm-e5-proxy -n 300
+addr 127.0.0.1:3306 connect+auth 2.2ms, 300 x SELECT 1: p50 152µs p90 197µs p99 293µs max 345µs
+(exit 0)
+```
+
+### TLS proxy log
+
+```
+$ vm_docker dbcm-lab-m1 logs --tail 15 dbcm-e5-proxy-tls
+time=2026-10-23T03:18:07.136Z level=INFO msg="proxy started" write=[::]:3306 read=[::]:3307 control=127.0.0.1:9306
+time=2026-10-23T03:18:07.137Z level=INFO msg="proxy running" version=0.0.0-dev config=/e5/proxy-tls.json
+time=2026-10-23T03:18:08.137Z level=WARN msg="writer changed" from="" to=n1 has_writer=true reasons="[n2: unhealthy n3: unhealthy preferred node \"n2\" not usable no current writer: immediate choice of lowest latency node n1 no read endpoint available]"
+time=2026-10-23T03:18:10.399Z level=WARN msg="writer changed" from=n1 to=n2 has_writer=true reasons="[switching n1 -> n2 after 3 consecutive evaluations draining n1 until 2026-10-23T03:18:20Z]"
+time=2026-10-23T03:18:30.787Z level=INFO msg="client handshake failed" endpoint=write node=n2 client=127.0.0.1 err="client did not request TLS"
+time=2026-10-23T03:18:30.856Z level=INFO msg="client handshake failed" endpoint=write node=n2 client=127.0.0.1 err="tls handshake: remote error: tls: bad certificate"
+time=2026-10-23T03:18:31.009Z level=INFO msg="client handshake failed" endpoint=write node=n2 client=127.0.0.1 err="client did not request TLS"
+(exit 0)
+```
+
+
+## Phase e5probes (E5): side effects of the probes on the nodes
+
+host uptime:  5:18  up 4 days, 13:17, 6 users, load averages: 48.96 43.09 49.25
+
+03:18:41Z host load: { 48.96 43.09 49.25 }
+### n1: aborted connects, host cache, connection errors
+
+```
+$ rsql 1 SHOW GLOBAL STATUS WHERE Variable_name IN ('Aborted_connects','Aborted_connects_preauth','Connection_errors_internal','Connections','Threads_connected','Max_used_connections');
+			SELECT IP, HOST, SUM_CONNECT_ERRORS, COUNT_HANDSHAKE_ERRORS FROM performance_schema.host_cache
+Aborted_connects	630
+Aborted_connects_preauth	630
+Connection_errors_internal	0
+Connections	1414
+Max_used_connections	3
+Threads_connected	1
+(exit 0)
+```
+
+### n2: aborted connects, host cache, connection errors
+
+```
+$ rsql 2 SHOW GLOBAL STATUS WHERE Variable_name IN ('Aborted_connects','Aborted_connects_preauth','Connection_errors_internal','Connections','Threads_connected','Max_used_connections');
+			SELECT IP, HOST, SUM_CONNECT_ERRORS, COUNT_HANDSHAKE_ERRORS FROM performance_schema.host_cache
+Aborted_connects	749
+Aborted_connects_preauth	749
+Connection_errors_internal	0
+Connections	1923
+Max_used_connections	5
+Threads_connected	1
+(exit 0)
+```
+
+### n3: aborted connects, host cache, connection errors
+
+```
+$ rsql 3 SHOW GLOBAL STATUS WHERE Variable_name IN ('Aborted_connects','Aborted_connects_preauth','Connection_errors_internal','Connections','Threads_connected','Max_used_connections');
+			SELECT IP, HOST, SUM_CONNECT_ERRORS, COUNT_HANDSHAKE_ERRORS FROM performance_schema.host_cache
+Aborted_connects	744
+Aborted_connects_preauth	744
+Connection_errors_internal	0
+Connections	4204
+Max_used_connections	3
+Threads_connected	1
+(exit 0)
+```
+
+### proxy uptime and probe counts
+
+```
+$ pbrief
+{"writer":"n1","writer_changes":1,"readers":["n2","n3"],"nodes":["n1 healthy/synced conns=0 drain=0 ","n2 healthy/synced conns=0 drain=0 ","n3 healthy/synced conns=0 drain=0 "],"conns":{"write":0,"read":0}}
+(exit 0)
+```
+
+### proxy log warnings
+
+```
+$ sh -c limactl shell --workdir / dbcm-lab-m1 -- sudo docker logs dbcm-e5-proxy 2>&1 | grep -iE 'level=(WARN|ERROR)' | tail -15
+time=2026-10-23T03:18:07.688Z level=WARN msg="writer changed" from="" to=n1 has_writer=true reasons="[n2: unhealthy n3: unhealthy no current writer: immediate choice of lowest latency node n1 no read endpoint available]"
+(exit 0)
+```
+
+03:18:42Z E5_KEEP_VMS=1: VMs kept; run bin/lab cleanup -apply manually
+03:18:42Z E5/E6 finished with exit 0
+
+## Phase build: cross-compile linux/arm64 binaries on the host
+
+### go build ./cmd/manager
+
+```
+$ env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o <repo>/.lab/e4/bin/manager ./cmd/manager
+(exit 0)
+```
+
+### go build ./cmd/agent
+
+```
+$ env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o <repo>/.lab/e4/bin/agent ./cmd/agent
+(exit 0)
+```
+
+### go build ./cmd/dbcm-job
+
+```
+$ env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o <repo>/.lab/e4/bin/dbcm-job ./cmd/dbcm-job
+(exit 0)
+```
+
+### go build ./cmd/proxy
+
+```
+$ env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o <repo>/.lab/e4/bin/proxy ./cmd/proxy
+(exit 0)
+```
+
+### go build ./tests/p0/e4client
+
+```
+$ env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o <repo>/.lab/e4/bin/e4client ./tests/p0/e4client
+(exit 0)
+```
+
+### go build ./tests/p0/e5client
+
+```
+$ env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o <repo>/.lab/e4/bin/e5client ./tests/p0/e5client
+(exit 0)
+```
+
+### git revision
+
+```
+$ git -C <repo> log -1 --format=%h %s
+62503f1 Record E4 results in status and workplan
+(exit 0)
+```
+
+
+## Phase upgrade (development): new binaries for agents and manager on the kept lab
+
+
+## Phase images: binaries, agent and job images built inside m1, copied to m2/m3
+
+host uptime:  5:21  up 4 days, 13:20, 6 users, load averages: 9.44 27.03 41.23
+
+03:21:49Z host load: { 9.44 27.03 41.23 }
+### host-built linux/arm64 binaries (sha256)
+
+```
+$ sh -c cd '<repo>/.lab/e4/bin' && shasum -a 256 manager agent dbcm-job e4client && go version
+9e1fef6e91ab44bfa56a6bfc5a358be2ebae9c34216dc83338613f63d43017b8  manager
+ec4934e5d8d2069ed071cec66a460fa1ab0d4506f2c6c7ef9646287b709bed9f  agent
+50a56d5eb40bb5bc79646e8ef2a123687c3e4e42127787995cc77ef8175471d3  dbcm-job
+4235b1a9553f5c4daab066a32f81c10ce67061424e940e6a2b4744f493513ed4  e4client
+go version go1.27.1 darwin/arm64
+(exit 0)
+```
+
+### install binaries in m1
+
+```
+$ vm_sh dbcm-lab-m1 
+		set -e
+		sudo install -m 0755 /tmp/manager /usr/local/bin/dbcm-e4-manager
+		sudo install -m 0755 /tmp/e4client /usr/local/bin/dbcm-e4-client
+		sudo mkdir -p /root/dbcm-e4-build/agent /root/dbcm-e4-build/job
+		sudo install -m 0755 /tmp/manager /tmp/agent /root/dbcm-e4-build/agent/
+		sudo install -m 0755 /tmp/dbcm-job /root/dbcm-e4-build/job/
+		rm -f /tmp/manager /tmp/agent /tmp/dbcm-job /tmp/e4client
+		/usr/local/bin/dbcm-e4-manager -version
+0.0.0-dev
+(exit 0)
+```
+
+### agent image Dockerfile (runtime stage of deploy/Dockerfile)
+
+```
+$ vm_args dbcm-lab-m1 
+		cat <<EOF | sudo tee /root/dbcm-e4-build/agent/Dockerfile
+FROM $1
+COPY manager agent /usr/local/bin/
+USER 65532:65532
+ENTRYPOINT ["/usr/local/bin/manager"]
+CMD ["-listen", "0.0.0.0:8080"]
+EOF gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
+COPY manager agent /usr/local/bin/
+USER 65532:65532
+ENTRYPOINT ["/usr/local/bin/manager"]
+CMD ["-listen", "0.0.0.0:8080"]
+(exit 0)
+```
+
+### build agent image in m1
+
+```
+$ vm_args dbcm-lab-m1 sudo docker build -q -t "$1" /root/dbcm-e4-build/agent && sudo docker image inspect --format "{{.Id}} {{.Architecture}} user={{.Config.User}} entrypoint={{.Config.Entrypoint}}" "$1" dbcm-agent:e4
+sha256:a60df64b44e3629e23abdd43723f754881b8a5ccb4aefdf30e4604c46b86e2bb
+sha256:a60df64b44e3629e23abdd43723f754881b8a5ccb4aefdf30e4604c46b86e2bb arm64 user=65532:65532 entrypoint=[/usr/local/bin/manager]
+(exit 0)
+```
+
+### job image Dockerfile (final stage of deploy/Dockerfile.jobs)
+
+```
+$ vm_args dbcm-lab-m1 
+		cat <<EOF | sudo tee /root/dbcm-e4-build/job/Dockerfile
+FROM $1
+RUN set -eu; for t in mariabackup mbstream mariadb-dump mariadb; do test -x "/usr/bin/\$t"; done; \\
+    test "\$(id -u mysql):\$(id -g mysql)" = "999:999"
+COPY dbcm-job /usr/local/bin/dbcm-job
+USER 999:999
+HEALTHCHECK NONE
+ENTRYPOINT ["/usr/local/bin/dbcm-job"]
+CMD ["-version"]
+EOF mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+FROM mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+RUN set -eu; for t in mariabackup mbstream mariadb-dump mariadb; do test -x "/usr/bin/$t"; done; \
+    test "$(id -u mysql):$(id -g mysql)" = "999:999"
+COPY dbcm-job /usr/local/bin/dbcm-job
+USER 999:999
+HEALTHCHECK NONE
+ENTRYPOINT ["/usr/local/bin/dbcm-job"]
+CMD ["-version"]
+(exit 0)
+```
+
+### build job image in m1
+
+```
+$ vm_args dbcm-lab-m1 sudo docker build -q -t "$1" /root/dbcm-e4-build/job && sudo docker image inspect --format "{{.Id}} {{.Architecture}} user={{.Config.User}} volumes={{.Config.Volumes}}" "$1" && sudo docker run --rm "$1" -version dbcm-job:e4
+sha256:09fa15abc688082177ca0a08337bb32a0d8ef9ce5f0a8de1997fbb1ef294439d
+sha256:09fa15abc688082177ca0a08337bb32a0d8ef9ce5f0a8de1997fbb1ef294439d arm64 user=999:999 volumes=map[/var/lib/mysql:map[]]
+dbcm-job 0.0.0-dev unknown
+(exit 0)
+```
+
+### copy images to dbcm-lab-m2 (docker save | docker load through the host)
+
+```
+$ sh -c limactl shell --workdir / dbcm-lab-m1 -- sudo docker save dbcm-agent:e4 dbcm-job:e4 | limactl shell --workdir / dbcm-lab-m2 -- sudo docker load
+Loaded image: dbcm-agent:e4
+Loaded image: dbcm-job:e4
+(exit 0)
+```
+
+### copy images to dbcm-lab-m3 (docker save | docker load through the host)
+
+```
+$ sh -c limactl shell --workdir / dbcm-lab-m1 -- sudo docker save dbcm-agent:e4 dbcm-job:e4 | limactl shell --workdir / dbcm-lab-m3 -- sudo docker load
+Loaded image: dbcm-agent:e4
+Loaded image: dbcm-job:e4
+(exit 0)
+```
+
+### pull pinned MariaDB image on dbcm-lab-m1
+
+```
+$ vm_docker dbcm-lab-m1 pull -q mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+docker.io/library/mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+(exit 0)
+```
+
+### pull pinned MariaDB image on dbcm-lab-m2
+
+```
+$ vm_docker dbcm-lab-m2 pull -q mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+docker.io/library/mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+(exit 0)
+```
+
+### pull pinned MariaDB image on dbcm-lab-m3
+
+```
+$ vm_docker dbcm-lab-m3 pull -q mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+docker.io/library/mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+(exit 0)
+```
+
+### restart agents with the new image
+
+```
+$ vm_docker dbcm-lab-m1 service update --force -q dbcm-agent-e4lab
+dbcm-agent-e4lab
+(exit 0)
+```
+
+### stop manager unit
+
+```
+$ vm_args dbcm-lab-m1 sudo systemctl stop "$1"; sleep 2; systemctl is-active "$1" || true dbcm-e4-manager
+inactive
+(exit 0)
+```
+
+### start manager unit (same config and data directory)
+
+```
+$ vm_args dbcm-lab-m1 sudo systemd-run --unit "$1" -p Restart=no --collect /usr/local/bin/dbcm-e4-manager -listen "127.0.0.1:$2" -config /etc/dbcm-e4/manager.json dbcm-e4-manager 18480
+Running as unit: dbcm-e4-manager.service; invocation ID: 824e08a1592e4bf3943e44162a8024f6
+(exit 0)
+```
+
+03:22:16Z wait ok after 1s: manager health
+03:22:18Z wait ok after 2s: manager leads (API not 503)
+03:22:18Z wait ok after 0s: all 3 agents enrolled (agentIdentity true)
+### session after the manager restart
+
+```
+$ api GET /api/v1/auth/session
+HTTP 200
+{"accountId":"admin","restricted":false,"pendingPasskeyEnrollment":false,"createdAt":"2026-10-23T05:09:52.592356371+02:00"}
+(exit 0)
+```
+
+
+## Phase e6clean (E6): marker row, then every service scaled to 0 at once (operator, outside the manager)
+
+host uptime:  5:22  up 4 days, 13:21, 6 users, load averages: 11.22 25.70 40.25
+
+03:22:18Z host load: { 11.22 25.70 40.25 }
+03:22:18Z slot hosts: 1:dbcm-lab-m1 2:dbcm-lab-m3 3:dbcm-lab-m2
+### marker row before the clean outage (n2)
+
+```
+$ rsql 2 REPLACE INTO e4.t (id, v) VALUES (100, 'before clean outage')
+(exit 0)
+```
+
+### rows before (n1)
+
+```
+$ e6_rows 1
+3
+100	before clean outage
+(exit 0)
+```
+
+### wsrep positions before
+
+```
+$ e6_positions
+n1: wsrep_last_committed 3518 wsrep_cluster_size 3 
+n2: wsrep_last_committed 3518 wsrep_cluster_size 3 
+n3: wsrep_last_committed 3518 wsrep_cluster_size 3 
+(exit 0)
+```
+
+### scale all three to 0 (one command)
+
+```
+$ vm_docker dbcm-lab-m1 service scale -d dbcm-e4db-n1=0 dbcm-e4db-n2=0 dbcm-e4db-n3=0
+dbcm-e4db-n1 scaled to 0
+dbcm-e4db-n2 scaled to 0
+dbcm-e4db-n3 scaled to 0
+(exit 0)
+```
+
+03:22:19Z wait ok after 0s: no database task running
+### tasks
+
+```
+$ vm_docker dbcm-lab-m1 service ps --format {{.Name}} {{.Node}} {{.DesiredState}} {{.CurrentState}} dbcm-e4db-n1 dbcm-e4db-n2 dbcm-e4db-n3
+dbcm-e4db-n1.1 lima-dbcm-lab-m1 Remove Running 9 minutes ago
+dbcm-e4db-n1.1 lima-dbcm-lab-m1 Shutdown Failed 9 minutes ago
+dbcm-e4db-n1.1 lima-dbcm-lab-m1 Shutdown Shutdown 11 minutes ago
+dbcm-e4db-n2.1 lima-dbcm-lab-m3 Remove Running 12 minutes ago
+dbcm-e4db-n3.1 lima-dbcm-lab-m2 Remove Running 11 minutes ago
+(exit 0)
+```
+
+### ground truth: grastate.dat per node
+
+```
+$ e6_grastate
+== n1 on dbcm-lab-m1
+# GALERA saved state
+version: 2.1
+uuid:    3b2d2499-ce8f-11f1-a8b6-67c327274574
+seqno:   -1
+safe_to_bootstrap: 0
+-rw-rw---- 1 999 systemd-journal 264 Oct 23 05:13 /var/lib/dbcm/volumes/dbcm-e4db-n1-88b0a7cb/data/gvwstate.dat
+== n2 on dbcm-lab-m3
+# GALERA saved state
+version: 2.1
+uuid:    3b2d2499-ce8f-11f1-a8b6-67c327274574
+seqno:   -1
+safe_to_bootstrap: 0
+-rw-rw---- 1 999 systemd-journal 264 Oct 23 05:13 /var/lib/dbcm/volumes/dbcm-e4db-n2-6d20c848/data/gvwstate.dat
+== n3 on dbcm-lab-m2
+# GALERA saved state
+version: 2.1
+uuid:    3b2d2499-ce8f-11f1-a8b6-67c327274574
+seqno:   -1
+safe_to_bootstrap: 0
+-rw-rw---- 1 999 systemd-journal 264 Oct 23 05:13 /var/lib/dbcm/volumes/dbcm-e4db-n3-6b9cd46b/data/gvwstate.dat
+(exit 0)
+```
+
+
+## Phase e6diagclean (E6): manager diagnosis after the clean outage; the manager must stay hands off
+
+host uptime:  5:22  up 4 days, 13:21, 6 users, load averages: 11.22 25.70 40.25
+
+03:22:19Z host load: { 11.22 25.70 40.25 }
+### cluster via API
+
+```
+$ api GET /api/v1/clusters/clu-bb658915db82e300
+HTTP 200
+{"id":"clu-bb658915db82e300","swarm":"swarm-164e04f271496e15","name":"e4db","engine":"mariadb-galera","state":"unknown","nodes":[{"id":"n1","host":"l8ti5h5cgi60nvulbscycx2d7","state":"unknown","role":"unknown","observedAt":"2026-10-23T05:22:32.881150789+02:00"},{"id":"n2","host":"lzpg7z7lb8ibdsgazi0xj0wmz","state":"unknown","role":"unknown","observedAt":"2026-10-23T05:22:32.881636207+02:00"},{"id":"n3","host":"lbb5dl9ux5kh0t3q4tbix6has","state":"unknown","role":"unknown","observedAt":"2026-10-23T05:22:32.881443498+02:00"}],"observedAt":"2026-10-23T05:22:32.881150789+02:00","endpoints":[{"name":"n1","host":"dbcm-e4db-n1","port":3306},{"name":"n2","host":"dbcm-e4db-n2","port":3306},{"name":"n3","host":"dbcm-e4db-n3","port":3306}],"automationPolicy":"manual"}
+(exit 0)
+```
+
+### outage diagnosis (clean)
+
+```
+$ api GET /api/v1/clusters/clu-bb658915db82e300/outage-diagnosis
+HTTP 200
+{"candidate":"n1","positions":[{"slot":"n1","uuid":"3b2d2499-ce8f-11f1-a8b6-67c327274574","seqno":3518,"source":"grastate","safe_to_bootstrap":false},{"slot":"n2","uuid":"3b2d2499-ce8f-11f1-a8b6-67c327274574","seqno":3518,"source":"grastate","safe_to_bootstrap":false},{"slot":"n3","uuid":"3b2d2499-ce8f-11f1-a8b6-67c327274574","seqno":3518,"source":"grastate","safe_to_bootstrap":false}],"reasons":["n1 has the highest seqno 3518 (source grastate) of 3 known positions","n1 has safe_to_bootstrap: 0 (normal after a crash of all nodes); the plan sets it after approval"],"risks":[{"kind":"tie","detail":"n1 ties with n2,n3 at seqno 3518; lowest slot chosen"}],"requires_approval":true}
+(exit 0)
+```
+
+03:22:55Z t+15s running tasks: 0; cluster: {"state":"unknown","nodes":["n1 unknown/unknown","n2 unknown/unknown","n3 unknown/unknown"]}
+03:23:10Z t+30s running tasks: 0; cluster: {"state":"unknown","nodes":["n1 unknown/unknown","n2 unknown/unknown","n3 unknown/unknown"]}
+03:23:25Z t+45s running tasks: 0; cluster: {"state":"unknown","nodes":["n1 unknown/unknown","n2 unknown/unknown","n3 unknown/unknown"]}
+03:23:40Z t+60s running tasks: 0; cluster: {"state":"unknown","nodes":["n1 unknown/unknown","n2 unknown/unknown","n3 unknown/unknown"]}
+03:23:56Z t+75s running tasks: 0; cluster: {"state":"unknown","nodes":["n1 unknown/unknown","n2 unknown/unknown","n3 unknown/unknown"]}
+03:24:11Z t+90s running tasks: 0; cluster: {"state":"unknown","nodes":["n1 unknown/unknown","n2 unknown/unknown","n3 unknown/unknown"]}
+03:24:26Z t+105s running tasks: 0; cluster: {"state":"unknown","nodes":["n1 unknown/unknown","n2 unknown/unknown","n3 unknown/unknown"]}
+03:24:41Z t+120s running tasks: 0; cluster: {"state":"unknown","nodes":["n1 unknown/unknown","n2 unknown/unknown","n3 unknown/unknown"]}
+### service specs before the observation window
+
+```
+$ printf %s\n dbcm-e4db-n1 replicas=0 version=130 bootstrap=
+dbcm-e4db-n2 replicas=0 version=132 bootstrap=
+dbcm-e4db-n3 replicas=0 version=134 bootstrap=
+dbcm-e4db-n1 replicas=0 version=130 bootstrap=
+dbcm-e4db-n2 replicas=0 version=132 bootstrap=
+dbcm-e4db-n3 replicas=0 version=134 bootstrap=
+(exit 0)
+```
+
+### service specs after the observation window
+
+```
+$ printf %s\n dbcm-e4db-n1 replicas=0 version=130 bootstrap=
+dbcm-e4db-n2 replicas=0 version=132 bootstrap=
+dbcm-e4db-n3 replicas=0 version=134 bootstrap=
+dbcm-e4db-n1 replicas=0 version=130 bootstrap=
+dbcm-e4db-n2 replicas=0 version=132 bootstrap=
+dbcm-e4db-n3 replicas=0 version=134 bootstrap=
+(exit 0)
+```
+
+**Result:** hands off: no service spec changed and no database task ran for 120 s
+
+03:24:41Z RESULT: hands off: no service spec changed and no database task ran for 120 s
+### operations (no new operation may appear)
+
+```
+$ e6_ops
+{"id":"op-388470df93967c66","kind":"galera/create-cluster","state":"succeeded","reason":"all steps succeeded"}
+(exit 0)
+```
+
+### outage diagnosis again (deterministic?)
+
+```
+$ api GET /api/v1/clusters/clu-bb658915db82e300/outage-diagnosis
+HTTP 200
+{"candidate":"n1","positions":[{"slot":"n1","uuid":"3b2d2499-ce8f-11f1-a8b6-67c327274574","seqno":3518,"source":"grastate","safe_to_bootstrap":false},{"slot":"n2","uuid":"3b2d2499-ce8f-11f1-a8b6-67c327274574","seqno":3518,"source":"grastate","safe_to_bootstrap":false},{"slot":"n3","uuid":"3b2d2499-ce8f-11f1-a8b6-67c327274574","seqno":3518,"source":"grastate","safe_to_bootstrap":false}],"reasons":["n1 has the highest seqno 3518 (source grastate) of 3 known positions","n1 has safe_to_bootstrap: 0 (normal after a crash of all nodes); the plan sets it after approval"],"risks":[{"kind":"tie","detail":"n1 ties with n2,n3 at seqno 3518; lowest slot chosen"}],"requires_approval":true}
+(exit 0)
+```
+
+### events
+
+```
+$ e6_events
+{"severity":"info","message":"manager manager-1 leads term 3; 0 unfinished operation(s) taken over"}
+{"severity":"info","message":"operation op-388470df93967c66 (galera/create-cluster) succeeded"}
+{"severity":"info","message":"admin requested cluster e4db (3 nodes), operation op-388470df93967c66"}
+{"severity":"info","message":"admin deployed agents: service i6v9zvvswb6iqzffc0x5jzpdk, 3 enrolled, 0 revoked, 0 failed"}
+{"severity":"info","message":"manager manager-1 leads term 2; 0 unfinished operation(s) taken over"}
+(exit 0)
+```
+
+
+## Phase e6recoverclean (E6): guided recovery after explicit approval
+
+host uptime:  5:24  up 4 days, 13:23, 6 users, load averages: 16.69 20.73 35.93
+
+03:24:41Z host load: { 16.69 20.73 35.93 }
+03:24:42Z diagnosis candidate: n1
+### request with a candidate that differs from the diagnosis (must be refused)
+
+```
+$ api POST /api/v1/clusters/clu-bb658915db82e300/outage-recovery {"candidate":"n2"}
+HTTP 409
+{"error":"conflict"}
+(exit 3)
+```
+
+### request guided recovery (candidate n1)
+
+```
+HTTP 202
+{"id":"op-0eb41663b908934c","kind":"galera/full-outage-recovery","candidate":"n1","approval":{"digest":"8eef87ba48e2c4ce53ed7a3372819e20d3249ba8b043b023f2d074b9d1968bc6"},"diagnosis":{"candidate":"n1","positions":[{"slot":"n1","uuid":"3b2d2499-ce8f-11f1-a8b6-67c327274574","seqno":3518,"source":"grastate","safe_to_bootstrap":false},{"slot":"n2","uuid":"3b2d2499-ce8f-11f1-a8b6-67c327274574","seqno":3518,"source":"grastate","safe_to_bootstrap":false},{"slot":"n3","uuid":"3b2d2499-ce8f-11f1-a8b6-67c327274574","seqno":3518,"source":"grastate","safe_to_bootstrap":false}],"reasons":["n1 has the highest seqno 3518 (source grastate) of 3 known positions","n1 has safe_to_bootstrap: 0 (normal after a crash of all nodes); the plan sets it after approval"],"risks":[{"kind":"tie","detail":"n1 ties with n2,n3 at seqno 3518; lowest slot chosen"}],"requires_approval":true}}
+```
+
+### operation before approval (must wait)
+
+```
+$ opstate op-0eb41663b908934c
+{"state":"running","reason":null,"approval":{"digest":"8eef87ba48e2c4ce53ed7a3372819e20d3249ba8b043b023f2d074b9d1968bc6"}}
+(exit 0)
+```
+
+### service specs before approval (nothing started)
+
+```
+$ e6_specs
+dbcm-e4db-n1 replicas=0 version=130 bootstrap=
+dbcm-e4db-n2 replicas=0 version=132 bootstrap=
+dbcm-e4db-n3 replicas=0 version=134 bootstrap=
+(exit 0)
+```
+
+### approve with a wrong digest (must be refused)
+
+```
+$ api POST /api/v1/operations/op-0eb41663b908934c/approve {"digest":"0000000000000000000000000000000000000000000000000000000000000000"}
+HTTP 409
+{"error":"approval_mismatch"}
+(exit 3)
+```
+
+### approve with the digest
+
+```
+$ api POST /api/v1/operations/op-0eb41663b908934c/approve {"digest":"8eef87ba48e2c4ce53ed7a3372819e20d3249ba8b043b023f2d074b9d1968bc6"}
+HTTP 200
+{"digest":"8eef87ba48e2c4ce53ed7a3372819e20d3249ba8b043b023f2d074b9d1968bc6","approvedBy":"admin","approvedAt":"2026-10-23T05:25:02.513382946+02:00"}
+(exit 0)
+```
+
+03:25:02Z recovery operation: running  | running tasks 0
+03:25:12Z recovery operation: running  | running tasks 0
+03:25:22Z recovery operation: running  | running tasks 3
+03:25:33Z recovery operation: running  | running tasks 3
+03:25:43Z recovery operation: succeeded all steps succeeded | running tasks 3
+### recovery operation
+
+```
+$ e6_op op-0eb41663b908934c
+{
+  "id": "op-0eb41663b908934c",
+  "kind": "galera/full-outage-recovery",
+  "swarm": "swarm-164e04f271496e15",
+  "cluster": "clu-bb658915db82e300",
+  "state": "succeeded",
+  "startedAt": "2026-10-23T05:24:42.132201729+02:00",
+  "endedAt": "2026-10-23T05:25:41.411051611+02:00",
+  "approval": {
+    "digest": "8eef87ba48e2c4ce53ed7a3372819e20d3249ba8b043b023f2d074b9d1968bc6",
+    "approvedBy": "admin",
+    "approvedAt": "2026-10-23T05:25:02.513382946+02:00"
+  },
+  "reason": "all steps succeeded"
+}
+(exit 0)
+```
+
+### n1 after recovery (clean)
+
+```
+$ rsql 1 SHOW GLOBAL STATUS WHERE Variable_name IN ('wsrep_cluster_size','wsrep_local_state_comment','wsrep_cluster_status','wsrep_cluster_state_uuid','wsrep_last_committed')
+wsrep_last_committed	3523
+wsrep_local_state_comment	Synced
+wsrep_cluster_size	3
+wsrep_cluster_state_uuid	3b2d2499-ce8f-11f1-a8b6-67c327274574
+wsrep_cluster_status	Primary
+(exit 0)
+```
+
+### n2 after recovery (clean)
+
+```
+$ rsql 2 SHOW GLOBAL STATUS WHERE Variable_name IN ('wsrep_cluster_size','wsrep_local_state_comment','wsrep_cluster_status','wsrep_cluster_state_uuid','wsrep_last_committed')
+wsrep_last_committed	3523
+wsrep_local_state_comment	Synced
+wsrep_cluster_size	3
+wsrep_cluster_state_uuid	3b2d2499-ce8f-11f1-a8b6-67c327274574
+wsrep_cluster_status	Primary
+(exit 0)
+```
+
+### n3 after recovery (clean)
+
+```
+$ rsql 3 SHOW GLOBAL STATUS WHERE Variable_name IN ('wsrep_cluster_size','wsrep_local_state_comment','wsrep_cluster_status','wsrep_cluster_state_uuid','wsrep_last_committed')
+wsrep_last_committed	3523
+wsrep_local_state_comment	Synced
+wsrep_cluster_size	3
+wsrep_cluster_state_uuid	3b2d2499-ce8f-11f1-a8b6-67c327274574
+wsrep_cluster_status	Primary
+(exit 0)
+```
+
+### rows after recovery (clean, n3)
+
+```
+$ e6_rows 3
+3
+100	before clean outage
+(exit 0)
+```
+
+### write after recovery (clean, n1)
+
+```
+$ rsql 1 REPLACE INTO e4.t (id, v) VALUES (101, 'after clean recovery'); SELECT COUNT(*) FROM e4.t
+4
+(exit 0)
+```
+
+### service specs after recovery
+
+```
+$ e6_specs
+dbcm-e4db-n1 replicas=1 version=179 bootstrap=
+dbcm-e4db-n2 replicas=1 version=152 bootstrap=
+dbcm-e4db-n3 replicas=1 version=160 bootstrap=
+(exit 0)
+```
+
+### cluster via API after recovery
+
+```
+$ api GET /api/v1/clusters/clu-bb658915db82e300
+HTTP 200
+{"id":"clu-bb658915db82e300","swarm":"swarm-164e04f271496e15","name":"e4db","engine":"mariadb-galera","state":"healthy","nodes":[{"id":"n1","host":"l8ti5h5cgi60nvulbscycx2d7","state":"healthy","role":"synced","observedAt":"2026-10-23T05:25:32.879846715+02:00"},{"id":"n2","host":"lzpg7z7lb8ibdsgazi0xj0wmz","state":"healthy","role":"synced","observedAt":"2026-10-23T05:25:32.880354595+02:00"},{"id":"n3","host":"lbb5dl9ux5kh0t3q4tbix6has","state":"healthy","role":"synced","observedAt":"2026-10-23T05:25:32.880197385+02:00"}],"observedAt":"2026-10-23T05:25:32.879846715+02:00","endpoints":[{"name":"n1","host":"dbcm-e4db-n1","port":3306},{"name":"n2","host":"dbcm-e4db-n2","port":3306},{"name":"n3","host":"dbcm-e4db-n3","port":3306}],"automationPolicy":"manual"}
+(exit 0)
+```
+
+### ground truth after recovery
+
+```
+$ e6_grastate
+== n1 on dbcm-lab-m1
+# GALERA saved state
+version: 2.1
+uuid:    3b2d2499-ce8f-11f1-a8b6-67c327274574
+seqno:   -1
+safe_to_bootstrap: 0
+  -rw-rw---- 1 999 systemd-journal 264 Oct 23 05:25 /var/lib/dbcm/volumes/dbcm-e4db-n1-88b0a7cb/data/gvwstate.dat
+== n2 on dbcm-lab-m3
+# GALERA saved state
+version: 2.1
+uuid:    3b2d2499-ce8f-11f1-a8b6-67c327274574
+seqno:   -1
+safe_to_bootstrap: 0
+  -rw-rw---- 1 999 systemd-journal 264 Oct 23 05:25 /var/lib/dbcm/volumes/dbcm-e4db-n2-6d20c848/data/gvwstate.dat
+== n3 on dbcm-lab-m2
+# GALERA saved state
+version: 2.1
+uuid:    3b2d2499-ce8f-11f1-a8b6-67c327274574
+seqno:   -1
+safe_to_bootstrap: 0
+  -rw-rw---- 1 999 systemd-journal 264 Oct 23 05:25 /var/lib/dbcm/volumes/dbcm-e4db-n3-6b9cd46b/data/gvwstate.dat
+(exit 0)
+```
+
+
+## Phase e6crash (E6): SIGKILL every mariadbd at once, then scale to 0 within the restart delay
+
+host uptime:  5:25  up 4 days, 13:24, 6 users, load averages: 10.53 18.13 33.83
+
+03:25:44Z host load: { 10.53 18.13 33.83 }
+03:25:44Z slot hosts: 1:dbcm-lab-m1 2:dbcm-lab-m3 3:dbcm-lab-m2
+### marker row before the crash (n3)
+
+```
+$ rsql 3 REPLACE INTO e4.t (id, v) VALUES (102, 'before crash')
+(exit 0)
+```
+
+445b35846bc85e1ecc34fdb025289bd887d733cbd6113c253d89de020f7027e5
+6dec1ff3927814f83c501b21b1eae183911b48ec202181efa9f11dbe00d81600
+cde9c2b1592a0e6900b68d84f51a2183eb7b51f7637471d34b65c5e435b37bce
+03:25:45Z SIGKILL sent to all three at 03:25:45
+### scale all three to 0 right after the kill
+
+```
+$ vm_docker dbcm-lab-m1 service scale -d dbcm-e4db-n1=0 dbcm-e4db-n2=0 dbcm-e4db-n3=0
+dbcm-e4db-n1 scaled to 0
+dbcm-e4db-n2 scaled to 0
+dbcm-e4db-n3 scaled to 0
+(exit 0)
+```
+
+03:25:45Z wait ok after 0s: no database task running
+### tasks (no restart may have happened)
+
+```
+$ vm_docker dbcm-lab-m1 service ps --format {{.Name}} {{.Node}} {{.DesiredState}} {{.CurrentState}} {{.Error}} dbcm-e4db-n1 dbcm-e4db-n2 dbcm-e4db-n3
+dbcm-e4db-n1.1 lima-dbcm-lab-m1 Remove Ready less than a second ago 
+dbcm-e4db-n1.1 lima-dbcm-lab-m1 Shutdown Failed less than a second ago "task: non-zero exit (137)"
+dbcm-e4db-n1.1 lima-dbcm-lab-m1 Shutdown Shutdown 16 seconds ago 
+dbcm-e4db-n2.1 lima-dbcm-lab-m3 Remove Assigned less than a second ago 
+dbcm-e4db-n2.1 lima-dbcm-lab-m3 Shutdown Failed less than a second ago "task: non-zero exit (137)"
+dbcm-e4db-n3.1 lima-dbcm-lab-m2 Remove Assigned less than a second ago 
+dbcm-e4db-n3.1 lima-dbcm-lab-m2 Shutdown Failed less than a second ago "task: non-zero exit (137)"
+(exit 0)
+```
+
+### ground truth: grastate.dat per node
+
+```
+$ e6_grastate
+== n1 on dbcm-lab-m1
+# GALERA saved state
+version: 2.1
+uuid:    3b2d2499-ce8f-11f1-a8b6-67c327274574
+seqno:   -1
+safe_to_bootstrap: 0
+  -rw-rw---- 1 999 systemd-journal 264 Oct 23 05:25 /var/lib/dbcm/volumes/dbcm-e4db-n1-88b0a7cb/data/gvwstate.dat
+== n2 on dbcm-lab-m3
+# GALERA saved state
+version: 2.1
+uuid:    3b2d2499-ce8f-11f1-a8b6-67c327274574
+seqno:   -1
+safe_to_bootstrap: 0
+  -rw-rw---- 1 999 systemd-journal 264 Oct 23 05:25 /var/lib/dbcm/volumes/dbcm-e4db-n2-6d20c848/data/gvwstate.dat
+== n3 on dbcm-lab-m2
+# GALERA saved state
+version: 2.1
+uuid:    3b2d2499-ce8f-11f1-a8b6-67c327274574
+seqno:   -1
+safe_to_bootstrap: 0
+  -rw-rw---- 1 999 systemd-journal 264 Oct 23 05:25 /var/lib/dbcm/volumes/dbcm-e4db-n3-6b9cd46b/data/gvwstate.dat
+(exit 0)
+```
+
+
+## Phase e6diagcrash (E6): manager diagnosis after the crash; the manager must stay hands off
+
+host uptime:  5:25  up 4 days, 13:24, 6 users, load averages: 10.53 18.13 33.83
+
+03:25:46Z host load: { 10.53 18.13 33.83 }
+### outage diagnosis (crash)
+
+```
+$ api GET /api/v1/clusters/clu-bb658915db82e300/outage-diagnosis
+HTTP 200
+{"positions":[{"slot":"n1","uuid":"3b2d2499-ce8f-11f1-a8b6-67c327274574","seqno":-1,"source":"unknown","safe_to_bootstrap":false},{"slot":"n2","uuid":"3b2d2499-ce8f-11f1-a8b6-67c327274574","seqno":-1,"source":"unknown","safe_to_bootstrap":false},{"slot":"n3","uuid":"3b2d2499-ce8f-11f1-a8b6-67c327274574","seqno":-1,"source":"unknown","safe_to_bootstrap":false}],"reasons":["no candidate: positions known for 0 of 3 nodes, need 2; collect grastate.dat and wsrep-recover results first"],"risks":[{"kind":"unclean-shutdown","slot":"n1","detail":"grastate seqno -1: the node did not shut down cleanly"},{"kind":"position-unknown","slot":"n1","detail":"seqno unknown; run mariadbd --wsrep-recover on this node"},{"kind":"unclean-shutdown","slot":"n2","detail":"grastate seqno -1: the node did not shut down cleanly"},{"kind":"position-unknown","slot":"n2","detail":"seqno unknown; run mariadbd --wsrep-recover on this node"},{"kind":"unclean-shutdown","slot":"n3","detail":"grastate seqno -1: the node did not shut down cleanly"},{"kind":"position-unknown","slot":"n3","detail":"seqno unknown; run mariadbd --wsrep-recover on this node"}],"requires_approval":true}
+(exit 0)
+```
+
+### guided recovery without a candidate (must be refused)
+
+```
+$ api POST /api/v1/clusters/clu-bb658915db82e300/outage-recovery {"candidate":"n1"}
+HTTP 409
+{"error":"conflict"}
+(exit 3)
+```
+
+03:26:21Z t+15s running tasks: 0; cluster: {"state":"unavailable","nodes":["n1 unavailable/unknown","n2 unavailable/unknown","n3 unavailable/unknown"]}
+03:26:36Z t+30s running tasks: 0; cluster: {"state":"unavailable","nodes":["n1 unavailable/unknown","n2 unavailable/unknown","n3 unavailable/unknown"]}
+03:26:51Z t+45s running tasks: 0; cluster: {"state":"unavailable","nodes":["n1 unavailable/unknown","n2 unavailable/unknown","n3 unavailable/unknown"]}
+03:27:07Z t+60s running tasks: 0; cluster: {"state":"unavailable","nodes":["n1 unavailable/unknown","n2 unavailable/unknown","n3 unavailable/unknown"]}
+03:27:22Z t+75s running tasks: 0; cluster: {"state":"unavailable","nodes":["n1 unavailable/unknown","n2 unavailable/unknown","n3 unavailable/unknown"]}
+03:27:37Z t+90s running tasks: 0; cluster: {"state":"unavailable","nodes":["n1 unavailable/unknown","n2 unavailable/unknown","n3 unavailable/unknown"]}
+03:27:52Z t+105s running tasks: 0; cluster: {"state":"unavailable","nodes":["n1 unavailable/unknown","n2 unavailable/unknown","n3 unavailable/unknown"]}
+03:28:07Z t+120s running tasks: 0; cluster: {"state":"unavailable","nodes":["n1 unavailable/unknown","n2 unavailable/unknown","n3 unavailable/unknown"]}
+### service specs before the observation window
+
+```
+$ printf %s\n dbcm-e4db-n1 replicas=0 version=194 bootstrap=
+dbcm-e4db-n2 replicas=0 version=196 bootstrap=
+dbcm-e4db-n3 replicas=0 version=198 bootstrap=
+dbcm-e4db-n1 replicas=0 version=194 bootstrap=
+dbcm-e4db-n2 replicas=0 version=196 bootstrap=
+dbcm-e4db-n3 replicas=0 version=198 bootstrap=
+(exit 0)
+```
+
+### service specs after the observation window
+
+```
+$ printf %s\n dbcm-e4db-n1 replicas=0 version=194 bootstrap=
+dbcm-e4db-n2 replicas=0 version=196 bootstrap=
+dbcm-e4db-n3 replicas=0 version=198 bootstrap=
+dbcm-e4db-n1 replicas=0 version=194 bootstrap=
+dbcm-e4db-n2 replicas=0 version=196 bootstrap=
+dbcm-e4db-n3 replicas=0 version=198 bootstrap=
+(exit 0)
+```
+
+**Result:** hands off: no service spec changed and no database task ran for 120 s
+
+03:28:07Z RESULT: hands off: no service spec changed and no database task ran for 120 s
+### operations (no new operation may appear)
+
+```
+$ e6_ops
+{"id":"op-0eb41663b908934c","kind":"galera/full-outage-recovery","state":"succeeded","reason":"all steps succeeded"}
+{"id":"op-388470df93967c66","kind":"galera/create-cluster","state":"succeeded","reason":"all steps succeeded"}
+(exit 0)
+```
+
+
+## Phase e6recovercrash (E6): recovery after the crash
+
+host uptime:  5:28  up 4 days, 13:26, 6 users, load averages: 10.46 17.24 31.17
+
+03:28:08Z host load: { 10.46 17.24 31.17 }
+03:28:08Z diagnosis candidate: none
+**Result:** no candidate after the crash: the product cannot recover this outage by itself
+
+03:28:08Z RESULT: no candidate after the crash: the product cannot recover this outage by itself
+03:28:08Z E5_KEEP_VMS=1: VMs kept; run bin/lab cleanup -apply manually
+03:28:08Z E5/E6 finished with exit 0
+
+## Phase build: cross-compile linux/arm64 binaries on the host
+
+### go build ./cmd/manager
+
+```
+$ env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o <repo>/.lab/e4/bin/manager ./cmd/manager
+(exit 0)
+```
+
+### go build ./cmd/agent
+
+```
+$ env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o <repo>/.lab/e4/bin/agent ./cmd/agent
+(exit 0)
+```
+
+### go build ./cmd/dbcm-job
+
+```
+$ env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o <repo>/.lab/e4/bin/dbcm-job ./cmd/dbcm-job
+(exit 0)
+```
+
+### go build ./cmd/proxy
+
+```
+$ env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o <repo>/.lab/e4/bin/proxy ./cmd/proxy
+(exit 0)
+```
+
+### go build ./tests/p0/e4client
+
+```
+$ env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o <repo>/.lab/e4/bin/e4client ./tests/p0/e4client
+(exit 0)
+```
+
+### go build ./tests/p0/e5client
+
+```
+$ env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o <repo>/.lab/e4/bin/e5client ./tests/p0/e5client
+(exit 0)
+```
+
+### git revision
+
+```
+$ git -C <repo> log -1 --format=%h %s
+62503f1 Record E4 results in status and workplan
+(exit 0)
+```
+
+
+## Phase upgrade (development): new binaries for agents and manager on the kept lab
+
+
+## Phase images: binaries, agent and job images built inside m1, copied to m2/m3
+
+host uptime:  5:33  up 4 days, 13:32, 6 users, load averages: 6.22 10.56 23.45
+
+03:33:51Z host load: { 6.22 10.56 23.45 }
+### host-built linux/arm64 binaries (sha256)
+
+```
+$ sh -c cd '<repo>/.lab/e4/bin' && shasum -a 256 manager agent dbcm-job e4client && go version
+b5aa448698b235ca59eecc8cc2393e06d2d3d674213c144ae9ea6e226aed81e0  manager
+f753b46207c1c623499f4522ca2bb63d9a8a10f4824392e8278e06fe7a759d8f  agent
+cf3d3a8def386b5ee9918d9e0414962c63e724265f4f8e81f706f61a009f9a3f  dbcm-job
+4235b1a9553f5c4daab066a32f81c10ce67061424e940e6a2b4744f493513ed4  e4client
+go version go1.27.1 darwin/arm64
+(exit 0)
+```
+
+### install binaries in m1
+
+```
+$ vm_sh dbcm-lab-m1 
+		set -e
+		sudo install -m 0755 /tmp/manager /usr/local/bin/dbcm-e4-manager
+		sudo install -m 0755 /tmp/e4client /usr/local/bin/dbcm-e4-client
+		sudo mkdir -p /root/dbcm-e4-build/agent /root/dbcm-e4-build/job
+		sudo install -m 0755 /tmp/manager /tmp/agent /root/dbcm-e4-build/agent/
+		sudo install -m 0755 /tmp/dbcm-job /root/dbcm-e4-build/job/
+		rm -f /tmp/manager /tmp/agent /tmp/dbcm-job /tmp/e4client
+		/usr/local/bin/dbcm-e4-manager -version
+0.0.0-dev
+(exit 0)
+```
+
+### agent image Dockerfile (runtime stage of deploy/Dockerfile)
+
+```
+$ vm_args dbcm-lab-m1 
+		cat <<EOF | sudo tee /root/dbcm-e4-build/agent/Dockerfile
+FROM $1
+COPY manager agent /usr/local/bin/
+USER 65532:65532
+ENTRYPOINT ["/usr/local/bin/manager"]
+CMD ["-listen", "0.0.0.0:8080"]
+EOF gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
+COPY manager agent /usr/local/bin/
+USER 65532:65532
+ENTRYPOINT ["/usr/local/bin/manager"]
+CMD ["-listen", "0.0.0.0:8080"]
+(exit 0)
+```
+
+### build agent image in m1
+
+```
+$ vm_args dbcm-lab-m1 sudo docker build -q -t "$1" /root/dbcm-e4-build/agent && sudo docker image inspect --format "{{.Id}} {{.Architecture}} user={{.Config.User}} entrypoint={{.Config.Entrypoint}}" "$1" dbcm-agent:e4
+sha256:cfe88c3f4bb00f90e2a772e34dbdf551c6cfe42d75a7ceec134e8758bd512f68
+sha256:cfe88c3f4bb00f90e2a772e34dbdf551c6cfe42d75a7ceec134e8758bd512f68 arm64 user=65532:65532 entrypoint=[/usr/local/bin/manager]
+(exit 0)
+```
+
+### job image Dockerfile (final stage of deploy/Dockerfile.jobs)
+
+```
+$ vm_args dbcm-lab-m1 
+		cat <<EOF | sudo tee /root/dbcm-e4-build/job/Dockerfile
+FROM $1
+RUN set -eu; for t in mariabackup mbstream mariadb-dump mariadb; do test -x "/usr/bin/\$t"; done; \\
+    test "\$(id -u mysql):\$(id -g mysql)" = "999:999"
+COPY dbcm-job /usr/local/bin/dbcm-job
+USER 999:999
+HEALTHCHECK NONE
+ENTRYPOINT ["/usr/local/bin/dbcm-job"]
+CMD ["-version"]
+EOF mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+FROM mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+RUN set -eu; for t in mariabackup mbstream mariadb-dump mariadb; do test -x "/usr/bin/$t"; done; \
+    test "$(id -u mysql):$(id -g mysql)" = "999:999"
+COPY dbcm-job /usr/local/bin/dbcm-job
+USER 999:999
+HEALTHCHECK NONE
+ENTRYPOINT ["/usr/local/bin/dbcm-job"]
+CMD ["-version"]
+(exit 0)
+```
+
+### build job image in m1
+
+```
+$ vm_args dbcm-lab-m1 sudo docker build -q -t "$1" /root/dbcm-e4-build/job && sudo docker image inspect --format "{{.Id}} {{.Architecture}} user={{.Config.User}} volumes={{.Config.Volumes}}" "$1" && sudo docker run --rm "$1" -version dbcm-job:e4
+sha256:8ef68ad1642db40609adf278fefd21265a8e50466c75b7afc49d46877ff85fb8
+sha256:8ef68ad1642db40609adf278fefd21265a8e50466c75b7afc49d46877ff85fb8 arm64 user=999:999 volumes=map[/var/lib/mysql:map[]]
+dbcm-job 0.0.0-dev unknown
+(exit 0)
+```
+
+### copy images to dbcm-lab-m2 (docker save | docker load through the host)
+
+```
+$ sh -c limactl shell --workdir / dbcm-lab-m1 -- sudo docker save dbcm-agent:e4 dbcm-job:e4 | limactl shell --workdir / dbcm-lab-m2 -- sudo docker load
+Loaded image: dbcm-agent:e4
+Loaded image: dbcm-job:e4
+(exit 0)
+```
+
+### copy images to dbcm-lab-m3 (docker save | docker load through the host)
+
+```
+$ sh -c limactl shell --workdir / dbcm-lab-m1 -- sudo docker save dbcm-agent:e4 dbcm-job:e4 | limactl shell --workdir / dbcm-lab-m3 -- sudo docker load
+Loaded image: dbcm-agent:e4
+Loaded image: dbcm-job:e4
+(exit 0)
+```
+
+### pull pinned MariaDB image on dbcm-lab-m1
+
+```
+$ vm_docker dbcm-lab-m1 pull -q mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+docker.io/library/mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+(exit 0)
+```
+
+### pull pinned MariaDB image on dbcm-lab-m2
+
+```
+$ vm_docker dbcm-lab-m2 pull -q mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+docker.io/library/mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+(exit 0)
+```
+
+### pull pinned MariaDB image on dbcm-lab-m3
+
+```
+$ vm_docker dbcm-lab-m3 pull -q mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+docker.io/library/mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+(exit 0)
+```
+
+### restart agents with the new image
+
+```
+$ vm_docker dbcm-lab-m1 service update --force -q dbcm-agent-e4lab
+dbcm-agent-e4lab
+(exit 0)
+```
+
+### stop manager unit
+
+```
+$ vm_args dbcm-lab-m1 sudo systemctl stop "$1"; sleep 2; systemctl is-active "$1" || true dbcm-e4-manager
+inactive
+(exit 0)
+```
+
+### start manager unit (same config and data directory)
+
+```
+$ vm_args dbcm-lab-m1 sudo systemd-run --unit "$1" -p Restart=no --collect /usr/local/bin/dbcm-e4-manager -listen "127.0.0.1:$2" -config /etc/dbcm-e4/manager.json dbcm-e4-manager 18480
+Running as unit: dbcm-e4-manager.service; invocation ID: 6f6a79e005cb4d949b3510c39c0a63f4
+(exit 0)
+```
+
+03:34:20Z wait ok after 1s: manager health
+03:34:22Z wait ok after 2s: manager leads (API not 503)
+03:34:22Z wait ok after 0s: all 3 agents enrolled (agentIdentity true)
+### session after the manager restart
+
+```
+$ api GET /api/v1/auth/session
+HTTP 200
+{"accountId":"admin","restricted":false,"pendingPasskeyEnrollment":false,"createdAt":"2026-10-23T05:09:52.592356371+02:00"}
+(exit 0)
+```
+
+
+## Phase e6diagcrash (E6): manager diagnosis after the crash; the manager must stay hands off
+
+host uptime:  5:34  up 4 days, 13:33, 6 users, load averages: 6.82 10.35 22.93
+
+03:34:22Z host load: { 6.82 10.35 22.93 }
+03:34:22Z slot hosts: 1: 2: 3:
+### outage diagnosis (crash, read-only GET)
+
+```
+$ api GET /api/v1/clusters/clu-bb658915db82e300/outage-diagnosis
+HTTP 200
+{"positions":[{"slot":"n1","uuid":"3b2d2499-ce8f-11f1-a8b6-67c327274574","seqno":-1,"source":"unknown","safe_to_bootstrap":false},{"slot":"n2","uuid":"3b2d2499-ce8f-11f1-a8b6-67c327274574","seqno":-1,"source":"unknown","safe_to_bootstrap":false},{"slot":"n3","uuid":"3b2d2499-ce8f-11f1-a8b6-67c327274574","seqno":-1,"source":"unknown","safe_to_bootstrap":false}],"reasons":["no candidate: positions known for 0 of 3 nodes, need 2; collect grastate.dat and wsrep-recover results first"],"risks":[{"kind":"unclean-shutdown","slot":"n1","detail":"grastate seqno -1: the node did not shut down cleanly"},{"kind":"position-unknown","slot":"n1","detail":"seqno unknown; run mariadbd --wsrep-recover on this node"},{"kind":"unclean-shutdown","slot":"n2","detail":"grastate seqno -1: the node did not shut down cleanly"},{"kind":"position-unknown","slot":"n2","detail":"seqno unknown; run mariadbd --wsrep-recover on this node"},{"kind":"unclean-shutdown","slot":"n3","detail":"grastate seqno -1: the node did not shut down cleanly"},{"kind":"position-unknown","slot":"n3","detail":"seqno unknown; run mariadbd --wsrep-recover on this node"}],"requires_approval":true}
+(exit 0)
+```
+
+03:34:57Z t+15s running tasks: 0; cluster: {"state":"unavailable","nodes":["n1 unavailable/unknown","n2 unavailable/unknown","n3 unavailable/unknown"]}
+03:35:13Z t+30s running tasks: 0; cluster: {"state":"unavailable","nodes":["n1 unavailable/unknown","n2 unavailable/unknown","n3 unavailable/unknown"]}
+03:35:28Z t+45s running tasks: 0; cluster: {"state":"unavailable","nodes":["n1 unavailable/unknown","n2 unavailable/unknown","n3 unavailable/unknown"]}
+### service specs before the observation window
+
+```
+$ printf %s\n dbcm-e4db-n1 replicas=0 version=194 bootstrap=
+dbcm-e4db-n2 replicas=0 version=196 bootstrap=
+dbcm-e4db-n3 replicas=0 version=198 bootstrap=
+dbcm-e4db-n1 replicas=0 version=194 bootstrap=
+dbcm-e4db-n2 replicas=0 version=196 bootstrap=
+dbcm-e4db-n3 replicas=0 version=198 bootstrap=
+(exit 0)
+```
+
+### service specs after the observation window
+
+```
+$ printf %s\n dbcm-e4db-n1 replicas=0 version=194 bootstrap=
+dbcm-e4db-n2 replicas=0 version=196 bootstrap=
+dbcm-e4db-n3 replicas=0 version=198 bootstrap=
+dbcm-e4db-n1 replicas=0 version=194 bootstrap=
+dbcm-e4db-n2 replicas=0 version=196 bootstrap=
+dbcm-e4db-n3 replicas=0 version=198 bootstrap=
+(exit 0)
+```
+
+**Result:** hands off: no service spec changed and no database task ran for 45 s
+
+03:35:28Z RESULT: hands off: no service spec changed and no database task ran for 45 s
+### operations (no new operation may appear)
+
+```
+$ e6_ops
+{"id":"op-0eb41663b908934c","kind":"galera/full-outage-recovery","state":"succeeded","reason":"all steps succeeded"}
+{"id":"op-388470df93967c66","kind":"galera/create-cluster","state":"succeeded","reason":"all steps succeeded"}
+(exit 0)
+```
+
+### diagnosis with recovered positions (POST: mariadbd --wsrep-recover on each node)
+
+```
+$ api POST /api/v1/clusters/clu-bb658915db82e300/outage-diagnosis {}
+HTTP 200
+{"candidate":"n1","positions":[{"slot":"n1","uuid":"3b2d2499-ce8f-11f1-a8b6-67c327274574","seqno":3525,"source":"wsrep-recover","safe_to_bootstrap":false},{"slot":"n2","uuid":"3b2d2499-ce8f-11f1-a8b6-67c327274574","seqno":3525,"source":"wsrep-recover","safe_to_bootstrap":false},{"slot":"n3","uuid":"3b2d2499-ce8f-11f1-a8b6-67c327274574","seqno":3525,"source":"wsrep-recover","safe_to_bootstrap":false}],"reasons":["n1 has the highest seqno 3525 (source wsrep-recover) of 3 known positions","n1 has safe_to_bootstrap: 0 (normal after a crash of all nodes); the plan sets it after approval"],"risks":[{"kind":"unclean-shutdown","slot":"n1","detail":"grastate seqno -1: the node did not shut down cleanly"},{"kind":"unclean-shutdown","slot":"n2","detail":"grastate seqno -1: the node did not shut down cleanly"},{"kind":"unclean-shutdown","slot":"n3","detail":"grastate seqno -1: the node did not shut down cleanly"},{"kind":"tie","detail":"n1 ties with n2,n3 at seqno 3525; lowest slot chosen"}],"requires_approval":true}
+(exit 0)
+```
+
+### service specs after the position recovery (nothing started)
+
+```
+$ e6_specs
+dbcm-e4db-n1 replicas=0 version=194 bootstrap=
+dbcm-e4db-n2 replicas=0 version=196 bootstrap=
+dbcm-e4db-n3 replicas=0 version=198 bootstrap=
+(exit 0)
+```
+
+### ground truth after the position recovery (grastate unchanged)
+
+```
+$ e6_grastate
+== n1 on 
+03:35:30Z FATAL: refusing to address non-lab VM ''
+03:35:30Z FATAL: refusing to address non-lab VM ''
+03:35:30Z E5_KEEP_VMS=1: VMs kept; run bin/lab cleanup -apply manually
+03:35:30Z E5_KEEP_VMS=1: VMs kept; run bin/lab cleanup -apply manually
+03:35:30Z E5/E6 finished with exit 1
+
+## Phase e6diagcrash (E6): manager diagnosis after the crash; the manager must stay hands off
+
+host uptime:  5:45  up 4 days, 13:44, 6 users, load averages: 5.59 5.68 13.33
+
+03:45:22Z host load: { 5.59 5.68 13.33 }
+03:45:22Z slot hosts: 1:dbcm-lab-m1 2:dbcm-lab-m3 3:dbcm-lab-m2
+### outage diagnosis (crash, read-only GET)
+
+```
+$ api GET /api/v1/clusters/clu-bb658915db82e300/outage-diagnosis
+HTTP 200
+{"positions":[{"slot":"n1","uuid":"3b2d2499-ce8f-11f1-a8b6-67c327274574","seqno":-1,"source":"unknown","safe_to_bootstrap":false},{"slot":"n2","uuid":"3b2d2499-ce8f-11f1-a8b6-67c327274574","seqno":-1,"source":"unknown","safe_to_bootstrap":false},{"slot":"n3","uuid":"3b2d2499-ce8f-11f1-a8b6-67c327274574","seqno":-1,"source":"unknown","safe_to_bootstrap":false}],"reasons":["no candidate: positions known for 0 of 3 nodes, need 2; collect grastate.dat and wsrep-recover results first"],"risks":[{"kind":"unclean-shutdown","slot":"n1","detail":"grastate seqno -1: the node did not shut down cleanly"},{"kind":"position-unknown","slot":"n1","detail":"seqno unknown; run mariadbd --wsrep-recover on this node"},{"kind":"unclean-shutdown","slot":"n2","detail":"grastate seqno -1: the node did not shut down cleanly"},{"kind":"position-unknown","slot":"n2","detail":"seqno unknown; run mariadbd --wsrep-recover on this node"},{"kind":"unclean-shutdown","slot":"n3","detail":"grastate seqno -1: the node did not shut down cleanly"},{"kind":"position-unknown","slot":"n3","detail":"seqno unknown; run mariadbd --wsrep-recover on this node"}],"requires_approval":true}
+(exit 0)
+```
+
+03:45:58Z t+15s running tasks: 0; cluster: {"state":"unavailable","nodes":["n1 unavailable/unknown","n2 unavailable/unknown","n3 unavailable/unknown"]}
+03:46:13Z t+30s running tasks: 0; cluster: {"state":"unavailable","nodes":["n1 unavailable/unknown","n2 unavailable/unknown","n3 unavailable/unknown"]}
+### service specs before the observation window
+
+```
+$ printf %s\n dbcm-e4db-n1 replicas=0 version=194 bootstrap=
+dbcm-e4db-n2 replicas=0 version=196 bootstrap=
+dbcm-e4db-n3 replicas=0 version=198 bootstrap=
+dbcm-e4db-n1 replicas=0 version=194 bootstrap=
+dbcm-e4db-n2 replicas=0 version=196 bootstrap=
+dbcm-e4db-n3 replicas=0 version=198 bootstrap=
+(exit 0)
+```
+
+### service specs after the observation window
+
+```
+$ printf %s\n dbcm-e4db-n1 replicas=0 version=194 bootstrap=
+dbcm-e4db-n2 replicas=0 version=196 bootstrap=
+dbcm-e4db-n3 replicas=0 version=198 bootstrap=
+dbcm-e4db-n1 replicas=0 version=194 bootstrap=
+dbcm-e4db-n2 replicas=0 version=196 bootstrap=
+dbcm-e4db-n3 replicas=0 version=198 bootstrap=
+(exit 0)
+```
+
+**Result:** hands off: no service spec changed and no database task ran for 30 s
+
+03:46:13Z RESULT: hands off: no service spec changed and no database task ran for 30 s
+### operations (no new operation may appear)
+
+```
+$ e6_ops
+{"id":"op-0eb41663b908934c","kind":"galera/full-outage-recovery","state":"succeeded","reason":"all steps succeeded"}
+{"id":"op-388470df93967c66","kind":"galera/create-cluster","state":"succeeded","reason":"all steps succeeded"}
+(exit 0)
+```
+
+### diagnosis with recovered positions (POST: mariadbd --wsrep-recover on each node)
+
+```
+$ api POST /api/v1/clusters/clu-bb658915db82e300/outage-diagnosis {}
+HTTP 200
+{"candidate":"n1","positions":[{"slot":"n1","uuid":"3b2d2499-ce8f-11f1-a8b6-67c327274574","seqno":3525,"source":"wsrep-recover","safe_to_bootstrap":false},{"slot":"n2","uuid":"3b2d2499-ce8f-11f1-a8b6-67c327274574","seqno":3525,"source":"wsrep-recover","safe_to_bootstrap":false},{"slot":"n3","uuid":"3b2d2499-ce8f-11f1-a8b6-67c327274574","seqno":3525,"source":"wsrep-recover","safe_to_bootstrap":false}],"reasons":["n1 has the highest seqno 3525 (source wsrep-recover) of 3 known positions","n1 has safe_to_bootstrap: 0 (normal after a crash of all nodes); the plan sets it after approval"],"risks":[{"kind":"unclean-shutdown","slot":"n1","detail":"grastate seqno -1: the node did not shut down cleanly"},{"kind":"unclean-shutdown","slot":"n2","detail":"grastate seqno -1: the node did not shut down cleanly"},{"kind":"unclean-shutdown","slot":"n3","detail":"grastate seqno -1: the node did not shut down cleanly"},{"kind":"tie","detail":"n1 ties with n2,n3 at seqno 3525; lowest slot chosen"}],"requires_approval":true}
+(exit 0)
+```
+
+### service specs after the position recovery (nothing started)
+
+```
+$ e6_specs
+dbcm-e4db-n1 replicas=0 version=194 bootstrap=
+dbcm-e4db-n2 replicas=0 version=196 bootstrap=
+dbcm-e4db-n3 replicas=0 version=198 bootstrap=
+(exit 0)
+```
+
+### ground truth after the position recovery (grastate unchanged)
+
+```
+$ e6_grastate
+== n1 on dbcm-lab-m1
+# GALERA saved state
+version: 2.1
+uuid:    3b2d2499-ce8f-11f1-a8b6-67c327274574
+seqno:   -1
+safe_to_bootstrap: 0
+  -rw-rw---- 1 999 systemd-journal 264 Oct 23 05:25 /var/lib/dbcm/volumes/dbcm-e4db-n1-88b0a7cb/data/gvwstate.dat
+== n2 on dbcm-lab-m3
+# GALERA saved state
+version: 2.1
+uuid:    3b2d2499-ce8f-11f1-a8b6-67c327274574
+seqno:   -1
+safe_to_bootstrap: 0
+  -rw-rw---- 1 999 systemd-journal 264 Oct 23 05:25 /var/lib/dbcm/volumes/dbcm-e4db-n2-6d20c848/data/gvwstate.dat
+== n3 on dbcm-lab-m2
+# GALERA saved state
+version: 2.1
+uuid:    3b2d2499-ce8f-11f1-a8b6-67c327274574
+seqno:   -1
+safe_to_bootstrap: 0
+  -rw-rw---- 1 999 systemd-journal 264 Oct 23 05:25 /var/lib/dbcm/volumes/dbcm-e4db-n3-6b9cd46b/data/gvwstate.dat
+(exit 0)
+```
+
+### one-off containers left on the hosts (must be none)
+
+```
+$ e6_leftover_containers
+dbcm-lab-m1: 0 wsrep-recover container(s)
+dbcm-lab-m2: 0 wsrep-recover container(s)
+dbcm-lab-m3: 0 wsrep-recover container(s)
+(exit 0)
+```
+
+### diagnosis with recovered positions again (same answer?)
+
+```
+$ api POST /api/v1/clusters/clu-bb658915db82e300/outage-diagnosis {}
+HTTP 200
+{"candidate":"n1","positions":[{"slot":"n1","uuid":"3b2d2499-ce8f-11f1-a8b6-67c327274574","seqno":3525,"source":"wsrep-recover","safe_to_bootstrap":false},{"slot":"n2","uuid":"3b2d2499-ce8f-11f1-a8b6-67c327274574","seqno":3525,"source":"wsrep-recover","safe_to_bootstrap":false},{"slot":"n3","uuid":"3b2d2499-ce8f-11f1-a8b6-67c327274574","seqno":3525,"source":"wsrep-recover","safe_to_bootstrap":false}],"reasons":["n1 has the highest seqno 3525 (source wsrep-recover) of 3 known positions","n1 has safe_to_bootstrap: 0 (normal after a crash of all nodes); the plan sets it after approval"],"risks":[{"kind":"unclean-shutdown","slot":"n1","detail":"grastate seqno -1: the node did not shut down cleanly"},{"kind":"unclean-shutdown","slot":"n2","detail":"grastate seqno -1: the node did not shut down cleanly"},{"kind":"unclean-shutdown","slot":"n3","detail":"grastate seqno -1: the node did not shut down cleanly"},{"kind":"tie","detail":"n1 ties with n2,n3 at seqno 3525; lowest slot chosen"}],"requires_approval":true}
+(exit 0)
+```
+
+
+## Phase e6recovercrash (E6): recovery after the crash
+
+host uptime:  5:46  up 4 days, 13:45, 6 users, load averages: 6.94 6.04 12.98
+
+03:46:15Z host load: { 6.94 6.04 12.98 }
+03:46:17Z diagnosis candidate (recovered positions): n1
+### request with a candidate that differs from the diagnosis (must be refused)
+
+```
+$ api POST /api/v1/clusters/clu-bb658915db82e300/outage-recovery {"candidate":"n2"}
+HTTP 409
+{"error":"conflict"}
+(exit 3)
+```
+
+### request guided recovery (candidate n1)
+
+```
+HTTP 202
+{"id":"op-93cfd8031508c0c9","kind":"galera/full-outage-recovery","candidate":"n1","approval":{"digest":"0d3f682a0e5adacfc5268ccbd3ceea3721ac6d58cdb7ae62894933349f930370"},"diagnosis":{"candidate":"n1","positions":[{"slot":"n1","uuid":"3b2d2499-ce8f-11f1-a8b6-67c327274574","seqno":3525,"source":"wsrep-recover","safe_to_bootstrap":false},{"slot":"n2","uuid":"3b2d2499-ce8f-11f1-a8b6-67c327274574","seqno":3525,"source":"wsrep-recover","safe_to_bootstrap":false},{"slot":"n3","uuid":"3b2d2499-ce8f-11f1-a8b6-67c327274574","seqno":3525,"source":"wsrep-recover","safe_to_bootstrap":false}],"reasons":["n1 has the highest seqno 3525 (source wsrep-recover) of 3 known positions","n1 has safe_to_bootstrap: 0 (normal after a crash of all nodes); the plan sets it after approval"],"risks":[{"kind":"unclean-shutdown","slot":"n1","detail":"grastate seqno -1: the node did not shut down cleanly"},{"kind":"unclean-shutdown","slot":"n2","detail":"grastate seqno -1: the node did not shut down cleanly"},{"kind":"unclean-shutdown","slot":"n3","detail":"grastate seqno -1: the node did not shut down cleanly"},{"kind":"tie","detail":"n1 ties with n2,n3 at seqno 3525; lowest slot chosen"}],"requires_approval":true}}
+```
+
+### operation before approval (must wait)
+
+```
+$ opstate op-93cfd8031508c0c9
+{"state":"running","reason":null,"approval":{"digest":"0d3f682a0e5adacfc5268ccbd3ceea3721ac6d58cdb7ae62894933349f930370"}}
+(exit 0)
+```
+
+### service specs before approval (nothing started)
+
+```
+$ e6_specs
+dbcm-e4db-n1 replicas=0 version=194 bootstrap=
+dbcm-e4db-n2 replicas=0 version=196 bootstrap=
+dbcm-e4db-n3 replicas=0 version=198 bootstrap=
+(exit 0)
+```
+
+### approve with a wrong digest (must be refused)
+
+```
+$ api POST /api/v1/operations/op-93cfd8031508c0c9/approve {"digest":"0000000000000000000000000000000000000000000000000000000000000000"}
+HTTP 409
+{"error":"approval_mismatch"}
+(exit 3)
+```
+
+### approve with the digest
+
+```
+$ api POST /api/v1/operations/op-93cfd8031508c0c9/approve {"digest":"0d3f682a0e5adacfc5268ccbd3ceea3721ac6d58cdb7ae62894933349f930370"}
+HTTP 200
+{"digest":"0d3f682a0e5adacfc5268ccbd3ceea3721ac6d58cdb7ae62894933349f930370","approvedBy":"admin","approvedAt":"2026-10-23T05:46:39.923691906+02:00"}
+(exit 0)
+```
+
+03:46:40Z recovery operation: running  | running tasks 0
+03:46:50Z recovery operation: running  | running tasks 0
+03:47:00Z recovery operation: running  | running tasks 2
+03:47:10Z recovery operation: running  | running tasks 3
+03:47:20Z recovery operation: running  | running tasks 3
+03:47:30Z recovery operation: running  | running tasks 3
+03:47:41Z recovery operation: succeeded all steps succeeded | running tasks 3
+### recovery operation
+
+```
+$ e6_op op-93cfd8031508c0c9
+{
+  "id": "op-93cfd8031508c0c9",
+  "kind": "galera/full-outage-recovery",
+  "swarm": "swarm-164e04f271496e15",
+  "cluster": "clu-bb658915db82e300",
+  "state": "succeeded",
+  "startedAt": "2026-10-23T05:46:19.556207795+02:00",
+  "endedAt": "2026-10-23T05:47:38.847305439+02:00",
+  "approval": {
+    "digest": "0d3f682a0e5adacfc5268ccbd3ceea3721ac6d58cdb7ae62894933349f930370",
+    "approvedBy": "admin",
+    "approvedAt": "2026-10-23T05:46:39.923691906+02:00"
+  },
+  "reason": "all steps succeeded"
+}
+(exit 0)
+```
+
+### start order: running tasks (state timestamp)
+
+```
+$ e6_task_starts
+dbcm-e4db-n1 running since 2026-10-23 03:47:27.452320701 +0000 UTC
+dbcm-e4db-n2 running since 2026-10-23 03:46:54.066611088 +0000 UTC
+dbcm-e4db-n3 running since 2026-10-23 03:47:09.10823997 +0000 UTC
+(exit 0)
+```
+
+### start order: bootstrap and join lines in the node logs
+
+```
+$ e6_node_starts
+== n1
+2026-10-23  3:47:27 0 [Note] WSREP: Found saved state: 618d2058-ce94-11f1-9bbd-3feb471d5dd8:3, safe_to_bootstrap: 0
+2026-10-23  3:47:27 0 [Note] WSREP: Connecting with bootstrap option: 0
+2026-10-23  3:47:27 0 [Note] WSREP: restore pc from disk failed
+2026-10-23  3:47:28 0 [Note] WSREP: New COMPONENT: primary = yes, bootstrap = no, my_idx = 2, memb_num = 3
+2026-10-23  3:47:28 0 [Note] WSREP: Quorum results:
+WSREP_SST: [INFO] mariabackup SST started on joiner (20261023 03:47:28.728)
+WSREP_SST: [INFO] SSL configuration: CA='', CAPATH='', CERT='', KEY='', MODE='DISABLED', encrypt='0' (20261023 03:47:28.750)
+WSREP_SST: [INFO] Progress reporting tool pv not found in path: /usr//bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bin:/usr/local/sbin:/bin:/sbin:/usr/bin:/usr/sbin (202
+WSREP_SST: [INFO] Disabling all progress/rate-limiting (20261023 03:47:28.795)
+WSREP_SST: [INFO] Streaming with mbstream (20261023 03:47:28.799)
+WSREP_SST: [INFO] Using socat as streamer (20261023 03:47:28.799)
+WSREP_SST: [INFO] Moving '/dbcm/data/mariabackup.backup.log' to '/tmp/sst_log_archive/mariabackup.backup.log.2026.10.23-03.47.28.800866756' (20261023 03:47:28.802)
+== n2
+2026-10-23  3:46:54 0 [Note] WSREP: Found saved state: 3b2d2499-ce8f-11f1-a8b6-67c327274574:-1, safe_to_bootstrap: 0
+2026-10-23  3:46:54 0 [Note] WSREP: Connecting with bootstrap option: 0
+2026-10-23  3:46:54 0 [Note] WSREP: restore pc from disk successfully
+2026-10-23  3:46:55 0 [Note] WSREP: New COMPONENT: primary = yes, bootstrap = no, my_idx = 0, memb_num = 2
+2026-10-23  3:46:55 0 [Note] WSREP: Quorum results:
+WSREP_SST: [INFO] mariabackup SST started on joiner (20261023 03:46:55.422)
+WSREP_SST: [INFO] SSL configuration: CA='', CAPATH='', CERT='', KEY='', MODE='DISABLED', encrypt='0' (20261023 03:46:55.444)
+WSREP_SST: [INFO] Progress reporting tool pv not found in path: /usr//bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bin:/usr/local/sbin:/bin:/sbin:/usr/bin:/usr/sbin (202
+WSREP_SST: [INFO] Disabling all progress/rate-limiting (20261023 03:46:55.486)
+WSREP_SST: [INFO] Streaming with mbstream (20261023 03:46:55.491)
+WSREP_SST: [INFO] Using socat as streamer (20261023 03:46:55.492)
+WSREP_SST: [INFO] 'ss' is selected as a socket information utility. (20261023 03:46:55.502)
+== n3
+2026-10-23  3:47:09 0 [Note] WSREP: Found saved state: 3b2d2499-ce8f-11f1-a8b6-67c327274574:-1, safe_to_bootstrap: 0
+2026-10-23  3:47:09 0 [Note] WSREP: Connecting with bootstrap option: 0
+2026-10-23  3:47:09 0 [Note] WSREP: restore pc from disk successfully
+2026-10-23  3:47:10 0 [Note] WSREP: New COMPONENT: primary = yes, bootstrap = no, my_idx = 1, memb_num = 3
+2026-10-23  3:47:10 0 [Note] WSREP: Quorum results:
+WSREP_SST: [INFO] mariabackup SST started on joiner (20261023 03:47:10.437)
+WSREP_SST: [INFO] SSL configuration: CA='', CAPATH='', CERT='', KEY='', MODE='DISABLED', encrypt='0' (20261023 03:47:10.457)
+WSREP_SST: [INFO] Progress reporting tool pv not found in path: /usr//bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bin:/usr/local/sbin:/bin:/sbin:/usr/bin:/usr/sbin (202
+WSREP_SST: [INFO] Disabling all progress/rate-limiting (20261023 03:47:10.519)
+WSREP_SST: [INFO] Streaming with mbstream (20261023 03:47:10.525)
+WSREP_SST: [INFO] Using socat as streamer (20261023 03:47:10.526)
+WSREP_SST: [INFO] 'ss' is selected as a socket information utility. (20261023 03:47:10.537)
+(exit 0)
+```
+
+### n1 after recovery (crash)
+
+```
+$ rsql 1 SHOW GLOBAL STATUS WHERE Variable_name IN ('wsrep_cluster_size','wsrep_local_state_comment','wsrep_cluster_status','wsrep_cluster_state_uuid','wsrep_last_committed')
+wsrep_last_committed	5
+wsrep_local_state_comment	Synced
+wsrep_cluster_size	3
+wsrep_cluster_state_uuid	618d2058-ce94-11f1-9bbd-3feb471d5dd8
+wsrep_cluster_status	Primary
+(exit 0)
+```
+
+### n2 after recovery (crash)
+
+```
+$ rsql 2 SHOW GLOBAL STATUS WHERE Variable_name IN ('wsrep_cluster_size','wsrep_local_state_comment','wsrep_cluster_status','wsrep_cluster_state_uuid','wsrep_last_committed')
+wsrep_last_committed	5
+wsrep_local_state_comment	Synced
+wsrep_cluster_size	3
+wsrep_cluster_state_uuid	618d2058-ce94-11f1-9bbd-3feb471d5dd8
+wsrep_cluster_status	Primary
+(exit 0)
+```
+
+### n3 after recovery (crash)
+
+```
+$ rsql 3 SHOW GLOBAL STATUS WHERE Variable_name IN ('wsrep_cluster_size','wsrep_local_state_comment','wsrep_cluster_status','wsrep_cluster_state_uuid','wsrep_last_committed')
+wsrep_last_committed	5
+wsrep_local_state_comment	Synced
+wsrep_cluster_size	3
+wsrep_cluster_state_uuid	618d2058-ce94-11f1-9bbd-3feb471d5dd8
+wsrep_cluster_status	Primary
+(exit 0)
+```
+
+### rows after recovery (crash, n3)
+
+```
+$ e6_rows 3
+5
+100	before clean outage
+101	after clean recovery
+102	before crash
+(exit 0)
+```
+
+### write after recovery (crash, n1)
+
+```
+$ rsql 1 REPLACE INTO e4.t (id, v) VALUES (103, 'after crash recovery'); SELECT COUNT(*) FROM e4.t
+6
+(exit 0)
+```
+
+### service specs after recovery
+
+```
+$ e6_specs
+dbcm-e4db-n1 replicas=1 version=276 bootstrap=
+dbcm-e4db-n2 replicas=1 version=250 bootstrap=
+dbcm-e4db-n3 replicas=1 version=258 bootstrap=
+(exit 0)
+```
+
+### cluster via API after recovery
+
+```
+$ api GET /api/v1/clusters/clu-bb658915db82e300
+HTTP 200
+{"id":"clu-bb658915db82e300","swarm":"swarm-164e04f271496e15","name":"e4db","engine":"mariadb-galera","state":"healthy","nodes":[{"id":"n1","host":"l8ti5h5cgi60nvulbscycx2d7","state":"healthy","role":"synced","observedAt":"2026-10-23T05:47:36.817451824+02:00"},{"id":"n2","host":"lzpg7z7lb8ibdsgazi0xj0wmz","state":"healthy","role":"synced","observedAt":"2026-10-23T05:47:36.81783395+02:00"},{"id":"n3","host":"lbb5dl9ux5kh0t3q4tbix6has","state":"healthy","role":"synced","observedAt":"2026-10-23T05:47:36.818259617+02:00"}],"observedAt":"2026-10-23T05:47:36.817451824+02:00","endpoints":[{"name":"n1","host":"dbcm-e4db-n1","port":3306},{"name":"n2","host":"dbcm-e4db-n2","port":3306},{"name":"n3","host":"dbcm-e4db-n3","port":3306}],"automationPolicy":"manual"}
+(exit 0)
+```
+
+### ground truth after recovery
+
+```
+$ e6_grastate
+== n1 on dbcm-lab-m1
+# GALERA saved state
+version: 2.1
+uuid:    618d2058-ce94-11f1-9bbd-3feb471d5dd8
+seqno:   -1
+safe_to_bootstrap: 0
+  -rw-rw---- 1 999 systemd-journal 265 Oct 23 05:47 /var/lib/dbcm/volumes/dbcm-e4db-n1-88b0a7cb/data/gvwstate.dat
+== n2 on dbcm-lab-m3
+# GALERA saved state
+version: 2.1
+uuid:    618d2058-ce94-11f1-9bbd-3feb471d5dd8
+seqno:   -1
+safe_to_bootstrap: 0
+  -rw-rw---- 1 999 systemd-journal 265 Oct 23 05:47 /var/lib/dbcm/volumes/dbcm-e4db-n2-6d20c848/data/gvwstate.dat
+== n3 on dbcm-lab-m2
+# GALERA saved state
+version: 2.1
+uuid:    618d2058-ce94-11f1-9bbd-3feb471d5dd8
+seqno:   -1
+safe_to_bootstrap: 0
+  -rw-rw---- 1 999 systemd-journal 265 Oct 23 05:47 /var/lib/dbcm/volumes/dbcm-e4db-n3-6b9cd46b/data/gvwstate.dat
+(exit 0)
+```
+
+03:47:43Z E5_KEEP_VMS=1: VMs kept; run bin/lab cleanup -apply manually
+03:47:43Z E5/E6 finished with exit 0

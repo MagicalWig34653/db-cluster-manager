@@ -139,6 +139,12 @@ type wireService struct {
 	UpdateStatus *struct {
 		State string `json:"State"`
 	} `json:"UpdateStatus,omitempty"`
+	// ServiceStatus is present when the list was requested with status=true
+	// (API 1.41+).
+	ServiceStatus *struct {
+		RunningTasks uint64 `json:"RunningTasks"`
+		DesiredTasks uint64 `json:"DesiredTasks"`
+	} `json:"ServiceStatus,omitempty"`
 }
 
 // toWireSpec converts an agent spec. Service labels are also set on the
@@ -472,7 +478,7 @@ func (c *Client) inspectService(ctx context.Context, id string) (agent.Object, e
 
 func (c *Client) listServices(ctx context.Context, filters string) ([]agent.Object, error) {
 	var list []wireService
-	if err := c.do(ctx, http.MethodGet, "/services", url.Values{"filters": {filters}}, nil, &list, false); err != nil {
+	if err := c.do(ctx, http.MethodGet, "/services", url.Values{"filters": {filters}, "status": {"true"}}, nil, &list, false); err != nil {
 		return nil, err
 	}
 	out := make([]agent.Object, 0, len(list))
@@ -495,6 +501,10 @@ func serviceObject(s wireService) agent.Object {
 	}
 	if s.UpdateStatus != nil {
 		o.UpdateState = s.UpdateStatus.State
+	}
+	if s.ServiceStatus != nil {
+		n := s.ServiceStatus.RunningTasks
+		o.RunningTasks = &n
 	}
 	return o
 }

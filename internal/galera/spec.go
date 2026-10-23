@@ -460,6 +460,14 @@ func BuildServiceSpec(c Cluster, n Node, opt SpecOptions) (ServiceSpec, error) {
 		"--wsrep_sst_method=" + sstMethod,
 		"--binlog_format=ROW",
 		"--innodb_autoinc_lock_mode=2",
+		// Explicit, not inherited from the image's configuration files: with
+		// name resolution on, MariaDB keeps a host cache and blocks a client
+		// host after max_connect_errors (default 100) aborted handshakes.
+		// The database proxy's liveness probe reads the greeting and
+		// disconnects before authenticating (lab E5: about 2 aborted
+		// connects per second and node, Aborted_connects_preauth 750 after
+		// 6 minutes; the pinned image sets skip-name-resolve itself).
+		"--skip_name_resolve=ON",
 		"--wsrep_provider_options=gcache.size=" + gcache,
 	}
 	if opt.SSTDonor != "" {

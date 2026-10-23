@@ -85,6 +85,7 @@ func TestBuildServiceSpecSteadyState(t *testing.T) {
 		"--wsrep_sst_method=mariabackup",
 		"--binlog_format=ROW",
 		"--innodb_autoinc_lock_mode=2",
+		"--skip_name_resolve=ON",
 		"--wsrep_provider_options=gcache.size=128M",
 	}
 	if !slices.Equal(spec.Args, wantArgs) {

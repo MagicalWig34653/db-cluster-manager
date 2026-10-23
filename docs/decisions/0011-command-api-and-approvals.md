@@ -50,3 +50,15 @@ The real manager in managed single-instance mode, driven through its HTTP API by
 Not covered: the backup scheduler, notification settings, outage diagnosis, node replacement, restores into a new cluster, inspection or restore jobs on worker hosts (job services must be created on a manager node; only backups were moved), more than one manager replica, any UI.
 
 After E4 (fakes and unit tests only, not run on the lab): restore and inspection jobs and the instance service are created by the service host's agent (delegated job pinned to the target host after `check-restore-target` there), cluster deletion, restore verification, init secret removal, node outage events and notifications, and step progress in `GET /operations`.
+
+## Evidence (lab VMs, E6, 2026-10-23)
+
+Guided full-outage recovery became a command ([E5/E6 results](../../tests/p0/results/e5-e6-proxy-outage.md)): `POST /clusters/{id}/outage-diagnosis` recovers crashed nodes' positions (`mariadbd --wsrep-recover`, operate permission, refused while a node was last seen Primary; `GET` stays read-only), and `POST /clusters/{id}/outage-recovery` with the confirmed candidate stores the recovery plan as an operation whose first stop waits for the same digest-bound approval as restores.
+
+| Claim | Result |
+| --- | --- |
+| Nothing is stopped, marked or started before the approval | **Confirmed** twice: 20 s after the request all services still had 0 replicas and the operation waited. |
+| The approval is bound to the shown definition | **Confirmed**: a wrong digest answered `409 approval_mismatch`; a request with a candidate other than the fresh diagnosis answered `409 conflict`. |
+| The approved plan runs to a healthy cluster | **Confirmed**: clean outage 40 s, crash 61 s from approval to `succeeded`; size 3, Synced, same state UUID, data present. |
+
+Limits: approving uses the restore permission of `POST /operations/{id}/approve`; the operation view shows `running` without a reason while it waits, and no step progress.
