@@ -53,6 +53,7 @@ var specFieldMap = []struct {
 // agentUnused are agent.ServiceSpec leaves galera does not set.
 var agentUnused = map[string]bool{
 	"Command":                   true,
+	"User":                      true, // only the agent service sets it (lab E4)
 	"RestartPolicy.DelayNS":     true,
 	"RestartPolicy.MaxAttempts": true,
 	"RestartPolicy.WindowNS":    true,
