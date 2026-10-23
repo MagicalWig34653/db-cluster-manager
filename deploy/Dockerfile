@@ -41,7 +41,8 @@ RUN set -eu; \
       GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath \
         -ldflags "-s -w -X ${PKG}.Version=${VERSION} -X ${PKG}.Commit=${COMMIT}" \
         -o /out/${c} ./cmd/${c}; \
-    done
+    done; \
+    mkdir -p /out/data
 
 # ---- runtime: static binaries, CA certificates, non-root, no shell
 FROM ${RUNTIME_IMAGE}
@@ -54,6 +55,9 @@ LABEL org.opencontainers.image.title="db-cluster-manager" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${COMMIT}"
 COPY --from=build /out/manager /out/agent /out/cli /usr/local/bin/
+# Managed-mode data directory. A new named volume mounted here starts with
+# this directory's owner, so the non-root manager can write to it.
+COPY --from=build --chown=65532:65532 /out/data /var/lib/dbcm
 # Distroless "nonroot" runs as uid/gid 65532; the image works with a read-only
 # root filesystem (managed mode writes only below its data directory, a volume).
 USER 65532:65532

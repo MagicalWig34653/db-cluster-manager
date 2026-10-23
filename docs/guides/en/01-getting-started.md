@@ -24,19 +24,19 @@ The manager is one Go binary that serves the web UI and the HTTP API (`/api/v1`)
 
 - A Docker Swarm (E4-E6 used Docker 29.9.2 on Ubuntu 26.04, arm64). The compatibility matrix is seeded only with Docker 29.x. amd64 has **no** evidence yet [Untested].
 - A TLS reverse proxy in front of the manager. Passkeys (WebAuthn) require an HTTPS origin whose host is the configured `rpId`; plain `http://localhost` is accepted for development only. The manager itself has no TLS for its UI/API.
-- Do **not** mount `/var/run/docker.sock` into the manager container (root on the host). The container in `deploy/` runs as uid 65532 and could not use the socket anyway.
+- One Swarm manager node to pin the manager to. `deploy/stack.yaml` mounts `/var/run/docker.sock` there, which is root-equivalent on that node; the manager runs as uid 65532 with the socket's group, read-only and without capabilities ([ADR 0014](../../decisions/0014-manager-container-docker-access.md)). Do not mount the socket into anything else.
 
 ## Install the manager
 
 Technical details and the packaging status are in [INSTALL.md](../../INSTALL.md). Summary:
 
 1. Obtain an image. No release exists yet; build it locally from the repository root (use a dedicated test environment and an explicit Docker context): `docker buildx build -f deploy/Dockerfile -t db-cluster-manager:local --build-arg VERSION=0.0.0-dev --load .` The image was **never built** by the project [Untested]; lab E4 built the equivalent runtime stage inside a VM.
-2. Single instance: `DBCM_IMAGE=db-cluster-manager:local docker compose -f deploy/compose.yaml up -d`, then `curl http://127.0.0.1:8080/api/v1/health`. This starts the **prototype mode** only, because the shipped compose file passes no configuration [Untested].
-3. For managed mode the manager needs a JSON configuration (`-config <file>` or the environment variable `DCM_CONFIG`), with an `auth` section (`enabled`, `rpId`, `rpDisplayName`, `origins`) and a `manager` section (node ID, data directory, bind address, agent transport, settings, backup backend). Every field, default and example is in the [configuration reference](12-configuration-reference.md); unknown fields are rejected. E4 ran the manager as a transient systemd unit on a Swarm manager node with the local Docker socket, not as a container.
+2. Create the configuration: `manager init -rp-id <UI host name> -manager-addr <address of the manager node> -out manager.json`. It writes a JSON configuration without secret values (only Swarm secret names) and prints the remaining steps: host directories, secrets and networks to create, the deploy command and where the setup token appears. `-backup -recovery-key-out <file>` also configures backups with a newly generated recovery key. Field names are documented in the header comment of `cmd/manager/main.go`; unknown fields are rejected. The command is covered by tests only [Fakes].
+3. Store it as a Swarm config (`docker config create dbcm-manager-config-1 manager.json`) and deploy: `DBCM_MANAGER_NODE=<node hostname> DBCM_DOCKER_GID=$(stat -c %g /var/run/docker.sock) DBCM_CONFIG_NAME=dbcm-manager-config-1 docker stack deploy -c deploy/stack.yaml dbcm` [Untested]. The stack runs **one** replica pinned to that node (its data volume exists only there), on the host network with the API on `127.0.0.1:8080` for your TLS reverse proxy. `deploy/compose.yaml` is the single-host variant. E4 ran the same configuration as a transient systemd unit on a Swarm manager node, not as a container.
 
-### Swarm stack
+### Highly available manager
 
-`deploy/stack.yaml` starts three replicas. They are three **independent** instances, not a highly available manager: the container image carries no peers configuration, and Swarm replicas have no stable identities. Use it only to test packaging [Untested]. A replicated metastore with several manager replicas was proven only as the `metad` lab harness (E3) and as library code. Replica data-key distribution (`manager.keyring`) and metastore peer mTLS (`manager.peerTLS`) exist [Fakes]; a multi-replica manager on VMs has not been run. See the [runbook](11-operator-runbook.md#5-replicas-key-ring-and-peer-certificates).
+Three replicas need three separately pinned services with their own configurations, keyring and metastore peer certificates; [INSTALL.md](../../INSTALL.md) ("Three-replica variant") describes the layout. It is not shipped as a file and has never run [Untested]. A replicated metastore with several replicas was proven only as the `metad` lab harness (E3) and as library code.
 
 ## First run: setup token and first passkey
 

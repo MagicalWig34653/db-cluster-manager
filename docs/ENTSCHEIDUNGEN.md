@@ -12,6 +12,8 @@ Automatic single-node replacement is allowed by policy/capacity. Full-cluster re
 
 **Technical decisions of 2026-10-23 (proposed, fakes-only evidence):** data-key distribution through a replicated keyring with per-replica and recovery-key envelopes, administrator registration of replicas, metastore peer mTLS and certificate deny-list distribution to the agents ([ADR 0013](decisions/0013-replica-keys-peer-tls-and-revocation.md)); keyed backup chunk digests in manifest format 2 ([ADR 0009 amendment](decisions/0009-cluster-backup-method.md)). Approving a guided full-outage recovery needs the new `recover` permission (administrator preset only). Host maintenance never reboots or drains a host and does not change its Swarm availability (consistent with the open X09 question below).
 
+**Packaging decision of 2026-10-23 (proposed, static checks only):** the managed-mode manager container mounts the local Docker socket on one pinned Swarm manager node, runs non-root with the socket group, read-only and without capabilities, on the host network with a loopback-only API; configuration comes from `manager init` as a non-secret Swarm config ([ADR 0014](decisions/0014-manager-container-docker-access.md)).
+
 ## Remaining product decisions
 
 - Final project name/GitHub owner, release naming and Pages setup. Public visibility and Git initialization/public push by Claude are explicitly authorized.

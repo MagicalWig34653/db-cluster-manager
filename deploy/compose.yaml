@@ -1,38 +1,71 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 #
-# Single-instance manager for small TEST installations (requirement P07).
-# Not highly available. Start:  docker compose -f deploy/compose.yaml up -d
+# Single-instance managed-mode manager with Docker Compose on ONE Swarm
+# manager node, for small TEST installations (requirement P07). Not highly
+# available. deploy/stack.yaml is the Swarm-native variant of the same setup.
 #
-# Honest status: without a -config file (none is passed here) the manager runs
-# in prototype mode: UI, /api/v1/health, /api/v1/version, no state, no Docker.
-# Managed mode (DCM_CONFIG, manager.dataDir under the volume below) ran only as
-# a process on lab VMs; this file with such a config was never run.
+# Honest status: never run (static checks only: scripts/check_deploy.py and a
+# Go test that loads deploy/manager.example.json with the real config loader).
+# The same configuration ran on lab VMs only as a plain process (lab E4).
+#
+# Start (on a Swarm manager node; manager.json from `manager init`, see
+# docs/INSTALL.md):
+#   DBCM_CONFIG_FILE=/etc/dbcm/manager.json DBCM_DOCKER_GID=$(stat -c %g /var/run/docker.sock) \
+#     docker compose -f deploy/compose.yaml up -d
+#
+# Docker API access: the Docker socket is mounted (root-equivalent on this
+# host; the Docker client has no TLS yet, ADR 0014). The process runs as uid
+# 65532 with the socket's group, all capabilities dropped, read-only root.
+# Host network as in lab E4: UI/API on 127.0.0.1:${DBCM_PORT} only (put a TLS
+# reverse proxy in front; passkeys need an https origin), metastore on
+# 127.0.0.1:7445, agent enrollment (TLS) on manager.agentTransport.enrollListen.
 name: dbcm
 services:
   manager:
     # Override with the tag you built or loaded, e.g. DBCM_IMAGE=ghcr.io/OWNER/db-cluster-manager:0.1.0
     image: ${DBCM_IMAGE:-db-cluster-manager:local}
-    # Loopback only by default (P10: UI/API are internal). To expose the UI,
-    # put a TLS-terminating reverse proxy in front instead of widening this.
-    ports:
-      - "${DBCM_BIND:-127.0.0.1}:${DBCM_PORT:-8080}:8080"
+    command: ["-listen", "127.0.0.1:${DBCM_PORT:-8080}"]
+    network_mode: host
+    environment:
+      DCM_CONFIG: /etc/dbcm/manager.json
+    configs:
+      - source: manager-config
+        target: /etc/dbcm/manager.json
+    # Uncomment when the config has manager.backup (manager init -backup).
+    # secrets:
+    #   - source: backend
+    #     target: dbcm-backend.json
     volumes:
       - manager-data:/var/lib/dbcm
-    # The Docker socket is intentionally NOT mounted. To let the manager use a
-    # Docker/Swarm API, point it at a remote, mutually-authenticated endpoint
-    # (see docs/INSTALL.md, "Connecting to a Docker API"; not implemented yet).
+      # Root-equivalent on this host; see the header and ADR 0014.
+      - /var/run/docker.sock:/var/run/docker.sock
     read_only: true
-    user: "65532:65532"
+    user: "65532:${DBCM_DOCKER_GID:?set DBCM_DOCKER_GID to the group of /var/run/docker.sock}"
     cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true
     tmpfs:
       - /tmp
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/manager", "-healthcheck", "-listen", "127.0.0.1:${DBCM_PORT:-8080}"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    stop_grace_period: 30s
     restart: unless-stopped
     deploy:
       resources:
         limits:
           cpus: "1.0"
-          memory: 256M
+          memory: 512M
+configs:
+  manager-config:
+    # Compose bind-mounts this file read-only; it must be readable by uid 65532
+    # or the socket group (for example root:<docker gid> 0640).
+    file: ${DBCM_CONFIG_FILE:?set DBCM_CONFIG_FILE to the manager.json from manager init}
+# secrets:
+#   backend:
+#     file: ${DBCM_BACKEND_FILE:?set DBCM_BACKEND_FILE to backend.json}
 volumes:
   manager-data:
