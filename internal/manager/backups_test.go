@@ -110,8 +110,8 @@ func (env *backupEnv) completedBackup(t *testing.T, id string, ended time.Time) 
 	obj := dbbackup.ObjectName("clu-1", id, dbbackup.MethodPhysical, "")
 	m := dbbackup.Manifest{Format: dbbackup.ManifestFormat, BackupID: id, Method: dbbackup.MethodPhysical, ClusterID: "clu-1",
 		SourceNodeUUID: "00000000-0000-4000-8000-000000000002", Object: obj, Started: ended.Add(-time.Minute), Finished: ended,
-		Stream: backup.StreamSummary{KeyID: "k", PlainSize: 10, CipherSize: 99, CipherSHA256: "aa",
-			Chunks: []backup.ChunkDigest{{Index: 0, Size: 10, SHA256: "bb"}}},
+		Stream: backup.StreamSummary{KeyID: "k", PlainSize: 10, PlainMAC: "mm", CipherSize: 99, CipherSHA256: "aa",
+			Chunks: []backup.ChunkDigest{{Index: 0, Size: 10, MAC: "bb"}}},
 		Stored: backup.PutResult{Size: 99, SHA256: "aa"}, Checkpoints: &dbbackup.Checkpoints{BackupType: "full-backuped", ToLSN: 5}}
 	raw, _ := json.Marshal(m)
 	if err := env.be.Put(context.Background(), dbbackup.ManifestName(obj), bytes.NewReader(raw)); err != nil {

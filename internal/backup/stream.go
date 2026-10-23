@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/ecdh"
 	"crypto/hkdf"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -136,22 +137,54 @@ func ParseStreamPublicKey(s string) (StreamPublicKey, error) {
 }
 
 // ChunkDigest is the integrity record of one plaintext chunk.
+//
+// Summary version 2 (written since ADR 0009 was amended) carries only MAC:
+// HMAC-SHA256 over the chunk index and plaintext, keyed with a key derived
+// from the stream's random data key (HKDF-SHA256, info chunkMACInfo). It
+// reveals nothing about the plaintext to someone without the recovery key
+// (no confirmation of known content, no equal-chunk detection across
+// backups, since every stream has its own data key). Version 1 summaries
+// (older manifests) carry the plain SHA-256 instead; readers compute both,
+// so both stay verifiable on restore.
 type ChunkDigest struct {
 	Index  uint64 `json:"index"`
 	Size   int    `json:"size"`
-	SHA256 string `json:"sha256"`
+	SHA256 string `json:"sha256,omitempty"`
+	MAC    string `json:"mac,omitempty"`
 }
 
 // StreamSummary describes a sealed or opened stream. Plain* cover the
-// plaintext; Cipher* cover the bytes stored in the backend (header included),
-// which can be checked without the key.
+// plaintext (PlainMAC keyed like ChunkDigest.MAC, PlainSHA256 only in
+// version 1 summaries and in reader summaries); Cipher* cover the bytes
+// stored in the backend (header included), which can be checked without
+// the key.
 type StreamSummary struct {
 	Chunks       []ChunkDigest `json:"chunks"`
 	PlainSize    int64         `json:"plain_size"`
-	PlainSHA256  string        `json:"plain_sha256"`
+	PlainSHA256  string        `json:"plain_sha256,omitempty"`
+	PlainMAC     string        `json:"plain_mac,omitempty"`
 	CipherSize   int64         `json:"cipher_size"`
 	CipherSHA256 string        `json:"cipher_sha256"`
 	KeyID        string        `json:"key_id"`
+}
+
+// Keyed reports whether the summary uses keyed digests (version 2).
+func (s StreamSummary) Keyed() bool { return s.PlainMAC != "" }
+
+const chunkMACInfo = "dbcm-backup-stream-chunk-mac-v1"
+
+func chunkMACKey(dataKey []byte) ([]byte, error) {
+	return hkdf.Key(sha256.New, dataKey, nil, chunkMACInfo, 32)
+}
+
+// chunkMAC is HMAC-SHA256(key, index u64 || plaintext).
+func chunkMAC(key []byte, index uint64, pt []byte) string {
+	m := hmac.New(sha256.New, key)
+	var b [8]byte
+	binary.BigEndian.PutUint64(b[:], index)
+	m.Write(b[:])
+	m.Write(pt)
+	return hex.EncodeToString(m.Sum(nil))
 }
 
 // SealWriter encrypts a stream chunk by chunk. Close must be called to write
@@ -166,7 +199,8 @@ type SealWriter struct {
 	buf     []byte
 	size    int
 	index   uint64
-	plain   hash.Hash
+	plain   hash.Hash // HMAC of the whole plaintext
+	macKey  []byte
 	plainN  int64
 	chunks  []ChunkDigest
 	keyID   string
@@ -229,8 +263,26 @@ func NewSealWriter(w io.Writer, meta StreamMeta, pub StreamPublicKey) (*SealWrit
 	if _, err := cw.Write(hdr.Bytes()); err != nil {
 		return nil, err
 	}
+	macKey, plainMAC, err := streamMACs(dataKey)
+	if err != nil {
+		return nil, err
+	}
 	return &SealWriter{w: w, cw: cw, gcm: gcm, hdrHash: sha256.Sum256(aad), size: meta.ChunkSize,
-		buf: make([]byte, 0, meta.ChunkSize), plain: sha256.New(), keyID: pub.ID()}, nil
+		buf: make([]byte, 0, meta.ChunkSize), plain: plainMAC, macKey: macKey, keyID: pub.ID()}, nil
+}
+
+// streamMACs derives the chunk MAC key and the whole-plaintext MAC of a
+// stream's data key.
+func streamMACs(dataKey []byte) ([]byte, hash.Hash, error) {
+	macKey, err := chunkMACKey(dataKey)
+	if err != nil {
+		return nil, nil, err
+	}
+	plainKey, err := hkdf.Key(sha256.New, dataKey, nil, chunkMACInfo+"-plain", 32)
+	if err != nil {
+		return nil, nil, err
+	}
+	return macKey, hmac.New(sha256.New, plainKey), nil
 }
 
 // Write implements io.Writer.
@@ -276,8 +328,7 @@ func (s *SealWriter) flush(final bool) error {
 		s.err = err
 		return err
 	}
-	d := sha256.Sum256(s.buf)
-	s.chunks = append(s.chunks, ChunkDigest{Index: s.index, Size: len(s.buf), SHA256: hex.EncodeToString(d[:])})
+	s.chunks = append(s.chunks, ChunkDigest{Index: s.index, Size: len(s.buf), MAC: chunkMAC(s.macKey, s.index, s.buf)})
 	s.plain.Write(s.buf)
 	s.plainN += int64(len(s.buf))
 	s.index++
@@ -297,11 +348,12 @@ func (s *SealWriter) Close() error {
 	return s.flush(true)
 }
 
-// Summary returns the integrity summary; it is complete after Close.
+// Summary returns the integrity summary (version 2: keyed digests only);
+// it is complete after Close.
 func (s *SealWriter) Summary() StreamSummary {
 	return StreamSummary{
 		Chunks:    append([]ChunkDigest(nil), s.chunks...),
-		PlainSize: s.plainN, PlainSHA256: hex.EncodeToString(s.plain.Sum(nil)),
+		PlainSize: s.plainN, PlainMAC: hex.EncodeToString(s.plain.Sum(nil)),
 		CipherSize: s.cw.n, CipherSHA256: hex.EncodeToString(s.cw.h.Sum(nil)),
 		KeyID: s.keyID,
 	}
@@ -366,17 +418,19 @@ type StreamReader struct {
 	gcm interface {
 		Open(dst, nonce, ct, aad []byte) ([]byte, error)
 	}
-	hdrHash [32]byte
-	meta    StreamMeta
-	maxCT   int
-	index   uint64
-	pending []byte
-	final   bool
-	err     error
-	plain   hash.Hash
-	plainN  int64
-	chunks  []ChunkDigest
-	keyID   string
+	hdrHash  [32]byte
+	meta     StreamMeta
+	maxCT    int
+	index    uint64
+	pending  []byte
+	final    bool
+	err      error
+	plain    hash.Hash
+	plainMAC hash.Hash
+	macKey   []byte
+	plainN   int64
+	chunks   []ChunkDigest
+	keyID    string
 }
 
 type hashOnly struct{}
@@ -485,8 +539,12 @@ func OpenStream(r io.Reader, key RecoveryKey) (*StreamReader, error) {
 	if err != nil {
 		return nil, err
 	}
+	macKey, plainMAC, err := streamMACs(dataKey)
+	if err != nil {
+		return nil, err
+	}
 	return &StreamReader{r: tr, tee: tee, gcm: gcm, hdrHash: sha256.Sum256(aad), meta: meta,
-		maxCT: meta.ChunkSize + chunkOverhead, plain: sha256.New(), keyID: wrap.KeyID}, nil
+		maxCT: meta.ChunkSize + chunkOverhead, plain: sha256.New(), plainMAC: plainMAC, macKey: macKey, keyID: wrap.KeyID}, nil
 }
 
 // Meta returns the authenticated header. It is authenticated as soon as the
@@ -548,8 +606,10 @@ func (s *StreamReader) next() {
 		return
 	}
 	d := sha256.Sum256(pt)
-	s.chunks = append(s.chunks, ChunkDigest{Index: s.index, Size: len(pt), SHA256: hex.EncodeToString(d[:])})
+	s.chunks = append(s.chunks, ChunkDigest{Index: s.index, Size: len(pt), SHA256: hex.EncodeToString(d[:]),
+		MAC: chunkMAC(s.macKey, s.index, pt)})
 	s.plain.Write(pt)
+	s.plainMAC.Write(pt)
 	s.plainN += int64(len(pt))
 	s.index++
 	s.final = flags&chunkFinal != 0
@@ -557,11 +617,13 @@ func (s *StreamReader) next() {
 }
 
 // Summary returns the digests of the chunks read so far; after io.EOF it
-// describes the whole stream.
+// describes the whole stream. It carries both the keyed digests and the
+// plain SHA-256 values, so it can be compared with version 1 and version 2
+// summaries; it must not be stored where the plain digests matter.
 func (s *StreamReader) Summary() StreamSummary {
 	return StreamSummary{
 		Chunks:    append([]ChunkDigest(nil), s.chunks...),
-		PlainSize: s.plainN, PlainSHA256: hex.EncodeToString(s.plain.Sum(nil)),
+		PlainSize: s.plainN, PlainSHA256: hex.EncodeToString(s.plain.Sum(nil)), PlainMAC: hex.EncodeToString(s.plainMAC.Sum(nil)),
 		CipherSize: s.tee.n, CipherSHA256: hex.EncodeToString(s.tee.h.Sum(nil)),
 		KeyID: s.keyID,
 	}
@@ -571,20 +633,35 @@ func (s *StreamReader) Summary() StreamSummary {
 var ErrIntegrity = errors.New("backup: stream digests differ from the manifest")
 
 // CompareSummary checks a summary obtained while reading against the
-// expected one (from the manifest).
+// expected one (from the manifest). A keyed (version 2) expectation is
+// compared on the MACs, a version 1 expectation on the plain SHA-256
+// values; got must carry what want uses (a StreamReader summary carries
+// both).
 func CompareSummary(got, want StreamSummary) error {
+	keyed := want.Keyed()
 	switch {
 	case got.KeyID != want.KeyID:
 		return fmt.Errorf("%w: key id %s, manifest %s", ErrIntegrity, got.KeyID, want.KeyID)
-	case got.PlainSize != want.PlainSize || got.PlainSHA256 != want.PlainSHA256:
-		return fmt.Errorf("%w: plaintext size/sha256", ErrIntegrity)
+	case got.PlainSize != want.PlainSize:
+		return fmt.Errorf("%w: plaintext size", ErrIntegrity)
+	case keyed && !hmac.Equal([]byte(got.PlainMAC), []byte(want.PlainMAC)):
+		return fmt.Errorf("%w: plaintext mac", ErrIntegrity)
+	case !keyed && (want.PlainSHA256 == "" || got.PlainSHA256 != want.PlainSHA256):
+		return fmt.Errorf("%w: plaintext sha256", ErrIntegrity)
 	case got.CipherSize != want.CipherSize || got.CipherSHA256 != want.CipherSHA256:
 		return fmt.Errorf("%w: stored size/sha256", ErrIntegrity)
 	case len(got.Chunks) != len(want.Chunks):
 		return fmt.Errorf("%w: %d chunks, manifest %d", ErrIntegrity, len(got.Chunks), len(want.Chunks))
 	}
 	for i := range got.Chunks {
-		if got.Chunks[i] != want.Chunks[i] {
+		g, w := got.Chunks[i], want.Chunks[i]
+		ok := g.Index == w.Index && g.Size == w.Size
+		if keyed {
+			ok = ok && w.MAC != "" && g.MAC == w.MAC
+		} else {
+			ok = ok && w.SHA256 != "" && g.SHA256 == w.SHA256
+		}
+		if !ok {
 			return fmt.Errorf("%w: chunk %d", ErrIntegrity, i)
 		}
 	}
