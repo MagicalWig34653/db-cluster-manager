@@ -1,6 +1,7 @@
 title: Galera Cluster Manager
 description: Concept and documentation for a self-hosted database cluster manager
 theme: jekyll-theme-minimal
+logo: /assets/icon/logo-256.png
 lang: en
 plugins:
   - jekyll-relative-links

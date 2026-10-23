@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+<defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3D85FF"/><stop offset="1" stop-color="#1A2B85"/></linearGradient></defs>
+<rect width="1024" height="1024" rx="230" fill="url(#bg)"/>
+<g opacity="0.55">
+<g stroke="#FFFFFF" stroke-width="30" stroke-linecap="round" fill="none"><line x1="512" y1="318" x2="292" y2="712"/><line x1="512" y1="318" x2="732" y2="712"/><line x1="292" y1="712" x2="732" y2="712"/></g>
+<g stroke="#FFFFFF" stroke-width="16" stroke-linecap="round" fill="none" opacity="0.7"><line x1="512" y1="581" x2="512" y2="318"/><line x1="512" y1="581" x2="292" y2="712"/><line x1="512" y1="581" x2="732" y2="712"/></g>
+<circle cx="512" cy="581" r="44" fill="#FFFFFF"/>
+</g>
+<path fill="#FFFFFF" d="M407 238 A105 32 0 0 1 617 238 V311 A105 32 0 0 1 407 311 Z M407 325 A105 32 0 0 0 617 325 V398 A105 32 0 0 1 407 398 Z M187 632 A105 32 0 0 1 397 632 V705 A105 32 0 0 1 187 705 Z M187 719 A105 32 0 0 0 397 719 V792 A105 32 0 0 1 187 792 Z M627 632 A105 32 0 0 1 837 632 V705 A105 32 0 0 1 627 705 Z M627 719 A105 32 0 0 0 837 719 V792 A105 32 0 0 1 627 792 Z"/>
+<g fill="#A8D8FF"><ellipse cx="512" cy="238" rx="105" ry="32"/><ellipse cx="292" cy="632" rx="105" ry="32"/><ellipse cx="732" cy="632" rx="105" ry="32"/></g>
+</svg>

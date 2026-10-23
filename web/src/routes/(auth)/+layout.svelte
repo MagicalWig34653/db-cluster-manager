@@ -29,7 +29,7 @@
 <div class="flex min-h-screen flex-col">
 	<header class="flex h-14 items-center gap-2 border-b px-4">
 		<span class="flex items-center gap-2 font-semibold">
-			<span class="inline-block size-2.5 rounded-full bg-primary" aria-hidden="true"></span>{t('appName')}
+			<img src="/favicon.svg" alt="" class="size-6 shrink-0" aria-hidden="true" />{t('appName')}
 		</span>
 		<div class="ml-auto"><LanguageSwitch /></div>
 	</header>

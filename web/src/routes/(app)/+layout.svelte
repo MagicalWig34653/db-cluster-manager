@@ -49,7 +49,7 @@
 
 {#snippet brand()}
 	<a href="/" class="flex items-center gap-2 rounded-md px-1 font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring">
-		<span class="inline-block size-2.5 rounded-full bg-primary" aria-hidden="true"></span>
+		<img src="/favicon.svg" alt="" class="size-6 shrink-0" aria-hidden="true" />
 		{t('appName')}
 	</a>
 {/snippet}
