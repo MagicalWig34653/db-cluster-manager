@@ -1,74 +1,123 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 #
-# Three-replica manager as a Swarm service (P04, P07).
-# Deploy on a Swarm manager node:  docker stack deploy -c deploy/stack.yaml dbcm
+# Managed-mode manager as a Swarm stack: ONE replica, pinned to one Swarm
+# manager node (requirements P04, P07). NOT highly available.
 #
 # !!! HONEST STATUS !!!
-# Manager HA needs a replicated metastore (Raft). The manager can embed it
-# (config manager.peers/bootstrap), but a multi-replica manager never ran on
-# VMs, metastore peers have no TLS and the data key must be copied by hand. Running three replicas of the current
-# manager gives three independent, stateless UI/API instances, NOT a highly
-# available manager. Once the manager embeds the metastore, each replica needs
-# a stable node ID and the peer list, for example (proposal, not implemented):
-#   -id mgr-1 -bind 0.0.0.0:7000 -advertise tasks.manager:7000
-#   -peers mgr-1=<addr>:7000,mgr-2=<addr>:7000,mgr-3=<addr>:7000
-# Swarm replicas are interchangeable tasks and do not get stable IDs or
-# per-replica volumes from "replicas: 3"; the final HA layout (e.g. three
-# pinned services, one per node, each with its own local volume) is still to
-# be designed. Do not treat this file as an HA deployment.
+# Never run on a real Swarm or with a built image (static checks only:
+# scripts/check_deploy.py, and a Go test that loads deploy/manager.example.json
+# with the manager's config loader). The same configuration ran on lab VMs
+# only as a plain process (lab E4), not from this file.
+#
+# Prerequisites (docs/INSTALL.md, "Managed mode as a Swarm stack"):
+#   manager init -rp-id <ui host> -manager-addr <node IP> -out manager.json
+#   docker config create dbcm-manager-config-1 manager.json
+#   plus the secrets, network and host directories the init output lists.
+# Deploy on a Swarm manager node:
+#   DBCM_MANAGER_NODE=<node hostname> DBCM_DOCKER_GID=$(stat -c %g /var/run/docker.sock) \
+#   DBCM_CONFIG_NAME=dbcm-manager-config-1 docker stack deploy -c deploy/stack.yaml dbcm
+#
+# Docker API access: the manager talks to the local Swarm through the Docker
+# socket (the Docker client has no TLS yet; ADR 0014). Socket access is
+# root-equivalent on that node. Constraints: the task runs only on the named
+# Swarm manager node, as uid 65532 with the socket's group as primary group
+# (DBCM_DOCKER_GID), all capabilities dropped and a read-only root filesystem.
+#
+# Networking: host network (as in lab E4). The UI/API listens on
+# 127.0.0.1:${DBCM_PORT} only: put a TLS reverse proxy on that node in front
+# (passkeys need an https origin). The metastore binds 127.0.0.1:7445 and the
+# agent enrollment endpoint (TLS) the address in manager.agentTransport.
+#
+# Data: the local volume "manager-data" exists only on the pinned node; the
+# data key (manager.keyFile, default <dataDir>/data.key) lives in it. Moving
+# the service to another node starts an EMPTY installation, hence the pin.
+#
+# Three-replica HA variant (documented, never run on VMs or a Swarm): one
+# service per replica (manager-1..3), each pinned to its own manager node with
+# its own config (manager init -node-id manager-N -peers ...), keyring and
+# peer TLS secrets; see docs/INSTALL.md ("Three-replica variant"). Do not
+# raise "replicas" here: Swarm replicas share one config and have no stable
+# identity, and only the metastore leader serves the API.
 version: "3.9"
 services:
   manager:
     image: ${DBCM_IMAGE:-db-cluster-manager:local}
+    command: ["-listen", "127.0.0.1:${DBCM_PORT:-8080}"]
+    environment:
+      DCM_CONFIG: /etc/dbcm/manager.json
     networks:
-      - dbcm-internal
-    # No published port by default (internal only). Add a TLS reverse proxy on
-    # the same overlay network, or publish deliberately:
-    #   ports: [{target: 8080, published: 8080, mode: host}]
+      - hostnet
+    configs:
+      - source: manager-config
+        target: /etc/dbcm/manager.json
+        uid: "65532"
+        gid: "65532"
+        mode: 0440
+    # Uncomment when the config has manager.backup (manager init -backup);
+    # set DBCM_BACKEND_SECRET to the backend secret's name.
+    # secrets:
+    #   - source: backend
+    #     target: dbcm-backend.json
+    #     uid: "65532"
+    #     gid: "65532"
+    #     mode: 0400
     volumes:
-      # Local volume: each node creates its own instance of this volume.
       - manager-data:/var/lib/dbcm
+      # Root-equivalent on this node; see the header and ADR 0014.
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+      - type: tmpfs
+        target: /tmp
     read_only: true
-    user: "65532:65532"
-    tmpfs:
-      - /tmp
+    user: "65532:${DBCM_DOCKER_GID:?set DBCM_DOCKER_GID to the group of /var/run/docker.sock}"
+    cap_drop: [ALL]
     healthcheck:
-      test: ["CMD", "/usr/local/bin/manager", "-healthcheck", "-listen", "0.0.0.0:8080"]
+      test: ["CMD", "/usr/local/bin/manager", "-healthcheck", "-listen", "127.0.0.1:${DBCM_PORT:-8080}"]
       interval: 15s
       timeout: 5s
-      start_period: 10s
+      start_period: 30s
       retries: 3
+    stop_grace_period: 30s
     deploy:
       mode: replicated
-      replicas: 3
+      replicas: 1
       placement:
-        max_replicas_per_node: 1
-        preferences:
-          - spread: node.id
+        constraints:
+          - node.role == manager
+          - node.hostname == ${DBCM_MANAGER_NODE:?set DBCM_MANAGER_NODE to the hostname of the manager node}
       update_config:
         parallelism: 1
+        # stop-first: two tasks must never open the same metastore volume.
         order: stop-first
         failure_action: rollback
         delay: 15s
       rollback_config:
         parallelism: 1
+        order: stop-first
       restart_policy:
-        condition: on-failure
+        condition: any
         delay: 5s
-        max_attempts: 5
+        window: 60s
       resources:
         limits:
           cpus: "1.0"
-          memory: 256M
+          memory: 512M
         reservations:
           cpus: "0.1"
-          memory: 64M
+          memory: 128M
 networks:
-  dbcm-internal:
-    driver: overlay
-    attachable: false
-    driver_opts:
-      encrypted: "true"
+  hostnet:
+    external: true
+    name: host
+configs:
+  manager-config:
+    external: true
+    name: ${DBCM_CONFIG_NAME:?set DBCM_CONFIG_NAME to the Swarm config holding manager.json}
+# secrets:
+#   backend:
+#     external: true
+#     name: ${DBCM_BACKEND_SECRET:?set DBCM_BACKEND_SECRET}
 volumes:
   manager-data:
     driver: local

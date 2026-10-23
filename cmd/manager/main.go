@@ -5,6 +5,7 @@
 // Usage:
 //
 //	manager [-listen addr] [-config file] [-version] [-healthcheck]
+//	manager init -rp-id host -manager-addr addr [flags]   (config skeleton, see init.go)
 //
 // Flags:
 //
@@ -45,7 +46,7 @@
 //	"manager": {
 //	  "nodeId": "manager-1",
 //	  "dataDir": "/var/lib/dbcm-manager",
-//	  "bind": "127.0.0.1:7946",
+//	  "bind": "127.0.0.1:7445",  // not 7946 (Swarm gossip) with host networking
 //	  "advertise": "",
 //	  "peers": [],          // empty: single-instance mode
 //	  "bootstrap": true,
@@ -81,9 +82,9 @@
 // Accounts, passkeys, sessions, recovery codes, roles and audit records then
 // survive a restart; the setup token is printed only while no administrator
 // exists. Only the metastore leader serves the API; other replicas answer
-// 503 with the X-DCM-Leader header (no forwarding). The metastore transport
-// has no TLS, and the data key must be copied to every replica out of band
-// (key provisioning is not solved). A command-line hook to issue a recovery
+// 503 with the X-DCM-Leader header (no forwarding). Without manager.peerTLS
+// the metastore transport has no TLS, and without manager.keyring the data
+// key must be copied to every replica out of band (ADR 0013). A command-line hook to issue a recovery
 // URL (-print-recovery-url) does not exist: URL tokens live in the leader's
 // memory and no local admin channel to the running process exists yet.
 package main
@@ -237,6 +238,9 @@ func main() {
 }
 
 func run(args []string, getenv func(string) string, stderr io.Writer) error {
+	if len(args) > 0 && args[0] == "init" {
+		return runInit(args[1:], os.Stdout, stderr)
+	}
 	fs := flag.NewFlagSet("manager", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	addr := fs.String("listen", "127.0.0.1:8080", "address to listen on")

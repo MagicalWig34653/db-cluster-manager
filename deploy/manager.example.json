@@ -1,0 +1,49 @@
+{
+  "auth": {
+    "enabled": true,
+    "rpId": "dbcm.example.com",
+    "rpDisplayName": "DB Cluster Manager",
+    "origins": [
+      "https://dbcm.example.com"
+    ]
+  },
+  "manager": {
+    "nodeId": "manager-1",
+    "dataDir": "/var/lib/dbcm",
+    "bind": "127.0.0.1:7445",
+    "advertise": "",
+    "peers": [],
+    "bootstrap": true,
+    "keyFile": "",
+    "keyring": false,
+    "labAgents": false,
+    "autoResume": false,
+    "agentTransport": {
+      "enrollListen": "192.0.2.10:7444",
+      "managerUrl": "https://192.0.2.10:7444",
+      "serverDns": [],
+      "serverIps": [],
+      "agentPort": 7443,
+      "allowAnySource": false,
+      "monitorUser": "dbcm_monitor",
+      "monitorSecret": "dbcm-example-monitor-pw",
+      "dbSecrets": [
+        "dbcm-example-root-pw",
+        "dbcm-example-backup-pw"
+      ]
+    },
+    "settings": {
+      "installationId": "example",
+      "volumeBase": "/var/lib/dbcm/volumes",
+      "agentImage": "db-cluster-manager:local",
+      "monitorSocket": "",
+      "accounts": {
+        "monitorUser": "dbcm_monitor",
+        "monitorSecret": "dbcm-example-monitor-pw",
+        "backupUser": "dbcm_backup",
+        "backupSecret": "dbcm-example-backup-pw",
+        "backupLogical": false
+      }
+    }
+  }
+}

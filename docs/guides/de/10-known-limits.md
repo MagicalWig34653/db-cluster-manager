@@ -16,7 +16,7 @@ Nachweise mit echten Komponenten gibt es nur von Lima-VMs auf einem Apple-Silico
 
 - **Plattformen:** Für amd64 gibt es keinen Nachweis. Nur Docker 29.x steht in der Kompatibilitätsmatrix. Kubernetes liegt außerhalb von R1.
 - **Manager-HA:** Ein Multi-Replika-Manager lief nicht auf VMs. Der Metastore-Transport hat kein TLS, der Datenschlüssel muss von Hand auf Replikate kopiert werden, die Sperrliste der Agenten wird nicht verteilt. `deploy/stack.yaml` ist keine HA-Bereitstellung.
-- **Paketierung:** Container- und Job-Image wurden vom Projekt nie gebaut; der Release-Workflow lief nie; die mitgelieferte Compose-Datei startet nur den Prototyp-Modus.
+- **Paketierung:** Container- und Job-Image wurden vom Projekt nie gebaut; der Release-Workflow lief nie; Stack- und Compose-Datei für den verwalteten Modus (ein Replikat, an einen Swarm-Manager-Knoten gebunden, Docker-Socket eingebunden) wurden nur statisch geprüft und nie bereitgestellt.
 - **Datenbankzugriff:** Der Manager stellt keine Proxys bereit; keine redundanten Proxys, kein VIP, kein Knoten-TLS oder Proxy-zu-Knoten-TLS. TLS für Clients gibt es nur im Proxy, ohne Zertifikatsausstellung (kein ACME).
 - **Betrieb:** keine Drift-Behandlung, kein Wartungsmodus, kein Ersatzhost-Ablauf, kein Update-Ablauf, keine Migration, kein phpMyAdmin, kein PITR. Beitretende Knoten nutzen immer SST.
 - **Backups:** keine geprüfte Vollwiederherstellung produktiver Daten; Wiederherstellung in einen neuen Cluster, logisches Backup und der Zeitplaner liefen nicht auf VMs; die Manager-Konfigurationssicherung ist eine Bibliothek ohne Planer oder API. Manifeste enthalten Klartext-Chunk-Digests. Die Wiederherstellungsprüfung vergleicht keine Tabelleninhalte.

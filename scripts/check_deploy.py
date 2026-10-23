@@ -1,12 +1,13 @@
 """Static checks for deployment files (stdlib only; no Docker daemon needed).
 
 Checks deploy/Dockerfile, deploy/Dockerfile.jobs, deploy/compose.yaml,
-deploy/stack.yaml and the release workflow. It is NOT a replacement for hadolint, `docker compose
+deploy/stack.yaml, deploy/manager.example.json and the release workflow. It is NOT a replacement for hadolint, `docker compose
 config` or a real image build, and it does not prove the image builds.
 PyYAML is used for a real parse only if importable; otherwise a simple
 text-level structural check runs and says so.
 """
 from pathlib import Path
+import json
 import re
 import subprocess
 import sys
@@ -153,37 +154,160 @@ def text_structure(path: Path) -> str:
             err(f"{path.name}:{n}: odd indentation")
     if re.search(r":latest\b", text):
         err(f"{path.name}: ':latest' tag")
-    if "docker.sock" in re.sub(r"(?m)^\s*#.*$", "", text):
-        err(f"{path.name}: docker socket must not be mounted")
-    if re.search(r"(?mi)^\s*(password|secret|token)\w*\s*:\s*\S+", text):
+    if re.search(r"(?mi)^\s*(password|secret|token|passphrase)\w*\s*:\s*\S+", text):
         err(f"{path.name}: possible inline secret")
+    if re.search(r"BEGIN [A-Z ]*PRIVATE KEY|dbcmrk1:", text):
+        err(f"{path.name}: contains key material")
     return text
 
 
-def check_compose(path: Path) -> None:
-    text = text_structure(path)
-    for needle in ("services:", "manager:", "volumes:", "read_only: true", "image:"):
-        if needle not in text:
-            err(f"{path.name}: missing {needle!r}")
-    if not re.search(r'"\$\{DBCM_BIND:-127\.0\.0\.1\}:', text):
-        err(f"{path.name}: published port must default to 127.0.0.1")
-    data = load_yaml(path)
-    if data is not None and "manager" not in data.get("services", {}):
-        err(f"{path.name}: no manager service")
+SOCKET = "/var/run/docker.sock"
+CONFIG_TARGET = "/etc/dbcm/manager.json"
+DATA_DIR = "/var/lib/dbcm"
+BACKEND_FILE = "/run/secrets/dbcm-backend.json"
 
 
-def check_stack(path: Path) -> None:
-    text = text_structure(path)
-    for needle in ("replicas: 3", "healthcheck:", "driver: overlay", "resources:", "limits:", "spread:", "read_only: true"):
-        if needle not in text:
+def uncommented(text: str) -> str:
+    return re.sub(r"(?m)^\s*#.*$", "", text)
+
+
+def check_socket_guard(path: Path, text: str, svc) -> None:
+    """The Docker socket is root-equivalent (ADR 0014). It may be mounted only
+    with uid 65532 whose group is the required DBCM_DOCKER_GID, a read-only
+    root filesystem and all capabilities dropped."""
+    body = uncommented(text)
+    if SOCKET not in body:
+        err(f"{path.name}: managed mode needs the Docker socket mount ({SOCKET})")
+        return
+    if "ADR 0014" not in text:
+        err(f"{path.name}: the socket mount must reference ADR 0014")
+    if not re.search(r'(?m)^\s*user:\s*"65532:\$\{DBCM_DOCKER_GID:\?', body):
+        err(f"{path.name}: the socket mount needs user 65532 with the required DBCM_DOCKER_GID group")
+    for needle in ("read_only: true", "cap_drop: [ALL]"):
+        if needle not in body:
+            err(f"{path.name}: the socket mount needs {needle!r}")
+    if svc is not None:
+        if str(svc.get("user", "")).split(":")[0] in ("", "0", "root"):
+            err(f"{path.name}: the manager must not run as root")
+        mounts = [v if isinstance(v, str) else f"{v.get('source')}:{v.get('target')}" for v in svc.get("volumes", [])]
+        if not any(m.startswith(SOCKET + ":") for m in mounts):
+            err(f"{path.name}: the socket is not a volume of the manager service")
+
+
+def secret_file_refs(cfg) -> set:
+    """Paths below /run/secrets that a configuration reads."""
+    out = set()
+
+    def walk(v):
+        if isinstance(v, dict):
+            for x in v.values():
+                walk(x)
+        elif isinstance(v, list):
+            for x in v:
+                walk(x)
+        elif isinstance(v, str) and v.startswith("/run/secrets/"):
+            out.add(v)
+    walk(cfg)
+    return out
+
+
+def check_example_config(path: Path):
+    """deploy/manager.example.json: JSON parse and secret-free here; the Go
+    test TestShippedExampleConfig loads it with the manager's config loader
+    and checks that `manager init` reproduces it."""
+    text = path.read_text()
+    try:
+        cfg = json.loads(text)
+    except ValueError as e:
+        err(f"{path.name}: JSON parse error: {e}")
+        return None
+    if re.search(r'BEGIN [A-Z ]*PRIVATE KEY|dbcmrk1:|"password"', text):
+        err(f"{path.name}: contains secret material")
+    m = cfg.get("manager") or {}
+    if m.get("dataDir") != DATA_DIR:
+        err(f"{path.name}: manager.dataDir must be {DATA_DIR} (the volume target)")
+    if m.get("labAgents"):
+        err(f"{path.name}: labAgents must be off")
+    if not cfg.get("auth", {}).get("enabled"):
+        err(f"{path.name}: auth must be enabled")
+    test = (ROOT / "cmd/manager/init_test.go").read_text()
+    if "deploy/manager.example.json" not in test or "func TestShippedExampleConfig" not in test:
+        err(f"{path.name}: the Go test that loads it is missing")
+    return cfg
+
+
+def check_manager_service(path: Path, text: str, svc, cfg) -> None:
+    body = uncommented(text)
+    for needle in ("DCM_CONFIG: " + CONFIG_TARGET, "target: " + CONFIG_TARGET, "manager-data:" + DATA_DIR,
+                   "healthcheck:", "-healthcheck", "limits:", "memory:", "/tmp"):
+        if needle not in body:
             err(f"{path.name}: missing {needle!r}")
-    if "NOT" not in text or "metastore" not in text:
-        err(f"{path.name}: must state honestly that HA needs the metastore peers configuration")
+    if not re.search(r'"-listen", "127\.0\.0\.1:\$\{DBCM_PORT:-8080\}"', body):
+        err(f"{path.name}: the API must listen on 127.0.0.1 (host network)")
+    if re.search(r"(?m)^\s*ports:", body):
+        err(f"{path.name}: no published ports (host network, loopback API)")
+    if svc is not None:
+        hc = " ".join(svc.get("healthcheck", {}).get("test", []))
+        if "127.0.0.1:${DBCM_PORT:-8080}" not in hc:
+            err(f"{path.name}: the healthcheck must probe the loopback API port")
+    if cfg is not None and secret_file_refs(cfg):
+        err(f"{path.name}: the example config reads {sorted(secret_file_refs(cfg))}, which the default file does not mount")
+    if "target: dbcm-backend.json" not in text:
+        err(f"{path.name}: the optional backend secret (target dbcm-backend.json) is not documented")
+    init = (ROOT / "cmd/manager/init.go").read_text()
+    for const in (CONFIG_TARGET, DATA_DIR, BACKEND_FILE):
+        if f'"{const}"' not in init:
+            err(f"cmd/manager/init.go: path {const} out of step with {path.name}")
+
+
+def check_compose(path: Path, cfg) -> None:
+    text = text_structure(path)
+    if "${DBCM_CONFIG_FILE:?" not in text:
+        err(f"{path.name}: the config file must be required through DBCM_CONFIG_FILE")
     data = load_yaml(path)
+    svc = None
     if data is not None:
-        dep = data["services"]["manager"]["deploy"]
-        if dep.get("replicas") != 3:
-            err(f"{path.name}: replicas must be 3")
+        svc = data.get("services", {}).get("manager")
+        if svc is None:
+            err(f"{path.name}: no manager service")
+        elif svc.get("network_mode") != "host":
+            err(f"{path.name}: the manager must use the host network (as in lab E4)")
+        if "file" not in (data.get("configs", {}).get("manager-config") or {}):
+            err(f"{path.name}: manager-config must come from a file")
+    check_socket_guard(path, text, svc)
+    check_manager_service(path, text, svc, cfg)
+
+
+def check_stack(path: Path, cfg) -> None:
+    text = text_structure(path)
+    body = uncommented(text)
+    for needle in ("replicas: 1", "node.role == manager", "node.hostname == ${DBCM_MANAGER_NODE:?",
+                   "order: stop-first", "name: host", "external: true", "${DBCM_CONFIG_NAME:?"):
+        if needle not in body:
+            err(f"{path.name}: missing {needle!r}")
+    if "NOT" not in text or "metastore" not in text or "HA" not in text or "never run" not in text.lower():
+        err(f"{path.name}: must state honestly that it is single-replica, never run, and how HA differs")
+    data = load_yaml(path)
+    svc = None
+    if data is not None:
+        svc = data["services"]["manager"]
+        dep = svc["deploy"]
+        if dep.get("replicas") != 1:
+            err(f"{path.name}: replicas must be 1 (one metastore volume, one identity)")
+        cons = dep.get("placement", {}).get("constraints", [])
+        if "node.role == manager" not in cons or not any(c.startswith("node.hostname ==") for c in cons):
+            err(f"{path.name}: must be pinned to one Swarm manager node")
+        if dep.get("update_config", {}).get("order") != "stop-first":
+            err(f"{path.name}: updates must be stop-first")
+        if svc.get("networks") != ["hostnet"] or data.get("networks", {}).get("hostnet", {}).get("name") != "host":
+            err(f"{path.name}: the manager must use the host network")
+        if not data.get("configs", {}).get("manager-config", {}).get("external"):
+            err(f"{path.name}: manager-config must be an external Swarm config")
+        for name, s in (data.get("secrets") or {}).items():
+            if not s.get("external"):
+                err(f"{path.name}: secret {name} must be external")
+    check_socket_guard(path, text, svc)
+    check_manager_service(path, text, svc, cfg)
 
 
 def check_workflow(path: Path) -> None:
@@ -217,8 +341,9 @@ def check_sh(path: Path) -> None:
 
 check_dockerfile(ROOT / "deploy/Dockerfile")
 check_jobs_dockerfile(ROOT / "deploy/Dockerfile.jobs")
-check_compose(ROOT / "deploy/compose.yaml")
-check_stack(ROOT / "deploy/stack.yaml")
+example = check_example_config(ROOT / "deploy/manager.example.json")
+check_compose(ROOT / "deploy/compose.yaml", example)
+check_stack(ROOT / "deploy/stack.yaml", example)
 check_workflow(ROOT / ".github/workflows/release.yml")
 check_sh(ROOT / "scripts/make-offline-bundle.sh")
 

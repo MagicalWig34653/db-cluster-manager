@@ -24,19 +24,19 @@ Der Manager ist ein einzelnes Go-Programm, das die Web-Oberfläche und die HTTP-
 
 - Ein Docker Swarm (E4-E6: Docker 29.9.2 auf Ubuntu 26.04, arm64). Die Kompatibilitätsmatrix kennt nur Docker 29.x. Für amd64 gibt es **keinen** Nachweis [Ungetestet].
 - Ein TLS-Reverse-Proxy vor dem Manager. Passkeys (WebAuthn) brauchen einen HTTPS-Origin, dessen Host der konfigurierte `rpId` ist; reines `http://localhost` gilt nur für die Entwicklung. Der Manager hat für Oberfläche und API kein eigenes TLS.
-- `/var/run/docker.sock` **nicht** in den Manager-Container einbinden (Root auf dem Host). Der Container aus `deploy/` läuft als uid 65532 und könnte den Socket ohnehin nicht nutzen.
+- Ein Swarm-Manager-Knoten, an den der Manager gebunden wird. `deploy/stack.yaml` bindet dort `/var/run/docker.sock` ein; das entspricht Root-Rechten auf diesem Knoten. Der Manager läuft als uid 65532 mit der Gruppe des Sockets, schreibgeschützt und ohne Capabilities ([ADR 0014](../../decisions/0014-manager-container-docker-access.md), englisch). Den Socket in nichts anderes einbinden.
 
 ## Manager installieren
 
 Technische Details und Paketierungsstand: [INSTALL.md](../../INSTALL.md) (englisch). Kurzfassung:
 
 1. Image beschaffen. Es gibt noch kein Release; lokal aus dem Repository-Wurzelverzeichnis bauen (dedizierte Testumgebung und expliziter Docker-Kontext): `docker buildx build -f deploy/Dockerfile -t db-cluster-manager:local --build-arg VERSION=0.0.0-dev --load .` Das Image wurde vom Projekt **nie gebaut** [Ungetestet]; Labor E4 baute die entsprechende Laufzeit-Stufe in einer VM.
-2. Einzelinstanz: `DBCM_IMAGE=db-cluster-manager:local docker compose -f deploy/compose.yaml up -d`, dann `curl http://127.0.0.1:8080/api/v1/health`. Das startet nur den **Prototyp-Modus**, weil die mitgelieferte Compose-Datei keine Konfiguration übergibt [Ungetestet].
-3. Für den verwalteten Modus braucht der Manager eine JSON-Konfiguration (`-config <Datei>` oder Umgebungsvariable `DCM_CONFIG`) mit einem `auth`-Abschnitt (`enabled`, `rpId`, `rpDisplayName`, `origins`) und einem `manager`-Abschnitt (Knoten-ID, Datenverzeichnis, Bind-Adresse, Agententransport, Einstellungen, Backup-Ziel). Die Felder stehen im Kopfkommentar von `cmd/manager/main.go`; unbekannte Felder werden abgelehnt. Eine Konfigurationsreferenz als Benutzerdokument fehlt noch. E4 betrieb den Manager als transiente systemd-Unit auf einem Swarm-Manager-Knoten mit dem lokalen Docker-Socket, nicht als Container.
+2. Konfiguration erzeugen: `manager init -rp-id <Hostname der Oberfläche> -manager-addr <Adresse des Manager-Knotens> -out manager.json`. Der Befehl schreibt eine JSON-Konfiguration ohne geheime Werte (nur Namen von Swarm-Secrets) und gibt die weiteren Schritte aus: Host-Verzeichnisse, anzulegende Secrets und Netzwerke, den Deploy-Befehl und wo das Einrichtungstoken erscheint. `-backup -recovery-key-out <Datei>` richtet zusätzlich Backups mit einem neu erzeugten Wiederherstellungsschlüssel ein. Die Felder stehen im Kopfkommentar von `cmd/manager/main.go`; unbekannte Felder werden abgelehnt. Der Befehl ist nur durch Tests abgedeckt [Fakes].
+3. Als Swarm-Config speichern (`docker config create dbcm-manager-config-1 manager.json`) und bereitstellen: `DBCM_MANAGER_NODE=<Hostname des Knotens> DBCM_DOCKER_GID=$(stat -c %g /var/run/docker.sock) DBCM_CONFIG_NAME=dbcm-manager-config-1 docker stack deploy -c deploy/stack.yaml dbcm` [Ungetestet]. Der Stack startet **ein** Replikat, fest an diesen Knoten gebunden (sein Datenvolume existiert nur dort), im Host-Netzwerk mit der API auf `127.0.0.1:8080` für Ihren TLS-Reverse-Proxy. `deploy/compose.yaml` ist die Variante für einen einzelnen Host. E4 betrieb dieselbe Konfiguration als transiente systemd-Unit auf einem Swarm-Manager-Knoten, nicht als Container.
 
-### Swarm-Stack
+### Hochverfügbarer Manager
 
-`deploy/stack.yaml` startet drei Replikate. Das sind drei **unabhängige** Instanzen, kein hochverfügbarer Manager: Das Image enthält keine Peer-Konfiguration, und Swarm-Replikate haben keine stabilen Identitäten. Nur zum Test der Paketierung nutzen [Ungetestet]. Ein replizierter Metastore mit mehreren Manager-Replikaten wurde nur als Labor-Werkzeug `metad` (E3) und als Bibliothekscode nachgewiesen; ein Multi-Replika-Manager lief nicht auf VMs.
+Drei Replikate brauchen drei einzeln gebundene Dienste mit eigenen Konfigurationen, Schlüsselbund und Metastore-Peer-Zertifikaten; [INSTALL.md](../../INSTALL.md) („Three-replica variant“) beschreibt den Aufbau. Er wird nicht als Datei mitgeliefert und lief nie [Ungetestet]. Ein replizierter Metastore mit mehreren Replikaten wurde nur als Labor-Werkzeug `metad` (E3) und als Bibliothekscode nachgewiesen.
 
 ## Erster Start: Einrichtungstoken und erster Passkey
 

@@ -169,6 +169,7 @@ German interface: hosts and agent enrollment.
 - [Decision records](decisions/0001-product-direction.md)
 - [Broadened scope decision](decisions/0012-broadened-scope-platform.md)
 - [Replica keys, peer TLS and revocation](decisions/0013-replica-keys-peer-tls-and-revocation.md)
+- [Manager container Docker access](decisions/0014-manager-container-docker-access.md)
 - [Technical references](QUELLEN.md)
 
 </div>

@@ -39,7 +39,7 @@ case $OUT in /*) ;; *) OUT=$PWD/$OUT ;; esac
 for f in manager agent cli; do
   [ -x "$BIN/$f" ] || { echo "missing binary: $BIN/$f (run make build)" >&2; exit 1; }
 done
-for f in deploy/compose.yaml deploy/stack.yaml docs/INSTALL.md LICENSE; do
+for f in deploy/compose.yaml deploy/stack.yaml deploy/manager.example.json docs/INSTALL.md LICENSE; do
   [ -f "$ROOT/$f" ] || { echo "missing file: $ROOT/$f" >&2; exit 1; }
 done
 
@@ -58,7 +58,7 @@ D=$STAGE/$NAME
 mkdir -p "$D/bin" "$D/deploy" "$D/docs" "$OUT"
 
 for f in manager agent cli; do cp "$BIN/$f" "$D/bin/$f"; done
-cp "$ROOT/deploy/compose.yaml" "$ROOT/deploy/stack.yaml" "$D/deploy/"
+cp "$ROOT/deploy/compose.yaml" "$ROOT/deploy/stack.yaml" "$ROOT/deploy/manager.example.json" "$D/deploy/"
 cp "$ROOT/docs/INSTALL.md" "$D/docs/"
 cp "$ROOT/LICENSE" "$D/"
 
