@@ -27,6 +27,7 @@
 #
 # Usage: tests/p0/e4-rerun.sh
 #   R_KEEP_VMS=1  keep the VMs; R_PHASES="..." run only these phases;
+#   (R_PHASES takes step names from the lists above, not "A" or "B"; unset runs all.)
 #   E4_REUSE_VMS=1 skip vms/swarm; R_LOG=FILE; R_APPEND_LOG=1.
 set -eu -o pipefail
 
