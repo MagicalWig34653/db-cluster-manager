@@ -408,18 +408,22 @@ func (b *Backups) start(actor authz.Subject, clusterID, trigger string) (Operati
 	if err != nil {
 		return OperationRecord{}, err
 	}
+	svcHost, err := b.Ops.serviceHostFor(c.Swarm)
+	if err != nil {
+		return OperationRecord{}, err
+	}
 	opID := newID("op")
 	plan, err := dbbackup.BackupPlan(dbbackup.BackupRequest{
 		OpID: opID, BackupID: backupID, InstallationID: st.InstallationID, ClusterID: c.ID, ClusterName: c.Name,
 		Method: dbbackup.MethodPhysical, JobImage: st.Backup.JobImage, Network: c.Spec.Network,
 		DBCredentialSecret: st.Backup.DBCredentialSecret, BackendSecret: st.Backup.BackendSecret,
 		RecipientKey: st.Backup.RecipientKey, VolumeBase: st.VolumeBase, Job: st.Backup.job(),
-		StepTimeout: b.Ops.StepTimeout, MaxRetries: b.Ops.MaxRetries,
+		StepTimeout: b.Ops.StepTimeout, MaxRetries: b.Ops.MaxRetries, ServiceHost: svcHost,
 	}, nodes, dbbackup.SourcePolicy{ClusterSize: c.Size})
 	if err != nil {
 		return OperationRecord{}, err
 	}
-	if err := b.Ops.allowReferenced(&plan.Operation, c.Swarm, st.InstallationID, []string{plan.Source.HostID},
+	if err := b.Ops.allowReferenced(&plan.Operation, c.Swarm, st.InstallationID, []string{plan.Source.HostID, svcHost},
 		objectRefs{Networks: []string{c.Spec.Network}, Secrets: []string{st.Backup.DBCredentialSecret, st.Backup.BackendSecret}}); err != nil {
 		return OperationRecord{}, err
 	}

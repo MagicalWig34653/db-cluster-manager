@@ -128,3 +128,33 @@ func TestBackupStepsNeedNoApprovalButRestoresDo(t *testing.T) {
 		}
 	}
 }
+
+// TestBackupPlanServiceHost: job services are created and removed by the
+// agent on the service host (a Swarm manager node, lab E4) and pinned to
+// the source node; verify-identity stays on the source host.
+func TestBackupPlanServiceHost(t *testing.T) {
+	req := backupRequest(t, t.TempDir())
+	req.ServiceHost = "mgr"
+	res, err := BackupPlan(req, threeNodes(), SourcePolicy{ClusterSize: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := res.Source.HostID
+	for _, s := range res.Operation.Steps {
+		switch s.Command {
+		case agent.KindVerifyIdentity:
+			if s.Target != src {
+				t.Errorf("verify-identity on %s, want the source host %s", s.Target, src)
+			}
+		case agent.KindRunBackup:
+			var a agent.RunBackupArgs
+			if s.Target != "mgr" || json.Unmarshal(s.Args, &a) != nil || a.NodeID != src {
+				t.Errorf("run-backup on %s pinned to %q", s.Target, a.NodeID)
+			}
+		case agent.KindRemoveJob:
+			if s.Target != "mgr" {
+				t.Errorf("remove-job on %s", s.Target)
+			}
+		}
+	}
+}

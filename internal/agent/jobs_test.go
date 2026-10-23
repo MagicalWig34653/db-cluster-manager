@@ -106,6 +106,28 @@ func TestRunBackupPhysicalLaunchesPinnedReadOnlyJob(t *testing.T) {
 	}
 }
 
+// TestRunBackupDelegatedToManagerNode: lab E4 found that a worker's agent
+// cannot create the job service ("This node is not a swarm manager"). The
+// agent on a manager node creates it pinned to the source node; the source
+// volume is not local there, so its checks are left to the node's agent
+// (verify-identity in the same operation).
+func TestRunBackupDelegatedToManagerNode(t *testing.T) {
+	f := jobFixture(t)
+	a := physicalBackupArgs(f)
+	a.NodeID = "worker-node-7" // no volume and no marker on this agent's host
+	spec := createdSpec(t, f, f.mustDo(1, "op", "s1", KindRunBackup, a))
+	if !slices.Equal(spec.Constraints, []string{"node.id==worker-node-7"}) {
+		t.Fatalf("constraints %v", spec.Constraints)
+	}
+	if len(spec.Mounts) != 1 || !spec.Mounts[0].ReadOnly || spec.Mounts[0].Source != "vol-1" {
+		t.Fatalf("mounts %+v", spec.Mounts)
+	}
+	a.NodeID, a.JobName = "bad/node", "dbcm-job-b2"
+	if r, err := f.do(1, "op", "s2", KindRunBackup, a); err == nil && r.Status == StatusSucceeded {
+		t.Fatalf("invalid node id accepted: %+v", r)
+	}
+}
+
 func TestRunBackupLogicalHasNoMount(t *testing.T) {
 	f := jobFixture(t)
 	a := physicalBackupArgs(f)

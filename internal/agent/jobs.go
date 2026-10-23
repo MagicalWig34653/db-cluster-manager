@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 )
 
 // Backup and restore jobs (ADR 0009).
@@ -120,6 +121,13 @@ type RunBackupArgs struct {
 	// RecipientKey is the stream public key ("dbcmpk1:..."); not secret.
 	RecipientKey string       `json:"recipient_key"`
 	Resources    JobResources `json:"resources"`
+	// NodeID, if set and not this agent's node, makes this a delegated job:
+	// the agent runs on a Swarm manager node (only managers accept service
+	// changes; lab E4: a worker's agent got "This node is not a swarm
+	// manager"), pins the job to NodeID and skips the source volume checks,
+	// which only the node's own agent can make: the plan runs
+	// verify-identity there first, in the same fenced operation.
+	NodeID string `json:"node_id,omitempty"`
 }
 
 // RunRestoreArgs are the arguments of KindRunRestore.
@@ -242,6 +250,9 @@ func checkRunBackup(a *RunBackupArgs, volumeBase string) error {
 	default:
 		return invalid("tool %q is not allow-listed", a.Tool)
 	}
+	if strings.ContainsAny(a.NodeID, "/ \t\r\n=") {
+		return invalid("node_id %q", a.NodeID)
+	}
 	return checkResources(a.Resources)
 }
 
@@ -329,7 +340,12 @@ func RestoreJobArgs(a RunRestoreArgs, secretNames map[string]string) []string {
 }
 
 func (e *Executor) jobBase(name, image, kind, backupID string, res JobResources, cluster string) (ServiceSpec, Result, bool) {
-	if e.cfg.NodeID == "" {
+	return e.jobBaseOn(e.cfg.NodeID, name, image, kind, backupID, res, cluster)
+}
+
+// jobBaseOn is jobBase for a job pinned to node.
+func (e *Executor) jobBaseOn(node, name, image, kind, backupID string, res JobResources, cluster string) (ServiceSpec, Result, bool) {
+	if e.cfg.NodeID == "" || node == "" {
 		return ServiceSpec{}, Result{Status: StatusRefused, Code: CodeNodeNotConfigured, Message: ErrNodeNotConfigured.Error()}, false
 	}
 	labels := map[string]string{LabelJob: kind, LabelJobID: backupID}
@@ -339,7 +355,7 @@ func (e *Executor) jobBase(name, image, kind, backupID string, res JobResources,
 	return ServiceSpec{
 		Name: name, Image: image, Labels: labels,
 		Command:       []string{JobCommand},
-		Constraints:   []string{"node.id==" + e.cfg.NodeID},
+		Constraints:   []string{"node.id==" + node},
 		Replicas:      1,
 		RestartPolicy: &RestartPolicy{Condition: "none"},
 		Resources: &Resources{
@@ -385,11 +401,17 @@ func (e *Executor) ownedVolumeAt(ctx context.Context, volume, root string) (stri
 }
 
 func (e *Executor) runBackup(ctx context.Context, cmd Command, a RunBackupArgs) Result {
-	spec, res, ok := e.jobBase(a.JobName, a.Image, JobBackup, a.BackupID, a.Resources, a.Expected.ClusterID)
+	node, delegated := e.cfg.NodeID, a.NodeID != "" && a.NodeID != e.cfg.NodeID
+	if delegated {
+		node = a.NodeID
+	}
+	spec, res, ok := e.jobBaseOn(node, a.JobName, a.Image, JobBackup, a.BackupID, a.Resources, a.Expected.ClusterID)
 	if !ok {
 		return res
 	}
-	if a.Tool == ToolMariabackup {
+	if a.Tool == ToolMariabackup && delegated {
+		spec.Mounts = []Mount{{Type: "volume", Source: a.SourceVolume, Target: JobVolumeTarget, ReadOnly: true}}
+	} else if a.Tool == ToolMariabackup {
 		root, res, ok := e.ownedVolumeAt(ctx, a.SourceVolume, a.SourceVolumeRoot)
 		if !ok {
 			return res

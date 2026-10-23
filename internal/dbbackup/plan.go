@@ -63,6 +63,10 @@ type BackupRequest struct {
 	Job          agent.JobResources
 	StepTimeout  time.Duration
 	MaxRetries   int
+	// ServiceHost is the host ID of the agent that creates and removes the
+	// job services (a Swarm manager node, lab E4); empty keeps them on the
+	// source host. The source host's agent still verifies the volume.
+	ServiceHost string
 }
 
 // BackupPlanResult is a planned backup.
@@ -203,9 +207,13 @@ func BackupPlan(req BackupRequest, nodes []NodeState, p SourcePolicy) (BackupPla
 			return BackupPlanResult{}, fmt.Errorf("%w: job name %s is not unique (database names differ only in case or are too long)", ErrInvalidRequest, j.args.JobName)
 		}
 		names[j.args.JobName] = true
-		s.add(command("run-backup"+j.suffix, src.HostID, agent.KindRunBackup, j.args))
+		jobHost := src.HostID
+		if req.ServiceHost != "" && req.ServiceHost != src.HostID {
+			jobHost, j.args.NodeID = req.ServiceHost, src.HostID
+		}
+		s.add(command("run-backup"+j.suffix, jobHost, agent.KindRunBackup, j.args))
 		s.add(gate("wait-backup"+j.suffix, runner.Condition{Kind: CondBackupComplete, Target: j.args.Object}))
-		s.add(command("remove-job"+j.suffix, src.HostID, agent.KindRemoveJob, agent.RemoveJobArgs{JobName: j.args.JobName}))
+		s.add(command("remove-job"+j.suffix, jobHost, agent.KindRemoveJob, agent.RemoveJobArgs{JobName: j.args.JobName}))
 		objects = append(objects, j.args.Object)
 	}
 	op := runner.Operation{ID: req.OpID, Kind: OpBackup, Locks: []string{"cluster/" + req.ClusterID, "node/" + req.ClusterID + "/" + src.Slot},
