@@ -63,6 +63,10 @@ type Config struct {
 	Replicas Replicas
 	// Maintenance backs host maintenance and drift checks; nil answers 503.
 	Maintenance Maintenance
+	// ImageBuilds and Registries back the image build endpoints (proposal,
+	// fakes only); nil answers 503.
+	ImageBuilds ImageBuilds
+	Registries  Registries
 	// RecoveryCodeIterations is passed to recovery.GenerateCodes; 0 selects
 	// the default.
 	RecoveryCodeIterations int
@@ -333,6 +337,23 @@ func (s *server) endpoints() []endpoint {
 		{
 			method: "POST", path: "/settings/replicas/{id}/revoke-certificates", access: accessPermission,
 			action: authz.ActionUpdate, resolve: s.resolveSettings, handle: s.handleReplicaRevoke,
+		},
+
+		{
+			method: "GET", path: "/image-builds", access: accessPermission,
+			action: authz.ActionRead, resolve: s.resolveImageBuild, handle: s.handleImageBuilds,
+		},
+		{
+			method: "POST", path: "/image-builds", access: accessPermission,
+			action: authz.ActionCreate, resolve: s.resolveImageBuild, handle: s.handleImageBuildCreate,
+		},
+		{
+			method: "GET", path: "/registries", access: accessPermission,
+			action: authz.ActionRead, resolve: s.resolveRegistry, handle: s.handleRegistries,
+		},
+		{
+			method: "POST", path: "/registries", access: accessPermission,
+			action: authz.ActionCreate, resolve: s.resolveRegistry, handle: s.handleRegistryCreate,
 		},
 	}
 }
