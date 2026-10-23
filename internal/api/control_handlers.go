@@ -221,17 +221,37 @@ func (s *server) resolveOperation(r *http.Request) (authz.Resource, any, error) 
 	return locatedResource(op.Swarm, op.Cluster), op, nil
 }
 
-// resolveOperationApproval needs the restore permission on the backups of
-// the operation's cluster (manager settings for unlocated operations).
+// resolveOperationApproval resolves the permission of ApprovalPermission:
+// restore on the backups of the operation's cluster (manager settings for
+// unlocated operations), delete on the cluster for a cluster deletion
+// (approvalAction).
 func (s *server) resolveOperationApproval(r *http.Request) (authz.Resource, any, error) {
 	op, err := s.operation(r)
 	if err != nil {
 		return authz.Resource{}, nil, err
 	}
-	if op.Swarm == "" || op.Cluster == "" {
-		return settingsResource, op, nil
+	_, res := ApprovalPermission(op.Kind, op.Swarm, op.Cluster)
+	return res, op, nil
+}
+
+func approvalAction(target any) authz.Action {
+	op, ok := target.(Operation)
+	if !ok {
+		return authz.ActionRestore
 	}
-	return backupResource(op.Swarm, op.Cluster), op, nil
+	act, _ := ApprovalPermission(op.Kind, op.Swarm, op.Cluster)
+	return act
+}
+
+func (s *server) handleClusterDelete(w http.ResponseWriter, r *http.Request, c *caller) {
+	cl := c.target.(Cluster)
+	d, err := s.control().DeleteCluster(r.Context(), c.subject, cl.ID)
+	if err != nil {
+		s.writeServiceError(w, r, err)
+		return
+	}
+	s.log.Info("api: cluster deletion requested", "cluster", cl.ID, "operation", d.ID, "by", c.subject.ID)
+	writeJSON(w, http.StatusAccepted, d)
 }
 
 func (s *server) operation(r *http.Request) (Operation, error) {

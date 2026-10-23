@@ -841,7 +841,9 @@ func (b *Backups) TeardownExpired(actor authz.Subject) {
 	}
 	for _, r := range recs {
 		ir := r.Value
-		if ir.TeardownOp != "" || now.Before(ir.Session.ExpiresAt) {
+		// A teardown (or a cluster deletion that included it) that ended
+		// without success is planned again.
+		if (ir.TeardownOp != "" && !b.Ops.endedUnsuccessfully(ir.TeardownOp)) || now.Before(ir.Session.ExpiresAt) {
 			continue
 		}
 		op, ok, err := Get[OperationRecord](b.store(), CollOperations, ir.OpID, Consistent())
@@ -859,6 +861,10 @@ func (b *Backups) TeardownExpired(actor authz.Subject) {
 		var view *runner.View
 		if ok {
 			view = op.Value.View
+		}
+		if ir.TeardownOp != "" {
+			// A failed operation keeps its locks until aborted (lab E4 F10).
+			_ = l.Runner.Abort(ir.TeardownOp)
 		}
 		opID := newID("op")
 		td, err := b.teardownPlan(opID, ir, view, st)

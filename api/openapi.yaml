@@ -431,6 +431,40 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
+    delete:
+      summary: Delete a cluster (also discards a failed create)
+      description: >-
+        Plans and starts a cluster/delete operation and answers with its
+        approval digest; nothing is removed until POST
+        /operations/{id}/approve with that digest. The operation removes, through
+        the agents and their ownership allow-list, only objects the installation
+        created for the cluster: each node's database service (by name and
+        cluster label; missing counts as removed), job services of backups that
+        did not finish, inspection instances of the cluster not torn down with
+        their manager-created init secrets, and each node volume after its
+        identity marker was verified (a volume never created, or without marker
+        and without any file, counts as removed). Operator-provided networks and
+        secrets are never removed; the host directory of a local volume and the
+        backups in the backend are kept. On success the cluster record and its
+        backup policy are deleted, which releases the name and the planned
+        capacity. Failed operations of the cluster are aborted first; an
+        unfinished one answers 409 busy (abort it first). Needs the delete
+        permission on the cluster (administrator preset only; denied by default
+        for every other preset); audited.
+      operationId: deleteCluster
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      responses:
+        "202":
+          description: Deletion planned; waits for the approval
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ClusterDeletion" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
   /operations:
     get:
       summary: List operations the caller may read
@@ -868,8 +902,9 @@ paths:
         operation definition, so an approval covers exactly the plan that was
         shown; a different digest answers 409 approval_mismatch. Needs the
         restore permission on the backups of the operation's cluster
-        (administrators; not part of the operator preset); audited. The
-        operation is resumed after the approval is recorded.
+        (administrators; not part of the operator preset), and for a
+        cluster/delete operation the delete permission on the cluster instead;
+        audited. The operation is resumed after the approval is recorded.
       operationId: approveOperation
       parameters:
         - { $ref: "#/components/parameters/Id" }
@@ -972,7 +1007,16 @@ paths:
         Needs the restore permission on the cluster's backups; audited. The
         inspection account password is returned only in this response. Without
         an explicit host the manager selects one; it answers no_capacity (409)
-        when host disk space is not observed.
+        when host disk space is not observed. The restore job and the instance
+        service are created by the agent on a Swarm manager node (the job pinned
+        to the inspection host, whose agent first checks the target volume). The
+        operation ends with the restore-verified gate: the instance is probed
+        through the agent on its host (status query as the monitoring account,
+        which the init file leaves unlocked) and an instance-level verification
+        report is recorded (stream digests verified, instance answers, not in a
+        Galera component; table contents are not compared). A passed report sets
+        lastVerifiedRestoreAt. At expiry the instance, its volume and its init
+        secret are removed.
       operationId: startInspection
       requestBody:
         required: true
@@ -1230,6 +1274,32 @@ components:
         endedAt: { type: string, format: date-time }
         approval: { $ref: "#/components/schemas/OperationApproval" }
         reason: { type: string, description: Short runner status reason, for example an unmet precondition }
+        progress: { $ref: "#/components/schemas/OperationProgress" }
+    OperationProgress:
+      type: object
+      description: >-
+        Step progress as last stored by the leader (refreshed while a step polls
+        its preconditions). step is the first step that has not succeeded.
+      required: [stepsDone, stepsTotal]
+      properties:
+        stepsDone: { type: integer, minimum: 0 }
+        stepsTotal: { type: integer, minimum: 0 }
+        step: { type: string }
+        command: { type: string, description: Agent command kind; empty for a gate }
+        target: { type: string, description: Host that receives the command }
+        state: { type: string, description: "Journal state of the step (pending, running, failed, unknown)" }
+        attempts: { type: integer, minimum: 0 }
+        waiting: { type: string, description: Latest unmet precondition or retry reason of the step }
+        polls: { type: integer, minimum: 0, description: Precondition polls and retries of the step }
+        since: { type: string, format: date-time, description: Time of the step's latest timeline entry }
+        updatedAt: { type: string, format: date-time }
+    ClusterDeletion:
+      type: object
+      required: [id, kind, approval]
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [cluster/delete] }
+        approval: { $ref: "#/components/schemas/OperationApproval" }
     Event:
       type: object
       required: [id, time, severity, message]

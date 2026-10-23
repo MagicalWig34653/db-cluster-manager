@@ -133,7 +133,10 @@ type endpoint struct {
 	// hideUnreadable answers a denial with 404 only when the caller may not
 	// even read the resource, and with 403 otherwise.
 	hideUnreadable bool
-	handle         func(w http.ResponseWriter, r *http.Request, c *caller)
+	// actionOf, if set, replaces action by the action the resolved target
+	// needs (approving a cluster deletion needs delete, not restore).
+	actionOf func(target any) authz.Action
+	handle   func(w http.ResponseWriter, r *http.Request, c *caller)
 }
 
 // caller is the authenticated principal of a request.
@@ -240,6 +243,10 @@ func (s *server) endpoints() []endpoint {
 			action: authz.ActionCreate, resolve: s.resolveNewCluster, handle: s.handleClusterCreate,
 		},
 		{
+			method: "DELETE", path: "/clusters/{id}", access: accessPermission,
+			action: authz.ActionDelete, resolve: s.resolveCluster, hideUnreadable: true, handle: s.handleClusterDelete,
+		},
+		{
 			method: "POST", path: "/clusters/{id}/nodes/{slot}/replace", access: accessPermission,
 			action: authz.ActionOperate, resolve: s.resolveCluster, hideUnreadable: true, handle: s.handleNodeReplace,
 		},
@@ -257,7 +264,8 @@ func (s *server) endpoints() []endpoint {
 		},
 		{
 			method: "POST", path: "/operations/{id}/approve", access: accessPermission,
-			action: authz.ActionRestore, resolve: s.resolveOperationApproval, hideUnreadable: true, handle: s.handleOperationApprove,
+			action: authz.ActionRestore, resolve: s.resolveOperationApproval, hideUnreadable: true,
+			actionOf: approvalAction, handle: s.handleOperationApprove,
 		},
 
 		{method: "GET", path: "/backups", access: accessFiltered, handle: s.handleBackups},
@@ -377,18 +385,24 @@ func (s *server) wrap(ep endpoint) http.Handler {
 				s.writeServiceError(w, r, err)
 				return
 			}
+			act := ep.action
+			if ep.actionOf != nil {
+				if a := ep.actionOf(target); a.Valid() {
+					act = a
+				}
+			}
 			var d authz.Decision
-			if ep.action.ChangesState() {
+			if act.ChangesState() {
 				// Authorize writes the audit record and fails closed.
-				d = s.cfg.Authorizer.Authorize(c.subject, ep.action, res)
+				d = s.cfg.Authorizer.Authorize(c.subject, act, res)
 			} else {
-				d = s.cfg.Authorizer.Check(c.subject, ep.action, res)
+				d = s.cfg.Authorizer.Check(c.subject, act, res)
 			}
 			if !d.Allowed {
 				switch {
 				case d.Reason == authz.ReasonAuditUnavailable:
 					s.log.Error("api: request denied because the audit record could not be stored",
-						"actor", c.subject.ID, "action", ep.action, "resource", res.String())
+						"actor", c.subject.ID, "action", act, "resource", res.String())
 					writeError(w, http.StatusServiceUnavailable, errUnavailable)
 				case ep.hideDenied:
 					writeError(w, http.StatusNotFound, errNotFound)

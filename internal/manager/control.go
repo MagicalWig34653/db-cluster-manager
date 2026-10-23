@@ -129,6 +129,15 @@ func (c *Control) ReplaceNode(_ context.Context, actor authz.Subject, clusterID,
 	return api.OperationRef{ID: rec.ID, Kind: rec.Kind}, nil
 }
 
+// DeleteCluster implements api.Control.
+func (c *Control) DeleteCluster(_ context.Context, actor authz.Subject, clusterID string) (api.ClusterDeletion, error) {
+	d, err := c.Ops.DeleteCluster(actor, clusterID)
+	if err != nil {
+		return api.ClusterDeletion{}, MapCommandError(err)
+	}
+	return api.ClusterDeletion{ID: d.Operation.ID, Kind: d.Operation.Kind, Approval: api.OperationApproval{Digest: d.Digest}}, nil
+}
+
 // OutageDiagnosis implements api.Control: read-only evidence collection
 // (grastate through the agents plus the last health observations) and
 // diagnosis. Nothing is started.

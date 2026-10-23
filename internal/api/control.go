@@ -129,6 +129,30 @@ type OperationApproval struct {
 	ApprovedAt time.Time `json:"approvedAt,omitzero"`
 }
 
+// OperationKindClusterDelete is the kind of a cluster deletion operation.
+const OperationKindClusterDelete = "cluster/delete"
+
+// ClusterDeletion is a started cluster deletion. Its removals wait for
+// POST /operations/{id}/approve with Approval.Digest.
+type ClusterDeletion struct {
+	ID       string            `json:"id"`
+	Kind     string            `json:"kind"`
+	Approval OperationApproval `json:"approval"`
+}
+
+// ApprovalPermission is the permission an approval of an operation needs:
+// delete on the cluster for a cluster deletion, restore on the cluster's
+// backups for other operations, manager settings for unlocated ones.
+func ApprovalPermission(kind, swarm, cluster string) (authz.Action, authz.Resource) {
+	if swarm == "" || cluster == "" {
+		return authz.ActionRestore, settingsResource
+	}
+	if kind == OperationKindClusterDelete {
+		return authz.ActionDelete, authz.Resource{Type: authz.ResourceCluster, Scope: authz.ClusterScope(swarm, cluster)}
+	}
+	return authz.ActionRestore, backupResource(swarm, cluster)
+}
+
 // ApprovalInput approves an operation; Digest must equal the operation's
 // OperationApproval.Digest.
 type ApprovalInput struct {
@@ -144,6 +168,9 @@ type Control interface {
 	SetEnrollment(ctx context.Context, actor authz.Subject, swarmID, nodeID string, enroll bool) (Host, error)
 	CreateCluster(ctx context.Context, actor authz.Subject, req CreateClusterRequest) (OperationRef, error)
 	ReplaceNode(ctx context.Context, actor authz.Subject, clusterID, slot string) (OperationRef, error)
+	// DeleteCluster starts the deletion of a cluster (also a failed
+	// create); its removals wait for an approval of the returned digest.
+	DeleteCluster(ctx context.Context, actor authz.Subject, clusterID string) (ClusterDeletion, error)
 	OutageDiagnosis(ctx context.Context, actor authz.Subject, clusterID string) (Diagnosis, error)
 	ResumeOperation(ctx context.Context, actor authz.Subject, opID string) error
 	AbortOperation(ctx context.Context, actor authz.Subject, opID string) error
@@ -304,6 +331,9 @@ func (Unavailable) CreateCluster(context.Context, authz.Subject, CreateClusterRe
 }
 func (Unavailable) ReplaceNode(context.Context, authz.Subject, string, string) (OperationRef, error) {
 	return OperationRef{}, ErrUnavailable
+}
+func (Unavailable) DeleteCluster(context.Context, authz.Subject, string) (ClusterDeletion, error) {
+	return ClusterDeletion{}, ErrUnavailable
 }
 func (Unavailable) OutageDiagnosis(context.Context, authz.Subject, string) (Diagnosis, error) {
 	return Diagnosis{}, ErrUnavailable

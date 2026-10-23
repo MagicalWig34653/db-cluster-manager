@@ -91,6 +91,13 @@ func (f *fakeControl) ReplaceNode(_ context.Context, a authz.Subject, c, slot st
 	return OperationRef{ID: "op-2"}, nil
 }
 
+func (f *fakeControl) DeleteCluster(_ context.Context, a authz.Subject, c string) (ClusterDeletion, error) {
+	if err := f.record(a, "delete %s", c); err != nil {
+		return ClusterDeletion{}, err
+	}
+	return ClusterDeletion{ID: "op-d", Kind: OperationKindClusterDelete, Approval: OperationApproval{Digest: digestA}}, nil
+}
+
 func (f *fakeControl) OutageDiagnosis(_ context.Context, a authz.Subject, c string) (Diagnosis, error) {
 	if err := f.record(a, "diagnose %s", c); err != nil {
 		return Diagnosis{}, err
@@ -193,6 +200,8 @@ func newControlFixture(t *testing.T) *controlFixture {
 		{ID: "op-c1", Kind: "galera/create", Swarm: "s1", Cluster: "c1", State: OperationPending},
 		{ID: "op-r1", Kind: "dbbackup/inspection", Swarm: "s1", Cluster: "c1", State: OperationPending,
 			Approval: &OperationApproval{Digest: strings.Repeat("a", 64)}},
+		{ID: "op-d1", Kind: OperationKindClusterDelete, Swarm: "s1", Cluster: "c1", State: OperationPending,
+			Approval: &OperationApproval{Digest: strings.Repeat("a", 64)}},
 	}
 	cf.ctl.hosts = []Host{
 		{Swarm: "s1", NodeID: "h1", Hostname: "one", Enrollment: EnrollmentDiscovered},
@@ -233,6 +242,8 @@ var commandRoutes = []route{
 	{"POST", "/api/v1/operations/op-c1/resume", nil},
 	{"POST", "/api/v1/operations/op-c1/abort", nil},
 	{"POST", "/api/v1/operations/op-r1/approve", map[string]string{"digest": digestA}},
+	{"POST", "/api/v1/operations/op-d1/approve", map[string]string{"digest": digestA}},
+	{"DELETE", "/api/v1/clusters/c2", nil},
 	{"GET", "/api/v1/backups", nil},
 	{"PUT", "/api/v1/clusters/c1/backup-policy", map[string]any{"enabled": true, "schedule": "0 2 * * *"}},
 	{"POST", "/api/v1/clusters/c1/backups", nil},
@@ -256,8 +267,9 @@ func TestCommandRoutesNeedSession(t *testing.T) {
 func TestCommandRoutesUnavailableWithoutServices(t *testing.T) {
 	f := newFixture(t)
 	f.inventory.swarms = []Swarm{{ID: "s1"}}
-	f.inventory.clusters = []Cluster{{ID: "c1", Swarm: "s1", Nodes: []ClusterNode{{ID: "n1"}}}}
-	f.inventory.operations = []Operation{{ID: "op-c1", Swarm: "s1", Cluster: "c1"}, {ID: "op-r1", Swarm: "s1", Cluster: "c1", Approval: &OperationApproval{Digest: digestA}}}
+	f.inventory.clusters = []Cluster{{ID: "c1", Swarm: "s1", Nodes: []ClusterNode{{ID: "n1"}}}, {ID: "c2", Swarm: "s1"}}
+	f.inventory.operations = []Operation{{ID: "op-c1", Swarm: "s1", Cluster: "c1"}, {ID: "op-r1", Swarm: "s1", Cluster: "c1", Approval: &OperationApproval{Digest: digestA}},
+		{ID: "op-d1", Kind: OperationKindClusterDelete, Swarm: "s1", Cluster: "c1", Approval: &OperationApproval{Digest: digestA}}}
 	admin, _, _ := f.setupAdmin("admin")
 	for _, rt := range commandRoutes {
 		r := admin.do(rt.method, rt.path, rt.body)
@@ -522,6 +534,51 @@ func TestOperationControlAndApproval(t *testing.T) {
 	}
 	cf.ctl.err = fmt.Errorf("%w: digest of another definition", ErrApprovalMismatch)
 	wantError(t, admin.do("POST", "/api/v1/operations/op-r1/approve", map[string]string{"digest": digestA}), http.StatusConflict, "approval_mismatch")
+}
+
+// TestClusterDeleteNeedsDeletePermission: deleting a cluster (also a
+// failed create, lab E4) is denied by default: operators and database
+// admins lack the delete permission; a restore permission on the backups
+// does not cover approving a deletion either. Every decision is audited.
+func TestClusterDeleteNeedsDeletePermission(t *testing.T) {
+	cf := newControlFixture(t)
+	if err := cf.policy.AddRole(authz.Role{Name: "restorer", Permissions: []authz.Permission{
+		{Type: authz.ResourceCluster, Action: authz.ActionRead}, {Type: authz.ResourceBackup, Action: authz.ActionRestore}}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, role := range []string{authz.RoleOperator, authz.RoleDatabaseAdmin, "restorer"} {
+		u := cf.loggedIn("u-"+role, role, authz.SwarmScope("s1"))
+		wantError(t, u.do("DELETE", "/api/v1/clusters/c1", nil), http.StatusForbidden, errForbidden)
+		wantError(t, u.do("POST", "/api/v1/operations/op-d1/approve", map[string]string{"digest": digestA}), http.StatusForbidden, errForbidden)
+	}
+	// Not readable at all: 404 without revealing the cluster.
+	other := cf.loggedIn("v2", authz.RoleViewer, authz.SwarmScope("s2"))
+	wantError(t, other.do("DELETE", "/api/v1/clusters/c1", nil), http.StatusNotFound, errNotFound)
+	if n := auditsOf(cf.fixture, authz.ActionDelete, authz.OutcomeDenied, authz.ResourceCluster); n != 7 {
+		t.Fatalf("denied deletions/approvals audited %d times, want 7", n)
+	}
+	// The restorer may still approve a restore.
+	r := cf.loggedIn("r2", "restorer", authz.SwarmScope("s1"))
+	wantStatus(t, r.do("POST", "/api/v1/operations/op-r1/approve", map[string]string{"digest": digestA}), http.StatusOK)
+	if n := len(cf.ctl.Calls()); n != 1 {
+		t.Fatalf("calls %v", cf.ctl.Calls())
+	}
+
+	admin, _, _ := cf.setupAdmin("admin")
+	var d ClusterDeletion
+	resp := admin.do("DELETE", "/api/v1/clusters/c1", nil)
+	wantStatus(t, resp, http.StatusAccepted)
+	resp.decode(t, &d)
+	if d.ID != "op-d" || d.Kind != OperationKindClusterDelete || d.Approval.Digest != digestA {
+		t.Fatalf("%+v", d)
+	}
+	wantStatus(t, admin.do("POST", "/api/v1/operations/op-d1/approve", map[string]string{"digest": digestA}), http.StatusOK)
+	if n := auditsOf(cf.fixture, authz.ActionDelete, authz.OutcomeAllowed, authz.ResourceCluster); n != 2 {
+		t.Fatalf("allowed deletion and approval audited %d times", n)
+	}
+	wantError(t, admin.do("DELETE", "/api/v1/clusters/nope", nil), http.StatusNotFound, errNotFound)
+	cf.ctl.err = fmt.Errorf("%w: operation running", ErrBusy)
+	wantError(t, admin.do("DELETE", "/api/v1/clusters/c1", nil), http.StatusConflict, "busy")
 }
 
 func TestAuditOutageFailsCommandsClosed(t *testing.T) {

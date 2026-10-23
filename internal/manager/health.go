@@ -250,6 +250,12 @@ const (
 // report records an event for every transition and hands it to Notify
 // (the monitoring dispatcher: UI inbox and configured channels).
 func (h HealthCollector) report(ctx context.Context, l *Leadership, c ClusterRecord, changes []nodeTransition) {
+	if len(changes) > 0 && c.DeleteOp != "" {
+		// Nodes going away during a deletion are expected.
+		if op, ok, err := Get[OperationRecord](l.svc.store, CollOperations, c.DeleteOp); err == nil && ok && op.Value.EndedAt.IsZero() {
+			return
+		}
+	}
 	for _, t := range changes {
 		sev, nsev, kind := api.SeverityWarning, notify.SeverityWarning, KindNodeUnavailable
 		msg := fmt.Sprintf("node %s of cluster %s became %s", t.slot, c.Name, t.state)

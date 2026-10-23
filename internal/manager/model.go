@@ -158,6 +158,9 @@ type ClusterRecord struct {
 	CreatedBy   string       `json:"createdBy"`
 	CreatedAt   time.Time    `json:"createdAt"`
 	CreateOp    string       `json:"createOp,omitempty"`
+	// DeleteOp is the latest deletion operation (clusterdelete.go); while
+	// it runs, node health changes raise no notifications.
+	DeleteOp string `json:"deleteOp,omitempty"`
 }
 
 // Settings are manager-wide settings.

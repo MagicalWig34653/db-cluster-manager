@@ -110,9 +110,17 @@ func locatedRes(swarm, cluster string) authz.Resource {
 	return authz.Resource{Type: authz.ResourceSettings, Scope: authz.Global}
 }
 
+// approvalPermission is the permission an approval needs: delete on the
+// cluster for a cluster deletion, restore on the cluster's backups
+// otherwise (manager settings for unlocated operations). The API checks the
+// same mapping (api.ApprovalPermission).
+func approvalPermission(rec OperationRecord) (authz.Action, authz.Resource) {
+	return api.ApprovalPermission(rec.Kind, rec.Swarm, rec.Cluster)
+}
+
 // Approve records actor's approval of the operation's destructive steps for
-// digest and resumes the operation. It needs the restore permission on the
-// cluster's backups (audited).
+// digest and resumes the operation. It needs the permission of
+// approvalPermission (audited).
 func (o *Operations) Approve(actor authz.Subject, opID, digest string) (ApprovalRecord, error) {
 	l, err := o.leadership()
 	if err != nil {
@@ -126,11 +134,8 @@ func (o *Operations) Approve(actor authz.Subject, opID, digest string) (Approval
 		return ApprovalRecord{}, fmt.Errorf("%w: operation %q", api.ErrNotFound, opID)
 	}
 	rec := cur.Value
-	res := authz.Resource{Type: authz.ResourceSettings, Scope: authz.Global}
-	if rec.Swarm != "" && rec.Cluster != "" {
-		res = backupRes(rec.Swarm, rec.Cluster)
-	}
-	if err := o.authorize(actor, authz.ActionRestore, res); err != nil {
+	act, res := approvalPermission(rec)
+	if err := o.authorize(actor, act, res); err != nil {
 		return ApprovalRecord{}, err
 	}
 	if rec.ApprovalID == "" {
