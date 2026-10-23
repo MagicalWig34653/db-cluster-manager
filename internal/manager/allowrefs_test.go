@@ -14,6 +14,7 @@ import (
 	"github.com/MagicalWig34653/db-cluster-manager/internal/api"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/dbbackup"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/manager/swarm"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/runner"
 )
 
 // refConn lists networks and secrets per kind.
@@ -141,4 +142,32 @@ type initSecretConn struct{ *refConn }
 func (c *initSecretConn) CreateSecret(_ context.Context, name string, labels map[string]string, _ []byte) (string, error) {
 	c.objs[agent.KindSecret] = append(c.objs[agent.KindSecret], agent.Object{ID: "sec-init", Name: name, Labels: labels})
 	return "sec-init", nil
+}
+
+// TestAbortFailedOperationReleasesIt: a failed operation has an end time
+// for the inventory but keeps its runner locks; lab E4 found it could then
+// never be aborted (409) and blocked the next inspection of the same
+// backup. Abort is accepted for it and ends it as aborted.
+func TestAbortFailedOperationReleasesIt(t *testing.T) {
+	agents := newFakeAgents()
+	agents.refuse = func(cmd agent.Command) bool { return cmd.Kind == agent.KindCreateVolume }
+	c := newCluster(t, 1, func(_ string, cfg *Config) { cfg.Agents = agents; cfg.Checker = okChecker{} })
+	l := c.leader()
+	ops := seed(t, l, 3)
+	ops.MaxRetries = 0
+	rec, err := ops.CreateCluster(adminSubject, createReq())
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed := waitOpStatus(t, l, rec.ID, runner.StatusFailed)
+	if failed.EndedAt.IsZero() {
+		t.Fatal("failed operation without end time")
+	}
+	if err := ops.Abort(adminSubject, rec.ID); err != nil {
+		t.Fatalf("abort of a failed operation: %v", err)
+	}
+	waitOpStatus(t, l, rec.ID, runner.StatusAborted)
+	if err := ops.Abort(adminSubject, rec.ID); !errors.Is(err, ErrOperationEnded) {
+		t.Fatalf("second abort: %v", err)
+	}
 }

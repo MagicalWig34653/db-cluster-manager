@@ -183,6 +183,8 @@ type fakeAgents struct {
 	sent    []sent
 	results map[string]agent.Result
 	block   func(ctx context.Context, cmd agent.Command) error
+	// refuse, if set and true for a command, answers it as refused.
+	refuse func(cmd agent.Command) bool
 }
 
 func newFakeAgents() *fakeAgents { return &fakeAgents{results: map[string]agent.Result{}} }
@@ -204,6 +206,9 @@ func (f *fakeAgents) Send(ctx context.Context, target string, cmd agent.Command)
 		}
 	}
 	r := agent.Result{OpID: cmd.OpID, StepID: cmd.StepID, Kind: cmd.Kind, Status: agent.StatusSucceeded}
+	if f.refuse != nil && f.refuse(cmd) {
+		r.Status, r.Code, r.Message = agent.StatusRefused, agent.CodeNotOwned, "refused by the test"
+	}
 	if cmd.Kind == agent.KindCreateService {
 		r.Output, _ = json.Marshal(map[string]string{"id": "svc-" + cmd.StepID})
 	}

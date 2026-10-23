@@ -187,7 +187,13 @@ func (o *Operations) Abort(actor authz.Subject, opID string) error {
 		return err
 	}
 	if !cur.Value.EndedAt.IsZero() {
-		return ErrOperationEnded
+		// A failed operation counts as ended for the inventory, but the
+		// runner keeps its locks until it is aborted (lab E4: a failed
+		// inspection kept its backup locked and could not be aborted).
+		v, err := l.Runner.Snapshot(opID)
+		if err != nil || v.Status == runner.StatusSucceeded || v.Status == runner.StatusAborted {
+			return ErrOperationEnded
+		}
 	}
 	if err := l.Runner.Abort(opID); err != nil {
 		return err
