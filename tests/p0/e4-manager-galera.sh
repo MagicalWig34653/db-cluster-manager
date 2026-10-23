@@ -30,11 +30,16 @@
 # Requirements: Go toolchain, jq, limactl on PATH.
 set -eu -o pipefail
 
-REPO_ROOT=$(cd "$(dirname "$0")/../.." && pwd)
-LOG="$REPO_ROOT/tests/p0/results/e4-manager-galera.log"
-export REPO_ROOT LOG
-mkdir -p "$(dirname "$LOG")"
-[ "${E4_APPEND_LOG:-0}" = 1 ] || : >"$LOG"
+# E4_LIBRARY=1: only define settings, helpers and phases (sourced by later
+# experiments such as tests/p0/e5-e6-proxy-outage.sh, which set REPO_ROOT and
+# LOG themselves and run their own phase loop and EXIT trap).
+if [ "${E4_LIBRARY:-0}" != 1 ]; then
+	REPO_ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+	LOG="$REPO_ROOT/tests/p0/results/e4-manager-galera.log"
+	export REPO_ROOT LOG
+	mkdir -p "$(dirname "$LOG")"
+	[ "${E4_APPEND_LOG:-0}" = 1 ] || : >"$LOG"
+fi
 # shellcheck source=tests/p0/common.sh
 . "$REPO_ROOT/tests/p0/common.sh"
 
@@ -76,8 +81,10 @@ finish() {
 	say "E4 finished with exit $rc"
 	exit "$rc"
 }
-trap finish EXIT
-trap 'exit 130' INT TERM
+if [ "${E4_LIBRARY:-0}" != 1 ]; then
+	trap finish EXIT
+	trap 'exit 130' INT TERM
+fi
 
 note() { printf '%s\n\n' "$*" >>"$LOG"; }
 hostload() { note "host uptime: $(uptime)"; say "host load: $(sysctl -n vm.loadavg)"; }
@@ -496,6 +503,7 @@ phase_inspect() {
 	rec "operations after inspection" api GET /api/v1/operations
 }
 
+[ "${E4_LIBRARY:-0}" = 1 ] && return 0
 for p in vms swarm images prereqs backend manager setup swarmapi cluster verify failure backup inspect; do
 	if phase "$p"; then
 		case "$p" in vms | swarm) [ "${E4_REUSE_VMS:-0}" = 1 ] && continue ;; esac
