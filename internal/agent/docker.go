@@ -45,6 +45,9 @@ type Object struct {
 	// UpdateState is the Swarm UpdateStatus.State of a service ("" when it
 	// was never updated, "updating", "completed", "paused", "rollback_...").
 	UpdateState string `json:"update_state,omitempty"` // services only
+	// RunningTasks is the Swarm ServiceStatus.RunningTasks of a service when
+	// the daemon reported it (services listed with status); nil: unknown.
+	RunningTasks *uint64 `json:"running_tasks,omitempty"` // services only
 }
 
 // VolumeSpec describes a local Docker volume whose data lives in the host

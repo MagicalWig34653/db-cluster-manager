@@ -359,8 +359,12 @@ func decodeCommand(cmd Command, volumeBase string) (decoded, error) {
 		args = &InitVolumeDirsArgs{}
 	case KindExecSQL:
 		args = &ExecSQLArgs{}
-	case KindAwaitService:
+	case KindAwaitService, KindAwaitStopped, KindStartService:
 		args = &AwaitServiceArgs{}
+	case KindMarkSafeToBootstrap:
+		args = &MarkSafeArgs{}
+	case KindWsrepRecover:
+		args = &WsrepRecoverArgs{}
 	default:
 		return decoded{}, invalid("unknown kind %q", cmd.Kind)
 	}
@@ -482,6 +486,10 @@ func checkArgs(args any, volumeBase string) error {
 		return checkVolumeRoot(a.VolumeRoot, volumeBase)
 	case *ExecSQLArgs:
 		return checkExecSQL(a, volumeBase)
+	case *MarkSafeArgs:
+		return checkMarkSafe(a, volumeBase)
+	case *WsrepRecoverArgs:
+		return checkWsrepRecover(a, volumeBase)
 	case *AllowObjectsArgs:
 		if len(a.IDs) == 0 {
 			return invalid("ids required")

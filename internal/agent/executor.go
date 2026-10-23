@@ -239,7 +239,17 @@ func (e *Executor) execute(ctx context.Context, d decoded) Result {
 	case *ExecSQLArgs:
 		return e.execSQL(ctx, *a)
 	case *AwaitServiceArgs:
+		switch d.cmd.Kind {
+		case KindAwaitStopped:
+			return e.awaitStopped(ctx, *a)
+		case KindStartService:
+			return e.startService(ctx, *a)
+		}
 		return e.awaitService(ctx, *a)
+	case *MarkSafeArgs:
+		return e.markSafe(*a)
+	case *WsrepRecoverArgs:
+		return e.wsrepRecover(ctx, *a)
 	case *AllowObjectsArgs:
 		for _, id := range a.IDs {
 			e.allow(id)
