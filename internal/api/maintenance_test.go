@@ -42,6 +42,39 @@ func (f *fakeMaintenance) ClusterDrift(_ context.Context, _ authz.Subject, id st
 	return DriftReport{Cluster: id, InSync: true}, f.rec("drift:" + id)
 }
 
+type logicalBackups struct {
+	*fakeBackups
+	dbs []string
+}
+
+func (l *logicalBackups) StartLogicalBackup(_ context.Context, a authz.Subject, c string, dbs []string) (OperationRef, error) {
+	l.dbs = dbs
+	return OperationRef{ID: "op-l", Kind: "dbbackup/backup"}, nil
+}
+
+// TestBackupStartMethods: the optional body selects a logical backup of
+// named databases; malformed combinations are refused before the service,
+// and a service without logical support answers 503.
+func TestBackupStartMethods(t *testing.T) {
+	cf := newControlFixture(t)
+	admin, _, _ := cf.setupAdmin("admin")
+	wantError(t, admin.do("POST", "/api/v1/clusters/c1/backups", map[string]any{"method": "logical", "databases": []string{"shop"}}),
+		http.StatusServiceUnavailable, errUnavailable)
+	lb := &logicalBackups{fakeBackups: cf.bak}
+	cf.srv.cfg.Backups = lb
+	var ref OperationRef
+	r := admin.do("POST", "/api/v1/clusters/c1/backups", map[string]any{"method": "logical", "databases": []string{"shop", "crm"}})
+	wantStatus(t, r, http.StatusAccepted)
+	r.decode(t, &ref)
+	if ref.ID != "op-l" || len(lb.dbs) != 2 {
+		t.Fatalf("%+v %v", ref, lb.dbs)
+	}
+	for _, body := range []map[string]any{{"method": "logical"}, {"method": "physical", "databases": []string{"x"}}, {"method": "snapshot"}} {
+		wantError(t, admin.do("POST", "/api/v1/clusters/c1/backups", body), http.StatusBadRequest, errBadRequest)
+	}
+	wantStatus(t, admin.do("POST", "/api/v1/clusters/c1/backups", nil), http.StatusAccepted)
+}
+
 // TestMaintenanceAndDriftRoutes: maintenance needs host operate (viewers
 // are refused, operators allowed), the plan and drift need read (hidden
 // otherwise), state-changing calls are audited, and conflicts map to 409.

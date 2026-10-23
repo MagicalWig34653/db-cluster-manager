@@ -216,8 +216,34 @@ type BackupPolicy struct {
 	Timezone string `json:"timezone,omitempty"`
 	// Missed is "skip" (default) or "run-once".
 	Missed string `json:"missed,omitempty"`
-	// Method is "physical" (the only scheduled method).
-	Method string `json:"method,omitempty"`
+	// Method is "physical" (default) or "logical" (one mariadb-dump export
+	// per database in Databases).
+	Method    string   `json:"method,omitempty"`
+	Databases []string `json:"databases,omitempty"`
+	// Retention, if set, deletes older complete backup sets of the cluster
+	// after each scheduler pass; the newest set, the newest verified set
+	// and sets used by an inspection are always kept.
+	Retention *BackupRetention `json:"retention,omitempty"`
+}
+
+// BackupRetention keeps the newest KeepLast sets plus the newest set of
+// each of the last KeepDaily days and KeepWeekly ISO weeks.
+type BackupRetention struct {
+	KeepLast   int `json:"keepLast"`
+	KeepDaily  int `json:"keepDaily,omitempty"`
+	KeepWeekly int `json:"keepWeekly,omitempty"`
+}
+
+// BackupStartInput optionally selects the method of a manual backup.
+type BackupStartInput struct {
+	Method    string   `json:"method,omitempty"`
+	Databases []string `json:"databases,omitempty"`
+}
+
+// LogicalBackups is implemented by a Backups service that can start a
+// logical backup of named databases.
+type LogicalBackups interface {
+	StartLogicalBackup(ctx context.Context, actor authz.Subject, clusterID string, databases []string) (OperationRef, error)
 }
 
 // BackupSummary is the backup state of one cluster. Absent times are

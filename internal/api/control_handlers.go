@@ -418,12 +418,35 @@ func (s *server) handleBackupPolicy(w http.ResponseWriter, r *http.Request, c *c
 }
 
 func (s *server) handleBackupStart(w http.ResponseWriter, r *http.Request, c *caller) {
-	var empty struct{}
-	if !decodeJSON(w, r, &empty, true) {
+	var in BackupStartInput
+	if !decodeJSON(w, r, &in, true) {
 		return
 	}
 	cl := c.target.(Cluster)
-	ref, err := s.backups().StartBackup(r.Context(), c.subject, cl.ID)
+	var ref OperationRef
+	var err error
+	switch in.Method {
+	case "", "physical":
+		if len(in.Databases) > 0 {
+			writeError(w, http.StatusBadRequest, errBadRequest)
+			return
+		}
+		ref, err = s.backups().StartBackup(r.Context(), c.subject, cl.ID)
+	case "logical":
+		if len(in.Databases) == 0 || len(in.Databases) > 64 {
+			writeError(w, http.StatusBadRequest, errBadRequest)
+			return
+		}
+		lb, ok := s.backups().(LogicalBackups)
+		if !ok {
+			writeError(w, http.StatusServiceUnavailable, errUnavailable)
+			return
+		}
+		ref, err = lb.StartLogicalBackup(r.Context(), c.subject, cl.ID, in.Databases)
+	default:
+		writeError(w, http.StatusBadRequest, errBadRequest)
+		return
+	}
 	if err != nil {
 		s.writeServiceError(w, r, err)
 		return

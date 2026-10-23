@@ -1167,15 +1167,27 @@ paths:
         "503": { $ref: "#/components/responses/Error" }
   /clusters/{id}/backups:
     post:
-      summary: Start a physical backup now
+      summary: Start a backup now
       description: >-
-        Plans the backup (source node selection, owned one-shot job) and
-        starts it. Needs the backup permission on the cluster; audited.
-        settings_incomplete (409) without backup settings; busy (409) while
-        another operation locks the cluster.
+        Plans the backup (source node selection, owned one-shot job per
+        object) and starts it: physical (mariabackup, default) or, with
+        method logical, one mariadb-dump export per named database. Needs
+        the backup permission on the cluster; audited. settings_incomplete
+        (409) without backup settings; busy (409) while another operation
+        locks the cluster.
       operationId: startBackup
       parameters:
         - { $ref: "#/components/parameters/Id" }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                method: { type: string, enum: [physical, logical], default: physical }
+                databases: { type: array, maxItems: 64, items: { type: string } }
       responses:
         "202":
           description: Operation started
@@ -1876,7 +1888,25 @@ components:
         schedule: { type: string, maxLength: 128, description: "Five-field cron-like spec, for example \"0 2 * * *\"" }
         timezone: { type: string, description: IANA zone; default UTC }
         missed: { type: string, enum: [skip, run-once], default: skip }
-        method: { type: string, enum: [physical], default: physical }
+        method: { type: string, enum: [physical, logical], default: physical }
+        databases:
+          type: array
+          maxItems: 64
+          description: Logical method only (required there); one mariadb-dump export per database
+          items: { type: string }
+        retention:
+          type: object
+          additionalProperties: false
+          description: >-
+            After each scheduler pass, older complete backup sets of the cluster are
+            deleted (manifest first, then stream); the newest set, the newest set with a
+            passed restore verification and sets used by an open inspection are always
+            kept; a cluster with an unfinished operation is skipped for the pass.
+          required: [keepLast]
+          properties:
+            keepLast: { type: integer, minimum: 1, maximum: 1000 }
+            keepDaily: { type: integer, minimum: 0, maximum: 1000 }
+            keepWeekly: { type: integer, minimum: 0, maximum: 1000 }
     BackupSummary:
       type: object
       required: [cluster, swarm]
