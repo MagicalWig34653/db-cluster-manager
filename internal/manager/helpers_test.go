@@ -185,6 +185,8 @@ type fakeAgents struct {
 	block   func(ctx context.Context, cmd agent.Command) error
 	// refuse, if set and true for a command, answers it as refused.
 	refuse func(cmd agent.Command) bool
+	// answer, if set and returning true, replaces the default answer.
+	answer func(target string, cmd agent.Command) (agent.Result, bool)
 }
 
 func newFakeAgents() *fakeAgents { return &fakeAgents{results: map[string]agent.Result{}} }
@@ -198,8 +200,14 @@ func (f *fakeAgents) Send(ctx context.Context, target string, cmd agent.Command)
 		r.Replayed = true
 		return r, nil
 	}
-	block := f.block
+	block, answer := f.block, f.answer
 	f.mu.Unlock()
+	if answer != nil {
+		if r, ok := answer(target, cmd); ok {
+			r.OpID, r.StepID, r.Kind = cmd.OpID, cmd.StepID, cmd.Kind
+			return r, nil
+		}
+	}
 	if block != nil {
 		if err := block(ctx, cmd); err != nil {
 			return agent.Result{}, err

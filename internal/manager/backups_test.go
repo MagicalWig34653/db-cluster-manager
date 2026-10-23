@@ -357,8 +357,14 @@ func TestInspectionWaitsForDigestBoundApprovalAndExpires(t *testing.T) {
 	for _, c := range env.commandsFor(ir.Value.TeardownOp) {
 		kinds[c.Kind] = true
 	}
-	if !kinds[agent.KindRemoveVolume] || !kinds[agent.KindRemoveJob] {
+	if !kinds[agent.KindRemoveVolume] || !kinds[agent.KindRemoveJob] || !kinds[agent.KindRemoveSecret] {
 		t.Fatalf("teardown commands %v", kinds)
+	}
+	for _, c := range env.commandsFor(ir.Value.TeardownOp) {
+		var a agent.RemoveSecretArgs
+		if c.Kind == agent.KindRemoveSecret && (json.Unmarshal(c.Args, &a) != nil || a.Secret != "dbcm-inspect-"+res.Session+"-init") {
+			t.Fatalf("teardown removes secret %+v", a)
+		}
 	}
 }
 

@@ -115,20 +115,40 @@ func TestInspectionAllowsReferencedObjects(t *testing.T) {
 	}}
 	env.b.Swarms = &Swarms{Svc: env.svc, Dial: func(string) (swarm.Connector, error) { return &initSecretConn{refConn: rc}, nil }}
 	env.ops.Swarms = env.b.Swarms
+	if _, err := env.b.StartInspection(context.Background(), adminSubject, api.InspectionInput{Cluster: "clu-1", Host: "h4", TTLMinutes: 30}); !errors.Is(err, api.ErrSettingsIncomplete) {
+		t.Fatalf("without a Swarm manager node for the service commands: %v", err)
+	}
+	if _, _, err := Update(env.svc.Store(), CollHosts, HostKey("sw1", "h1"), func(h HostRecord, _ bool) (HostRecord, error) {
+		h.Role, h.AgentSerial = "manager", "0a"
+		return h, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 	res, err := env.b.StartInspection(context.Background(), adminSubject, api.InspectionInput{Cluster: "clu-1", Host: "h4", TTLMinutes: 30})
 	if err != nil {
 		t.Fatal(err)
 	}
 	rec := opRecord(t, env.svc, res.ID)
-	first := rec.Definition.Steps[0]
-	var a agent.AllowObjectsArgs
-	if first.Command != agent.KindAllowObjects || first.Target != "h4" || json.Unmarshal(first.Args, &a) != nil ||
-		!slices.Equal(a.IDs, []string{"net-insp", "sec-be", "sec-key", "sec-init"}) {
-		t.Fatalf("first step %+v %v", first, a.IDs)
+	// One allow step for the inspection host and one for the manager node
+	// that creates the job and the instance (F12).
+	for i, host := range []string{"h4", "h1"} {
+		st := rec.Definition.Steps[i]
+		var a agent.AllowObjectsArgs
+		if st.Command != agent.KindAllowObjects || st.Target != host || json.Unmarshal(st.Args, &a) != nil ||
+			!slices.Equal(a.IDs, []string{"net-insp", "sec-be", "sec-key", "sec-init"}) {
+			t.Fatalf("step %d %+v %v", i, st, a.IDs)
+		}
+		for _, c := range st.Preconditions {
+			if c.Kind == dbbackup.CondApproved {
+				t.Fatal("allow-objects waits for the approval")
+			}
+		}
 	}
-	for _, c := range first.Preconditions {
-		if c.Kind == dbbackup.CondApproved {
-			t.Fatal("allow-objects waits for the approval")
+	for _, st := range rec.Definition.Steps {
+		want := map[agent.Kind]string{agent.KindRunRestore: "h1", agent.KindCreateService: "h1", agent.KindRemoveJob: "h1",
+			agent.KindCheckRestoreTarget: "h4", agent.KindCreateVolume: "h4", agent.KindInitIdentity: "h4"}[st.Command]
+		if want != "" && st.Target != want {
+			t.Errorf("%s on %s, want %s", st.Command, st.Target, want)
 		}
 	}
 	if d, _ := DefinitionDigest(rec.Definition); d != res.Approval.Digest {

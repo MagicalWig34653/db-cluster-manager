@@ -21,6 +21,8 @@ import (
 //   - CondApproved: the replicated approval store (digest-bound).
 //   - dbbackup conditions: a dbbackup.Checker built per call, bound to the
 //     operation's cluster; without a backup backend they are unmet.
+//   - CondRestoreVerified: the stored verification report of the session,
+//     or a probe of the inspection instance that records one (verify.go).
 //   - everything else (node-synced, quorum, ...): Cluster, typically the
 //     live galeraprobe.Checker.
 type RoutingChecker struct {
@@ -45,7 +47,9 @@ func (c *RoutingChecker) Check(ctx context.Context, opID string, step runner.Ste
 			return false, "approval " + cond.Target + " not recorded for this operation definition", nil
 		}
 		return true, "", nil
-	case dbbackup.CondSourceEligible, dbbackup.CondBackupComplete, dbbackup.CondRestoreComplete, dbbackup.CondRestoreVerified:
+	case dbbackup.CondRestoreVerified:
+		return c.restoreVerified(ctx, cond.Target)
+	case dbbackup.CondSourceEligible, dbbackup.CondBackupComplete, dbbackup.CondRestoreComplete:
 		if c.Backup == nil {
 			return false, "no backup backend configured", nil
 		}
@@ -60,12 +64,6 @@ func (c *RoutingChecker) Check(ctx context.Context, opID string, step runner.Ste
 				return false, "", err
 			}
 			bc.Policy.Job = job
-		}
-		if bc.SessionReport == nil {
-			bc.SessionReport = func(id string) (dbbackup.VerifyReport, bool) {
-				r, ok, err := Get[dbbackup.VerifyReport](c.Store, CollVerifications, id)
-				return r.Value, err == nil && ok
-			}
 		}
 		return bc.Check(ctx, opID, step, cond)
 	}

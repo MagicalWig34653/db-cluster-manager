@@ -39,8 +39,8 @@ const (
 	CollBackups        = "backups"         // key: backup ID
 	CollInspections    = "inspections"     // key: inspection session ID
 	// CollVerifications holds dbbackup.VerifyReport values; key: session
-	// ID. Nothing writes it yet (verification of inspection instances is
-	// not wired), so "last verified restore" stays unknown.
+	// ID. The restore-verified gate of an inspection writes it (verify.go);
+	// passed reports set "last verified restore".
 	CollVerifications = "restore-verifications"
 )
 
@@ -629,7 +629,11 @@ func (b *Backups) startInspection(ctx context.Context, actor authz.Subject, in a
 	}
 	session := strings.TrimPrefix(newID("i"), "i-")[:12]
 	session = "i" + session
-	initSecret := "dbcm-inspect-" + session + "-init"
+	initSecret := dbbackup.InitSecretName(session)
+	svcHost, err := b.Ops.serviceHostFor(c.Swarm)
+	if err != nil {
+		return api.InspectionStarted{}, err
+	}
 	opID, approvalID := newID("op"), newID("apr")
 	now := b.now()
 	plan, err := dbbackup.InspectionRestorePlan(dbbackup.InspectionRequest{
@@ -637,7 +641,7 @@ func (b *Backups) startInspection(ctx context.Context, actor authz.Subject, in a
 		Source: dbbackup.RestoreSource{Manifest: m, ClusterID: c.ID, BackendSecret: bs.BackendSecret, KeySecret: keySecret},
 		Host:   host, InstallationID: st.InstallationID, VolumeBase: st.VolumeBase, Image: c.Spec.Image, JobImage: bs.JobImage,
 		Network: bs.InspectionNetwork, InitSecret: initSecret, Resources: res, Job: bs.job(), TTL: ttl, Now: now,
-		TokenID: newID("tok"), StepTimeout: b.Ops.StepTimeout, MaxRetries: b.Ops.MaxRetries,
+		TokenID: newID("tok"), StepTimeout: b.Ops.StepTimeout, MaxRetries: b.Ops.MaxRetries, ServiceHost: svcHost,
 	}, mustInventory(b.store()))
 	if err != nil {
 		return api.InspectionStarted{}, err
@@ -646,16 +650,21 @@ func (b *Backups) startInspection(ctx context.Context, actor authz.Subject, in a
 	if err != nil {
 		return api.InspectionStarted{}, err
 	}
-	sql, err := dbbackup.RenderInspectionInit(password)
+	// The monitoring account stays usable in the instance, so the agent can
+	// verify that it answers (restore verification).
+	sql, err := dbbackup.RenderInspectionInitKeeping(password, monitorAccount(st.Accounts))
 	if err != nil {
-		return api.InspectionStarted{}, err
+		b.Ops.Svc.log.Warn("manager: monitoring account cannot stay unlocked in the inspection instance; verification will not pass", "err", err)
+		if sql, err = dbbackup.RenderInspectionInit(password); err != nil {
+			return api.InspectionStarted{}, err
+		}
 	}
 	if err := b.createSecret(ctx, c.Swarm, initSecret, st.InstallationID, session, []byte(sql)); err != nil {
 		return api.InspectionStarted{}, err
 	}
 	// The allow-objects step is not destructive (no approval) and is part
 	// of the approved definition, so it is added before the digest.
-	if err := b.Ops.allowReferenced(&plan.Operation, c.Swarm, st.InstallationID, []string{host.ID},
+	if err := b.Ops.allowReferenced(&plan.Operation, c.Swarm, st.InstallationID, []string{host.ID, svcHost},
 		objectRefs{Networks: []string{bs.InspectionNetwork}, Secrets: []string{bs.BackendSecret, keySecret, initSecret}}); err != nil {
 		return api.InspectionStarted{}, err
 	}
@@ -677,6 +686,18 @@ func (b *Backups) startInspection(ctx context.Context, actor authz.Subject, in a
 		Port: plan.Session.Port, ExpiresAt: plan.Session.ExpiresAt, Approval: api.OperationApproval{Digest: digest},
 		InspectionAccount: dbbackup.InspectionAccount, InspectionPassword: password,
 	}, nil
+}
+
+// monitorAccount is the configured monitoring account (galera defaults).
+func monitorAccount(a galera.Accounts) dbbackup.LocalAccount {
+	acct := dbbackup.LocalAccount{User: a.MonitorUser, Host: a.MonitorHost}
+	if acct.User == "" {
+		acct.User = galera.DefaultMonitorUser
+	}
+	if acct.Host == "" {
+		acct.Host = galera.DefaultMonitorHost
+	}
+	return acct
 }
 
 func mustInventory(s *Store) dbbackup.Inventory {
@@ -772,6 +793,35 @@ func createdInstanceID(v *runner.View) string {
 	return ""
 }
 
+// teardownPlan plans the removal of an inspection session's job, instance
+// (its service ID from the inspection operation's view), init secret and
+// volume. Service and secret commands go to the Swarm manager node's agent;
+// the init secret is allowed there first. A secret that no longer exists
+// is not planned (nothing to remove).
+func (b *Backups) teardownPlan(opID string, ir InspectionRecord, view *runner.View, st Settings) (runner.Operation, error) {
+	sess := ir.Session
+	sess.ServiceID = createdInstanceID(view)
+	svcHost, err := b.Ops.serviceHostFor(ir.Swarm)
+	if err != nil {
+		return runner.Operation{}, err
+	}
+	req := dbbackup.TeardownRequest{OpID: opID, InstallationID: st.InstallationID, Session: sess, ServiceHost: svcHost,
+		InitSecret: ir.InitSecret, StepTimeout: b.Ops.StepTimeout, MaxRetries: b.Ops.MaxRetries}
+	if req.InitSecret != dbbackup.InitSecretName(sess.ID) {
+		req.InitSecret = "" // records from before the name was fixed: never remove another secret
+	}
+	td, err := dbbackup.TeardownPlanFor(req, mustInventory(b.store()))
+	if err != nil || req.InitSecret == "" {
+		return td, err
+	}
+	err = b.Ops.allowReferenced(&td, ir.Swarm, st.InstallationID, []string{svcHost}, objectRefs{Secrets: []string{req.InitSecret}})
+	if errors.Is(err, ErrUnknownReference) {
+		req.InitSecret = ""
+		return dbbackup.TeardownPlanFor(req, mustInventory(b.store()))
+	}
+	return td, err
+}
+
 // TeardownExpired removes expired inspection instances (B03): an unfinished
 // inspection operation is aborted first; on the next pass, when it has
 // ended, the teardown operation is started. Teardowns need no approval.
@@ -806,14 +856,14 @@ func (b *Backups) TeardownExpired(actor authz.Subject) {
 			}
 			continue
 		}
-		sess := ir.Session
+		var view *runner.View
 		if ok {
-			sess.ServiceID = createdInstanceID(op.Value.View)
+			view = op.Value.View
 		}
 		opID := newID("op")
-		td, err := dbbackup.TeardownPlan(opID, st.InstallationID, sess, mustInventory(b.store()))
+		td, err := b.teardownPlan(opID, ir, view, st)
 		if err != nil {
-			b.Ops.Svc.recordEvent(ir.Swarm, ir.Cluster, api.SeverityWarning, fmt.Sprintf("inspection %s not torn down: %v", sess.ID, err))
+			b.Ops.Svc.recordEvent(ir.Swarm, ir.Cluster, api.SeverityWarning, fmt.Sprintf("inspection %s not torn down: %v", ir.Session.ID, err))
 			continue
 		}
 		rec := OperationRecord{ID: opID, Kind: td.Kind, Swarm: ir.Swarm, Cluster: ir.Cluster, RequestedBy: actor.ID, RequestedAt: now, Definition: td}
@@ -829,7 +879,7 @@ func (b *Backups) TeardownExpired(actor authz.Subject) {
 		if _, err := b.store().Txn(opDoc, irDoc); err != nil {
 			continue
 		}
-		b.Ops.Svc.recordEvent(ir.Swarm, ir.Cluster, api.SeverityInfo, fmt.Sprintf("inspection %s expired; teardown operation %s", sess.ID, opID))
+		b.Ops.Svc.recordEvent(ir.Swarm, ir.Cluster, api.SeverityInfo, fmt.Sprintf("inspection %s expired; teardown operation %s", ir.Session.ID, opID))
 		b.Ops.start(l, td, nil)
 	}
 }
