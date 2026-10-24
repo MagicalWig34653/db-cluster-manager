@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/MagicalWig34653/db-cluster-manager/internal/fencing"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/version"
 )
 
 // LabCommandPath is the HTTP path of the lab command endpoint.
@@ -105,6 +106,9 @@ func NewLabHTTPHandler(h Handler) http.Handler {
 func newCommandHandler(h Handler, peer func(*http.Request) string) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc(LabCommandPath, func(w http.ResponseWriter, r *http.Request) {
+		// Every answer (also a refusal) names the agent build so the manager
+		// can show the version of a host's agent.
+		w.Header().Set(VersionHeader, version.Version)
 		if reason := peer(r); reason != "" {
 			writeLab(w, http.StatusForbidden, labResponse{Error: &labError{httpCodeForbidden, reason}})
 			return
@@ -172,7 +176,14 @@ func writeLab(w http.ResponseWriter, status int, body labResponse) {
 type Client struct {
 	BaseURL string // for example "http://127.0.0.1:7070" or "https://10.0.0.5:7443"
 	HTTP    *http.Client
+	// OnResponse, when set, is called after every HTTP response of the
+	// agent (also an error answer) with the version the agent reported
+	// ("" when it sent none). It is not called on transport errors.
+	OnResponse func(agentVersion string)
 }
+
+// VersionHeader is the response header that carries the agent build version.
+const VersionHeader = "X-Dbcm-Agent-Version"
 
 // LabClient is the name of Client used with the lab transport.
 type LabClient = Client
@@ -200,6 +211,9 @@ func (c *Client) Handle(ctx context.Context, cmd Command) (Result, error) {
 		return Result{}, err
 	}
 	defer resp.Body.Close()
+	if c.OnResponse != nil {
+		c.OnResponse(resp.Header.Get(VersionHeader))
+	}
 	var lr labResponse
 	if err := json.NewDecoder(io.LimitReader(resp.Body, maxLabRequestBody)).Decode(&lr); err != nil {
 		return Result{}, fmt.Errorf("agent: decode response (HTTP %d): %w", resp.StatusCode, err)

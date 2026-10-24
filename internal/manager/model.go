@@ -118,6 +118,11 @@ type HostRecord struct {
 	AgentSerial     string    `json:"agentSerial,omitempty"`
 	AgentNotAfter   time.Time `json:"agentNotAfter,omitzero"`
 	AgentIdentityAt time.Time `json:"agentIdentityAt,omitzero"`
+	// AgentVersion and AgentSeenAt record the last HTTP answer received
+	// from the host's agent (build version from its response header).
+	// Written best-effort by AgentDirectory, at most about once a minute.
+	AgentVersion string    `json:"agentVersion,omitempty"`
+	AgentSeenAt  time.Time `json:"agentSeenAt,omitzero"`
 	// AgentServiceID is the agent global service that serves this host.
 	AgentServiceID string `json:"agentServiceId,omitempty"`
 	// DenyListDigest is the deny list the host's agent last confirmed

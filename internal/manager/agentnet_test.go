@@ -20,6 +20,7 @@ import (
 	"github.com/MagicalWig34653/db-cluster-manager/internal/agent"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/certs"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/enroll"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/version"
 )
 
 // pkiFixture runs the enrollment endpoint of a single-node manager on
@@ -139,6 +140,12 @@ func TestAgentEnrollmentCommandsRenewalRevocation(t *testing.T) {
 	cmd := agent.Command{Term: 1, OpID: "o", StepID: "s1", Kind: agent.KindInspect}
 	if res, err := dir.Send(ctx, "n1", cmd); err != nil || res.Status != agent.StatusSucceeded {
 		t.Fatalf("command over mTLS: %+v %v", res, err)
+	}
+	if h, _, _ := Get[HostRecord](s.Store(), CollHosts, HostKey("sw1", "n1")); h.Value.AgentVersion != version.Version || h.Value.AgentSeenAt.IsZero() {
+		t.Fatalf("agent version and last seen not recorded: %+v", h.Value)
+	}
+	if th := toAPIHost(HostRecord{AgentVersion: "v", AgentSeenAt: time.Unix(5, 0)}); th.AgentVersion != "v" || th.AgentSeenAt.IsZero() {
+		t.Fatalf("toAPIHost drops agent fields: %+v", th)
 	}
 	if base, _ := dir.Resolve("n1"); base != "https://127.0.0.1:"+strconv.Itoa(port) {
 		t.Fatalf("resolved %q", base)

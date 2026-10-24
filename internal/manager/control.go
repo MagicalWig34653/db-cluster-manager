@@ -38,7 +38,8 @@ func (c *Control) swarms() *Swarms {
 func toAPIHost(h HostRecord) api.Host {
 	return api.Host{Swarm: h.Swarm, NodeID: h.NodeID, Hostname: h.Hostname, Role: h.Role, Availability: h.Availability,
 		State: h.State, EngineVersion: h.EngineVersion, Enrollment: string(h.Enrollment), Spare: h.Spare,
-		NanoCPUs: h.NanoCPUs, MemoryBytes: h.MemoryBytes, ObservedAt: h.ObservedAt, AgentIdentity: h.AgentSerial != ""}
+		NanoCPUs: h.NanoCPUs, MemoryBytes: h.MemoryBytes, ObservedAt: h.ObservedAt, AgentIdentity: h.AgentSerial != "",
+		AgentVersion: h.AgentVersion, AgentSeenAt: h.AgentSeenAt}
 }
 
 // Hosts implements api.Control (local read).

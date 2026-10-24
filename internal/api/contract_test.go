@@ -4,8 +4,10 @@ package api
 
 import (
 	"bufio"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -99,5 +101,39 @@ func TestOpenAPIParser(t *testing.T) {
 	got := openAPIOperations(t, p)
 	if !slices.Equal(got, []string{"GET /a", "POST /b/{id}"}) {
 		t.Fatalf("ops = %v", got)
+	}
+}
+
+// TestHostSchemaListsEveryField keeps the Host schema of api/openapi.yaml in
+// step with the JSON fields of api.Host.
+func TestHostSchemaListsEveryField(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "api", "openapi.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(string(raw), "\n")
+	start := slices.Index(lines, "    Host:")
+	if start < 0 {
+		t.Fatal("schema Host not found")
+	}
+	var body []string
+	for _, l := range lines[start+1:] {
+		if strings.HasPrefix(l, "    ") && !strings.HasPrefix(l, "     ") && strings.HasSuffix(l, ":") {
+			break
+		}
+		body = append(body, l)
+	}
+	spec := strings.Join(body, "\n")
+	rt := reflect.TypeOf(Host{})
+	for i := range rt.NumField() {
+		name, _, _ := strings.Cut(rt.Field(i).Tag.Get("json"), ",")
+		if name != "" && !strings.Contains(spec, "\n        "+name+":") {
+			t.Errorf("api.Host field %q is missing from the Host schema", name)
+		}
+	}
+	// The new fields serialize under their documented names.
+	b, _ := json.Marshal(Host{AgentVersion: "v1"})
+	if !strings.Contains(string(b), `"agentVersion":"v1"`) || strings.Contains(string(b), "agentSeenAt") {
+		t.Errorf("host JSON: %s", b)
 	}
 }

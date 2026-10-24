@@ -2050,6 +2050,8 @@ components:
         memoryBytes: { type: integer, format: int64 }
         observedAt: { type: string, format: date-time }
         agentIdentity: { type: boolean, description: An agent certificate is recorded (not a reachability claim) }
+        agentVersion: { type: string, description: Build version the agent reported in its last answer to the manager; absent until the manager has contacted the agent }
+        agentSeenAt: { type: string, format: date-time, description: When the manager last received an HTTP answer from the agent (best effort, at most about one write a minute) }
         maintenance:
           type: object
           description: Set while the host is in guided maintenance (replacement on it is paused)

@@ -4,6 +4,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strconv"
@@ -91,6 +92,7 @@ func (d *AgentDirectory) client(nodeID, base string) (*agent.Client, error) {
 	if err != nil {
 		return nil, err
 	}
+	c.OnResponse = func(v string) { d.noteSeen(nodeID, v) }
 	if d.clients == nil {
 		d.clients = map[string]*agent.Client{}
 	}
@@ -110,4 +112,40 @@ func (d *AgentDirectory) Send(ctx context.Context, target string, cmd agent.Comm
 		return agent.Result{}, fmt.Errorf("%w: %v", agent.ErrInvalidCommand, err)
 	}
 	return c.Handle(ctx, cmd)
+}
+
+// seenInterval bounds how often a host record is rewritten for "last seen".
+const seenInterval = time.Minute
+
+var errSkipSeen = errors.New("manager: host no longer enrolled")
+
+// noteSeen records that the agent of nodeID answered, with its version.
+// Best effort: a failed write is ignored (it is only a display value) and a
+// recent identical record is not rewritten.
+func (d *AgentDirectory) noteSeen(nodeID, version string) {
+	now := time.Now()
+	if d.PKI != nil {
+		now = d.PKI.now()
+	}
+	hosts, err := List[HostRecord](d.Store, CollHosts)
+	if err != nil {
+		return
+	}
+	for _, h := range hosts {
+		v := h.Value
+		if v.NodeID != nodeID || v.Enrollment != EnrollEnrolled {
+			continue
+		}
+		if v.AgentVersion == version && now.Sub(v.AgentSeenAt) < seenInterval {
+			return
+		}
+		_, _, _ = Update(d.Store, CollHosts, h.Key, func(cur HostRecord, exists bool) (HostRecord, error) {
+			if !exists || cur.Enrollment != EnrollEnrolled {
+				return cur, errSkipSeen
+			}
+			cur.AgentVersion, cur.AgentSeenAt = version, now
+			return cur, nil
+		})
+		return
+	}
 }
