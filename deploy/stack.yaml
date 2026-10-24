@@ -4,10 +4,11 @@
 # manager node (requirements P04, P07). NOT highly available.
 #
 # !!! HONEST STATUS !!!
-# Never run on a real Swarm or with a built image (static checks only:
-# scripts/check_deploy.py, and a Go test that loads deploy/manager.example.json
-# with the manager's config loader). The same configuration ran on lab VMs
-# only as a plain process (lab E4), not from this file.
+# Ran once on a three-VM lab Swarm (arm64, Docker 29.9.2) from an image built
+# with deploy/Dockerfile and a `manager init` configuration (lab E7,
+# tests/p0/results/e7-stack-deploy.md): deploy, UI, authentication, agents,
+# a Galera create, container kill, forced update and drain of the pinned node.
+# Never run on the user's Swarm; replicas above 1 are not supported.
 #
 # Prerequisites (docs/INSTALL.md, "Managed mode as a Swarm stack"):
 #   manager init -rp-id <ui host> -manager-addr <node IP> -out manager.json

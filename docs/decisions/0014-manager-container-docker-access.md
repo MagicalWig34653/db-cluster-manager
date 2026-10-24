@@ -1,7 +1,7 @@
 # ADR 0014: Docker API access and networking of the manager container
 
 Date: 2026-10-23
-Status: Proposed. Implemented in `deploy/stack.yaml`, `deploy/compose.yaml`, `deploy/Dockerfile` and `manager init` (`cmd/manager/init.go`). Verified only statically (`scripts/check_deploy.py`) and by Go tests that load the shipped example configuration with the manager's config loader and start the managed runtime from it on loopback. **Never run on a real Swarm or from a built image.** Reopen after the first Swarm trial.
+Status: Proposed. Implemented in `deploy/stack.yaml`, `deploy/compose.yaml`, `deploy/Dockerfile` and `manager init` (`cmd/manager/init.go`). Verified only statically (`scripts/check_deploy.py`) and by Go tests that load the shipped example configuration with the manager's config loader and start the managed runtime from it on loopback. Run on a lab Swarm from an image built with `deploy/Dockerfile` (E7, 2026-10-24, three arm64 VMs, Docker 29.9.2): see [results](../../tests/p0/results/e7-stack-deploy.md). Not run on the user's Swarm. Reopen after the first Swarm trial.
 
 ## Context
 
@@ -25,6 +25,7 @@ Managed mode needs the Docker API of a Swarm manager node: the Swarm connector r
 ## Consequences and limits
 
 - Anyone who controls the manager container controls the node. The read-only, capability-free, non-root process limits what a compromised manager *process* can do without the socket, nothing more.
-- The image now ships `/var/lib/dbcm` owned by 65532, assuming Docker copies that ownership to a new named volume (not verified).
-- Whether `docker stack deploy` honours every option used (`cap_drop`, `user` with an interpolated group, external `host` network, config `uid`/`gid`/`mode`) on the Docker version of the trial Swarm is untested.
+- The image ships `/var/lib/dbcm` owned by 65532; E7 verified that a new named volume is writable by it.
+- E7 verified that Docker 29.9.2 honours every option used (`cap_drop`, `user` with an interpolated group, external `host` network, config `uid`/`gid`/`mode`); other versions are untested.
+- Draining the pinned node takes the manager down until the node is active again (E7).
 - Only the metastore leader serves the API; with several replicas the reverse proxy has to find the leader (`X-DCM-Leader`), which no shipped component does.
