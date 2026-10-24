@@ -75,7 +75,8 @@ phase_build() {
 . "$REPO_ROOT/tests/p0/e8-phases.sh"
 
 E4_STEPS="vms swarm images prereqs backend manager setup swarmapi cluster verify"
-for p in build $E4_STEPS $E8_STEPS; do
+for p in build $E4_STEPS $E8_STEPS $E8_HELPERS; do
+	case " $E8_HELPERS " in *" $p "*) case " ${E8_PHASES:-all} " in *" $p "*) ;; *) continue ;; esac ;; esac
 	if step "$p"; then
 		case "$p" in vms | swarm) [ "${E4_REUSE_VMS:-0}" = 1 ] && continue ;; esac
 		# Informational commands may fail while VMs are down on purpose; a

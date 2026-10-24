@@ -16,6 +16,7 @@
 # writer and the measured gap is the proxy/VIP/client failover alone.
 
 E8_STEPS="e8prep e8vip e8baseline e8proxyloss e8vmloss e8integrity e8teardown e8node e8allloss e8staggered"
+E8_HELPERS="e8recover" # run only when named in E8_PHASES
 
 E8=/root/dbcm-e8 # inside every VM: binaries, configs, passwords (root 0700)
 PX=dbcm-e8-proxy
