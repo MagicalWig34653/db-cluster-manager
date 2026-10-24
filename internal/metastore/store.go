@@ -40,9 +40,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -274,6 +276,31 @@ func NewNode(cfg Config) (*Node, error) {
 	return n, nil
 }
 
+// checkBootstrapPeers refuses an initial membership that cannot elect this
+// node: lab E4 re-run B started three replicas whose node IDs were not in
+// their peer lists (a shell quoting error), and none of them ever led,
+// without any error.
+func checkBootstrapPeers(id string, peers []Peer) error {
+	if len(peers) == 0 {
+		return nil
+	}
+	seenID, seenAddr, self := map[string]bool{}, map[string]bool{}, false
+	for _, p := range peers {
+		if p.ID == "" || p.Address == "" {
+			return fmt.Errorf("metastore: bootstrap peer %+v needs an ID and an address", p)
+		}
+		if seenID[p.ID] || seenAddr[p.Address] {
+			return fmt.Errorf("metastore: bootstrap peers repeat ID %q or address %q", p.ID, p.Address)
+		}
+		seenID[p.ID], seenAddr[p.Address] = true, true
+		self = self || p.ID == id
+	}
+	if !self {
+		return fmt.Errorf("metastore: node ID %q is not in the bootstrap peers %v; it could never be elected", id, slices.Sorted(maps.Keys(seenID)))
+	}
+	return nil
+}
+
 func newNode(cfg Config, st storage) (*Node, error) {
 	rc := raft.DefaultConfig()
 	rc.LocalID = raft.ServerID(cfg.ID)
@@ -295,6 +322,9 @@ func newNode(cfg Config, st storage) (*Node, error) {
 			return nil, fmt.Errorf("metastore: inspect stored state: %w", err)
 		}
 		if !existing {
+			if err := checkBootstrapPeers(cfg.ID, cfg.Peers); err != nil {
+				return nil, err
+			}
 			var servers []raft.Server
 			for _, p := range cfg.Peers {
 				servers = append(servers, raft.Server{

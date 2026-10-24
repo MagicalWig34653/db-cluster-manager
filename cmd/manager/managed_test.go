@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -127,6 +128,36 @@ func TestManagerSectionValidation(t *testing.T) {
 	}
 	if _, err := loadConfig(writeConfig(t, map[string]any{"manager": map[string]any{"dataDirectory": "x"}})); err == nil {
 		t.Fatal("unknown manager field accepted")
+	}
+}
+
+// TestManagerPeersValidation: lab E4 re-run B configured node IDs such as
+// "manager-192.168.104.11" next to peers manager-1..3 (a shell quoting
+// error); the replicas started and none ever led. Such a config is refused.
+func TestManagerPeersValidation(t *testing.T) {
+	peers := []peerConfig{{ID: "manager-1", Address: "10.0.0.1:18490"}, {ID: "manager-2", Address: "10.0.0.2:18490"}}
+	ok := managerConfig{DataDir: "/d", Bind: "10.0.0.1:18490", NodeID: "manager-1", Peers: peers}
+	if err := ok.validate(); err != nil {
+		t.Fatal(err)
+	}
+	for name, mut := range map[string]func(m *managerConfig){
+		"node not a peer":  func(m *managerConfig) { m.NodeID = "manager-10.0.0.11" },
+		"default not peer": func(m *managerConfig) { m.NodeID = ""; m.Peers = peers[1:]; m.Bind = "10.0.0.2:18490" },
+		"own address":      func(m *managerConfig) { m.Advertise = "10.0.0.9:18490" },
+		"duplicate id": func(m *managerConfig) {
+			m.Peers = append(slices.Clone(peers), peerConfig{ID: "manager-2", Address: "10.0.0.3:1"})
+		},
+		"duplicate address": func(m *managerConfig) {
+			m.Peers = append(slices.Clone(peers), peerConfig{ID: "manager-3", Address: "10.0.0.2:18490"})
+		},
+		"empty address": func(m *managerConfig) { m.Peers = append(slices.Clone(peers), peerConfig{ID: "manager-3"}) },
+	} {
+		m := ok
+		m.Peers = slices.Clone(peers)
+		mut(&m)
+		if err := m.validate(); err == nil {
+			t.Errorf("%s: accepted %+v", name, m)
+		}
 	}
 }
 

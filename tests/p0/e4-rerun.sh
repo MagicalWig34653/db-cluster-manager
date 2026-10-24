@@ -63,6 +63,9 @@ finishr() {
 		say "failed assertions in:$ASSERT_FAILS"
 		[ "$rc" != 0 ] || rc=1
 	fi
+	if [ "${HA_STARTED:-0}" = 1 ] && { [ "$rc" != 0 ] || [ -n "$ASSERT_FAILS" ]; }; then
+		ha_logs "exit $rc, failed assertions:${ASSERT_FAILS:- none}" || true
+	fi
 	if [ "${R_KEEP_VMS:-0}" = 1 ]; then
 		say "R_KEEP_VMS=1: VMs kept; run bin/lab cleanup -apply manually"
 	else
@@ -520,18 +523,34 @@ phase_hareset() {
 }
 
 phase_hamanager() {
-	section "Phase hamanager: three manager replicas (m1..m3), shared data key, metastore over user-v2"
+	section "Phase hamanager: three manager replicas (m1..m3), replicated keyring, peer mTLS, metastore over user-v2"
 	hostload
+	HA_STARTED=1
 	local a1 a2 a3 pub vm i a peers
 	a1=$(uv2_ip dbcm-lab-m1) a2=$(uv2_ip dbcm-lab-m2) a3=$(uv2_ip dbcm-lab-m3)
 	say "replica addresses: $a1 $a2 $a3"
 	peers="[{\"id\":\"manager-1\",\"address\":\"$a1:$META_PORT\"},{\"id\":\"manager-2\",\"address\":\"$a2:$META_PORT\"},{\"id\":\"manager-3\",\"address\":\"$a3:$META_PORT\"}]"
 	pub=$(vm_sh "$M1" "sudo cat $STATE/recipient.pub")
-	rec "data key on m1 (32 random bytes, root 0600)" vm_root "$M1" 'install -d -m 0700 /etc/dbcm-e4; head -c 32 /dev/urandom >/etc/dbcm-e4/data.key; chmod 0600 /etc/dbcm-e4/data.key; wc -c </etc/dbcm-e4/data.key'
+	# The documented three-replica variant (docs/INSTALL.md): keyring (the
+	# first leader creates the data key; the others are registered as
+	# recipients in hasetup) and metastore peer mTLS with certificates from
+	# manager -issue-peer-certs. The CA passphrase is random and discarded;
+	# ca.sealed stays on m1 and is deleted with the VM.
+	rec "no shared data key file (keyring mode)" vm_root "$M1" 'rm -f /etc/dbcm-e4/data.key; ls /etc/dbcm-e4 2>/dev/null || true'
+	rec "peer certificates for manager-1..3 on m1" vm_root "$M1" '
+		set -e
+		rm -rf "$1/peers"
+		DBCM_PEER_CA_PASSPHRASE=$(head -c 24 /dev/urandom | base64) /usr/local/bin/dbcm-e4-manager -issue-peer-certs "$1/peers" -installation "$2" -peer-ids manager-1,manager-2,manager-3
+		install -d -m 0700 /etc/dbcm-e4/peer
+		cp "$1/peers/manager-1/ca.pem" "$1/peers/manager-1/peer.pem" "$1/peers/manager-1/peer-key.pem" /etc/dbcm-e4/peer/
+		ls -l /etc/dbcm-e4/peer | cut -c1-10,40-' "$STATE" "$INST"
+	i=1
 	for vm in dbcm-lab-m2 dbcm-lab-m3; do
+		i=$((i + 1))
 		rec "copy binaries to $vm" sh -c "limactl copy '$BIN/manager' '$BIN/e4client' $vm:/tmp/ && limactl shell --workdir / $vm -- sudo sh -c 'install -m 0755 /tmp/manager /usr/local/bin/dbcm-e4-manager && install -m 0755 /tmp/e4client /usr/local/bin/dbcm-e4-client && rm -f /tmp/manager /tmp/e4client'"
-		rec "copy data key and backend config to $vm (host pipe, not stored on the host)" sh -c \
-			"limactl shell --workdir / $M1 -- sudo tar -C / -cf - etc/dbcm-e4/data.key root/dbcm-e4/backend.json | limactl shell --workdir / $vm -- sudo sh -c 'install -d -m 0700 /etc/dbcm-e4 /root/dbcm-e4 && tar -C / -xf - && ls -l /etc/dbcm-e4/data.key /root/dbcm-e4/backend.json | cut -c1-10,40-'"
+		rec "copy peer certificate of manager-$i and backend config to $vm (host pipe, not stored on the host)" sh -c \
+			"limactl shell --workdir / $M1 -- sudo tar -C ${STATE}/peers/manager-$i -cf - ca.pem peer.pem peer-key.pem | limactl shell --workdir / $vm -- sudo sh -c 'rm -f /etc/dbcm-e4/data.key; install -d -m 0700 /etc/dbcm-e4/peer && tar -C /etc/dbcm-e4/peer -xf - && ls -l /etc/dbcm-e4/peer | cut -c1-10,40-' &&
+			limactl shell --workdir / $M1 -- sudo tar -C / -cf - ${STATE#/}/backend.json | limactl shell --workdir / $vm -- sudo sh -c 'install -d -m 0700 $STATE && tar -C / -xf - && ls -l $STATE/backend.json | cut -c1-10,40-'"
 	done
 	i=0
 	for vm in $VMS; do
@@ -544,7 +563,8 @@ phase_hamanager() {
 {
   "auth": {"enabled": true, "rpId": "localhost", "rpDisplayName": "E4 lab", "origins": ["http://localhost:$2"]},
   "manager": {
-    "nodeId": "manager-$11", "dataDir": "/var/lib/dbcm-e4", "keyFile": "/etc/dbcm-e4/data.key",
+    "nodeId": "manager-${11}", "dataDir": "/var/lib/dbcm-e4", "keyring": true,
+    "peerTLS": {"installation": "$8", "caFile": "/etc/dbcm-e4/peer/ca.pem", "certFile": "/etc/dbcm-e4/peer/peer.pem", "keyFile": "/etc/dbcm-e4/peer/peer-key.pem"},
     "bind": "$1:$3", "advertise": "$1:$3", "peers": ${12}, "bootstrap": true, "autoResume": true,
     "agentTransport": {
       "enrollListen": "$1:$4", "managerUrl": "https://$1:$4", "agentPort": 7443,
@@ -562,12 +582,34 @@ phase_hamanager() {
 EOF' "$a" "$API_PORT" "$META_PORT" "$ENROLL_PORT" "$MON_SECRET" "$ROOT_SECRET" "$BAK_SECRET" "$INST" "$STATE" "$pub" "$i" "$peers"
 	done
 	for vm in $VMS; do rec "start replica on $vm" mgr_restart "$vm"; done
+	# On a timeout the exit trap captures the replica logs (ha_logs).
 	wait_until 120 "a replica leads" find_leader
 	say "leader VM: $APIVM"
+	rec "keyring bootstrap and leadership in the leader log" vm_args "$APIVM" 'sudo journalctl -u "$1" --no-pager | grep -E "leadership|keyring|data key" | grep -v "setup token" | tail -10' "$UNIT" || true
 	for vm in $VMS; do
 		rec "replica on $vm: setup/status code and leader header" vm_sh "$vm" "curl -s -D - -o /dev/null http://127.0.0.1:$API_PORT/api/v1/setup/status | grep -i -E '^HTTP|x-dcm-leader' | tr -d '\r'"
 	done
 	rec "metastore listeners" sh -c "for v in $VMS; do limactl shell --workdir / \$v -- sudo ss -ltnp | grep -E ':$META_PORT|:$API_PORT|:$ENROLL_PORT' | sed \"s/^/\$v /\"; done"
+}
+# ha_logs WHY — capture every replica's manager log (journal of the unit)
+# and its state before the exit trap deletes the VMs (re-run B lost them).
+# Written to tests/p0/results/<log name>-replicas.log; setup tokens are
+# redacted.
+HA_STARTED=0
+ha_logs() {
+	local vm out
+	out="${LOG%.log}-replicas.log"
+	{
+		printf '# Manager replica logs (%s), %s\n\n' "$1" "$(date -u +%FT%TZ)"
+		for vm in $VMS; do
+			printf '## %s\n\n```\n' "$vm"
+			limactl shell --workdir / "$vm" -- sudo sh -c 'systemctl status "$1" --no-pager 2>&1 | head -5; ls -la /var/lib/dbcm-e4 /etc/dbcm-e4 /etc/dbcm-e4/peer 2>&1; journalctl -u "$1" --no-pager -n 300 2>&1' sh "$UNIT" 2>&1 |
+				sed -E 's/(setup token[^:]*: )[^ ]*/\1<redacted>/' || true
+			printf '```\n\n'
+		done
+	} >>"$out"
+	sanitize_log "$out"
+	say "replica logs ($1) written to ${out#"$REPO_ROOT"/}"
 }
 find_leader() {
 	local vm
@@ -592,6 +634,23 @@ phase_hasetup() {
 	rec "setup on the leader $APIVM" vm_args "$APIVM" 'sudo /usr/local/bin/dbcm-e4-client -state "$1/client.json" -base "http://127.0.0.1:$2" -origin "http://localhost:$2" setup -token-file "$1/setup.token" -account admin' "$STATE" "$API_PORT"
 	sync_client
 	rec "session on the leader" api GET /api/v1/auth/session
+	# Keyring: register the other replicas as data-key recipients (each
+	# prints its public identity), so that any of them can lead later.
+	local vm i key
+	i=0
+	for vm in $VMS; do
+		i=$((i + 1))
+		[ "$vm" = "$APIVM" ] && continue
+		key=$(vm_sh "$vm" "sudo /usr/local/bin/dbcm-e4-manager -print-replica-key -config /etc/dbcm-e4/manager.json" | awk '{print $5}')
+		say "replica on $vm: public key ${key:0:20}..."
+		local id=manager-$i
+		rec "register $id ($vm) as a data-key recipient" api PUT "/api/v1/settings/replicas/$id/data-key-recipient" "{\"publicKey\":\"$key\"}" ||
+			assert_fail hasetup "registration of $id refused"
+	done
+	rec "keyring status (every replica holds the current key)" jq_api /api/v1/settings/replicas '{currentKey, recoverable, replicas: [.replicas[] | {id, leader, hasCurrentKey}]}' || true
+	if [ "$(apij GET /api/v1/settings/replicas | jq '[.replicas[] | select(.hasCurrentKey)] | length')" != 3 ]; then
+		assert_fail hasetup "not every replica holds the current data key"
+	fi
 }
 
 phase_haswarm() {

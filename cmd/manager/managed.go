@@ -244,6 +244,45 @@ func (m *managerConfig) validate() error {
 			return err
 		}
 	}
+	return m.validatePeers()
+}
+
+// validatePeers checks the replicated mode: this node is one of the peers
+// (lab E4 re-run B: a quoting error gave every replica a node ID outside the
+// peer list, and no replica ever led), IDs and addresses are unique, and the
+// node's own entry is the address it advertises.
+func (m *managerConfig) validatePeers() error {
+	if len(m.Peers) == 0 {
+		return nil
+	}
+	nodeID := m.NodeID
+	if nodeID == "" {
+		nodeID = "manager-1"
+	}
+	ids, addrs := map[string]bool{}, map[string]bool{}
+	var self *peerConfig
+	for i, p := range m.Peers {
+		if p.ID == "" || p.Address == "" {
+			return fmt.Errorf("manager.peers[%d] needs an id and an address", i)
+		}
+		if ids[p.ID] || addrs[p.Address] {
+			return fmt.Errorf("manager.peers repeat id %q or address %q", p.ID, p.Address)
+		}
+		ids[p.ID], addrs[p.Address] = true, true
+		if p.ID == nodeID {
+			self = &m.Peers[i]
+		}
+	}
+	if self == nil {
+		return fmt.Errorf("manager.nodeId %q is not in manager.peers", nodeID)
+	}
+	adv := m.Advertise
+	if adv == "" {
+		adv = m.Bind
+	}
+	if self.Address != adv {
+		return fmt.Errorf("manager.peers entry of %q has address %q, but this replica advertises %q", nodeID, self.Address, adv)
+	}
 	return nil
 }
 
