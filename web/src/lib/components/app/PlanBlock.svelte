@@ -26,6 +26,17 @@
  {#if plan.rollback}<details class="rounded border p-3"><summary class="cursor-pointer font-medium">{t('svcRollbackPlan')}</summary><PlanBlock plan={plan.rollback} /></details>{/if}
 	<p class="text-muted-foreground">{t('svcPlanIntro')}</p>
 	{#if plan.text}<p class="whitespace-pre-line">{plan.text}</p>{/if}
+ {#if plan.steps.some(s => s.config)}
+ <section class="space-y-2 rounded border p-3">
+  <h4 class="font-medium">{t('svcConfigs')}</h4><p class="text-muted-foreground">{t('svcConfigsHint')}</p>
+  {#each plan.steps.filter(s => s.config) as step (step.id)}
+   <div class="break-all text-xs"><p class="font-mono">{step.kind} · {step.config}</p>
+    {#if step.artifact}<p>{t('svcConfigArtifact')}: {step.artifact}</p>{/if}
+    {#if step.after?.length}<p>{t('svcConfigAfter')}: {step.after.join(', ')}</p>{/if}
+   </div>
+  {/each}
+ </section>
+ {/if}
 	<div>
 		<h4 class="mb-1 font-medium">{t('svcPlanSteps')}</h4>
 		<ol class="list-decimal space-y-1 pl-5">

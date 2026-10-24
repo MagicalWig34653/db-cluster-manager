@@ -132,3 +132,15 @@ Die Seite **Dienste** listet verwaltete Dienste und hat ein Formular für beide 
 *Bildschirmfoto aus dem Entwicklungs-Mock-Server (`npm run dev:mock`, erfundene Beispieldaten), nicht von einem echten Manager.*
 
 Die erweiterten Dienstansichten wurden nicht gegen einen echten Manager oder Swarm ausgeführt. Die älteren Aufnahmen zeigen ausschließlich Mock-Daten.
+
+### Auslieferung eigener Swarm-Configs
+
+Erstellungsvorschauen für SFTP (ohne externe Benutzer-Config), FTP und Traefik
+mit dynamischen Routen zeigen generierte Artefakte ohne Geheimwerte als eigene
+Swarm-Configs. Der Config-Abschnitt nennt Namen, Quellartefakte und
+Schrittabhängigkeiten. Die Expertenansicht zeigt `create-config` vor
+`create-service`; Löschpläne zeigen `remove-config` nach der Service-Entfernung.
+Vorläufige Vorschau-Namen können sich beim Absenden ändern. Bestehende externe
+Config-Referenzen werden nicht als eigene Artefakte erstellt oder entfernt.
+JSON/YAML-Planexporte erhalten diese Felder. Die Schritte im Entwicklungs-Mock
+sind Beispiele und kein Nachweis für eine Docker-Ausführung.

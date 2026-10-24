@@ -1,18 +1,16 @@
 // Invented plans for the development mock server; no Docker calls or real execution.
-import type { ServiceInput, ServicePlan, ServiceUpdateInput } from './api';
+import type { PlanStep, ServiceArtifact, ServiceInput, ServicePlan, ServiceUpdateInput } from './api';
 export function mockServicePlan(kind: 'create' | 'delete', input: ServiceInput, removeVolumes = false): ServicePlan {
  const spec = input.spec;
  const storage = ['sftp', 'ftp', 's3', 'nfs'].includes(input.type);
  const blockers: string[] = [];
  const warnings: string[] = [];
  if (kind === 'create') {
-  if (input.type === 'traefik' && Array.isArray(spec.routers) && spec.routers.length) blockers.push('Mock: dynamic configuration cannot be delivered as a Swarm config yet.');
   if (input.type === 'nfs') blockers.push('Mock: kernel nfsd and CAP_SYS_ADMIN are unavailable through the Swarm agent contract.');
   if (storage) {
    if (spec.requireDigest && !String(spec.image).includes('@sha256:')) blockers.push('Mock: requireDigest needs an image digest.');
    else if (!String(spec.image).includes('@sha256:')) warnings.push('Mock: image is pinned by tag only.');
    warnings.push('Mock: local service data has no backup.');
-   if (input.type === 'sftp' && !spec.usersConfig) warnings.push('Mock: users file must be supplied as an existing Swarm config.');
    if (input.type === 'sftp' && !spec.hostKeySecret) warnings.push('Mock: without a host key secret the SSH identity may change on restart.');
    if (input.type === 'ftp' && spec.mode === 'ftp') warnings.push('Mock: FTP sends credentials without encryption.');
    if (input.type === 's3') warnings.push('Mock: single drive, no replication or erasure coding; published endpoints have no TLS.');
@@ -20,16 +18,22 @@ export function mockServicePlan(kind: 'create' | 'delete', input: ServiceInput, 
    if (input.type === 'nfs' && JSON.stringify(spec.exports).includes('no_root_squash')) warnings.push('Mock: no_root_squash grants remote root privileges.');
   }
  } else if (removeVolumes) warnings.push('Mock: data volumes will be deleted irreversibly.');
- const steps = kind === 'delete' ? [{ id: 'remove-service', kind: 'remove-service' }, ...(removeVolumes ? [{ id: 'remove-volumes', kind: 'remove-volume' }] : [])] : [
+ const configArtifacts: ServiceArtifact[] = [];
+ if (input.type === 'sftp' && !spec.usersConfig) configArtifacts.push({ name: 'sftp-users.json', mediaType: 'application/json', content: JSON.stringify(spec.users ?? [], null, 2) });
+ if (input.type === 'ftp') configArtifacts.push({ name: 'ftp-users.json', mediaType: 'application/json', content: JSON.stringify(spec.users ?? [], null, 2) });
+ if (input.type === 'traefik' && Array.isArray(spec.routers) && spec.routers.length) configArtifacts.push({ name: 'traefik-dynamic.yml', mediaType: 'application/yaml', content: '# Mock illustrative dynamic configuration\n' + JSON.stringify({ routers: spec.routers }, null, 2) });
+ const configs: PlanStep[] = configArtifacts.map(a => ({ id: (kind === 'delete' ? 'remove-config-' : 'create-config-') + a.name, kind: kind === 'delete' ? 'remove-config' : 'create-config', config: 'mock-' + input.name + '-' + a.name + '-config', artifact: a.name, ...(kind === 'delete' ? { after: ['remove-service'] } : {}) }));
+ const steps: PlanStep[] = kind === 'delete' ? [{ id: 'remove-service', kind: 'remove-service' }, ...configs, ...(removeVolumes ? [{ id: 'remove-volumes', kind: 'remove-volume' }] : [])] : [
   ...(storage ? [{ id: 'create-volume', kind: 'create-volume', note: 'Mock: identity-guarded local volume' }] : []),
-  { id: 'create-service', kind: input.type === 'galera' ? 'create-cluster' : 'create-service', note: 'Mock: ' + input.name, conditions: ['owned resources only'] }
+  ...configs,
+  { id: 'create-service', after: configs.map(c => c.id), kind: input.type === 'galera' ? 'create-cluster' : 'create-service', note: 'Mock: ' + input.name, conditions: ['owned resources only'] }
  ];
  const executable = blockers.length === 0;
  return {
   kind, name: input.name, type: input.type, steps, warnings, blockers, executable,
   requiresApproval: !(kind === 'create' && input.type === 'galera'),
-  artifacts: kind === 'delete' ? [] : [{ name: 'mock-desired-spec.json', mediaType: 'application/json', content: JSON.stringify(spec, null, 2) }],
-  agentSteps: executable ? steps.map(s => ({ id: s.id, command: s.kind, target: String((spec.placement as { hostId?: string })?.hostId ?? 'mock-host-1'), args: { mock: true, spec }, preconditions: ['mock ownership gate'] })) : [],
+  artifacts: kind === 'delete' ? [] : [{ name: 'mock-desired-spec.json', mediaType: 'application/json', content: JSON.stringify(spec, null, 2) }, ...configArtifacts],
+  agentSteps: executable ? steps.map(s => ({ id: s.id, command: s.kind, target: String((spec.placement as { hostId?: string })?.hostId ?? 'mock-host-1'), args: s.config ? { mock: true, name: s.config, artifact: s.artifact } : { mock: true, spec }, preconditions: ['mock ownership gate'] })) : [],
   provisionalIds: true,
   text: kind === 'delete' ? 'Mock removal plan; data is kept unless explicitly selected.' : 'Mock creation plan — illustrative steps only; the real manager supplies the exact operation.'
  };

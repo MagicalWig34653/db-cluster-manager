@@ -132,3 +132,14 @@ The **Services** page lists managed services and has one form for both types. Th
 *Screenshot from the development mock server (`npm run dev:mock`, invented sample data), not from a real manager.*
 
 The extended service UI has not run against a real manager or Swarm. The older screenshots below/above show mock data only.
+
+### Owned Swarm config delivery
+
+Creation previews for SFTP (without an external users config), FTP and Traefik
+with dynamic routes show generated non-secret artifacts as owned Swarm configs.
+The config section lists names, source artifacts and step dependencies. Expand
+the expert view to inspect `create-config` steps before `create-service`;
+removal plans show `remove-config` after service removal. Provisional preview
+names may change when submitted. Existing external config references are not
+created or removed as owned artifacts. JSON/YAML plan downloads preserve these
+fields. Development mock steps are illustrative, not Docker execution evidence.
