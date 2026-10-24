@@ -92,6 +92,8 @@ const (
 	// global resource that no preset except the administrator holds, so it
 	// is denied by default.
 	ResourceVuln ResourceType = "vuln"
+	// ResourceKubernetes protects experimental cluster registrations globally.
+	ResourceKubernetes ResourceType = "kubernetes_cluster"
 	// ResourceAny is a wildcard usable in permissions only, never in a check.
 	ResourceAny ResourceType = "*"
 )
@@ -101,7 +103,7 @@ var knownResourceTypes = map[ResourceType]bool{
 	ResourceDatabase: true, ResourceDatabaseUser: true, ResourceBackup: true,
 	ResourceSettings: true, ResourceDashboard: true, ResourceUserAccount: true,
 	ResourceRole: true, ResourceAuditLog: true, ResourceService: true,
-	ResourceImageBuild: true, ResourceRegistry: true, ResourceVuln: true,
+	ResourceImageBuild: true, ResourceRegistry: true, ResourceVuln: true, ResourceKubernetes: true,
 }
 
 // Valid reports whether t is a concrete, known resource type.

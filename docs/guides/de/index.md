@@ -37,3 +37,5 @@ Haben Teile einer Funktion verschiedene Stufen, sind sie einzeln gekennzeichnet.
 15. [Reaktion auf Schwachstellen](15-vulnerability-response.md)
 
 Lesereihenfolge für einen ersten Test: 1, 2, 3, danach 10, bevor Sie irgendetwas vertrauen.
+
+- [16 — Kubernetes-Grundlage (nur Fakes)](16-kubernetes.md)

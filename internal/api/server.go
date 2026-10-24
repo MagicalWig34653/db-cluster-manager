@@ -72,6 +72,9 @@ type Config struct {
 	// Vuln backs the vulnerability response endpoints (X13, proposal,
 	// fakes only); nil answers 503.
 	Vuln Vuln
+	// ExperimentalKubernetes gates metadata-only W10 registration.
+	ExperimentalKubernetes bool
+	Kubernetes             KubernetesRegistrations
 	// RecoveryCodeIterations is passed to recovery.GenerateCodes; 0 selects
 	// the default.
 	RecoveryCodeIterations int
@@ -178,7 +181,7 @@ type server struct {
 // endpoints is the route table. It is safe to call on a nil server: method
 // values are only bound, not invoked.
 func (s *server) endpoints() []endpoint {
-	return append(s.coreEndpoints(), s.vulnEndpoints()...)
+	return append(append(s.coreEndpoints(), s.vulnEndpoints()...), s.kubernetesEndpoints()...)
 }
 
 func (s *server) coreEndpoints() []endpoint {

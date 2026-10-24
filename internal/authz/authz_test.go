@@ -512,3 +512,21 @@ func TestVulnResourceDeniedByDefault(t *testing.T) {
 		t.Fatal("administrator must hold vuln")
 	}
 }
+
+func TestKubernetesResourceDeniedByDefault(t *testing.T) {
+	p := NewPolicy()
+	resource := Resource{Type: ResourceKubernetes, Scope: Global}
+	for _, role := range []string{RoleViewer, RoleOperator, RoleDatabaseAdmin} {
+		s := Subject{ID: "u-" + role, Kind: SubjectUser}
+		mustBind(t, p, s, role, Global)
+		for _, a := range []Action{ActionRead, ActionCreate, ActionUpdate, ActionDelete} {
+			if p.Check(s, a, resource).Allowed {
+				t.Errorf("%s may %s resource", role, a)
+			}
+		}
+	}
+	mustBind(t, p, admin, RoleAdministrator, Global)
+	if !p.Check(admin, ActionUpdate, resource).Allowed {
+		t.Fatal("administrator must hold Kubernetes resource")
+	}
+}

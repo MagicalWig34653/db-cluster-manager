@@ -104,6 +104,8 @@ Exit gates:
 
 ### R9 — Kubernetes back end and cluster provisioning
 
+W10 has opt-in rendering and registration groundwork, fakes only ([ADR 0016](decisions/0016-kubernetes-groundwork.md)); no R9 exit gate is met and timing remains an owner decision.
+
 Kubernetes orchestrator back end for service types (starting with stateless types; Galera on Kubernetes needs its own storage-identity and recovery design). Cluster provisioning: bootstrap Swarm and a chosen Kubernetes distribution on registered hosts over SSH and/or the agent, join/remove nodes, show all commands.
 
 Exit gates:

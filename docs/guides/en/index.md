@@ -37,3 +37,5 @@ Where one feature has parts at different levels, each part is labelled separatel
 15. [Vulnerability response](15-vulnerability-response.md)
 
 Reading order for a first test: 1, 2, 3, then 10 before trusting anything.
+
+- [16 — Kubernetes groundwork (fakes only)](16-kubernetes.md)
