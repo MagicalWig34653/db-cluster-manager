@@ -14,10 +14,10 @@ Prüfstufe: Parsen und Validierung sind unit-getestet [Fakes]. Die Abschnitte `a
 
 | Option | Standard | Bedeutung |
 | --- | --- | --- |
-| `-listen addr` | `127.0.0.1:8080` | Adresse von UI und API. Kein TLS: einen TLS-Reverse-Proxy davorsetzen. |
+| `-listen addr` | `127.0.0.1:8080` | Adresse von UI und API; eigenes HTTPS mit `manager.tls`, sonst Loopback-HTTP hinter einem TLS-Proxy. |
 | `-config file` | `$DCM_CONFIG` | JSON-Konfiguration. Ohne sie läuft der Manager im Prototyp-Modus. |
 | `-version` | | Version ausgeben und beenden. |
-| `-healthcheck` | | `http://127.0.0.1:<Port von -listen>/api/v1/health` abfragen, bei Gesundheit Exit 0 (Container-`HEALTHCHECK`). |
+| `-healthcheck` | | Loopback-Health-Endpunkt am Port von `-listen` abfragen; HTTPS mit TLS-Konfiguration, sonst HTTP; bei Gesundheit Exit 0. |
 | `-print-replica-key` | | Öffentliche Datenschlüssel-Identität dieses Replikats ausgeben (Datei `replica.key` in `manager.dataDir`, wird bei Bedarf angelegt) und beenden. Braucht `-config` mit `manager.dataDir`. |
 | `-issue-peer-certs dir` | | Metastore-Peer-CA und je ein Zertifikat pro Replikat in `dir` anlegen, dann beenden. Die CA-Passphrase kommt aus der Umgebungsvariable `DBCM_PEER_CA_PASSPHRASE` (mindestens 12 Zeichen). Überschreibt keine vorhandene CA. |
 | `-installation id` | | Installations-ID für `-issue-peer-certs` (dort Pflicht). |
@@ -259,3 +259,20 @@ Für Replikat `manager-2` von dreien, nach `manager -issue-peer-certs ./peers -i
 ```
 
 Das Registrierungsverfahren für den Schlüsselring steht im [Betriebshandbuch](11-operator-runbook.md#5-replikate-schlüsselring-und-peer-zertifikate). Jedes Replikat braucht außerdem einen lokalen Docker-Socket eines Swarm-Managers (siehe [Bekannte Grenzen](10-known-limits.md)).
+
+### `manager.tls` und `manager.tls.acme`
+
+Für API und Oberfläche implementiert [Fakes], unabhängig von `peerTLS` und `agentTransport`. Einrichtung und HA-Voraussetzungen: [Manager-HTTPS und ACME](17-manager-tls.md). HTTP ist standardmäßig auf numerisches Loopback beschränkt; exponiertes HTTP braucht eine ausdrückliche Freigabe. Auch der Prototyp-Standard im Container bindet jetzt Loopback.
+
+| Feld | Standard | Bedeutung |
+| --- | --- | --- |
+| `tls.certFile`, `tls.keyFile` | fehlt | Importierte PEM-Zertifikatskette und privater Schlüssel; beide gemeinsam nötig, beim Start geladen. Schließt ACME aus. |
+| `tls.allowPlainHttp` | `false` | Explizite Freigabe für exponiertes HTTP, für geschützte Listener hinter Ihrem TLS-Proxy. Schließt Zertifikatseinstellungen aus. |
+| `tls.acme` | fehlt | Automatisches HTTPS aktivieren und CA-Bedingungen akzeptieren; braucht verwalteten Modus. |
+| `tls.acme.directoryUrl` | `https://acme-staging-v02.api.letsencrypt.org/directory` | HTTPS-RFC-8555-Verzeichnis. Ausdrücklich angeben; Produktion braucht eine explizite Produktions-URL. |
+| `tls.acme.email` | Pflicht | Reine Kontakt-E-Mail-Adresse des Kontos. |
+| `tls.acme.domains` | Pflicht | Nicht leere Liste eindeutiger kleingeschriebener ASCII-/Punycode-DNS-Namen, ohne IPs oder Wildcards. Auf allen Replikaten identisch. |
+| `tls.acme.challenge` | `tls-alpn-01` | `tls-alpn-01` (öffentlicher Port 443 zum TLS-Listener) oder `http-01` (öffentlicher Port 80 zum Challenge-Listener). |
+| `tls.acme.httpListen` | `:80` | Separater HTTP-Listener nur für HTTP-01. Beim ausgelieferten Container hohen Port und externe Weiterleitung nutzen. |
+
+API und Oberfläche nutzen weiter `-listen`; ACME ändert dessen Standardport 8080 nicht. Nur der Leader erneuert (nach Wahl und stündlich, ab 30 Tagen Restlaufzeit; fünf Minuten nach Fehlern). Zertifikate, Kontoschlüssel und Challenges liegen verschlüsselt im replizierten Metastore. Alle Replikate brauchen Zugriff auf die Datenschlüssel. `-healthcheck` liest dieselbe Konfiguration und nutzt geprüftes HTTPS mit der ersten ACME-Domain als SNI; statisches TLS nutzt `auth.rpId` als SNI, sonst die Loopback-Adresse. Staging/private CAs brauchen eine installierte Vertrauenswurzel (`SSL_CERT_FILE` wird von Go unterstützt); die Prüfung lässt sich nicht umgehen.

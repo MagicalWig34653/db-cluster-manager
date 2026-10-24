@@ -143,3 +143,17 @@ Objects the manager created stay in the Swarm: the agent service `dbcm-agent-<in
 - Go builds use `-trimpath`, CGO disabled, `-ldflags "-s -w -X ...Version -X ...Commit"`. Node dependencies come from `npm ci` and the lockfile.
 - Bit-for-bit reproducibility has not been verified.
 - Release workflow actions are pinned to commit SHAs. No secrets other than `GITHUB_TOKEN`; image signing/attestation and a formal SBOM format (SPDX/CycloneDX) are not done, only `go version -m` listings.
+
+## Native manager HTTPS (fakes only)
+
+An external TLS proxy is optional when `manager.tls.acme` or an imported
+`manager.tls.certFile`/`keyFile` pair terminates HTTPS in the manager. See the
+[English ACME guide](guides/en/17-manager-tls.md),
+[German guide](guides/de/17-manager-tls.md) and
+[configuration reference](guides/en/12-configuration-reference.md#managertls-and-managertlsacme).
+The default ACME CA is staging and is not publicly trusted. Plain HTTP outside
+numeric loopback now requires explicit `manager.tls.allowPlainHttp`; the image
+prototype default binds loopback. The shipped stack/compose remain on loopback
+HTTP; native TLS requires configuring listener ports, external forwarding,
+trust roots and startup grace period. No real deployment of this new mode was
+performed.

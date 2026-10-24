@@ -31,6 +31,6 @@ Database passwords live in Swarm secrets, never in the API or tracked files. Not
 
 - The metastore transport between manager replicas is plain TCP unless `manager.peerTLS` is configured (TLS 1.3, mutual, peer CA from `manager -issue-peer-certs`) [Fakes]. Peer certificates are not renewed by the product, and the peer CA is kept offline by you.
 - Backup manifests of format 1 contain plaintext chunk digests; format 2 uses keyed HMACs [Fakes]. Old backups keep the weaker format.
-- The UI/API has no TLS of its own; use a TLS reverse proxy.
+- The UI/API supports native ACME or imported TLS certificates [Fakes]; see [Manager HTTPS](17-manager-tls.md). Plain HTTP beyond numeric loopback requires explicit `manager.tls.allowPlainHttp` for an operator-managed proxy.
 - Lima forwards guest listeners to host loopback: in the lab, the unauthenticated metastore harness and agent ports were reachable on the host. Lab-only, but do not run lab harnesses on shared machines.
 - Client-facing database TLS exists only in the proxy; node-to-node and proxy-to-node TLS do not exist. The manager configures no TLS between Galera nodes; encrypting the operator-provided overlay network (`--opt encrypted`) is your decision and was not tested.
