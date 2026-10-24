@@ -494,3 +494,21 @@ func TestConcurrentChecks(t *testing.T) {
 		}
 	}
 }
+
+func TestVulnResourceDeniedByDefault(t *testing.T) {
+	p := NewPolicy()
+	vuln := Resource{Type: ResourceVuln, Scope: Global}
+	for _, role := range []string{RoleViewer, RoleOperator, RoleDatabaseAdmin} {
+		s := Subject{ID: "u-" + role, Kind: SubjectUser}
+		mustBind(t, p, s, role, Global)
+		for _, a := range []Action{ActionRead, ActionOperate, ActionUpdate} {
+			if p.Check(s, a, vuln).Allowed {
+				t.Errorf("%s may %s vuln", role, a)
+			}
+		}
+	}
+	mustBind(t, p, admin, RoleAdministrator, Global)
+	if !p.Check(admin, ActionUpdate, vuln).Allowed {
+		t.Fatal("administrator must hold vuln")
+	}
+}

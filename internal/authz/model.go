@@ -87,6 +87,11 @@ const (
 	// ResourceService is a managed service of a service type (W07), for
 	// example a generic container or Traefik; scoped to a Swarm.
 	ResourceService ResourceType = "service"
+	// ResourceVuln is the vulnerability response (X13, proposal): findings,
+	// remediation proposals, the policy and AI provider settings. It is a
+	// global resource that no preset except the administrator holds, so it
+	// is denied by default.
+	ResourceVuln ResourceType = "vuln"
 	// ResourceAny is a wildcard usable in permissions only, never in a check.
 	ResourceAny ResourceType = "*"
 )
@@ -96,7 +101,7 @@ var knownResourceTypes = map[ResourceType]bool{
 	ResourceDatabase: true, ResourceDatabaseUser: true, ResourceBackup: true,
 	ResourceSettings: true, ResourceDashboard: true, ResourceUserAccount: true,
 	ResourceRole: true, ResourceAuditLog: true, ResourceService: true,
-	ResourceImageBuild: true, ResourceRegistry: true,
+	ResourceImageBuild: true, ResourceRegistry: true, ResourceVuln: true,
 }
 
 // Valid reports whether t is a concrete, known resource type.
