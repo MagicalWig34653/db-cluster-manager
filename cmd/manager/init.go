@@ -20,6 +20,7 @@ import (
 
 	"github.com/MagicalWig34653/db-cluster-manager/internal/backup"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/galera"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/imagebuild"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/passkey"
 )
 
@@ -58,6 +59,7 @@ type initOptions struct {
 	AgentImage    string
 	JobImage      string
 	Backup        bool
+	ImageBuild    bool
 	RecipientKey  string
 	RecoveryOut   string
 	ConfigOut     string
@@ -98,6 +100,7 @@ func runInit(args []string, stdout, stderr io.Writer) error {
 	fs.StringVar(&o.AgentImage, "agent-image", "db-cluster-manager:local", "image of the agent service (the manager image; pin by digest)")
 	fs.StringVar(&o.JobImage, "job-image", "db-cluster-manager-jobs:local", "backup/restore job image (deploy/Dockerfile.jobs; pin by digest)")
 	fs.BoolVar(&o.Backup, "backup", false, "configure backups (backend secret, job image, recovery key)")
+	fs.BoolVar(&o.ImageBuild, "image-build", false, "enable the image build service (needs a docker CLI with buildx and a daemon the manager can use; the shipped manager image has neither)")
 	fs.StringVar(&o.RecipientKey, "recipient-key", "", "with -backup: public half of an existing recovery key")
 	fs.StringVar(&o.RecoveryOut, "recovery-key-out", "", "with -backup: generate a recovery key into this new file (0600) and use its public half")
 	fs.StringVar(&o.ConfigOut, "out", "", "write the configuration to this new file instead of stdout")
@@ -215,6 +218,9 @@ func buildInitConfig(o initOptions) (fileConfig, error) {
 		mc.Backup = &backupConfig{BackendConfigFile: containerBackendFile, ScheduleIntervalSeconds: 60}
 		mc.Settings.Backup = &backupSettings{JobImage: o.JobImage, BackendSecret: n.Backend, DBCredentialSecret: n.BackupCred,
 			RecipientKey: o.RecipientKey, KeySecret: n.RecoveryKey, InspectionNetwork: n.InspectNet}
+	}
+	if o.ImageBuild {
+		mc.ImageBuild = &imageBuildConfig{DockerBinary: "docker", MaxLogBytes: imagebuild.DefaultMaxLogBytes}
 	}
 	cfg := fileConfig{Auth: authConfig{Enabled: true, RPID: o.RPID, RPDisplayName: o.DisplayName, Origins: []string{origin}}, Manager: mc}
 	if err := validateConfigStatic(cfg); err != nil {
@@ -359,6 +365,10 @@ No secret values are printed here. Create each secret from a file or stdin you c
 {{- end}}
 3. Store this configuration as a Swarm config (configs are immutable; use a new name per change):
      docker config create dbcm-manager-config-1 <this file>
+{{- if .ImageBuild}}
+   Image builds (manager.imageBuild) run "docker buildx build" as the manager process. The shipped manager image
+   contains no docker CLI and the stack gives it no BuildKit; provide both before approving a build (untested).
+{{- end}}
 {{- if .HA}}
    HA (not run on a real Swarm): issue peer certificates once (manager -issue-peer-certs, passphrase in
    DBCM_PEER_CA_PASSPHRASE), create the secrets of replica {{.NodeID}} from {{.NodeID}}/ca.pem, peer.pem and
@@ -377,7 +387,7 @@ No secret values are printed here. Create each secret from a file or stdin you c
 func printInstructions(w io.Writer, o initOptions, cfg fileConfig) error {
 	mc := cfg.Manager
 	return instructions.Execute(w, map[string]any{
-		"Inst": o.Installation, "VolumeBase": mc.Settings.VolumeBase, "N": namesFor(o.Installation), "Backup": o.Backup,
+		"Inst": o.Installation, "VolumeBase": mc.Settings.VolumeBase, "N": namesFor(o.Installation), "Backup": o.Backup, "ImageBuild": o.ImageBuild,
 		"RecoveryOut": o.RecoveryOut, "HA": len(mc.Peers) > 0, "NodeID": mc.NodeID, "Addr": o.ManagerAddr,
 		"Origin": cfg.Auth.Origins[0], "ManagerURL": mc.AgentTransport.ManagerURL,
 	})

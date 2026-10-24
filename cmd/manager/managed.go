@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -24,6 +25,7 @@ import (
 	"github.com/MagicalWig34653/db-cluster-manager/internal/enroll"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/galera"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/galeraprobe"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/imagebuild"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/manager"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/manager/swarm"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/metastore"
@@ -74,9 +76,42 @@ type managerConfig struct {
 	Monitoring *monitoringConfig `json:"monitoring,omitempty"`
 	// Backup configures the backup subsystem on the manager side.
 	Backup *backupConfig `json:"backup,omitempty"`
+	// ImageBuild enables the image build service (X08, proposal). The
+	// registry endpoints work without it; builds need it.
+	ImageBuild *imageBuildConfig `json:"imageBuild,omitempty"`
 	// Settings are installation settings the leader merges into the
 	// replicated settings on every leadership start (no API sets them yet).
 	Settings *settingsConfig `json:"settings,omitempty"`
+}
+
+// imageBuildConfig is the "manager.imageBuild" section. Presence enables
+// the build service; the builder runs `<dockerBinary> buildx build`.
+type imageBuildConfig struct {
+	// DockerBinary defaults to "docker".
+	DockerBinary string `json:"dockerBinary"`
+	// WorkDir holds temporary build contexts and docker configs (absolute);
+	// empty selects the OS temporary directory.
+	WorkDir string `json:"workDir"`
+	// MaxLogBytes caps the retained job log (default 262144, minimum 1024).
+	MaxLogBytes int `json:"maxLogBytes"`
+}
+
+func (c *imageBuildConfig) validate() error {
+	if c.WorkDir != "" && !filepath.IsAbs(c.WorkDir) {
+		return errors.New("manager.imageBuild.workDir must be an absolute path")
+	}
+	if c.MaxLogBytes != 0 && c.MaxLogBytes < 1024 {
+		return errors.New("manager.imageBuild.maxLogBytes must be at least 1024")
+	}
+	if strings.ContainsAny(c.DockerBinary, " \t\n") {
+		return errors.New("manager.imageBuild.dockerBinary must be a single path or command name")
+	}
+	return nil
+}
+
+// builder returns the docker builder for this configuration.
+func (c *imageBuildConfig) builder(r imagebuild.CommandRunner) *imagebuild.DockerBuilder {
+	return &imagebuild.DockerBuilder{Binary: c.DockerBinary, Runner: r, WorkDir: c.WorkDir}
 }
 
 // settingsConfig is the "manager.settings" section (manager.ConfiguredSettings).
@@ -244,6 +279,11 @@ func (m *managerConfig) validate() error {
 			return err
 		}
 	}
+	if m.ImageBuild != nil {
+		if err := m.ImageBuild.validate(); err != nil {
+			return err
+		}
+	}
 	return m.validatePeers()
 }
 
@@ -322,11 +362,20 @@ type managedRuntime struct {
 	backend    backup.Backend
 	backups    atomic.Pointer[manager.Backups]
 
+	// imageRunner executes docker for image builds.
+	imageCfg    *imageBuildConfig // nil: builds disabled
+	imageRunner imagebuild.CommandRunner
+	images      atomic.Pointer[api.ImageBuildBackend]
+
 	enroll *http.Server
 
 	mu      sync.Mutex
 	initErr error
 }
+
+// newImageRunner returns the command runner of the image builder. Tests
+// replace it to avoid running docker.
+var newImageRunner = func() imagebuild.CommandRunner { return imagebuild.ExecRunner{} }
 
 func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*managedRuntime, error) {
 	mc := cfg.Manager
@@ -364,7 +413,7 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 	if err != nil {
 		return nil, err
 	}
-	rt := &managedRuntime{proto: api.NewHandler(), keys: keys, backend: backend}
+	rt := &managedRuntime{proto: api.NewHandler(), keys: keys, backend: backend, imageCfg: mc.ImageBuild, imageRunner: newImageRunner()}
 	rt.setHandler(rt.notLeader())
 	swarms := &manager.Swarms{Matrix: swarm.DefaultMatrix(), Dial: func(h string) (swarm.Connector, error) { return swarm.Dial(h) }}
 	rt.swarms = swarms
@@ -536,6 +585,20 @@ func (rt *managedRuntime) leaderAPI(pk passkey.Config, keys manager.KeyProvider,
 		Monitoring: rt.monitoring, Control: svc.control, Backups: svc.backups, Settings: svc.settings, Maintenance: svc.control,
 		Services: svc.services,
 	}
+	// Registries are always available; builds only with manager.imageBuild.
+	// The interfaces stay nil otherwise, so the routes answer 503.
+	if svc.images != nil {
+		acfg.Registries = svc.images
+		if svc.images.Builds != nil {
+			acfg.ImageBuilds = svc.images
+			if n, err := svc.images.Builds.RecoverInterrupted(context.Background()); err != nil {
+				log.Warn("manager: recover interrupted image builds failed", "error", err)
+			} else if n > 0 {
+				log.Warn("manager: marked interrupted image builds as failed", "count", n)
+			}
+		}
+		rt.images.Store(svc.images)
+	}
 	// Without a keyring or the agent transport the respective endpoints
 	// answer settings_incomplete.
 	acfg.Replicas = &manager.ReplicaService{Svc: rt.svc, Ring: rt.keyring, PKI: rt.pki, Authorizer: st.Authorizer}
@@ -559,6 +622,7 @@ type commandSet struct {
 	backups  *manager.Backups
 	settings *manager.SettingsService
 	services *manager.Services
+	images   *api.ImageBuildBackend
 }
 
 // commandServices builds the command services on the leadership's
@@ -568,7 +632,18 @@ func (rt *managedRuntime) commandServices(st *manager.AuthStack) commandSet {
 	sw := *rt.swarms
 	sw.Svc, sw.Authorizer = rt.svc, st.Authorizer
 	ops.Swarms = &sw
+	var builder imagebuild.Builder
+	maxLog := 0
+	if ib := rt.imageCfg; ib != nil {
+		builder, maxLog = ib.builder(rt.imageRunner), ib.MaxLogBytes
+	}
+	builds, regs := manager.ImageServices(rt.svc.Store(), rt.keys, builder, true, maxLog)
+	images := &api.ImageBuildBackend{Regs: regs}
+	if builder != nil {
+		images.Builds = builds
+	}
 	return commandSet{
+		images:   images,
 		control:  &manager.Control{Ops: ops, Swarms: &sw},
 		backups:  &manager.Backups{Ops: ops, Swarms: &sw, Backend: rt.backend},
 		settings: &manager.SettingsService{Svc: rt.svc, Authorizer: st.Authorizer, Keys: rt.keys, Monitoring: rt.monitoring},

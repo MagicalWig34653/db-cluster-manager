@@ -34,8 +34,12 @@ const DefaultMaxLogBytes = 256 << 10
 // Service plans, approves and records builds. It never builds anything
 // itself: that is the Builder's job.
 type Service struct {
-	Builder    Builder
-	Jobs       JobStore
+	Builder Builder
+	Jobs    JobStore
+	// Plans, when set, keeps the plans that were previewed or approved so
+	// that an approval can be audited later (keyed by plan digest). A
+	// failure to store a plan never blocks a preview.
+	Plans      PlanStore
 	Registries RegistryResolver
 	Catalog    *Catalog
 	Now        func() time.Time
@@ -99,6 +103,7 @@ func (s *Service) plan(ctx context.Context, req Request) (Plan, registry.Config,
 		return Plan{}, registry.Config{}, registry.Secret{}, "", err
 	}
 	p.Reference = ref
+	s.savePlan(ctx, p)
 	return p, cfg, sec, server, nil
 }
 
@@ -180,4 +185,41 @@ func (s *Service) List(ctx context.Context) ([]Job, error) {
 // Get returns one job with its log.
 func (s *Service) Get(ctx context.Context, id string) (Job, error) {
 	return s.Jobs.Get(ctx, strings.TrimSpace(id))
+}
+
+func (s *Service) savePlan(ctx context.Context, p Plan) {
+	if s.Plans != nil {
+		_ = s.Plans.Put(ctx, StoredPlan{Plan: p, At: s.now()})
+	}
+}
+
+// GetPlan returns a stored plan by digest.
+func (s *Service) GetPlan(ctx context.Context, digest string) (StoredPlan, error) {
+	if s.Plans == nil {
+		return StoredPlan{}, ErrPlanNotFound
+	}
+	return s.Plans.Get(ctx, strings.TrimSpace(digest))
+}
+
+// RecoverInterrupted marks jobs that are still "running" as failed. A
+// manager restart or leadership change ends the build goroutine, so such a
+// record would otherwise stay running forever. It returns the number of
+// jobs changed.
+func (s *Service) RecoverInterrupted(ctx context.Context) (int, error) {
+	jobs, err := s.Jobs.List(ctx)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, j := range jobs {
+		if j.Status != JobRunning {
+			continue
+		}
+		j.Status, j.Error, j.FinishedAt = JobFailed, "interrupted: the manager restarted or lost leadership during the build", s.now()
+		if err := s.Jobs.Put(ctx, j); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
 }

@@ -6,7 +6,7 @@ title: Image-Builds und Registries (Entwurf)
 
 [Handbuch-Index](index.md) | Zurück: [Konfigurationsreferenz](12-configuration-reference.md)
 
-**Status: nur [Fakes].** Das Backend existiert (Plan-Vorschau, Freigabe-Digest, Build-Protokolle, Registry-Client) und wurde nur gegen Fakes getestet. Es ist nicht im Manager verdrahtet, hat eine Oberfläche, die nur gegen den Mock-Server lief, und hat nie ein echtes Image gebaut oder gepusht. Nicht darauf verlassen.
+**Status: nur [Fakes].** Das Backend existiert (Plan-Vorschau, Freigabe-Digest, Build-Protokolle, Registry-Client) und ist jetzt mit replizierter Speicherung im Manager verdrahtet (siehe unten), wurde aber nur gegen Fakes getestet: einen Fake-`docker`-Befehl und `httptest`-Registries. Die Oberfläche lief nur gegen den Mock-Server, und es wurde nie ein echtes Image gebaut oder gepusht. Nicht darauf verlassen.
 
 ## Was vorhanden ist
 
@@ -15,7 +15,18 @@ title: Image-Builds und Registries (Entwurf)
 - **Registries:** `POST /registries` registriert eine externe GHCR-, Docker-Hub- oder generische Registry. Das Passwort wird als Secret gespeichert und weder zurückgegeben noch protokolliert. Eine vom Manager betriebene `registry:2` ist nur eine Deploy-Spezifikation.
 - **Aufzeichnung:** Jeder Job speichert Spec-Hash, Digests der Basis-Images, Image-Digest, einen SBOM-Platzhalter (nicht erzeugt) und ein geschwärztes Protokoll.
 
+## Im Manager (verdrahtet, nur Fakes)
+
+- **Speicherung:** Registries, Build-Jobs und Vorschau-Pläne liegen im replizierten Metastore (Sammlungen `registries`, `image-jobs`, `image-plans`) und überstehen Neustarts und Leaderwechsel. Ein Registry-Passwort wird mit dem Datenschlüssel (`keyFile` oder `keyring`) in einer eigenen Sammlung versiegelt; Registry-Einträge enthalten nur eine Referenz, und weder API noch Jobs, Pläne oder Protokolle enthalten es. Höchstens 200 Pläne bleiben erhalten (älteste werden entfernt).
+- **Builder:** Mit einem Abschnitt `manager.imageBuild` ([Konfigurationsreferenz](12-configuration-reference.md#managerimagebuild), `manager init -image-build`) führt der Manager nach der Freigabe `docker buildx build` als eigenen Prozess im Hintergrund aus. Ohne den Abschnitt antwortet `POST /image-builds` mit 503; Registries funktionieren weiter.
+- **Neustart:** Ein durch Neustart oder Leaderwechsel unterbrochener Build kann nicht fortgesetzt werden. Beim Start eines Leaders werden noch `running` stehende Jobs als `failed` („interrupted") markiert.
+- **Schwärzung:** Job-Protokoll und Fehlertext werden vor dem Speichern geschwärzt (bekannte Geheimnisse, Basic-Auth-Form, Zugangsdatenmuster; bestmöglich).
+- **Berechtigung:** `image_build` und `registry` sind eigene Ressourcen; Betrachter lesen, Operatoren planen und starten zusätzlich Builds, nur Administratoren registrieren Registries. Jede Entscheidung, auch Ablehnungen, wird protokolliert.
+
 ## Grenzen
+
+Das Manager-Image enthält kein Docker-CLI und der Stack kein BuildKit; Builds funktionieren im mitgelieferten Deployment daher nicht ohne zusätzliche Arbeit. Der Build läuft als Manager-Prozess auf dem Host des Leaders (Zugriff auf den Docker-Socket). Das Registrieren einer Registry kontaktiert sie vom Manager aus (Prüfung der Zugangsdaten). Löschen oder Ändern einer Registry und Löschen von Jobs sind nicht implementiert. Pläne werden zur Nachvollziehbarkeit gespeichert, eine API zum Lesen gibt es noch nicht.
+
 
 Kein echter Build, Push, keine SBOM, kein Schwachstellenscan, keine Signatur. Alpine-Paketversionen sind nicht festgelegt. Paketnamen und Versionskatalog sind ungeprüft. Die Ausschnittsprüfung ist eine Sperrliste, kein Parser. Siehe [Bekannte Grenzen](10-known-limits.md) und [STATUS.md](../../STATUS.md).
 
