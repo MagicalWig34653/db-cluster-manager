@@ -301,6 +301,11 @@ var iniRules = map[string]func(string) error{
 	"session.cookie_secure":      oneOf("0", "1"),
 	"session.cookie_httponly":    oneOf("0", "1"),
 	"realpath_cache_size":        sizeValue,
+	// Attack-surface settings used by vulnerability mitigations (X13).
+	"session.upload_progress.enabled": oneOf("0", "1"),
+	"file_uploads":                    oneOf("On", "Off"),
+	"allow_url_fopen":                 oneOf("On", "Off"),
+	"allow_url_include":               oneOf("Off"),
 }
 
 var (
