@@ -24,6 +24,8 @@ PXVMS="dbcm-lab-m2 dbcm-lab-m3"
 E8_APP='-user e5app -password-file '$E8'/app.pw'
 
 # ---------------------------------------------------------------- helpers
+# e8_login: the lab client's session cookie expires after about two hours.
+e8_login() { vm_args "$M1" 'sudo /usr/local/bin/dbcm-e4-client -state '"$STATE"'/client.json -base http://127.0.0.1:'"$API_PORT"' -origin http://localhost:'"$API_PORT"' login' >/dev/null 2>&1 || true; }
 e8_vm_up() { [ "$(limactl list --format '{{.Status}}' "$1" 2>/dev/null)" = Running ]; }
 e8_now() { vm_sh "$M1" 'date -u +%T.%3N'; }
 e8_other_px() { # VM -> the other proxy VM
@@ -349,6 +351,7 @@ phase_e8proxyloss() {
 }
 
 phase_e8vmloss() {
+	e8_login
 	section "Phase e8vmloss (gate A2): the VIP holder's whole VM is hard-stopped under load"
 	hostload
 	e8_vip_single || { result "no single VIP holder before the test"; return 1; }
@@ -450,6 +453,7 @@ e8_sentinels_all() { # EXPECTED-IDS — every running node shows exactly these i
 }
 
 phase_e8node() {
+	e8_login
 	section "Phase e8node (gate B1): hard power loss of one Galera node VM, restart, rejoin"
 	hostload
 	CLUSTER_ID=${CLUSTER_ID:-$(cluster_id)}
@@ -507,6 +511,7 @@ e8_primary_any() { # lists any node that reports a Primary component
 }
 
 phase_e8allloss() {
+	e8_login
 	section "Phase e8allloss (gate B2): hard power loss of all three VMs, restart, guided recovery"
 	hostload
 	CLUSTER_ID=${CLUSTER_ID:-$(cluster_id)}
