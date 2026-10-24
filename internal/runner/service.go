@@ -45,8 +45,8 @@ type ServiceBindings struct {
 
 // FromServicePlan converts a service plan into an Operation. It is pure
 // data conversion. A plan with blockers is refused (service.ErrNotExecutable)
-// so it can be previewed but never started; delivery of configuration files
-// has no agent command and is refused too.
+// so it can be previewed but never started. Configs are created before
+// the services that reference them.
 func FromServicePlan(p service.Plan, b ServiceBindings) (Operation, error) {
 	if p.Delegated() || p.Type == service.TypeGalera {
 		// Galera plans keep their own conversion and its refusals (approval
@@ -95,6 +95,25 @@ func convertServiceStep(p service.Plan, ps service.Step, b ServiceBindings) (Ste
 	}
 	var args any
 	switch ps.Kind {
+	case service.StepCreateConfig:
+		var found bool
+		for _, a := range p.Artifacts {
+			if a.Name == ps.Artifact {
+				if a.Secret {
+					return Step{}, fmt.Errorf("%w: secret config artifact refused", ErrInvalidOperation)
+				}
+				args = agent.ConfigSpec{Name: ps.Config, Data: []byte(a.Content), Labels: map[string]string{agent.LabelCluster: p.ServiceID, agent.LabelNode: "config"}}
+				found = true
+				break
+			}
+		}
+		if !found {
+			return Step{}, fmt.Errorf("%w: missing config artifact", ErrInvalidOperation)
+		}
+		s.Command = agent.KindCreateConfig
+	case service.StepRemoveConfig:
+		s.Command, args = agent.KindRemoveConfig, agent.RemoveConfigArgs{Config: ps.Config, ClusterID: p.ServiceID}
+		s.RetryCodes = []agent.Code{agent.CodeConfigInUse}
 	case service.StepCreateVolume:
 		s.Command, args = KindCreateVolume, CreateVolumeArgs{Volume: ps.Volume, VolumeRoot: root(),
 			Labels: map[string]string{agent.LabelCluster: p.ServiceID, agent.LabelNode: ps.NodeUUID}}
@@ -140,7 +159,7 @@ func convertServiceStep(p service.Plan, ps service.Step, b ServiceBindings) (Ste
 		return Step{}, fmt.Errorf("%w: step kind %q has no agent command", ErrInvalidOperation, ps.Kind)
 	}
 	switch ps.Kind {
-	case service.StepCreateService, service.StepRemoveService, service.StepUpdateService, service.StepAwaitUpdate:
+	case service.StepCreateConfig, service.StepRemoveConfig, service.StepCreateService, service.StepRemoveService, service.StepUpdateService, service.StepAwaitUpdate:
 		if b.ServiceHost != "" {
 			s.Target = b.ServiceHost
 		}

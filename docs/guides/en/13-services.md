@@ -69,7 +69,7 @@ Four types share one pattern: you give the image, a pinned host and Swarm secret
 
 | Type | What it plans | Image contract (proposal) | Notes |
 | --- | --- | --- | --- |
-| `sftp` | SSH port 22, published in host mode (default), users with password and/or authorized-keys **secrets**, optional host key secret | `DBCM_SFTP_*` variables, users file `/etc/dbcm/sftp-users.json` from an existing Swarm config (`usersConfig`) | Candidate: `atmoz/sftp` with a thin wrapper |
+| `sftp` | SSH port 22, published in host mode (default), users with password and/or authorized-keys **secrets**, optional host key secret | `DBCM_SFTP_*` variables, users file `/etc/dbcm/sftp-users.json` from a managed Swarm config (optional existing config via `usersConfig`) | Candidate: `atmoz/sftp` with a thin wrapper |
 | `ftp` | control port (21, or 990 for implicit TLS) plus a passive range published one to one in host mode, TLS certificate and key secrets | `DBCM_FTP_*` variables (mode, passive range and address, TLS files) | Plain FTP needs `allowPlaintext`; the passive address is required; at most 100 passive ports |
 | `s3` | S3 API on 9000, optional console on 9001, root user and password **secrets**, optional Traefik routes (labels and a file-provider snippet) | MinIO conventions (`MINIO_ROOT_USER_FILE`, `MINIO_ROOT_PASSWORD_FILE`, `server /data`) | Single-drive mode: no erasure coding, no replication |
 | `nfs` | NFSv4 on 2049, rendered exports file | kernel NFS server | **Always blocked**: needs `CAP_SYS_ADMIN` (privileged mode) and the `nfsd` module; Swarm services cannot be privileged and the agent has no capability field. Feasibility is an R8 lab question; the type may be deferred |
@@ -86,9 +86,13 @@ Secrets are Swarm secrets that you created beforehand. The spec, plan, logs and 
 
 `create-service` accepts published ports (`ports`: target, published, protocol, mode ingress or host) and references to existing Swarm **configs** (`configs`: name or ID, absolute target path, mode). A referenced config must belong to the installation and be on the allow-list like networks and secrets, and is pinned to the checked ID. A spec without the new fields encodes and digests as before.
 
+`create-config` creates non-secret file contents with installation, service (`dbcm.cluster`), node, operation and step labels, then records the returned Docker ID on the agent allow-list. The plan creates the config before `create-service`, which pins its reference to the checked ID. Traefik dynamic YAML, SFTP users JSON (unless `usersConfig` names an external config) and FTP users JSON use this path. Names are deterministic and scoped to the service identity. Replaying a completed step succeeds without creating another object; an existing config needs the allow-list, matching ownership and matching content digest. A different file under the same name is refused.
+
+Delete plans remove the service before `remove-config`, even when data volumes are kept. Missing configs count as removed; configs still in use return a retryable conflict. Externally supplied `usersConfig` objects are kept. Flagged secret content is refused before execution; use Swarm secrets for credentials. Config request errors never retain Docker response text, which might echo file contents. Unknown mutation outcomes require reconciliation rather than blind retry.
+
 ## Known limits
 
-- **Swarm configs cannot be created yet**: the agent mounts an existing config but has no command to create or remove one. The dynamic Traefik configuration (routers, services, middlewares) therefore still blocks its plan, and the SFTP users file must be created by hand (`usersConfig`) or the plan warns.
+- Swarm configs are immutable: changing Traefik dynamic configuration during an update is blocked until config rotation is implemented. S3 routing snippets are still review artifacts; they are not automatically attached to another Traefik service.
 - Published ports work in the agent and the Docker client against fakes only; nothing ran on a Swarm. No storage server image was run, so no client access smoke test, credential rotation or backup exists (all R8 exit gates are open).
 - The storage UI form, CLI and any backup/restore of storage volumes do not exist. The web UI knows only the container and Traefik types.
 - Health, updates, rollback, the galera type and the expert/export view exist with fakes only: no update, rollback or health observation has run against a real Swarm, and Swarm's automatic rollback behaviour is taken from the Docker documentation, not from a lab run.
@@ -97,7 +101,7 @@ Secrets are Swarm secrets that you created beforehand. The spec, plan, logs and 
 
 ## In the web UI (mock only)
 
-The **Services** page lists managed services and has one form for both types. The three steps are always the same: describe the service, review the plan the manager returns (steps, generated files, warnings, blockers), then approve the operation with the digest it shows. Typing a password into an environment variable is refused: the form tells you to use a Swarm secret instead. A Traefik request with dynamic configuration is shown with its blocker (the agent cannot create Swarm configs yet) and cannot be requested; the mock data still shows the older port blocker. Deleting a service first shows a deletion plan; the data volumes are kept unless you tick the box.
+The **Services** page lists managed services and has one form for both types. The three steps are always the same: describe the service, review the plan the manager returns (steps, generated files, warnings, blockers), then approve the operation with the digest it shows. Typing a password into an environment variable is refused: the form tells you to use a Swarm secret instead. The backend now plans dynamic Traefik configuration without a config-delivery blocker; the mock data and screenshots still show older blockers. Deleting a service first shows a deletion plan; the data volumes are kept unless you tick the box.
 
 ![Services page: container request, plan and approval](../../assets/screenshots/en-light-services.png)
 

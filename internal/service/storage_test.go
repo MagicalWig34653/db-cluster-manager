@@ -122,7 +122,11 @@ func TestStoragePlansShareTheContainerPlan(t *testing.T) {
 			for _, s := range p.Steps {
 				kinds = append(kinds, s.Kind)
 			}
-			if !slices.Equal(kinds, []StepKind{StepCreateVolume, StepInitIdentity, StepCreateService}) {
+			want := []StepKind{StepCreateVolume, StepInitIdentity, StepCreateService}
+			if c.ty.Name() == TypeFTP {
+				want = []StepKind{StepCreateVolume, StepInitIdentity, StepCreateConfig, StepCreateService}
+			}
+			if !slices.Equal(kinds, want) {
 				t.Fatalf("steps %v", kinds)
 			}
 			if p.Steps[0].HostID != "h1" || p.Steps[0].Volume != VolumeName("web", "data") {
@@ -151,11 +155,11 @@ func TestStoragePlansShareTheContainerPlan(t *testing.T) {
 			}
 			// Delete plan: service first, volume kept unless asked.
 			dp, err := c.ty.DeletePlan(PlanInput{Context: ctx(), Spec: raw(t, c.spec)})
-			if err != nil || len(dp.Steps) != 1 || dp.Steps[0].Kind != StepRemoveService || len(dp.Warnings) != 1 {
+			if err != nil || len(dp.Steps) != 1+configCount(c.ty.Name()) || dp.Steps[0].Kind != StepRemoveService || len(dp.Warnings) != 1 {
 				t.Errorf("delete plan %+v err %v", dp, err)
 			}
 			dp, _ = c.ty.DeletePlan(PlanInput{Context: ctx(), Spec: raw(t, c.spec), RemoveVolumes: true})
-			if len(dp.Steps) != 2 || dp.Steps[1].Kind != StepRemoveVolume || dp.Steps[1].HostID != "h1" {
+			if len(dp.Steps) != 2+configCount(c.ty.Name()) || dp.Steps[1].Kind != StepRemoveVolume || dp.Steps[1].HostID != "h1" {
 				t.Errorf("delete plan with volumes %+v", dp.Steps)
 			}
 			// Health is unknown without an observation.
@@ -269,7 +273,7 @@ func TestSFTPWarnings(t *testing.T) {
 	s := goodSFTP()
 	s.HostKeySecret, s.UsersConfig, s.PublishedPort = "", "", 22
 	w := strings.Join(planOf(t, SFTP{}, s).Warnings, "\n")
-	for _, want := range []string{"host key changes", "usersConfig", "port 22"} {
+	for _, want := range []string{"host key changes", "port 22"} {
 		if !strings.Contains(w, want) {
 			t.Errorf("missing warning %q in:\n%s", want, w)
 		}
@@ -699,4 +703,11 @@ func TestTraefikManagementArtifact(t *testing.T) {
 		len(m.Routers) != 1 || m.Routers[0].Hosts[0] != "a.example.org" || m.Middlewares[0].Kind != MWCompress {
 		t.Fatalf("%+v", m)
 	}
+}
+
+func configCount(typ string) int {
+	if typ == TypeFTP {
+		return 1
+	}
+	return 0
 }

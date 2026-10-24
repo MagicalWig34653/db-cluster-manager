@@ -313,10 +313,21 @@ func (s *Services) createOperation(plan service.Plan, swarm string, st Settings,
 // serviceRefs are the operator-provided objects a service spec's plan uses.
 func serviceRefs(p service.Plan) objectRefs {
 	var r objectRefs
+	managed := map[string]bool{}
+	for _, st := range p.Steps {
+		if st.Kind == service.StepCreateConfig {
+			managed[st.Config] = true
+		}
+	}
 	for _, st := range p.Steps {
 		if st.Spec != nil {
 			r.Networks = append(r.Networks, st.Spec.Networks...)
 			r.Secrets = append(r.Secrets, st.Spec.Secrets...)
+			for _, c := range st.Spec.Configs {
+				if !managed[c.Config] {
+					r.Configs = append(r.Configs, c.Config)
+				}
+			}
 		}
 	}
 	return r

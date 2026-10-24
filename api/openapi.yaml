@@ -2393,6 +2393,7 @@ components:
         name: { type: string }
         mediaType: { type: string }
         content: { type: string }
+        secret: { type: boolean, description: Sensitive artifacts are refused as Swarm configs }
     ServicePlan:
       type: object
       required: [kind, type, name, steps, artifacts, warnings, blockers, executable, requiresApproval, text, agentSteps]

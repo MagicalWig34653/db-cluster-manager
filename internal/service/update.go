@@ -178,8 +178,7 @@ func UpdatePlan(t Type, in UpdateInput) (Plan, error) {
 // UpdatePlan implements Updater.
 func (c Container) UpdatePlan(in UpdateInput) (Plan, error) { return planUpdate(c, in) }
 
-// UpdatePlan implements Updater. Traefik's dynamic configuration has no
-// delivery command, so the blockers of its create plan apply.
+// UpdatePlan implements Updater. Config rotation remains a separate work package.
 func (t Traefik) UpdatePlan(in UpdateInput) (Plan, error) { return planUpdate(t, in) }
 
 // createdSpec returns the Swarm spec of a create plan.
@@ -221,6 +220,18 @@ func planUpdate(t Type, in UpdateInput) (Plan, error) {
 	}
 	p := updateSteps(in.Context, t.Name(), from, to, strat)
 	p.Blockers = append(p.Blockers, next.Blockers...)
+	dynamic := func(p Plan) string {
+		for _, a := range p.Artifacts {
+			if a.Name == "traefik-dynamic.yml" {
+				return a.Content
+			}
+		}
+		return ""
+	}
+	if dynamic(cur) != dynamic(next) {
+		p.Blockers = append(p.Blockers, "changing an immutable Swarm config requires config rotation, which is not implemented yet")
+	}
+
 	p.Warnings = append(p.Warnings, next.Warnings...)
 	p.Artifacts = next.Artifacts
 	p.Blockers = append(p.Blockers, immutableChanges(from, to)...)

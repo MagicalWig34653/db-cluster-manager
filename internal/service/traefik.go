@@ -535,11 +535,7 @@ func (Traefik) Plan(in PlanInput) (Plan, error) {
 	p.Artifacts = append(p.Artifacts, Artifact{Name: "traefik-static.yml", MediaType: "application/yaml", Content: t.RenderStatic()})
 	if t.hasDynamic() {
 		p.Artifacts = append(p.Artifacts, Artifact{Name: "traefik-dynamic.yml", MediaType: "application/yaml", Content: t.RenderDynamic()})
-		last := p.Steps[len(p.Steps)-1].ID
-		p.Steps = append(p.Steps, Step{ID: fmt.Sprintf("%02d-deliver-dynamic-config", len(p.Steps)+1), Kind: StepDeliverConfig, After: []string{last},
-			Artifact: "traefik-dynamic.yml",
-			Note:     "place traefik-dynamic.yml at " + TraefikDynamicFile + " for Traefik's file provider"})
-		p.Blockers = append(p.Blockers, "the dynamic configuration (routers, services, middlewares) cannot be delivered yet: the agent can mount an existing Swarm config as a file but has no command to create one")
+		deliverConfig(&p, in.Context, "traefik-dynamic.yml", TraefikDynamicFile)
 	}
 	mgmt, err := t.managementArtifact(in.Name)
 	if err != nil {
@@ -584,7 +580,11 @@ func (Traefik) DeletePlan(in PlanInput) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
-	return t.container().deletePlan(in, TypeTraefik), nil
+	p := t.container().deletePlan(in, TypeTraefik)
+	if t.hasDynamic() {
+		removeManagedConfig(&p, in.Context, "traefik-dynamic.yml")
+	}
+	return p, nil
 }
 
 // Health implements Type.

@@ -35,10 +35,10 @@ type SFTPSpec struct {
 	// the image creates a key on every start and clients see a changed host
 	// key.
 	HostKeySecret string `json:"hostKeySecret,omitempty"`
-	// UsersConfig names an existing Swarm config that holds the
+	// UsersConfig optionally names an existing Swarm config that holds the
 	// sftp-users.json artifact of the plan. The agent mounts it at
 	// /etc/dbcm/sftp-users.json after its ownership guard accepted the
-	// config. Without it the plan warns that nothing delivers the file.
+	// config. Without it the plan creates and later removes a managed config.
 	UsersConfig string `json:"usersConfig,omitempty"`
 }
 
@@ -157,7 +157,7 @@ func (SFTP) Plan(in PlanInput) (Plan, error) {
 		p.Warnings = append(p.Warnings, "port 22 of the host may already belong to the host's own SSH server; publish another port or check the host")
 	}
 	if s.UsersConfig == "" {
-		p.Warnings = append(p.Warnings, "no usersConfig: nothing delivers the artifact sftp-users.json to "+SFTPUsersFile+"; create the Swarm config from it and name it in usersConfig (the agent has no create-config command yet)")
+		deliverConfig(&p, in.Context, "sftp-users.json", SFTPUsersFile)
 	}
 	return p, nil
 }
@@ -171,7 +171,11 @@ func (SFTP) DeletePlan(in PlanInput) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
-	return s.container().deletePlan(in, TypeSFTP), nil
+	p := s.container().deletePlan(in, TypeSFTP)
+	if s.UsersConfig == "" {
+		removeManagedConfig(&p, in.Context, "sftp-users.json")
+	}
+	return p, nil
 }
 
 // Health implements Type.
