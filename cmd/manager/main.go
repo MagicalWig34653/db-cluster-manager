@@ -12,7 +12,7 @@
 //	-listen addr   address to listen on (default 127.0.0.1:8080)
 //	-config file   JSON configuration file; defaults to $DCM_CONFIG
 //	-version       print the version and exit
-//	-healthcheck   probe the local manager at -listen and exit 0 if healthy
+//	-healthcheck   probe the local manager at -listen using the TLS config, exit 0 if healthy
 //
 // Without a configuration, or with a configuration that does not enable
 // auth, the manager runs in prototype mode: only GET /api/v1/health and
@@ -80,6 +80,14 @@
 //	  }
 //	}
 //
+// The optional manager.tls section configures native API/UI HTTPS: either
+// acme (directoryUrl, email, domains, challenge, httpListen), or certFile and
+// keyFile for an imported PEM keypair. ACME defaults to Let's Encrypt staging
+// and tls-alpn-01; http-01 binds a separate challenge-only HTTP listener. Only
+// the leader issues/renews; every replica reads sealed replicated certificates
+// and challenges. See docs/guides/en/17-manager-tls.md. Without TLS, non-loopback
+// HTTP binds require the explicit manager.tls.allowPlainHttp opt-in.
+//
 // With auth enabled, the leader also serves the command endpoints (hosts,
 // Swarms, clusters, operations, backups, notification settings; ADR 0011),
 // runs the monitoring service and the backup scheduler, and binds the
@@ -98,6 +106,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -265,7 +274,11 @@ func run(args []string, getenv func(string) string, stderr io.Writer) error {
 		return issuePeerCerts(*peerCertsDir, *installation, *peerIDs, getenv("DBCM_PEER_CA_PASSPHRASE"), *peerValidity, time.Now)
 	}
 	if *health {
-		if err := probeHealth(context.Background(), *addr); err != nil {
+		cfg, err := loadConfig(*configPath)
+		if err != nil {
+			return err
+		}
+		if err := probeConfiguredHealth(context.Background(), *addr, cfg); err != nil {
 			return fmt.Errorf("unhealthy: %w", err)
 		}
 		return nil
@@ -281,10 +294,14 @@ func run(args []string, getenv func(string) string, stderr io.Writer) error {
 	if *printKey {
 		return printReplicaKey(cfg, os.Stdout)
 	}
+	if err := validateListener(*addr, listenerTLS(cfg)); err != nil {
+		return err
+	}
 	log := slog.Default()
 	var (
 		apiHandler http.Handler
 		pruner     interface{ prune() }
+		managed    *managedRuntime
 	)
 	if cfg.Manager != nil {
 		rt, err := newManagedRuntime(cfg, log, stderr)
@@ -297,6 +314,7 @@ func run(args []string, getenv func(string) string, stderr io.Writer) error {
 			}
 		}()
 		apiHandler, pruner = rt, rt
+		managed = rt
 	} else {
 		h, st, err := newAPIHandler(cfg, log, stderr)
 		if err != nil {
@@ -309,8 +327,33 @@ func run(args []string, getenv func(string) string, stderr io.Writer) error {
 	}
 
 	srv := &http.Server{Addr: *addr, Handler: newMux(apiHandler), ReadHeaderTimeout: 10 * time.Second}
+	if tc := listenerTLS(cfg); tc != nil {
+		if managed != nil && managed.acme != nil {
+			srv.TLSConfig = managed.acme.TLSConfig()
+		} else if tc.CertFile != "" {
+			srv.TLSConfig, err = staticTLS(tc)
+			if err != nil {
+				return fmt.Errorf("manager TLS: %w", err)
+			}
+		}
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	var challengeServer *http.Server
+	if tc := listenerTLS(cfg); tc != nil && tc.ACME != nil && tc.ACME.Defaults().Challenge == "http-01" {
+		challengeServer = &http.Server{Addr: tc.ACME.Defaults().HTTPListen, Handler: managed.acme.HTTPHandler(), ReadHeaderTimeout: 10 * time.Second}
+		listener, err := net.Listen("tcp", challengeServer.Addr)
+		if err != nil {
+			return fmt.Errorf("ACME HTTP-01 listener: %w", err)
+		}
+		defer challengeServer.Close()
+		go func() {
+			if err := challengeServer.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Error("ACME HTTP-01 server failed", "err", err)
+				stop()
+			}
+		}()
+	}
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -333,7 +376,11 @@ func run(args []string, getenv func(string) string, stderr io.Writer) error {
 	}
 
 	slog.Info("manager listening", "addr", *addr, "version", version.Version, "auth", cfg.Auth.Enabled)
-	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	serve := srv.ListenAndServe
+	if srv.TLSConfig != nil {
+		serve = func() error { return srv.ListenAndServeTLS("", "") }
+	}
+	if err := serve(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("server: %w", err)
 	}
 	return nil
@@ -342,17 +389,41 @@ func run(args []string, getenv func(string) string, stderr io.Writer) error {
 // probeHealth requests the health endpoint on the loopback interface at the
 // port of the given listen address.
 func probeHealth(ctx context.Context, listen string) error {
-	_, port, err := net.SplitHostPort(listen)
+	return probeConfiguredHealth(ctx, listen, fileConfig{})
+}
+
+func probeConfiguredHealth(ctx context.Context, listen string, cfg fileConfig) error {
+	host, port, err := net.SplitHostPort(listen)
 	if err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+net.JoinHostPort("127.0.0.1", port)+"/api/v1/health", nil)
+	scheme := "http"
+	client := http.DefaultClient
+	if tc := listenerTLS(cfg); tc != nil && (tc.ACME != nil || tc.CertFile != "") {
+		scheme = "https"
+		name := cfg.Auth.RPID
+		if tc.ACME != nil {
+			if err := tc.ACME.Validate(); err != nil {
+				return err
+			}
+			name = tc.ACME.Domains[0]
+		}
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, ServerName: name}
+		defer transport.CloseIdleConnections()
+		client = &http.Client{Transport: transport}
+	}
+	loopback := "127.0.0.1"
+	if ip := net.ParseIP(host); ip != nil && ip.To4() == nil {
+		loopback = "::1"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, scheme+"://"+net.JoinHostPort(loopback, port)+"/api/v1/health", nil)
 	if err != nil {
 		return err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}

@@ -28,6 +28,7 @@ import (
 	"github.com/MagicalWig34653/db-cluster-manager/internal/imagebuild"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/manager"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/manager/swarm"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/managertls"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/metastore"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/notify"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/passkey"
@@ -38,6 +39,8 @@ import (
 // keeps its state in the replicated store of internal/manager instead of
 // memory.
 type managerConfig struct {
+	// TLS configures the public API/UI listener, separately from peer/agent mTLS.
+	TLS *tlsConfig `json:"tls,omitempty"`
 	// NodeID defaults to "manager-1".
 	NodeID string `json:"nodeId"`
 	// DataDir holds the metastore and (by default) the data key file.
@@ -266,6 +269,9 @@ type peerConfig struct {
 }
 
 func (m *managerConfig) validate() error {
+	if err := m.TLS.validate(); err != nil {
+		return err
+	}
 	if m.DataDir == "" {
 		return errors.New("manager.dataDir is required")
 	}
@@ -357,6 +363,7 @@ func (m *managerConfig) scheduleInterval() time.Duration {
 // answered; every other API request gets 503 with the known leader in the
 // X-DCM-Leader header (no request forwarding).
 type managedRuntime struct {
+	acme    *managertls.Manager
 	svc     *manager.Service
 	handler atomic.Pointer[http.Handler]
 	stack   atomic.Pointer[manager.AuthStack]
@@ -524,6 +531,13 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 		}
 	}
 	rt.svc = svc
+	if mc.TLS != nil && mc.TLS.ACME != nil {
+		rt.acme, err = managertls.New(*mc.TLS.ACME, manager.ACMEStorage{Store: svc.Store(), Keys: keys}, nil)
+		if err != nil {
+			_ = svc.Close()
+			return nil, err
+		}
+	}
 	svc.OnLeadership(func(l *manager.Leadership) {
 		if l == nil {
 			rt.stack.Store(nil)
@@ -531,6 +545,15 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 			rt.vuln.Store(nil)
 			rt.setHandler(rt.notLeader())
 			return
+		}
+		if mc.TLS != nil && mc.TLS.ACME != nil {
+			// The worker has a fresh instance and a storage fence for this term.
+			worker, err := managertls.New(*mc.TLS.ACME, manager.ACMEStorage{Store: svc.Store(), Keys: keys, CanWrite: l.Valid}, nil)
+			if err == nil {
+				l.Go(func(ctx context.Context) {
+					worker.Run(ctx, func(err error) { log.Error("manager: ACME issuance/renewal failed", "err", err) })
+				})
+			}
 		}
 		if mc.Settings != nil {
 			changed, err := manager.ApplyConfiguredSettings(svc.Store(), mc.Settings.configured())
