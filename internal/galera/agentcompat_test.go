@@ -58,6 +58,10 @@ var agentUnused = map[string]bool{
 	"RestartPolicy.MaxAttempts": true,
 	"RestartPolicy.WindowNS":    true,
 	"Resources.Limits.Pids":     true,
+	// Published ports and config files are used by the service framework
+	// (W09), not by Galera node services.
+	"Ports[].Target": true, "Ports[].Published": true, "Ports[].Protocol": true, "Ports[].Mode": true,
+	"Configs[].Config": true, "Configs[].Target": true, "Configs[].Mode": true,
 }
 
 func milliToNano(v any) any { return v.(int64) * 1_000_000 }
