@@ -333,9 +333,8 @@ e8_proxykill() {
 	rec "keepalived journal on $other" e8_keepalived_journal "$other" "$since"
 	rec "VIP holder(s) after the kill" e8_vip_holder
 	rec "proxy on $other" e8_brief "$other"
-	if [ "$restart" = no ]; then
-		rec "restore the restart policy and start the container on $holder" sh -c "limactl shell --workdir / $holder -- sudo sh -c 'docker update --restart=unless-stopped $PX && docker start $PX'"
-	fi
+	rec "container state after the kill (does the restart policy bring a docker-killed container back?)" vm_docker "$holder" ps -a --filter "name=$PX" --format '{{.Names}} {{.Status}}'
+	rec "restore the restart policy and start the container on $holder" sh -c "limactl shell --workdir / $holder -- sudo sh -c 'docker update --restart=unless-stopped $PX && (docker start $PX || true)'"
 	wait_until 60 "proxy on $holder has a writer" e8_has_writer "$holder" || true
 	sleep 10
 	rec "VIP holder(s) after the proxy came back (nopreempt: no second move; exactly one holder)" e8_vip_holder
