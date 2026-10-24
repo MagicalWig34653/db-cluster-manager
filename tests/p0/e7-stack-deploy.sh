@@ -109,8 +109,8 @@ e7_images() {
 	rec "install the API client in m1" vm_sh "$M1" 'sudo install -m 0755 /tmp/e4client /usr/local/bin/dbcm-e4-client && rm -f /tmp/e4client'
 	rec "copy the committed source tree into m1" sh -c \
 		"cd '$REPO_ROOT' && git archive --format=tar HEAD cmd internal web go.mod go.sum deploy .dockerignore | limactl shell --workdir / $M1 -- sudo sh -c 'rm -rf $SRC && mkdir -p $SRC && tar -x -C $SRC && ls $SRC'"
-	rec "docker build -f deploy/Dockerfile (UI + Go binaries + distroless runtime)" vm_args "$M1" '
-		cd "$1" && time sudo docker build -f deploy/Dockerfile -t "$2" --build-arg VERSION=0.0.0-e7 --build-arg COMMIT="$3" . 2>&1 | tail -40' "$SRC" "$IMAGE" "$rev"
+	rec "docker build -f deploy/Dockerfile (UI + Go binaries + distroless runtime)" vm_root "$M1" '
+		cd "$1" && time docker build -f deploy/Dockerfile -t "$2" --build-arg VERSION=0.0.0-e7 --build-arg COMMIT="$3" . 2>&1 | tail -40' "$SRC" "$IMAGE" "$rev"
 	rec "image facts" vm_docker "$M1" image inspect --format '{{.Id}} {{.Architecture}} {{.Os}} user={{.Config.User}} entrypoint={{.Config.Entrypoint}} size={{.Size}}' "$IMAGE"
 	rec "image runs: manager -version" vm_docker "$M1" run --rm "$IMAGE" -version
 	local vm
@@ -166,8 +166,8 @@ e7_stack() {
 	gid=$(vm_sh "$M1" 'stat -c %g /var/run/docker.sock')
 	host=$(vm_docker "$M1" node inspect self --format '{{.Description.Hostname}}')
 	say "docker socket gid $gid, manager node hostname $host"
-	rec "docker stack deploy" vm_args "$M1" '
-		cd "$1" && DBCM_IMAGE="$2" DBCM_MANAGER_NODE="$3" DBCM_DOCKER_GID="$4" DBCM_CONFIG_NAME="$5" sudo -E docker stack deploy -c deploy/stack.yaml --detach=true "$6" 2>&1' \
+	rec "docker stack deploy" vm_root "$M1" '
+		cd "$1" && DBCM_IMAGE="$2" DBCM_MANAGER_NODE="$3" DBCM_DOCKER_GID="$4" DBCM_CONFIG_NAME="$5" docker stack deploy -c deploy/stack.yaml --detach=true "$6" 2>&1' \
 		"$SRC" "$IMAGE" "$host" "$gid" "$CONFIG_NAME" "$STACK" || true
 	if ! wait_until 180 "manager task running" sh -c "limactl shell --workdir / $M1 -- sudo docker service ps --filter desired-state=running --format '{{.CurrentState}}' $SVC | grep -q '^Running'"; then
 		rec "service ps" svc_task || true
