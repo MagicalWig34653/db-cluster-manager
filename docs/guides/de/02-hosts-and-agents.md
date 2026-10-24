@@ -12,6 +12,8 @@ Der Manager führt nie selbst Befehle auf Hosts aus. Auf jedem eingebundenen Hos
 
 `POST /api/v1/swarms` mit dem Docker-Endpunkt (E4: `unix:///var/run/docker.sock` auf einem Swarm-Manager-Knoten), dann `POST /api/v1/swarms/{id}/sync`. Der Swarm steht auf `healthy`, `GET /api/v1/hosts` listet Knoten mit Rolle, CPUs, Speicher und Docker-Version [Lab-VMs] (3 Knoten). Die Anbindung an eine entfernte, gegenseitig authentifizierte Docker-API ist ein offener Entwurfspunkt (P04) [Ungetestet]. Eine Docker-Version außerhalb der Kompatibilitätsmatrix (nur Docker 29.x) wird markiert [Fakes].
 
+Die Seite **Hosts** zeigt je Host die Agent-Version und den Zeitpunkt, zu dem der Manager zuletzt eine HTTP-Antwort dieses Agents erhalten hat (`agentVersion`, `agentSeenAt` in `GET /api/v1/hosts`) [Fakes]. Der Manager speichert beides bei jedem Kontakt mit dem Agent, höchstens etwa einmal pro Minute. Es gibt keinen Heartbeat: Ein alter oder fehlender Wert beweist nicht, dass der Agent ausgefallen ist; ein Host ohne bisherigen Kontakt zeigt „noch nicht kontaktiert“. „Zuletzt beobachtet“ bleibt der Zeitpunkt des Swarm-Inventareintrags.
+
 ## Voraussetzungen, die Sie selbst schaffen müssen
 
 Der Manager legt sie noch nicht an und prüft sie nicht. Fehlendes führt zu verwirrenden Fehlern (siehe [Fehlersuche](09-troubleshooting.md)).

@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { api, asApiError, type ApiError, type Host } from '../../../lib/api';
 	import { load } from '../../../lib/load.svelte';
-	import { t } from '../../../lib/locale.svelte';
+	import { locale, t } from '../../../lib/locale.svelte';
+	import { dateTime, relativeAge } from '../../../lib/format';
 	import type { MessageKey } from '../../../lib/i18n';
 	import { canEnroll, canRevoke } from '../../../lib/operations';
 	import { canEnterMaintenance, canLeaveMaintenance, maintenanceState } from '../../../lib/platform';
@@ -53,7 +54,7 @@
 {:else if hosts.state.value.length === 0}
 	<p class="text-sm text-muted-foreground">{t('hostsEmpty')}</p>
 {:else}
-	<div class="rounded-lg border">
+	<div class="overflow-x-auto rounded-lg border">
 		<Table.Root>
 			<Table.Header>
 				<Table.Row>
@@ -85,7 +86,7 @@
 						<Table.Cell>{h.agentIdentity ? t('identityRecorded') : t('identityNone')}</Table.Cell>
 						<Table.Cell class="font-mono text-xs">{h.engineVersion ?? t('stateUnknown')}</Table.Cell>
 						<Table.Cell class="font-mono text-xs">{h.agentVersion ?? t('stateUnknown')}</Table.Cell>
-						<Table.Cell>{#if h.agentSeenAt}<Freshness at={h.agentSeenAt} />{:else}<span class="text-xs text-muted-foreground">{t('agentNeverSeen')}</span>{/if}</Table.Cell>
+						<Table.Cell>{#if h.agentSeenAt}<time class="text-xs" datetime={h.agentSeenAt} title={dateTime(h.agentSeenAt, locale.value)}>{relativeAge(h.agentSeenAt, locale.value)}</time>{:else}<span class="text-xs text-muted-foreground">{t('agentNeverSeen')}</span>{/if}</Table.Cell>
 						<Table.Cell><Freshness at={h.observedAt} /></Table.Cell>
 						<Table.Cell>
 							<div class="flex flex-wrap gap-2">

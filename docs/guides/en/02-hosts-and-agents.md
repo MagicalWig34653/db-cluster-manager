@@ -12,6 +12,8 @@ The manager never runs commands on hosts by itself. A small **agent** runs on ea
 
 `POST /api/v1/swarms` with the Docker endpoint (E4: `unix:///var/run/docker.sock` on a Swarm manager node), then `POST /api/v1/swarms/{id}/sync`. The Swarm shows state `healthy`, and `GET /api/v1/hosts` lists nodes with roles, CPUs, memory and Docker version [Lab VMs] (3 nodes). Connecting to a remote, mutually authenticated Docker API is an open design item (P04) [Untested]. A Docker version outside the compatibility matrix (only Docker 29.x seeded) is flagged [Fakes].
 
+The **Hosts** page shows, per host, the agent version and when the manager last received an HTTP answer from that agent (`agentVersion`, `agentSeenAt` in `GET /api/v1/hosts`) [Fakes]. The manager records both whenever it talks to the agent, at most about once a minute. There is no heartbeat: an old or missing value does not prove the agent is down, and a host the manager never contacted shows "not contacted yet". "Last observed" remains the time of the Swarm inventory entry.
+
 ## Prerequisites you must create yourself
 
 The manager does not create or check these yet. Missing items give confusing failures (see [Troubleshooting](09-troubleshooting.md)).
