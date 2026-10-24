@@ -653,3 +653,22 @@ phase_e8staggered() {
 		result "B3: candidate ${E8_CANDIDATE:-none}; first-lost node was n$k"
 	fi
 }
+
+# Development helper (not part of the default run): bring a cluster that is
+# down or stuck back through the manager's guided recovery.
+phase_e8recover() {
+	e8_login
+	section "Phase e8recover (helper): guided recovery of a stopped or stuck cluster"
+	CLUSTER_ID=${CLUSTER_ID:-$(cluster_id)}
+	E6_UUID=$(e6_uuid 1 2>/dev/null || true)
+	e6_hosts
+	rec "operator: scale all three to 0" vm_docker "$M1" service scale -d $(for s in $(e6_services); do printf '%s=0 ' "$s"; done)
+	wait_until 180 "no database task running" e6_none_running || true
+	rec "diagnosis with position recovery (POST)" api POST "/api/v1/clusters/$CLUSTER_ID/outage-diagnosis" '{}' || true
+	local cand
+	cand=$(apij POST "/api/v1/clusters/$CLUSTER_ID/outage-diagnosis" '{}' | jq -r '.candidate // ""')
+	[ -n "$cand" ] || { result "helper: no candidate"; return 1; }
+	E8_ROW=${E8_ROW:-110}
+	e6_recover "$cand" || true
+	e6_verify_recovered helper "$E8_ROW"
+}
