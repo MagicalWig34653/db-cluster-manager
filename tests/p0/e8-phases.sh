@@ -376,7 +376,7 @@ phase_e8vmloss() {
 	rec "VIP holder(s) while $holder is down" e8_vip_holder
 	rec "proxy on $other" e8_brief "$other"
 	rec "Galera cluster while $holder is down" e8_status3
-	rec "manager's view of the cluster" api GET "/api/v1/clusters/$(cluster_id)"
+	rec "manager's view of the cluster" api GET "/api/v1/clusters/${CLUSTER_ID:-$(cluster_id)}"
 	e8_vm_start "$holder" || { result "VM $holder did not start (see log)"; return 1; }
 	wait_until 300 "$holder reachable over ssh" vm_sh "$holder" true || true
 	wait_until 300 "$holder is a Ready Swarm node" e8_node_ready "$holder" || true

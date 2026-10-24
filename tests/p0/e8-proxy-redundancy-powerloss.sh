@@ -78,6 +78,9 @@ E4_STEPS="vms swarm images prereqs backend manager setup swarmapi cluster verify
 for p in build $E4_STEPS $E8_STEPS; do
 	if step "$p"; then
 		case "$p" in vms | swarm) [ "${E4_REUSE_VMS:-0}" = 1 ] && continue ;; esac
-		"phase_$p"
+		# Informational commands may fail while VMs are down on purpose; a
+		# phase continues (set -e is inactive inside the "||" list) and its
+		# non-zero status is recorded instead of aborting the experiment.
+		"phase_$p" || say "phase $p returned non-zero"
 	fi
 done
