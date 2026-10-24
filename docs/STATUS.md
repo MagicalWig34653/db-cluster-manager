@@ -326,3 +326,68 @@ Limits: no real-manager/Swarm run of these UI additions; optional S3 routing and
 Git limitation: the requested `git checkout -B codex-ui-services integration` failed because this worktree's shared Git metadata is outside the writable sandbox. A separate local metadata clone under `/tmp` tracks the same source directory on `codex-ui-services`, based on `integration`, for small commits. The original worktree metadata and branch remain unchanged. No push was made.
 
 Next: rerun the full Go suite and the DE/EN capture script in an environment that permits local sockets and Chromium, inspect the rendered forms/downloads, add the resulting mock-labelled screenshots to guide 13 and the README, then validate against a real manager before any Swarm trial.
+
+## W10 Kubernetes groundwork
+
+2026-10-24, branch `cx-k8s`, **proposal, fakes only**. Added
+`service.Orchestrator` with Swarm artifact preservation and an opt-in
+`internal/service/k8s` renderer using the existing service definitions. Typed
+previews cover Deployment/StatefulSet, Service, local PV/PVC with node affinity
+and Retain policy, Secret refs, ConfigMap and Traefik IngressRoute. Export is a
+deterministic JSON-style YAML document stream; the common digest binds source,
+platform, artifacts and blockers. Galera preview identities are deterministic
+and generated manifests remove bootstrap flags. Quorum, `safe_to_bootstrap`,
+identity-marker/host-return rules and differing Swarm semantics remain blockers.
+
+`internal/kube`: opt-in KubeAPI, concurrency-safe fake and minimal REST adapter
+without client-go. Explicit scope/name/UID inventory plus installation labels
+guard apply/list/delete; apply uses atomic create before SSA for absent names,
+`force=false` and resourceVersion/UID preconditions; delete uses UID/version
+preconditions. Tests use `httptest.ResponseRecorder` with an in-memory HTTP
+transport, not a network listener or real API server. TLS handshakes and actual
+Kubernetes schema/SSA behavior are unverified.
+
+Registration model and manager adapter store token or opaque kubeconfig in an
+AES-GCM sealed metastore document through the existing secret path, with CAS
+create and collection/key binding. Only credential-free metadata leaves the
+backend. Added GET/POST `/kubernetes-clusters` contract, default-off
+`api.Config.ExperimentalKubernetes`, global `kubernetes_cluster` authz resource,
+OpenAPI schemas and contract/security tests. The shipping manager does not
+construct this backend or any Kubernetes client. No cluster contact,
+provisioning, kubeconfig execution, UI/CLI or deployment/recovery route exists.
+[ADR 0016](decisions/0016-kubernetes-groundwork.md) records the proposal and
+alternatives; [EN](guides/en/16-kubernetes.md) and
+[DE](guides/de/16-kubernetes.md) explain the limits. Kubernetes timing and initial
+distribution remain owner decisions. No R9 gate is met; R1 priority is unchanged.
+
+Actual verification on this worktree:
+
+- `gofmt -l .`: exit 0, no output.
+- `go vet ./...`: exit 0, no output, with a writable task-specific `GOCACHE`.
+- `go test -race -count=1 -p 4 ./...`: **exit 1**, 24 packages passed,
+  18 packages failed, 5 had no tests. Existing TCP/Unix-socket tests cannot bind
+  listeners in this sandbox (`bind: operation not permitted`; some `httptest`
+  tests panic for that reason). No all-suite pass is claimed. The new `kube`
+  and `service/k8s` packages passed in this full run.
+- Focused W10 tests with `-race -count=1 -p 4` passed in `service/k8s`, `kube`,
+  `api`, `manager` and `authz`, including registration contract/schema checks,
+  authz/default-off behavior, sealed round-trip/AAD, concurrent CAS,
+  deterministic Galera previews and ownership guards. These tests need no
+  listeners. Existing service tests also passed in the full run.
+- `python3 scripts/check_docs.py`: `Checked 71 Markdown files and 69 requirements; 0 errors.`
+- `python3 scripts/check_deploy.py`: `deploy checks passed (static only; no image was built)`.
+
+The default Go build cache was initially denied by the sandbox; subsequent Go
+commands used `GOCACHE=/tmp/dbcm-cx-k8s-cache`. Detected 14 logical CPUs via
+`os.cpu_count()` (`sysctl` was denied); test runs used `GOMAXPROCS=4`, later
+focused checks use `GOMAXPROCS=1`. No VM, cluster, production credentials or
+infrastructure resources were used.
+
+Commit creation is blocked by this session's filesystem sandbox: `git add` and
+`git commit` could not create `.git/worktrees/cx-k8s/index.lock` in the shared
+repository directory outside the writable worktree. No commit or push was made.
+Changes remain in the worktree. Next: commit the reviewed renderer, API/storage
+and documentation as small commits in a session with Git metadata write access;
+rerun the complete race suite where local listeners are permitted. Any real
+Kubernetes work still needs the timing/distribution decision, durable ownership
+inventory, fencing/RBAC/credential review and a scoped, budgeted lab plan.

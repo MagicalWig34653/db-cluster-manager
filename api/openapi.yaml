@@ -24,6 +24,42 @@ info:
 servers:
   - url: /api/v1
 paths:
+  /kubernetes-clusters:
+    get:
+      summary: List experimental Kubernetes registrations (W10, fakes only)
+      description: Requires read on global kubernetes_cluster; disabled by default. No cluster contact.
+      operationId: listKubernetesRegistrations
+      responses:
+        "200":
+          description: Credential-free registration metadata
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/KubernetesRegistration" }
+        "401": { description: Authentication required }
+        "403": { description: Permission denied }
+        "503": { description: Feature disabled or sealed store unavailable }
+    post:
+      summary: Register an existing Kubernetes cluster (metadata only)
+      description: Requires create on global kubernetes_cluster and same-origin CSRF checks. Exactly one token or opaque kubeconfig is sealed; never returned or executed. No provisioning or connectivity validation.
+      operationId: registerKubernetesCluster
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/KubernetesRegistrationInput" }
+      responses:
+        "201":
+          description: Registered without contacting a cluster
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KubernetesRegistration" }
+        "400": { description: Invalid registration }
+        "401": { description: Authentication required }
+        "403": { description: Permission denied or Origin rejected }
+        "409": { description: Registration ID exists }
+        "503": { description: Feature disabled, audit or sealed store unavailable }
   /health:
     get:
       summary: Liveness of the manager process
@@ -2166,6 +2202,34 @@ components:
             properties:
               pendingPasskeyEnrollment: { type: boolean, enum: [true] }
   schemas:
+    KubernetesRegistration:
+      type: object
+      additionalProperties: false
+      required: [id, name, endpoint, namespace, credentialKind, credentialSet]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        endpoint: { type: string, format: uri }
+        namespace: { type: string }
+        credentialKind: { type: string, enum: [token, kubeconfig] }
+        credentialSet: { type: boolean }
+    KubernetesRegistrationInput:
+      type: object
+      additionalProperties: false
+      required: [id, name, endpoint, namespace]
+      properties:
+        id: { type: string, pattern: '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$' }
+        name: { type: string, minLength: 1, maxLength: 100 }
+        endpoint: { type: string, format: uri, description: HTTPS origin without credentials, path, query or fragment }
+        namespace: { type: string, pattern: '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$' }
+        token: { type: string, minLength: 1, maxLength: 32768, writeOnly: true }
+        kubeconfig: { type: string, minLength: 1, maxLength: 32768, writeOnly: true }
+      oneOf:
+        - required: [token]
+          not: { required: [kubeconfig] }
+        - required: [kubeconfig]
+          not: { required: [token] }
+
     Error:
       type: object
       required: [error]
