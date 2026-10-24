@@ -143,6 +143,43 @@ Der Leader mischt sie bei jedem Leadership-Start ein; leere Felder lassen gespei
 
 `settings.backup` (alle Pflicht, bevor ein Backup starten kann): `jobImage` (Image mit `dbcm-job` und den Backup-Werkzeugen), `backendSecret` (Swarm-Secret mit dem Backend-JSON), `dbCredentialSecret` (Zugangsdaten des Backup-Kontos), `recipientKey` (öffentliche Hälfte des Recovery-Keys; Backups werden dafür verschlüsselt, derselbe Schlüssel ist der Wiederherstellungs-Umschlag des Datenschlüsselrings). Weiter: `keySecret` (Standard-Swarm-Secret mit dem Recovery-Key für Wiederherstellungen), `inspectionNetwork` (Nicht-Produktivnetz für Inspektionen; dafür nötig).
 
+## Reaktion auf Schwachstellen (API-Einstellungen)
+
+**Nur [Fakes]; nicht im Manager verdrahtet.** Die Reaktion auf Schwachstellen ([Anleitung](15-vulnerability-response.md)) hat noch keine Felder in der Konfigurationsdatei. Ihre Einstellungen liegen im Metastore und werden über die API geändert (Berechtigung auf die Ressource `vuln`, nur Administrator-Voreinstellung).
+
+Richtlinie (`PUT /api/v1/vuln/policy`, bedingt auf `version`):
+
+| Feld | Typ | Standard | Bedeutung |
+| --- | --- | --- | --- |
+| `mode` | string | `notify_only` | `notify_only`, `approval_required` oder `auto_for_policy`. |
+| `provider`, `model` | string | leer | KI-Anbieter-ID und Modell für Analysen; beide oder keines. Leer heißt nur deterministische Vorschläge. |
+| `auto.severities` | Liste | leer | Schweregrade, die automatisch freigegeben werden dürfen (nur `auto_for_policy`, Pflicht). |
+| `auto.services` | Liste | leer | Namentlich genannte Dienste; kein Platzhalter (Pflicht). |
+| `auto.kinds` | Liste | leer | `patched_rebuild` und/oder `mitigation` (Pflicht). |
+| `auto.maxPerDay` | int | keiner | Automatische Freigaben je UTC-Tag, 1-20 (Pflicht). |
+| `killSwitch` | bool | `false` | Stoppt alle automatischen Freigaben. |
+| `mitigationDays` | int | `30` | Laufzeit einer Abschwächung, 1-90 Tage. |
+| `retainPrompts` | bool | `false` | Reserviert; Prompts werden noch nicht aufbewahrt (nur ihre Hashes). |
+
+KI-Anbieter (`POST /api/v1/vuln/providers`):
+
+| Feld | Typ | Standard | Bedeutung |
+| --- | --- | --- | --- |
+| `id`, `name` | string | keiner | Kennung und Anzeigename. |
+| `kind` | string | keiner | `claude_api`, `openai_api`, `openai_compatible`, `claude_code_cli`, `codex_cli`. |
+| `baseUrl` | string | Claude: `https://api.anthropic.com`; OpenAI: `https://api.openai.com/v1` | Pflicht für `openai_compatible` (zum Beispiel `http://127.0.0.1:1234/v1`). Unverschlüsseltes http nur zu Loopback- oder privaten Adressen. |
+| `models`, `defaultModel` | Liste, string | leer | Wählbare Modelle; leer erlaubt jeden wohlgeformten Namen. |
+| `apiKey` | string | leer | Nur schreibbar; Pflicht für `claude_api` und `openai_api`, optional für `openai_compatible`, für CLI-Arten abgewiesen. Wird versiegelt gespeichert. |
+| `binary`, `home` | string | leer | Nur CLI-Arten: absoluter Pfad der CLI und des Verzeichnisses mit ihrem Login-Zustand. |
+| `experimental` | bool | `false` | Muss für CLI-Arten `true` sein. |
+| `limits.requestsPerDay`, `limits.tokensPerDay` | int | `50`, `200000` | Verbrauchsgrenzen je UTC-Tag. |
+| `maxOutputTokens` | int | `2048` | Obergrenze der Ausgabe-Token, höchstens 16384. |
+| `timeoutSeconds` | int | `120` | Zeitlimit für Anfrage oder CLI, höchstens 600. |
+
+Zustimmung: `PUT /api/v1/vuln/providers/{id}/consent` mit `{"grant": true, "statement": <egressStatement>}`; Widerruf mit `{"grant": false}`.
+
+Feeds (OSV, GitHub, NVD, KEV, Offline-Spiegel) sind Go-Typen ohne Konfigurationsfelder; keiner hat eine Standard-URL.
+
 ## Was der verwaltete Modus braucht
 
 | Ziel | Nötige Konfiguration |

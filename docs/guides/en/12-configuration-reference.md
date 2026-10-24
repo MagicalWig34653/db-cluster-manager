@@ -143,6 +143,43 @@ Merged by the leader at every leadership start; empty fields leave stored values
 
 `settings.backup` (all required before a backup can start): `jobImage` (image with `dbcm-job` and the backup tools), `backendSecret` (Swarm secret with the backend JSON), `dbCredentialSecret` (backup account credential), `recipientKey` (public half of the recovery key; backups are encrypted for it, and the same key is the recovery envelope of the data keyring). Further: `keySecret` (default Swarm secret with the recovery key for restores), `inspectionNetwork` (non-production network for inspection restores; required for them).
 
+## Vulnerability response (API settings)
+
+**[Fakes] only; not wired into the manager.** The vulnerability response ([guide](15-vulnerability-response.md)) has no configuration file fields yet. Its settings are stored in the metastore and changed through the API (permission on resource `vuln`, administrator preset only).
+
+Policy (`PUT /api/v1/vuln/policy`, conditional on `version`):
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `mode` | string | `notify_only` | `notify_only`, `approval_required` or `auto_for_policy`. |
+| `provider`, `model` | string | empty | AI provider ID and model for analyses; both or neither. Empty means deterministic proposals only. |
+| `auto.severities` | list | empty | Severities that may be auto-approved (`auto_for_policy` only, required). |
+| `auto.services` | list | empty | Named services that may be auto-approved; no wildcard (required). |
+| `auto.kinds` | list | empty | `patched_rebuild` and/or `mitigation` (required). |
+| `auto.maxPerDay` | int | none | Automatic approvals per UTC day, 1-20 (required). |
+| `killSwitch` | bool | `false` | Stops all automatic approvals. |
+| `mitigationDays` | int | `30` | Lifetime of a mitigation, 1-90 days. |
+| `retainPrompts` | bool | `false` | Reserved; prompts are not retained yet (only their hashes). |
+
+AI provider (`POST /api/v1/vuln/providers`):
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `id`, `name` | string | none | Identifier and display name. |
+| `kind` | string | none | `claude_api`, `openai_api`, `openai_compatible`, `claude_code_cli`, `codex_cli`. |
+| `baseUrl` | string | Claude: `https://api.anthropic.com`; OpenAI: `https://api.openai.com/v1` | Required for `openai_compatible` (for example `http://127.0.0.1:1234/v1`). Plain http only to loopback or private addresses. |
+| `models`, `defaultModel` | list, string | empty | Selectable models; empty allows any well-formed name. |
+| `apiKey` | string | empty | Write-only; required for `claude_api` and `openai_api`, optional for `openai_compatible`, refused for CLI kinds. Stored sealed. |
+| `binary`, `home` | string | empty | CLI kinds only: absolute path of the CLI and of the directory holding its login state. |
+| `experimental` | bool | `false` | Must be `true` for CLI kinds. |
+| `limits.requestsPerDay`, `limits.tokensPerDay` | int | `50`, `200000` | Usage limits per UTC day. |
+| `maxOutputTokens` | int | `2048` | Output token cap, at most 16384. |
+| `timeoutSeconds` | int | `120` | Request or CLI timeout, at most 600. |
+
+Consent: `PUT /api/v1/vuln/providers/{id}/consent` with `{"grant": true, "statement": <egressStatement>}`; revoke with `{"grant": false}`.
+
+Feeds (OSV, GitHub, NVD, KEV, offline mirror) are Go types without configuration fields yet; none has a default URL.
+
 ## What managed mode needs
 
 | Goal | Required configuration |
