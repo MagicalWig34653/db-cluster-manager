@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { api, asApiError, type ApiError, type ServiceInfo, type ServicePlan, type ServiceStarted, type ServiceType } from '../../../lib/api';
-	import { buildServiceInput, emptyServiceForm, logLevels, planView, validateServiceForm, type RestartPolicy, type ServiceFormError } from '../../../lib/services';
+ import { onMount } from 'svelte';
+	import { api, asApiError, serviceTypes, type ApiError, type ServiceInfo, type ServicePlan, type ServiceStarted, type ServiceType } from '../../../lib/api';
+	import { buildServiceInput, canUpdateService, serviceHealth, emptyServiceForm, logLevels, planView, validateServiceForm, type RestartPolicy, type ServiceFormError } from '../../../lib/services';
 	import { load } from '../../../lib/load.svelte';
 	import { t } from '../../../lib/locale.svelte';
 	import type { MessageKey } from '../../../lib/i18n';
@@ -18,6 +19,13 @@
 	import ApiGate from '../../../lib/components/app/ApiGate.svelte';
 	import Loading from '../../../lib/components/app/Loading.svelte';
 
+	import ServiceDetails from '../../../lib/components/app/ServiceDetails.svelte';
+	import ServiceUpdate from '../../../lib/components/app/ServiceUpdate.svelte';
+	import { Badge } from '../../../lib/components/ui/badge/index.js';
+	let updating = $state<ServiceInfo>();
+ let healthNow = $state(Date.now());
+ onMount(() => { const timer = setInterval(() => { healthNow = Date.now(); services.refresh(); }, 15000); return () => clearInterval(timer); });
+	const healthLabels = { healthy: 'svcHealthy', degraded: 'svcDegraded', unhealthy: 'svcUnhealthy', unknown: 'svcUnknown' } as const;
 	const services = load(api.services);
 	const swarms = load(api.swarms);
 	const hosts = load(api.hosts);
@@ -37,12 +45,14 @@
 	const hostChoices = $derived(hosts.state.status === 'ok' ? hosts.state.value.filter((h) => h.swarm === form.swarm && h.enrollment === 'enrolled') : []);
 
 	const err = (k: ServiceFormError, key: MessageKey) => (invalid.includes(k) ? t(key) : undefined);
-	const typeLabel = (ty: string): MessageKey => (ty === 'traefik' ? 'svcTypeTraefik' : 'svcTypeContainer');
+	const typeLabel = (ty: string): MessageKey => ({ container: 'svcTypeContainer', traefik: 'svcTypeTraefik', galera: 'svcTypeGalera', sftp: 'svcTypeSftp', ftp: 'svcTypeFtp', s3: 'svcTypeS3', nfs: 'svcTypeNfs' } as Record<string, MessageKey>)[ty] ?? 'notReported';
 	const restartLabel: Record<RestartPolicy, MessageKey> = { any: 'svcRestartAny', 'on-failure': 'svcRestartOnFailure', none: 'svcRestartNone' };
 
 	function setType(ty: ServiceType) {
 		const keep = { swarm: form.swarm, name: form.name };
 		form = { ...emptyServiceForm(ty), ...keep };
+  if (ty === 'nfs') form.details.publishedPort = '2049';
+  if (ty === 's3') form.details.portMode = 'ingress';
 		shown = undefined;
 		started = undefined;
 		invalid = [];
@@ -54,8 +64,9 @@
 		if (invalid.length > 0) return;
 		planBusy = true;
 		planError = undefined;
+		const snapshot = requestJson;
 		try {
-			shown = { plan: await api.previewService(buildServiceInput(form)), request: requestJson };
+			shown = { plan: await api.previewService(JSON.parse(snapshot)), request: snapshot };
 		} catch (x) {
 			shown = undefined;
 			planError = asApiError(x);
@@ -64,7 +75,7 @@
 		}
 	}
 	async function request() {
-		if (!shown || stale) return;
+		if (!shown || stale || !planView(shown.plan).canStart) return;
 		requestBusy = true;
 		requestError = undefined;
 		try {
@@ -81,6 +92,7 @@
 	let deleting = $state<string | undefined>();
 	let removeVolumes = $state(false);
 	let delPlan = $state<ServicePlan | undefined>();
+ let delKey = $state('');
 	let delBusy = $state(false);
 	let delStarted = $state<ServiceStarted | undefined>();
 	let delError = $state<ApiError | undefined>();
@@ -95,8 +107,10 @@
 		delBusy = true;
 		delError = undefined;
 		delStarted = undefined;
+		const volumes = removeVolumes;
 		try {
-			delPlan = await api.previewServiceDelete(id, removeVolumes);
+			const plan = await api.previewServiceDelete(id, volumes);
+   if (deleting === id && removeVolumes === volumes) { delPlan = plan; delKey = JSON.stringify([id, volumes]); }
 		} catch (x) {
 			delPlan = undefined;
 			delError = asApiError(x);
@@ -105,6 +119,7 @@
 		}
 	}
 	async function requestDelete(id: string) {
+  if (!delPlan || !planView(delPlan).canStart || delKey !== JSON.stringify([id, removeVolumes])) return;
 		delBusy = true;
 		delError = undefined;
 		try {
@@ -141,7 +156,7 @@
 						<Table.Head>{t('svcColType')}</Table.Head>
 						<Table.Head>{t('colSwarm')}</Table.Head>
 						<Table.Head>{t('svcColImage')}</Table.Head>
-						<Table.Head>{t('svcColCreated')}</Table.Head>
+						<Table.Head>{t('svcHealth')}</Table.Head><Table.Head>{t('svcColCreated')}</Table.Head>
 						<Table.Head>{t('colActions')}</Table.Head>
 					</Table.Row>
 				</Table.Header>
@@ -152,9 +167,16 @@
 							<Table.Cell>{t(typeLabel(s.type))}</Table.Cell>
 							<Table.Cell class="font-mono text-xs">{s.swarm}</Table.Cell>
 							<Table.Cell class="font-mono text-xs">{imageOf(s) ?? t('notReported')}</Table.Cell>
-							<Table.Cell><Freshness at={s.createdAt} /></Table.Cell>
 							<Table.Cell>
-								{#if s.deleteOperation}
+         {@const health = serviceHealth(s.health, healthNow)}
+         <Badge variant={health === 'unhealthy' ? 'destructive' : health === 'healthy' ? 'default' : 'secondary'}>{t(healthLabels[health])}</Badge>
+         {#if s.health}<p class="text-xs">{s.health.running}/{s.health.desired} · {s.health.updateState ?? ''}</p><Freshness at={s.health.observedAt} />{#each s.health.reasons ?? [] as reason}<p class="text-xs text-muted-foreground">{reason}</p>{/each}{/if}
+        </Table.Cell><Table.Cell><Freshness at={s.createdAt} /></Table.Cell>
+							<Table.Cell>
+								{#if s.type === 'galera'}<a class="text-sm underline" href={'/clusters/' + encodeURIComponent(s.id)}>{t('svcOpenCluster')}</a>{/if}
+        {#if canUpdateService(s)}<Button size="sm" variant="outline" onclick={() => updating = s}>{t('svcUpdate')}</Button>{/if}
+        {#if s.updateOperation}<FollowOperation id={s.updateOperation} />{/if}
+        {#if s.deleteOperation}
 									<span class="text-xs text-muted-foreground">{t('svcDeletePending')}</span>
 								{:else}
 									<Button size="sm" variant="outline" onclick={() => startDelete(s)}>{t('svcDelete')}</Button>
@@ -167,6 +189,7 @@
 		</div>
 	{/if}
 
+	{#if updating}{#key updating.id}<ServiceUpdate service={updating} refresh={services.refresh} />{/key}<Button variant="ghost" onclick={() => updating = undefined}>{t('cancel')}</Button>{/if}
 	{#if deleting}
 		{@const svc = services.state.status === 'ok' ? services.state.value.find((x) => x.id === deleting) : undefined}
 		<Card.Root class="border-red-300 dark:border-red-900">
@@ -186,7 +209,7 @@
 				<div aria-live="polite" class="space-y-3">
 					{#if delError}<ApiGate error={delError} />{/if}
 					{#if delPlan}
-						<PlanBlock plan={delPlan} />
+						<PlanBlock plan={delStarted?.plan ?? delPlan} />
 						{#if !delStarted}
 							<Button size="sm" variant="destructive" disabled={delBusy || !planView(delPlan).canStart} onclick={() => requestDelete(deleting!)}>{t('svcDeleteRequest')}</Button>
 						{/if}
@@ -216,8 +239,7 @@
 					<div class="space-y-1.5">
 						<Label for="sv-type">{t('svcType')}</Label>
 						<select id="sv-type" class={selectClass} value={form.type} onchange={(e) => setType(e.currentTarget.value as ServiceType)}>
-							<option value="container">{t('svcTypeContainer')}</option>
-							<option value="traefik">{t('svcTypeTraefik')}</option>
+							{#each serviceTypes as ty}<option value={ty}>{t(typeLabel(ty))}</option>{/each}
 						</select>
 					</div>
 					<div class="space-y-1.5">
@@ -232,14 +254,14 @@
 						<Input id="sv-image" class="font-mono" bind:value={form.image} autocomplete="off" placeholder={form.type === 'traefik' ? 'traefik:v3.1.2' : 'nginx:1.27'} aria-invalid={invalid.includes('image')} aria-describedby="sv-image-hint" />
 						<p id="sv-image-hint" class="text-xs {invalid.includes('image') ? 'text-red-700 dark:text-red-400' : 'text-muted-foreground'}">{invalid.includes('image') ? t('valSvcImage') : t('svcImageHint')}</p>
 					</div>
-					<div class="space-y-1.5">
+					{#if form.type !== 'galera'}<div class="space-y-1.5">
 						<Label for="sv-host">{t('svcHost')}</Label>
 						<select id="sv-host" class={selectClass} bind:value={form.hostId} aria-describedby="sv-host-hint">
 							<option value="">{t('svcHostAny')}</option>
 							{#each hostChoices as h (h.nodeId)}<option value={h.nodeId}>{h.hostname ?? h.nodeId}</option>{/each}
 						</select>
 						<p id="sv-host-hint" class="text-xs {invalid.includes('volumeHost') ? 'text-red-700 dark:text-red-400' : 'text-muted-foreground'}">{invalid.includes('volumeHost') ? t('valSvcVolumeHost') : t('svcHostHint')}</p>
-					</div>
+					</div>{/if}
 				</div>
 
 				{#if form.type === 'container'}
@@ -290,7 +312,7 @@
 							<p id="sv-sec-hint" class="text-xs text-muted-foreground">{t('svcSecretsHint')}</p>
 						</div>
 					</div>
-				{:else}
+				{:else if form.type === 'traefik'}
 					<div class="grid gap-4 md:grid-cols-3">
 						<div class="space-y-1.5">
 							<Label for="sv-log">{t('svcLogLevel')}</Label>
@@ -327,6 +349,9 @@
 						{/each}
 						<Button type="button" size="sm" variant="outline" onclick={() => (form.routes = [...form.routes, { host: '', backend: '', tls: true }])}>{t('svcRouteAdd')}</Button>
 					</fieldset>
+				{:else}
+					<ServiceDetails type={form.type} bind:details={form.details} />
+					{#if invalid.includes('details')}<p role="alert" class="text-sm text-destructive">{t('valSvcDetails')}</p>{/if}
 				{/if}
 
 				<Button type="submit" disabled={planBusy}>{t('svcPreview')}</Button>
@@ -347,8 +372,8 @@
 					</section>
 				{/if}
 				{#if started}
-					<Alert.Root><Alert.Description>{t('svcRequested', { id: started.operation.id })}</Alert.Description></Alert.Root>
-					<FollowOperation id={started.operation.id} />
+					<Alert.Root><Alert.Description>{t(started.plan.requiresApproval ? 'svcRequested' : 'svcStarted', { id: started.operation.id })}</Alert.Description></Alert.Root>
+					<PlanBlock plan={started.plan} /><FollowOperation id={started.operation.id} />
 				{/if}
 			</div>
 		</Card.Content>

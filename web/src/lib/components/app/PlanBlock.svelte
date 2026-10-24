@@ -1,6 +1,7 @@
 <script lang="ts">
+	import PlanBlock from './PlanBlock.svelte';
 	import type { ServicePlan } from '../../api';
-	import { planView } from '../../services';
+	import { downloadPlan, planView } from '../../services';
 	import { t } from '../../locale.svelte';
 	import * as Alert from '../ui/alert/index.js';
 
@@ -11,6 +12,18 @@
 </script>
 
 <div class="space-y-3 text-sm">
+ <div class="flex gap-3"><button type="button" class="underline" onclick={() => downloadPlan(plan, 'json')}>{t('svcExportJson')}</button><button type="button" class="underline" onclick={() => downloadPlan(plan, 'yaml')}>{t('svcExportYaml')}</button></div>
+ <details class="rounded border p-3"><summary class="cursor-pointer font-medium">{t('svcExpert')}</summary>
+ <p class="my-2 text-muted-foreground">{t(plan.provisionalIds ? 'svcProvisional' : 'svcActualSteps')}</p>
+ {#if !plan.agentSteps?.length}<p>{t('svcNoAgentSteps')}</p>{/if}
+ {#each plan.agentSteps ?? [] as step (step.id)}
+ <div class="my-3"><p class="font-mono text-xs">{step.id} · {step.command ?? t('svcGate')} · {step.target ?? ''}</p>
+ {#if step.note}<p>{step.note}</p>{/if}
+ <pre class="max-h-64 overflow-auto rounded bg-muted p-2 text-xs">{JSON.stringify(step.args ?? {}, null, 2)}</pre>
+ <ul class="list-disc pl-5">{#each step.preconditions ?? [] as condition}<li>{condition}</li>{/each}</ul></div>
+ {/each}
+ </details>
+ {#if plan.rollback}<details class="rounded border p-3"><summary class="cursor-pointer font-medium">{t('svcRollbackPlan')}</summary><PlanBlock plan={plan.rollback} /></details>{/if}
 	<p class="text-muted-foreground">{t('svcPlanIntro')}</p>
 	{#if plan.text}<p class="whitespace-pre-line">{plan.text}</p>{/if}
 	<div>

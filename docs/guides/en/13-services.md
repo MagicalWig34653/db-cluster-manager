@@ -1,12 +1,12 @@
 ---
-title: Services (stub)
+title: Services
 ---
 
-# Services (stub)
+# Services
 
 [Guide index](index.md) | Previous: [Configuration reference](12-configuration-reference.md)
 
-**Status: [Fakes] only.** The service-type framework (work package W07, requirements X03, X06 and X07 in [KONZEPT.md](../../KONZEPT.md)) exists as code and unit tests. It has never run against a Swarm, Docker or Traefik, and the web UI for it has only run against the mock server. This page is a stub that records what exists, so nobody mistakes it for a usable feature.
+**Status: [Fakes] only.** The service-type framework (work package W07, requirements X03, X06 and X07 in [KONZEPT.md](../../KONZEPT.md)) exists as code and unit tests. It has never run against a Swarm, Docker or Traefik, and the web UI for it has only run against the mock server. The UI described below has unit-test evidence; the extended screens still need a browser run and real-manager validation.
 
 ## What exists
 
@@ -90,14 +90,32 @@ Secrets are Swarm secrets that you created beforehand. The spec, plan, logs and 
 
 - **Swarm configs cannot be created yet**: the agent mounts an existing config but has no command to create or remove one. The dynamic Traefik configuration (routers, services, middlewares) therefore still blocks its plan, and the SFTP users file must be created by hand (`usersConfig`) or the plan warns.
 - Published ports work in the agent and the Docker client against fakes only; nothing ran on a Swarm. No storage server image was run, so no client access smoke test, credential rotation or backup exists (all R8 exit gates are open).
-- The storage UI form, CLI and any backup/restore of storage volumes do not exist. The web UI knows only the container and Traefik types.
+- Typed UI forms exist for all seven service types. No CLI or backup/restore of storage volumes exists. Optional S3 Traefik routes and advanced Galera placement are not exposed by these forms.
 - Health, updates, rollback, the galera type and the expert/export view exist with fakes only: no update, rollback or health observation has run against a real Swarm, and Swarm's automatic rollback behaviour is taken from the Docker documentation, not from a lab run.
 - No canary rollout (the field only blocks), no manager-side automatic rollback (the rollback plan must be requested and approved), no backup of service volumes, no CLI.
-- The web UI does not show updates, health, the expert view or the galera type yet.
+- The UI includes health, image updates, rollback, expert steps and downloads. Browser validation of these additions is pending; see the capture limitation below.
 
 ## In the web UI (mock only)
 
-The **Services** page lists managed services and has one form for both types. The three steps are always the same: describe the service, review the plan the manager returns (steps, generated files, warnings, blockers), then approve the operation with the digest it shows. Typing a password into an environment variable is refused: the form tells you to use a Swarm secret instead. A Traefik request with dynamic configuration is shown with its blocker (the agent cannot create Swarm configs yet) and cannot be requested; the mock data still shows the older port blocker. Deleting a service first shows a deletion plan; the data volumes are kept unless you tick the box.
+The **Services** page lists all seven types. Select a Swarm, type, name and pinned image, then complete the fields for that type. Review **Show plan** before requesting anything. Editing the form invalidates the preview. Plans show the manager's steps, files, warnings and blockers; a blocked plan cannot be requested. Traefik dynamic configuration still blocks because the agent cannot deliver Swarm configs; published ports are no longer a blocker.
+
+| Type | Fields in the form |
+| --- | --- |
+| Galera | Size, network, root password secret name, gcache, CPU/memory limits, automatic single-node replacement. Uses cluster permissions and starts without an approval gate. **Open cluster** leads to replacement, recovery and backups. |
+| SFTP | Pinned host, image/digest requirement, networks, resources, SSH publication port/mode, existing users config, host key secret, repeatable users (name, UID/GID, home, read-only, password/authorized-keys secret names). UID must be 1000–60000; home may be empty or an absolute subdirectory, not `/`. Port 0 keeps SSH internal. |
+| FTP / FTPS | Users, transport mode, explicit plaintext opt-in, control port, passive range (maximum 100 ports), passive address, TLS certificate/key secret names and port mode. For implicit FTPS set the control port to 990. |
+| S3 | Root user/password secret names, region/domain, API publication port, console switch/port, port mode and local resources. Port 0 keeps an endpoint internal. Console publication requires the console switch. No replication or storage backup. |
+| NFS | Repeatable exports (path, explicit IPs/CIDRs, read-only and squash policy), publication port and local resources. Preview only: the manager always blocks execution. |
+
+Create the named Swarm secrets beforehand; enter their **names**, never their contents. Storage images must implement the protocol-specific contract above. Choosing an arbitrary SFTP/FTP image does not make it compatible.
+
+**Health.** The list shows healthy, degraded, unhealthy or unknown, task counts, observation time, update state and reasons when supplied. Galera's `unavailable` state appears as unhealthy. Missing or older-than-two-minute observations appear as unknown. The list refreshes every 15 seconds; health never implies a verified backup.
+
+**Image update and rollback.** Container and Traefik rows offer **Update service** when no update/deletion is pending. Change the image while retaining the rest of the stored spec. Configure stop-first/start-first, tasks per batch, delay, monitor window, maximum failure ratio and rollback/pause on failure. Canary replica/hold fields are preview-only: a canary plan is blocked. Show the plan, review its prepared rollback plan, request the update and approve the returned operation digest. The stored spec changes only after success. **Restore previous spec** is enabled only when the manager reports a previous spec; it sends `rollback: true` without a spec and requires a fresh plan and approval. Galera and storage types have no generic update button. A volume-backed service cannot use start-first.
+
+**Export and expert view.** Every displayed create, deletion, update or rollback plan offers JSON and YAML downloads. These export the displayed response locally, including warnings, blockers, rollback and expert fields; YAML uses JSON syntax inside a YAML 1.2 document to preserve the response without conversion losses. **Expert view: agent steps** shows each returned command, target, arguments and preconditions; steps without commands are gates. Preview IDs are labelled provisional. After a request, the returned operation plan is shown too. Mock steps are explicitly illustrative and do not establish what a real agent executed. Backend diagnostic text is shown verbatim; UI labels are translated.
+
+**Capture limitation (2026-10-24).** Playwright and cached Chromium were found, but this session's sandbox refused both the mock server's local port (`EPERM`) and Chromium's MachPortRendezvous registration (`Permission denied`). No new screenshots or browser assertions were completed. The following captures are from the earlier container/Traefik UI and do not show these additions. For new DE/EN mock captures, copy [services.mjs](../../../scripts/screenshots/services.mjs) beside a scratch Playwright install, run `npm run dev:mock -- --host 127.0.0.1 --port 5199 --strictPort` from `web`, and run `node services.mjs <output-directory>`. Review and copy the resulting `*-mock.png` files into `docs/assets/screenshots`, then replace these images and the README table entries. The script itself passed `node --check`; its browser flow has not run.
 
 ![Services page: container request, plan and approval](../../assets/screenshots/en-light-services.png)
 
@@ -107,4 +125,4 @@ The **Services** page lists managed services and has one form for both types. Th
 
 *Screenshot from the development mock server (`npm run dev:mock`, invented sample data), not from a real manager.*
 
-The UI has only run against the mock server; no service was ever created on a Swarm [Mock only].
+The extended service UI has not run against a real manager or Swarm. The older screenshots below/above show mock data only.

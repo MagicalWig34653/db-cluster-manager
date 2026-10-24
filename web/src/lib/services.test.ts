@@ -136,7 +136,7 @@ describe('plans and responses', () => {
 	});
 	it('guards plan and started responses', () => {
 		expect(isServicePlan(plan())).toBe(true);
-		expect(isServicePlan({ ...plan(), kind: 'update' })).toBe(false);
+		expect(isServicePlan({ ...plan(), kind: 'update' })).toBe(true);
 		expect(isServicePlan({ ...plan(), steps: [{ kind: 'x' }] })).toBe(false);
 		const started = { service: 'svc-1', operation: { id: 'op-1' }, approval: { digest: 'a'.repeat(64) }, plan: plan() };
 		expect(isServiceStarted(started)).toBe(true);

@@ -793,7 +793,7 @@ export const isOutageRecoveryStarted = (v: unknown): v is OutageRecoveryStarted 
 // Services, image builds, registries, maintenance, drift, keyring
 // (api/openapi.yaml; all implemented with fakes only on the manager side).
 
-export const serviceTypes = ['container', 'traefik'] as const;
+export const serviceTypes = ['container', 'traefik', 'galera', 'sftp', 'ftp', 's3', 'nfs'] as const;
 export type ServiceType = (typeof serviceTypes)[number];
 
 /** Request body of POST /services and POST /services/plan. The spec is type specific and holds no secret values. */
@@ -804,6 +804,26 @@ export interface ServiceInput {
 	spec: Record<string, unknown>;
 }
 
+export interface ServiceHealth {
+ state: 'healthy' | 'degraded' | 'unhealthy' | 'unavailable' | 'unknown';
+ reasons?: string[];
+ running: number;
+ desired: number;
+ updateState?: string;
+ observedAt?: string;
+}
+export interface ServiceUpdateInput {
+ spec?: Record<string, unknown>;
+ rollback?: boolean;
+ strategy: {
+  order: 'stop-first' | 'start-first'; parallelism: number; delaySeconds: number;
+  monitorSeconds: number; maxFailureRatio: number; onFailure: 'rollback' | 'pause';
+  canary?: { replicas: number; holdSeconds: number };
+ };
+}
+export interface AgentStep {
+ id: string; command?: string; target?: string; args?: unknown; preconditions: string[] | null; note?: string;
+}
 export interface ServiceInfo {
 	id: string;
 	swarm: string;
@@ -814,6 +834,9 @@ export interface ServiceInfo {
 	createdAt?: string;
 	createOperation?: string;
 	deleteOperation?: string;
+ updateOperation?: string;
+ rollbackable?: boolean;
+ health?: ServiceHealth;
 }
 
 export interface PlanStep {
@@ -831,7 +854,10 @@ export interface ServiceArtifact {
 }
 
 export interface ServicePlan {
-	kind: 'create' | 'delete';
+ agentSteps?: AgentStep[];
+ provisionalIds?: boolean;
+ rollback?: ServicePlan;
+	kind: 'create' | 'delete' | 'update';
 	type: string;
 	name: string;
 	steps: PlanStep[];
@@ -1210,11 +1236,12 @@ const isPlanStep = (v: unknown): v is PlanStep =>
 	isObj(v) && isStr(v.id) && isStr(v.kind) && optStr(v.slot) && optStr(v.note) && (v.conditions === undefined || strArray(v.conditions));
 
 export const isServiceInfo: Guard<ServiceInfo> = (v): v is ServiceInfo =>
-	isObj(v) && isStr(v.id) && isStr(v.swarm) && isStr(v.name) && isStr(v.type) && isObj(v.spec) && optStr(v.createdBy) && optDate(v.createdAt) && optStr(v.createOperation) && optStr(v.deleteOperation);
+	isObj(v) && isStr(v.id) && isStr(v.swarm) && isStr(v.name) && isStr(v.type) && isObj(v.spec) && optStr(v.createdBy) && optDate(v.createdAt) && optStr(v.createOperation) && optStr(v.deleteOperation) && optStr(v.updateOperation) && (v.rollbackable === undefined || isBool(v.rollbackable)) &&
+ (v.health === undefined || (isObj(v.health) && oneOf(['healthy', 'degraded', 'unhealthy', 'unavailable', 'unknown'] as const)(v.health.state) && isNum(v.health.running) && isNum(v.health.desired) && optDate(v.health.observedAt) && optStr(v.health.updateState) && (v.health.reasons === undefined || strArray(v.health.reasons))));
 
 export const isServicePlan = (v: unknown): v is ServicePlan =>
 	isObj(v) &&
-	(v.kind === 'create' || v.kind === 'delete') &&
+	(v.kind === 'create' || v.kind === 'delete' || v.kind === 'update') &&
 	isStr(v.type) &&
 	isStr(v.name) &&
 	Array.isArray(v.steps) &&
@@ -1225,7 +1252,10 @@ export const isServicePlan = (v: unknown): v is ServicePlan =>
 	strArray(v.blockers) &&
 	isBool(v.executable) &&
 	isBool(v.requiresApproval) &&
-	isStr(v.text);
+	isStr(v.text) &&
+ (v.provisionalIds === undefined || isBool(v.provisionalIds)) &&
+ (v.agentSteps === undefined || (Array.isArray(v.agentSteps) && v.agentSteps.every((s) => isObj(s) && isStr(s.id) && optStr(s.command) && optStr(s.target) && optStr(s.note) && (s.preconditions === null || strArray(s.preconditions))))) &&
+ (v.rollback === undefined || isServicePlan(v.rollback));
 
 export const isServiceStarted = (v: unknown): v is ServiceStarted =>
 	isObj(v) && isStr(v.service) && isOperationRef(v.operation) && isApproval(v.approval) && isServicePlan(v.plan);
@@ -1610,6 +1640,8 @@ export function createClient(fetchFn: FetchFn) {
 		// --- Services, image builds, registries, maintenance, drift, keyring.
 		services: () => items(call('GET', '/services', listOf(isServiceInfo))),
 		previewService: (input: ServiceInput) => call('POST', '/services/plan', isServicePlan, input),
+  previewServiceUpdate: (id: string, input: ServiceUpdateInput) => call('POST', `/services/${encodeURIComponent(id)}/update-plan`, isServicePlan, input),
+  updateService: (id: string, input: ServiceUpdateInput) => call('POST', `/services/${encodeURIComponent(id)}/update`, isServiceStarted, input),
 		createService: (input: ServiceInput) => call('POST', '/services', isServiceStarted, input),
 		previewServiceDelete: (id: string, removeVolumes: boolean) =>
 			call('GET', `/services/${encodeURIComponent(id)}/delete-plan${removeVolumes ? '?removeVolumes=true' : ''}`, isServicePlan),

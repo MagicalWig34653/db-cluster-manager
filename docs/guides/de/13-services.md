@@ -1,12 +1,12 @@
 ---
-title: Dienste (Entwurf)
+title: Dienste
 ---
 
-# Dienste (Entwurf)
+# Dienste
 
 [Handbuchindex](index.md) | Zurück: [Konfigurationsreferenz](12-configuration-reference.md)
 
-**Stand: nur [Fakes].** Das Dienstetyp-Framework (Arbeitspaket W07, Anforderungen X03, X06 und X07 in [KONZEPT.md](../../KONZEPT.md)) existiert als Code mit Unit-Tests. Es lief nie gegen einen Swarm, Docker oder Traefik, und die Oberfläche dafür lief nur gegen den Mock-Server. Diese Seite ist ein Platzhalter, damit niemand sie für eine nutzbare Funktion hält.
+**Stand: nur [Fakes].** Das Dienstetyp-Framework (Arbeitspaket W07, Anforderungen X03, X06 und X07 in [KONZEPT.md](../../KONZEPT.md)) existiert als Code mit Unit-Tests. Es lief nie gegen einen Swarm, Docker oder Traefik, und die Oberfläche dafür lief nur gegen den Mock-Server. Für die unten beschriebenen UI-Erweiterungen gibt es Unit-Tests; Browserprüfung und Prüfung am echten Manager stehen noch aus.
 
 ## Was es gibt
 
@@ -90,14 +90,32 @@ Secrets sind Swarm-Secrets, die Sie vorher angelegt haben. Spezifikation, Plan, 
 
 - **Swarm-Configs können noch nicht angelegt werden**: Der Agent hängt eine vorhandene Config ein, hat aber keinen Befehl, sie anzulegen oder zu entfernen. Die dynamische Traefik-Konfiguration (Router, Services, Middlewares) blockiert deshalb weiterhin ihren Plan, und die SFTP-Benutzerdatei muss von Hand angelegt werden (`usersConfig`), sonst warnt der Plan.
 - Veröffentlichte Ports funktionieren in Agent und Docker-Client nur gegen Fakes; nichts lief auf einem Swarm. Es lief kein Speicherserver-Image, also gibt es keinen Client-Zugriffstest, keine Zugangsdaten-Rotation und keine Sicherung (alle R8-Abnahmekriterien sind offen).
-- Ein Formular für Speichertypen in der Oberfläche, eine CLI und Sicherung/Wiederherstellung von Speicher-Volumes gibt es nicht. Die Oberfläche kennt nur Container und Traefik.
+- Typisierte Formulare gibt es für alle sieben Diensttypen. CLI und Sicherung/Wiederherstellung von Speicher-Volumes fehlen. Optionale S3-Traefik-Routen und erweiterte Galera-Platzierung sind in diesen Formularen nicht verfügbar.
 - Gesundheit, Updates, Rollback, der galera-Typ und die Experten-/Exportansicht existieren nur mit Fakes: Kein Update, kein Rollback und keine Gesundheitsbeobachtung lief gegen einen echten Swarm, und das automatische Rollback-Verhalten von Swarm stammt aus der Docker-Dokumentation, nicht aus einem Laborlauf.
 - Kein Canary-Rollout (das Feld blockiert nur), kein automatisches Rollback durch den Manager (der Rollback-Plan muss beantragt und freigegeben werden), keine Sicherung von Dienst-Volumes, keine CLI.
-- Die Web-Oberfläche zeigt Updates, Gesundheit, Expertenansicht und den galera-Typ noch nicht.
+- Die Oberfläche enthält Zustand, Image-Updates, Rollback, Expertenansicht und Downloads. Die Browserprüfung dieser Ergänzungen steht aus; siehe die Aufnahmegrenze unten.
 
 ## In der Web-Oberfläche (nur Mock)
 
-Die Seite **Dienste** listet verwaltete Dienste und hat ein Formular für beide Typen. Die drei Schritte sind immer gleich: Dienst beschreiben, den vom Manager gelieferten Plan prüfen (Schritte, erzeugte Dateien, Warnungen, Blocker) und die Operation mit dem angezeigten Digest freigeben. Ein Passwort in einer Umgebungsvariable wird abgelehnt: Das Formular verweist stattdessen auf ein Swarm-Secret. Eine Traefik-Anforderung mit dynamischer Konfiguration wird mit ihrem Blocker gezeigt (der Agent kann noch keine Swarm-Configs anlegen) und kann nicht angefordert werden; die Mock-Daten zeigen noch den älteren Port-Blocker. Beim Löschen sieht man zuerst einen Löschplan; die Daten-Volumes bleiben erhalten, außer man setzt den Haken.
+Die Seite **Dienste** listet alle sieben Typen. Swarm, Typ, Name und festgelegtes Image wählen und die typspezifischen Felder ausfüllen. Zuerst **Plan anzeigen** wählen und Schritte, Dateien, Warnungen und Blocker prüfen. Änderungen am Formular machen die Vorschau ungültig. Ein blockierter Plan kann nicht angefordert werden. Dynamische Traefik-Konfiguration bleibt blockiert, weil der Agent keine Swarm-Configs ausliefern kann; veröffentlichte Ports sind kein Blocker mehr.
+
+| Typ | Formularfelder |
+| --- | --- |
+| Galera | Größe, Netzwerk, Secret-Name des Root-Passworts, Gcache, CPU-/Speicherlimits und automatischer Einzelknotenersatz. Nutzt Cluster-Berechtigungen und startet ohne Freigabeschritt. **Cluster öffnen** führt zu Ersatz, Wiederherstellung und Backups. |
+| SFTP | Fester Host, Image/Digest-Pflicht, Netzwerke, Ressourcen, SSH-Port/-Modus, vorhandene Benutzer-Config, Hostschlüssel-Secret sowie mehrere Benutzer mit Name, UID/GID, Home, Nur-Lesen-Option und Secret-Namen für Passwort/Schlüssel. UID: 1000–60000. Home darf leer oder ein absoluter Unterpfad sein, nicht `/`. Port 0 hält SSH intern. |
+| FTP / FTPS | Benutzer, Transportmodus, explizite Klartextfreigabe, Steuerport, passiver Bereich (höchstens 100 Ports), passive Adresse, Zertifikat-/Schlüssel-Secret-Namen und Portmodus. Bei implizitem FTPS den Steuerport auf 990 setzen. |
+| S3 | Secret-Namen für Root-Benutzer/-Passwort, Region/Domain, API-Port, Konsolenschalter/-Port, Portmodus und lokale Ressourcen. Port 0 hält einen Endpunkt intern. Ein Konsolenport benötigt den Konsolenschalter. Keine Replikation oder Speichersicherung. |
+| NFS | Mehrere Freigaben mit Pfad, expliziten IPs/CIDRs, Nur-Lesen-Option und Squash-Regel sowie Port und lokale Ressourcen. Nur Vorschau: Der Manager blockiert die Ausführung immer. |
+
+Die referenzierten Swarm-Secrets vorher anlegen; ausschließlich ihre **Namen**, nie Inhalte eingeben. Storage-Images müssen den oben beschriebenen Protokollvertrag erfüllen. Ein beliebiges SFTP-/FTP-Image wird durch die Auswahl nicht automatisch kompatibel.
+
+**Zustand.** Die Liste zeigt gesund, beeinträchtigt, ungesund oder unbekannt sowie Task-Zahlen, Beobachtungszeit, Update-Zustand und Gründe, soweit gemeldet. Galeras `unavailable` erscheint als ungesund. Fehlende oder mehr als zwei Minuten alte Beobachtungen gelten als unbekannt. Die Liste aktualisiert sich alle 15 Sekunden. Ein gesunder Zustand bestätigt kein Backup.
+
+**Image-Update und Rollback.** Container und Traefik bieten **Service aktualisieren**, wenn kein Update und keine Löschung aussteht. Das Image kann geändert werden; die übrige gespeicherte Spezifikation bleibt erhalten. Stop-first/Start-first, Tasks pro Durchlauf, Pause, Beobachtungsfenster, maximalen Fehleranteil und Rollback/Pause bei Fehlern einstellen. Canary-Tasks und Wartezeit dienen nur der Vorschau: Canary-Pläne sind blockiert. Plan einschließlich vorbereitetem Rollback prüfen, Update anfordern und den zurückgegebenen Operations-Digest freigeben. Erst nach Erfolg ändert sich die gespeicherte Spezifikation. **Vorherige Spezifikation wiederherstellen** ist nur verfügbar, wenn der Manager eine vorige Spezifikation meldet; es sendet `rollback: true` ohne Spezifikation und benötigt einen neuen Plan mit Freigabe. Galera und Storage bieten kein generisches Update. Start-first ist bei lokalen Volumes nicht erlaubt.
+
+**Export und Expertenansicht.** Jeder angezeigte Anlage-, Lösch-, Update- oder Rollback-Plan bietet JSON- und YAML-Downloads des angezeigten Dokuments einschließlich Warnungen, Blockern, Rollback und Agent-Feldern. YAML nutzt JSON-Syntax in einem YAML-1.2-Dokument, damit keine Antwortfelder bei einer Umwandlung verloren gehen. **Expertenansicht: Agent-Schritte** zeigt Befehle, Zielhost, Argumente und Vorbedingungen; Schritte ohne Befehl sind Prüfschranken. Vorschau-IDs sind als vorläufig gekennzeichnet. Nach einer Anforderung wird auch deren zurückgegebener Operationsplan gezeigt. Mock-Schritte sind ausdrücklich illustrativ und kein Nachweis ausgeführter Agent-Befehle. Backend-Diagnosetexte werden unverändert angezeigt; die UI-Beschriftungen sind übersetzt.
+
+**Aufnahmegrenze (24.10.2026).** Playwright und Chromium-Cache wurden gefunden. Die Sandbox dieser Sitzung verweigerte sowohl den lokalen Port des Mock-Servers (`EPERM`) als auch Chromiums MachPortRendezvous-Anmeldung (`Permission denied`). Neue Screenshots und Browserprüfungen wurden daher nicht abgeschlossen. Die folgenden älteren Mock-Aufnahmen zeigen die bisherigen Container-/Traefik-Formulare, nicht die Erweiterungen. Für neue DE-/EN-Mock-Aufnahmen [services.mjs](../../../scripts/screenshots/services.mjs) neben eine Playwright-Installation außerhalb des Repos kopieren, in `web` den Befehl `npm run dev:mock -- --host 127.0.0.1 --port 5199 --strictPort` starten und `node services.mjs <Ausgabeverzeichnis>` ausführen. Die erzeugten `*-mock.png` prüfen, nach `docs/assets/screenshots` kopieren und die Bilder hier und in der README-Tabelle ersetzen. `node --check` für das Skript war erfolgreich; sein Browserablauf wurde nicht ausgeführt.
 
 ![Seite Dienste: Container-Anforderung, Plan und Freigabe](../../assets/screenshots/de-light-services.png)
 
@@ -107,4 +125,4 @@ Die Seite **Dienste** listet verwaltete Dienste und hat ein Formular für beide 
 
 *Bildschirmfoto aus dem Entwicklungs-Mock-Server (`npm run dev:mock`, erfundene Beispieldaten), nicht von einem echten Manager.*
 
-Die Oberfläche lief nur gegen den Mock-Server; es wurde nie ein Dienst auf einem Swarm angelegt [Nur Mock].
+Die erweiterten Dienstansichten wurden nicht gegen einen echten Manager oder Swarm ausgeführt. Die älteren Aufnahmen zeigen ausschließlich Mock-Daten.

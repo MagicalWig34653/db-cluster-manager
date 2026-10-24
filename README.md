@@ -43,9 +43,10 @@ All from the development mock server with invented data; they show the interface
 | **Cluster wizard** | **Dark mode** |
 | ![Cluster creation wizard](docs/assets/screenshots/en-light-create-wizard.png) | ![Cluster detail in dark mode](docs/assets/screenshots/en-dark-cluster-detail.png) |
 
-| **Services (container request, plan, approval)** | **Image composer with Dockerfile and plan** |
+| **Services (earlier mock capture: container request, plan, approval)** | **Image composer with Dockerfile and plan** |
 | --- | --- |
 | ![Services page](docs/assets/screenshots/en-light-services.png) | ![Image composer](docs/assets/screenshots/en-light-images.png) |
+| Extended service forms, health and updates: [EN guide](docs/guides/en/13-services.md), [DE-Anleitung](docs/guides/de/13-services.md). New mock captures pending: sandbox blocks local ports and Chromium. | [DE/EN mock capture script](scripts/screenshots/services.mjs) (browser flow not executed) |
 | **Host maintenance plan** | **Drift check** |
 | ![Host maintenance plan](docs/assets/screenshots/en-light-host-maintenance.png) | ![Drift check](docs/assets/screenshots/en-light-drift.png) |
 | **Replicas and keyring** | **Logical backup and retention** |

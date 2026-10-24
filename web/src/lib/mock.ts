@@ -1,3 +1,5 @@
+import { mockServicePlan as servicePlan, mockUpdatePlan } from './mock-services';
+import type { ServiceInput } from './api';
 // Development-only fixture server, loaded by api.ts only when
 // import.meta.env.DEV && VITE_MOCK=1. Production builds never import it.
 // Every fixture is invented sample data; the UI shows a "MOCK DATA" banner
@@ -164,10 +166,17 @@ const json = (status: number, body: unknown) =>
 // Services, image builds, registries, maintenance, drift and keyring mocks.
 // Invented data; the real manager implements these endpoints with fakes only.
 
+const previousServiceSpecs = new Map<string, Record<string, unknown>>();
+const pendingServiceUpdates = new Map<string, { service: Record<string, unknown>; spec: Record<string, unknown> }>();
 const services: Record<string, unknown>[] = [
-	{ id: 'mock-svc-1', swarm: 'mock-swarm-a', name: 'shop-web', type: 'container', spec: { image: 'nginx:1.27', replicas: 2, placement: {}, resources: { limits: {}, reservations: {} } }, createdBy: 'mock-admin', createdAt: ago(2000) },
-	{ id: 'mock-svc-2', swarm: 'mock-swarm-a', name: 'shop-db-files', type: 'container', spec: { image: 'registry.example.invalid/team/files:2.4', replicas: 1, volumes: [{ name: 'data', target: '/srv/files' }], placement: { hostId: 'mock-host-2' }, resources: { limits: {}, reservations: {} } }, createdBy: 'mock-admin', createdAt: ago(900) }
+	{ id: 'mock-svc-1', swarm: 'mock-swarm-a', name: 'shop-web', type: 'container', spec: { image: 'nginx:1.27', replicas: 2, placement: {}, resources: { limits: {}, reservations: {} } }, createdBy: 'mock-admin', createdAt: ago(2000), rollbackable: true, health: { state: 'healthy', running: 2, desired: 2, observedAt: ago(0), reasons: [] } },
+	{ id: 'mock-svc-2', swarm: 'mock-swarm-a', name: 'shop-db-files', type: 'container', spec: { image: 'registry.example.invalid/team/files:2.4', replicas: 1, volumes: [{ name: 'data', target: '/srv/files' }], placement: { hostId: 'mock-host-2' }, resources: { limits: {}, reservations: {} } }, createdBy: 'mock-admin', createdAt: ago(900), health: { state: 'degraded', running: 1, desired: 1, observedAt: ago(0), updateState: 'rollback_completed', reasons: ['Mock: update rolled back'] } }
 ];
+services.push(
+ { id: 'mock-galera', swarm: 'mock-swarm-a', name: 'Mock Galera', type: 'galera', spec: { image: 'mariadb:11.4', size: 3 }, health: { state: 'unavailable', running: 1, desired: 3, observedAt: ago(0), reasons: ['Mock: wsrep quorum unavailable'] } },
+ { id: 'mock-svc-stale', swarm: 'mock-swarm-a', name: 'mock-stale-sftp', type: 'sftp', spec: { image: 'example.invalid/sftp:1', placement: { hostId: 'mock-host-2' } }, health: { state: 'unknown', running: 0, desired: 1, observedAt: ago(300), reasons: ['Mock: observation stale'] } }
+);
+previousServiceSpecs.set('mock-svc-1', { ...(services[0].spec as Record<string, unknown>), image: 'nginx:1.26' });
 const registries: Record<string, unknown>[] = [
 	{ id: 'ghcr-main', name: 'GitHub Container Registry (team)', kind: 'ghcr', username: 'ci-bot', credentialSet: true, createdBy: 'mock-admin' },
 	{ id: 'local-lab', name: 'Lab registry', kind: 'generic', endpoint: 'https://registry.example.invalid', credentialSet: false, createdBy: 'mock-admin' }
@@ -182,34 +191,6 @@ const replicas: Record<string, unknown>[] = [
 	{ id: 'manager-3', address: '10.0.0.13:7001', leader: false, hasCurrentKey: false }
 ];
 const keyring = { currentKey: 'key-2026-10', recoverable: false, replicas };
-
-const traefikArtifact = (spec: any) =>
-	`http:\n  routers:\n${(spec.routers ?? []).map((r: any) => `    ${r.name}:\n      rule: Host(\`${r.match?.hosts?.[0]}\`)\n      service: ${r.service}\n`).join('')}  services:\n${(spec.services ?? []).map((x: any) => `    ${x.name}:\n      loadBalancer:\n        servers:\n          - url: ${x.servers?.[0]}\n`).join('')}`;
-
-function servicePlan(kind: 'create' | 'delete', input: any, removeVolumes = false) {
-	const traefik = input.type === 'traefik';
-	if (kind === 'delete') {
-		return {
-			kind, type: input.type, name: input.name, requiresApproval: true, executable: true, warnings: removeVolumes ? ['Mock: the data volumes and their data will be deleted.'] : [], blockers: [], artifacts: [],
-			steps: [{ id: 'remove-service', kind: 'remove-service', note: 'Remove the Swarm service ' + input.name }, ...(removeVolumes ? [{ id: 'remove-volumes', kind: 'remove-volume', note: 'Delete managed volumes (irreversible)' }] : [])],
-			text: removeVolumes ? 'Removes the service and its data volumes.' : 'Removes the service. Managed volumes and their data are kept.'
-		};
-	}
-	const spec = input.spec ?? {};
-	return {
-		kind, type: input.type, name: input.name, requiresApproval: true,
-		executable: !traefik, warnings: traefik ? ['Mock: the staging CA issues certificates that browsers do not trust.'] : [],
-		blockers: traefik ? ['published ports cannot be created yet (entry points web:80, websecure:443)', 'configuration files cannot be delivered to the service yet'] : [],
-		steps: [
-			...(Array.isArray(spec.volumes) && spec.volumes.length ? [{ id: 'create-volume', kind: 'create-volume', note: 'Managed local volume on ' + (spec.placement?.hostId ?? 'the pinned host') }] : []),
-			{ id: 'create-service', kind: 'create-service', note: 'Create the Swarm service ' + input.name + ' from image ' + spec.image, conditions: ['image is pinned', 'no secret values in the spec'] }
-		],
-		artifacts: traefik
-			? [{ name: 'dynamic.yml', mediaType: 'application/yaml', content: traefikArtifact(spec) }]
-			: [{ name: 'service.json', mediaType: 'application/json', content: JSON.stringify({ name: input.name, image: spec.image, replicas: spec.replicas, placement: spec.placement, restart: spec.restart }, null, 2) }],
-		text: traefik ? 'Creates a Traefik service with the rendered routing configuration.' : 'Creates one Swarm service from the pinned image.'
-	};
-}
 
 function dockerfile(req: any) {
 	const n = req.spec.nginx;
@@ -276,17 +257,32 @@ function platformMock(method: string, path: string, query: URLSearchParams, body
 			const plan = servicePlan('create', body);
 			if (!plan.executable) return json(409, { error: 'conflict' });
 			const op = pendingOp('service/create', 'mock-galera', 'f', plan.steps.length);
-			(op as any).cluster = undefined;
+			if (body.type !== 'galera') (op as any).cluster = undefined;
+   else { op.state = 'running'; (op as any).approval = undefined; delete (op as any).reason; }
 			const created = { id: 'mock-svc-' + ++opSeq, swarm: body.swarm, name: body.name, type: body.type, spec: body.spec, createdBy: 'mock-admin', createdAt: new Date().toISOString(), createOperation: op.id };
 			services.push(created);
-			return json(202, { service: created.id, operation: { id: op.id, kind: op.kind }, approval: op.approval, plan });
+			return json(202, { service: created.id, operation: { id: op.id, kind: op.kind }, approval: op.approval ?? { digest: '' }, plan: { ...plan, provisionalIds: false } });
 		}
 	}
 	if (path === P + '/services/plan' && method === 'POST') return json(200, servicePlan('create', body));
-	let m = path.match(/^\/api\/v1\/services\/([^/]+)\/delete-plan$/);
+	let m = path.match(/^\/api\/v1\/services\/([^/]+)\/(update-plan|update)$/);
+ if (m && method === 'POST') {
+  const svc = services.find(x => x.id === decodeURIComponent(m![1]));
+  if (!svc) return json(404, { error: 'not_found' });
+  if (!['container', 'traefik'].includes(String(svc.type))) return json(409, { error: 'conflict' });
+  const plan = mockUpdatePlan(svc as unknown as ServiceInput, body, previousServiceSpecs.get(String(svc.id)));
+  if (m[2] === 'update-plan') return json(200, plan);
+  if (!plan.executable || svc.updateOperation) return json(409, { error: 'conflict' });
+  const op = pendingOp('service/update', 'mock-galera', 'e', plan.steps.length);
+  delete (op as any).cluster;
+  svc.updateOperation = op.id;
+  pendingServiceUpdates.set(String(op.id), { service: svc, spec: body.rollback ? previousServiceSpecs.get(String(svc.id))! : body.spec });
+  return json(202, { service: svc.id, operation: { id: op.id, kind: op.kind }, approval: op.approval, plan: { ...plan, provisionalIds: false } });
+ }
+ m = path.match(/^\/api\/v1\/services\/([^/]+)\/delete-plan$/);
 	if (m && method === 'GET') {
 		const svc: any = services.find((x: any) => x.id === decodeURIComponent(m![1]));
-		return svc ? json(200, servicePlan('delete', svc, query.get('removeVolumes') === 'true')) : json(404, { error: 'not_found' });
+		return svc ? json(200, servicePlan('delete', svc as ServiceInput, query.get('removeVolumes') === 'true')) : json(404, { error: 'not_found' });
 	}
 	m = path.match(/^\/api\/v1\/services\/([^/]+)$/);
 	if (m) {
@@ -294,10 +290,10 @@ function platformMock(method: string, path: string, query: URLSearchParams, body
 		if (!svc) return json(404, { error: 'not_found' });
 		if (method === 'GET') return json(200, svc);
 		if (method === 'DELETE') {
-			const plan = servicePlan('delete', svc, !!body?.removeVolumes);
+			const plan = servicePlan('delete', svc as ServiceInput, !!body?.removeVolumes);
 			const op = pendingOp('service/delete', 'mock-galera', '1', plan.steps.length);
 			svc.deleteOperation = op.id;
-			return json(202, { service: svc.id, operation: { id: op.id, kind: op.kind }, approval: op.approval, plan });
+			return json(202, { service: svc.id, operation: { id: op.id, kind: op.kind }, approval: op.approval ?? { digest: '' }, plan: { ...plan, provisionalIds: false } });
 		}
 	}
 	if (path === P + '/image-builds') {
@@ -415,10 +411,16 @@ export const mockFetch: typeof fetch = async (input, init) => {
 				if (body.digest !== a.digest) return json(409, { error: 'approval_mismatch' });
 				a.approvedBy = 'mock-admin';
 				a.approvedAt = new Date().toISOString();
-				op.state = 'running';
+    const pending = pendingServiceUpdates.get(String(op.id));
+    if (pending) {
+     previousServiceSpecs.set(String(pending.service.id), pending.service.spec as Record<string, unknown>);
+     pending.service.spec = pending.spec; pending.service.rollbackable = true;
+     delete pending.service.updateOperation; pendingServiceUpdates.delete(String(op.id));
+     op.state = 'succeeded';
+    } else op.state = 'running';
 				return json(200, a);
 			}
-			if (m[2] === 'abort') op.state = 'aborted';
+			if (m[2] === 'abort') { op.state = 'aborted'; const pending = pendingServiceUpdates.get(String(op.id)); if (pending) { delete pending.service.updateOperation; pendingServiceUpdates.delete(String(op.id)); } }
 			else op.state = 'running';
 			return json(202, { id: op.id, kind: op.kind });
 		}

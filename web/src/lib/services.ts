@@ -1,9 +1,10 @@
-// Pure rules for the service request form (container and Traefik types) and
+// Pure rules for typed service request forms and
 // for reading a service plan. The manager validates every request again with
 // the same rules (internal/service); these checks only keep the form honest
 // and explain problems before a plan is requested.
 
-import type { ServiceInput, ServicePlan, ServiceType } from './api';
+import { buildDetails, emptyDetails, validateDetails, type ServiceDetails } from './service-details';
+import type { ServiceHealth, ServiceInfo, ServiceInput, ServicePlan, ServiceType, ServiceUpdateInput } from './api';
 
 export const serviceNameRE = /^[a-z][a-z0-9-]{0,30}$/;
 const envNameRE = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
@@ -25,6 +26,7 @@ export interface RouteRow {
 }
 
 export interface ServiceForm {
+	details: ServiceDetails;
 	swarm: string;
 	name: string;
 	type: ServiceType;
@@ -48,6 +50,7 @@ export interface ServiceForm {
 }
 
 export const emptyServiceForm = (type: ServiceType = 'container'): ServiceForm => ({
+	details: emptyDetails(),
 	swarm: '',
 	name: '',
 	type,
@@ -68,6 +71,7 @@ export const emptyServiceForm = (type: ServiceType = 'container'): ServiceForm =
 });
 
 export type ServiceFormError =
+	| 'details'
 	| 'swarm'
 	| 'name'
 	| 'image'
@@ -185,12 +189,13 @@ export function validateServiceForm(f: ServiceForm): ServiceFormError[] {
 		if (list(f.networks).some((n) => !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(n))) out.push('networks');
 		if (f.cpuMilli.trim() !== '' && !wholeNumber(f.cpuMilli, 1, 1_000_000)) out.push('cpu');
 		if (f.memoryMiB.trim() !== '' && !wholeNumber(f.memoryMiB, 4, 1_048_576)) out.push('memory');
-	} else {
+	} else if (f.type === 'traefik') {
 		const rows = f.routes.filter((r) => r.host.trim() !== '' || r.backend.trim() !== '');
 		if (rows.some((r) => !hostNameRE.test(r.host.trim()) || !backendURL(r.backend))) out.push('routes');
 		if (f.acmeEmail.trim() !== '' && !emailRE.test(f.acmeEmail.trim())) out.push('email');
 		if (rows.some((r) => r.tls) && f.acmeEmail.trim() === '') out.push('tlsEmail');
 	}
+	if (f.type !== 'container' && f.type !== 'traefik' && !validateDetails(f.type, f.details, f.hostId)) out.push('details');
 	return out;
 }
 
@@ -226,6 +231,7 @@ export function buildServiceInput(f: ServiceForm): ServiceInput {
 			}
 		};
 	}
+	if (f.type !== 'traefik') return { swarm: f.swarm, name: f.name, type: f.type, spec: buildDetails(f.type, f.details, f.image.trim(), f.hostId) };
 	const rows = f.routes.filter((r) => r.host.trim() !== '' && r.backend.trim() !== '');
 	const tls = rows.some((r) => r.tls) && f.acmeEmail.trim() !== '';
 	return {
@@ -279,3 +285,20 @@ export function planView(p: ServicePlan): PlanView {
 
 /** First 12 characters of a digest for tables; the full value is always available on request. */
 export const shortDigest = (d: string): string => d.replace(/^sha256:/, '').slice(0, 12);
+
+/** No observation or an observation older than the backend freshness window is unknown. */
+export function serviceHealth(health?: ServiceHealth, now = Date.now()): Exclude<ServiceHealth['state'], 'unavailable'> {
+ if (!health?.observedAt || !Number.isFinite(Date.parse(health.observedAt)) || now - Date.parse(health.observedAt) > 120_000) return 'unknown';
+ return health.state === 'unavailable' ? 'unhealthy' : health.state;
+}
+export const canUpdateService = (s: ServiceInfo) => ['container', 'traefik'].includes(s.type) && !s.deleteOperation && !s.updateOperation;
+export const defaultStrategy = (): ServiceUpdateInput['strategy'] => ({ order: 'stop-first', parallelism: 1, delaySeconds: 0, monitorSeconds: 30, maxFailureRatio: 0, onFailure: 'rollback' });
+/** JSON is a YAML 1.2 document too; preserve every backend field without lossy conversion. */
+export function planExport(plan: ServicePlan, format: 'json' | 'yaml'): string {
+ return (format === 'yaml' ? '%YAML 1.2\n---\n' : '') + JSON.stringify(plan, null, 2) + '\n';
+}
+export function downloadPlan(plan: ServicePlan, format: 'json' | 'yaml') {
+ const url = URL.createObjectURL(new Blob([planExport(plan, format)], { type: format === 'yaml' ? 'application/yaml' : 'application/json' }));
+ const a = document.createElement('a'); a.href = url; a.download = `service-${plan.kind}-plan.${format}`; a.click();
+ setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
