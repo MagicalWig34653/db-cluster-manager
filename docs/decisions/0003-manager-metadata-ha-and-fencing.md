@@ -110,3 +110,9 @@ Findings for the design:
 
 - Lima forwards guest loopback listeners to host loopback by default, so the unauthenticated harness was reachable on host `127.0.0.1:18101-18103`.
 - A VM clock was off by about 240 ms right after a power cut and restart.
+
+### Evidence (lab VMs, 2026-10-24, real manager)
+
+- E4 re-run A4 ([record](../../tests/p0/results/e4-rerun-A4.md)): a cluster deletion whose remove-volume step was in its retry backoff ("volume in use") when the single manager was SIGKILLed finished after the restart. This needed two journal additions: a due retry (`Step.Retry`, written with the failure) and the agent step ID of each attempt (`Step.AgentStep`). Without them the new leader saw only `failed` (re-run A3). Both fields are omitted when unset, so existing journal encodings are unchanged; a replica that does not know them applies a plain start or finish.
+- E4 re-run B2 ([record](../../tests/p0/results/e4-rerun-B2.md)): three real manager replicas (keyring, peer mTLS) adopted and resumed a create after a leader SIGKILL (new leader after 3 s, no duplicate operation) and kept a backup and database writes working across a second leader SIGKILL. Single samples under foreign load 124-128.
+

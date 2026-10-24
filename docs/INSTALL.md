@@ -75,9 +75,9 @@ Lab E4 ([results](../tests/p0/results/e4-manager-galera.md)) ran the manager as 
 - The cluster's attachable overlay network and the root, monitoring and backup password secrets (plus the backup option file, backend configuration and recovery key secrets) must exist with the label `dbcm.installation=<installation ID>`; the secrets the agent reads for `exec-sql` are listed in `manager.agentTransport.dbSecrets` before the agent service is created.
 - Images are referenced by tag or digest; without a registry they must be present on every node (E4 used `docker save | docker load`).
 
-## Three-replica variant (documented only, never run on VMs or a Swarm)
+## Three-replica variant (documented; ran on lab VMs as plain processes, never as Swarm services)
 
-Not shipped as a file; a multi-replica manager has not run on VMs ([ADR 0013](decisions/0013-replica-keys-peer-tls-and-revocation.md)). The intended layout, derived from the code:
+Not shipped as a file ([ADR 0013](decisions/0013-replica-keys-peer-tls-and-revocation.md)). Lab E4 re-run B2 ran three replicas with `manager.keyring` and `manager.peerTLS` as plain processes on three Swarm manager VMs, including two leader SIGKILLs ([results](../tests/p0/results/e4-rerun-B2.md)); the Swarm-service layout below has not run. Every replica's `manager.nodeId` must be one of the `manager.peers` IDs and its own peer address must equal its `advertise` address (the manager refuses to start otherwise). The intended layout, derived from the code:
 
 1. Three Swarm manager nodes, each with one manager **service** (`manager-1`, `manager-2`, `manager-3`): copies of the `manager` service in `deploy/stack.yaml`, each with its own `node.hostname` constraint, volume and config. Do not raise `replicas`: Swarm replicas share one config and have no stable identity.
 2. One configuration per replica, all with the same peer list:

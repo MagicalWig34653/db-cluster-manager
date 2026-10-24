@@ -25,6 +25,10 @@ Three gaps blocked replicated managers (STATUS "What R1 still lacks", E4): every
 - **Peer CA kept in the replicated store** (like the agent CA): the CA would be needed before the store is reachable; an offline peer CA avoids the chicken-and-egg problem at the cost of manual issuance.
 - **CRL/OCSP endpoint for agents:** agents would need to reach the manager to check revocation; pushing the list over the existing fenced command channel needs no new endpoint and works while the manager is the only client anyway.
 
+## Evidence
+
+- Lab E4 re-run B2 (2026-10-24, [record](../../tests/p0/results/e4-rerun-B2.md)): three replicas with `manager.keyring` and `manager.peerTLS` (certificates from `manager -issue-peer-certs`) formed a quorum; the first leader bootstrapped the keyring; after `PUT /settings/replicas/{id}/data-key-recipient` for the two others all three held the current key, and both later leaders (after SIGKILLs) served the replicated sessions. Not captured: the TLS handshake itself and a refused wrong certificate on VMs. The chicken-and-egg concern (fresh replicas without recipients could not lead) does not apply to a fresh installation: the first leader creates the key and registers itself; until the others are registered, only it can lead.
+
 ## Not done / limits
 
 - No key rotation (the format and the key provider support several key IDs; nothing creates a second one) and no re-encryption; revoking a replica's registration does not take back keys it already unwrapped.
