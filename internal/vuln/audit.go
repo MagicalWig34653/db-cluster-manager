@@ -78,8 +78,8 @@ type Notification struct {
 	Title      string   `json:"title"`
 }
 
-// Notifier delivers notifications. The adapter to internal/notify is not
-// wired yet; MemoryNotifier is the fake.
+// Notifier delivers notifications. The manager uses manager.VulnNotifier
+// (internal/notify dispatcher); MemoryNotifier is the fake.
 type Notifier interface {
 	Notify(ctx context.Context, n Notification) error
 }

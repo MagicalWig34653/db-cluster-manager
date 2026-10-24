@@ -71,6 +71,12 @@
 //	  "backup": {           // manager side of backups (ADR 0009, ADR 0011)
 //	    "backendConfigFile": "/etc/dbcm/backend.json",  // dbbackup.BackendConfig JSON
 //	    "scheduleIntervalSeconds": 60
+//	  },
+//	  "vuln": {             // vulnerability response (X13, ADR 0015); needs auth.enabled
+//	    "pollIntervalSeconds": 3600,   // minimum 300
+//	    "feeds": [{"kind": "osv", "url": "https://api.osv.dev"}],  // explicit URLs only; no defaults
+//	    "defaultMode": "notify_only",  // seeds the policy once; or approval_required
+//	    "providers": []                // see vuln.go; stay unusable until consent in the UI
 //	  }
 //	}
 //

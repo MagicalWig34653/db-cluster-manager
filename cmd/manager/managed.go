@@ -31,6 +31,7 @@ import (
 	"github.com/MagicalWig34653/db-cluster-manager/internal/metastore"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/notify"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/passkey"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/vuln"
 )
 
 // managerConfig is the optional "manager" section. With it the manager
@@ -82,6 +83,9 @@ type managerConfig struct {
 	// Settings are installation settings the leader merges into the
 	// replicated settings on every leadership start (no API sets them yet).
 	Settings *settingsConfig `json:"settings,omitempty"`
+	// Vuln enables the vulnerability response (X13, ADR 0015); see vuln.go.
+	// It needs auth.enabled and contacts nothing unless feeds are listed.
+	Vuln *vulnConfig `json:"vuln,omitempty"`
 }
 
 // imageBuildConfig is the "manager.imageBuild" section. Presence enables
@@ -279,6 +283,11 @@ func (m *managerConfig) validate() error {
 			return err
 		}
 	}
+	if m.Vuln != nil {
+		if err := m.Vuln.validate(); err != nil {
+			return err
+		}
+	}
 	if m.ImageBuild != nil {
 		if err := m.ImageBuild.validate(); err != nil {
 			return err
@@ -367,6 +376,11 @@ type managedRuntime struct {
 	imageRunner imagebuild.CommandRunner
 	images      atomic.Pointer[api.ImageBuildBackend]
 
+	// vulnCfg is nil when the vulnerability response is disabled; vuln is
+	// the current leadership's service.
+	vulnCfg *vulnConfig
+	vuln    atomic.Pointer[vuln.Service]
+
 	enroll *http.Server
 
 	mu      sync.Mutex
@@ -413,7 +427,10 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 	if err != nil {
 		return nil, err
 	}
-	rt := &managedRuntime{proto: api.NewHandler(), keys: keys, backend: backend, imageCfg: mc.ImageBuild, imageRunner: newImageRunner()}
+	if mc.Vuln != nil && !cfg.Auth.Enabled {
+		return nil, errors.New("manager.vuln needs auth.enabled")
+	}
+	rt := &managedRuntime{proto: api.NewHandler(), keys: keys, backend: backend, imageCfg: mc.ImageBuild, imageRunner: newImageRunner(), vulnCfg: mc.Vuln}
 	rt.setHandler(rt.notLeader())
 	swarms := &manager.Swarms{Matrix: swarm.DefaultMatrix(), Dial: func(h string) (swarm.Connector, error) { return swarm.Dial(h) }}
 	rt.swarms = swarms
@@ -421,6 +438,9 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 		manager.SyncReconciler{Swarms: swarms},
 		manager.DriftDetector{Swarms: swarms},
 		manager.BackupScheduler{Backups: rt.backups.Load, Interval: mc.scheduleInterval()},
+	}
+	if mc.Vuln != nil {
+		scfg.Reconcilers = append(scfg.Reconcilers, manager.VulnScheduler{Poll: rt.pollVuln, Interval: mc.Vuln.pollInterval(), Logf: log.Warn})
 	}
 	if keyring != nil {
 		rt.keyring = keyring
@@ -498,6 +518,7 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 		if l == nil {
 			rt.stack.Store(nil)
 			rt.backups.Store(nil)
+			rt.vuln.Store(nil)
 			rt.setHandler(rt.notLeader())
 			return
 		}
@@ -577,7 +598,10 @@ func (rt *managedRuntime) leaderAPI(pk passkey.Config, keys manager.KeyProvider,
 		log.Info("manager: bound the manager system subject to its system role")
 	}
 	inv := manager.Inventory{Store: rt.svc.Store()}
-	svc := rt.commandServices(st)
+	svc, err := rt.commandServices(st)
+	if err != nil {
+		return nil, nil, err
+	}
 	acfg := api.Config{
 		Passkeys: st.Passkeys, Accounts: st.Accounts, Sessions: st.Sessions, RecoverySessions: st.RecoverySessions,
 		Codes: st.Codes, URLTokens: st.URLTokens, Limiter: st.Limiter, Authorizer: st.Authorizer, AuditSink: st.Audit,
@@ -599,6 +623,9 @@ func (rt *managedRuntime) leaderAPI(pk passkey.Config, keys manager.KeyProvider,
 		}
 		rt.images.Store(svc.images)
 	}
+	if svc.vuln != nil {
+		acfg.Vuln = &api.VulnBackend{Svc: svc.vuln}
+	}
 	// Without a keyring or the agent transport the respective endpoints
 	// answer settings_incomplete.
 	acfg.Replicas = &manager.ReplicaService{Svc: rt.svc, Ring: rt.keyring, PKI: rt.pki, Authorizer: st.Authorizer}
@@ -607,6 +634,10 @@ func (rt *managedRuntime) leaderAPI(pk passkey.Config, keys manager.KeyProvider,
 		return nil, nil, err
 	}
 	rt.backups.Store(svc.backups)
+	if svc.vuln != nil {
+		rt.seedVuln(context.Background(), svc.vuln, log)
+		rt.vuln.Store(svc.vuln)
+	}
 	return h, st, nil
 }
 
@@ -623,11 +654,12 @@ type commandSet struct {
 	settings *manager.SettingsService
 	services *manager.Services
 	images   *api.ImageBuildBackend
+	vuln     *vuln.Service // nil without manager.vuln
 }
 
 // commandServices builds the command services on the leadership's
 // authorizer.
-func (rt *managedRuntime) commandServices(st *manager.AuthStack) commandSet {
+func (rt *managedRuntime) commandServices(st *manager.AuthStack) (commandSet, error) {
 	ops := &manager.Operations{Svc: rt.svc, Authorizer: st.Authorizer, MaxRetries: operationRetries}
 	sw := *rt.swarms
 	sw.Svc, sw.Authorizer = rt.svc, st.Authorizer
@@ -642,13 +674,21 @@ func (rt *managedRuntime) commandServices(st *manager.AuthStack) commandSet {
 	if builder != nil {
 		images.Builds = builds
 	}
-	return commandSet{
+	set := commandSet{
 		images:   images,
 		control:  &manager.Control{Ops: ops, Swarms: &sw},
 		backups:  &manager.Backups{Ops: ops, Swarms: &sw, Backend: rt.backend},
 		settings: &manager.SettingsService{Svc: rt.svc, Authorizer: st.Authorizer, Keys: rt.keys, Monitoring: rt.monitoring},
 		services: &manager.Services{Ops: ops},
 	}
+	if rt.vulnCfg != nil {
+		v, err := rt.newVulnService(images)
+		if err != nil {
+			return commandSet{}, err
+		}
+		set.vuln = v
+	}
+	return set, nil
 }
 
 // Check implements authz.Checker for the monitoring service: it delegates
