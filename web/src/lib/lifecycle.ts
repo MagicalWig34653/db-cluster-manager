@@ -54,6 +54,8 @@ export interface ProgressView {
 	step?: string;
 	target?: string;
 	waiting?: string;
+	/** Latest failed attempt of the current step (already redacted by the manager). */
+	lastError?: string;
 	attempts: number;
 	polls: number;
 	/** True when the step journal state says the step failed. */
@@ -72,6 +74,7 @@ export function progressView(p: OperationProgress | undefined): ProgressView | u
 		step: p.step || undefined,
 		target: p.target || undefined,
 		waiting: p.waiting || undefined,
+		lastError: p.lastError || undefined,
 		attempts: p.attempts ?? 0,
 		polls: p.polls ?? 0,
 		stepFailed: p.state === 'failed'

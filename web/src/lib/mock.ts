@@ -66,7 +66,7 @@ const operations: Record<string, unknown>[] = [
 		cluster: 'mock-galera',
 		state: 'running',
 		startedAt: ago(4),
-		progress: { stepsDone: 2, stepsTotal: 5, step: 'mock-stream-backup', command: 'mock-backup', target: 'mock-host-1', state: 'running', attempts: 1, since: ago(2), updatedAt: ago(0) }
+		progress: { stepsDone: 2, stepsTotal: 5, step: 'mock-stream-backup', command: 'mock-backup', target: 'mock-host-1', state: 'running', attempts: 2, waiting: 'mock: waiting for the stream to finish', lastError: 'mock: agent unreachable (connection refused), retry scheduled', polls: 3, since: ago(2), updatedAt: ago(0) }
 	},
 	{ id: 'mock-op-4', kind: 'mock-inspection-restore', swarm: 'mock-swarm-a', cluster: 'mock-galera', state: 'pending', startedAt: ago(3), reason: 'mock: waiting for approval', approval: { digest: digest('a') } },
 	{ id: 'mock-op-5', kind: 'mock-replace-node', swarm: 'mock-swarm-a', cluster: 'mock-galera', state: 'pending', startedAt: ago(30), reason: 'mock: quorum not certain' },
@@ -75,9 +75,9 @@ const operations: Record<string, unknown>[] = [
 	{ id: 'mock-op-0', kind: 'mock-unknown-kind', state: 'unknown' }
 ];
 const hosts: Record<string, unknown>[] = [
-	{ swarm: 'mock-swarm-a', nodeId: 'mock-host-1', hostname: 'mock-host-1', enrollment: 'enrolled', state: 'ready', availability: 'active', nanoCpus: 4e9, memoryBytes: 16 * GiB, agentIdentity: true },
-	{ swarm: 'mock-swarm-a', nodeId: 'mock-host-2', hostname: 'mock-host-2', enrollment: 'enrolled', state: 'ready', availability: 'active', nanoCpus: 4e9, memoryBytes: 8 * GiB, agentIdentity: true },
-	{ swarm: 'mock-swarm-a', nodeId: 'mock-host-3', hostname: 'mock-host-3', enrollment: 'enrolled', state: 'down', availability: 'active', nanoCpus: 2e9, memoryBytes: 4 * GiB, agentIdentity: true },
+	{ swarm: 'mock-swarm-a', nodeId: 'mock-host-1', hostname: 'mock-host-1', enrollment: 'enrolled', state: 'ready', availability: 'active', nanoCpus: 4e9, memoryBytes: 16 * GiB, agentIdentity: true, agentVersion: '0.0.0-mock', agentSeenAt: ago(0) },
+	{ swarm: 'mock-swarm-a', nodeId: 'mock-host-2', hostname: 'mock-host-2', enrollment: 'enrolled', state: 'ready', availability: 'active', nanoCpus: 4e9, memoryBytes: 8 * GiB, agentIdentity: true, agentVersion: '0.0.0-mock', agentSeenAt: ago(1) },
+	{ swarm: 'mock-swarm-a', nodeId: 'mock-host-3', hostname: 'mock-host-3', enrollment: 'enrolled', state: 'down', availability: 'active', nanoCpus: 2e9, memoryBytes: 4 * GiB, agentIdentity: true, agentVersion: '0.0.0-mock', agentSeenAt: ago(45) },
 	{ swarm: 'mock-swarm-a', nodeId: 'mock-host-4', hostname: 'mock-host-4', enrollment: 'discovered', state: 'ready', availability: 'active' }
 ];
 fixtures['/api/v1/backups'] = {

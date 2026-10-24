@@ -369,6 +369,10 @@ export interface Host {
 	observedAt?: string;
 	/** An agent certificate is recorded for the host; says nothing about reachability. */
 	agentIdentity?: boolean;
+	/** Build version the agent reported in its last answer; absent until the manager contacted it. */
+	agentVersion?: string;
+	/** When the manager last received an answer from the agent (best effort). */
+	agentSeenAt?: string;
 	/** Set while the host is in guided maintenance. */
 	maintenance?: HostMaintenance;
 }
@@ -641,6 +645,8 @@ export const isHost: Guard<Host> = (v): v is Host =>
 	optNum(v.memoryBytes) &&
 	optDate(v.observedAt) &&
 	(v.agentIdentity === undefined || isBool(v.agentIdentity)) &&
+	optStr(v.agentVersion) &&
+	optDate(v.agentSeenAt) &&
 	(v.maintenance === undefined ||
 		(isObj(v.maintenance) &&
 			isStr(v.maintenance.since) &&

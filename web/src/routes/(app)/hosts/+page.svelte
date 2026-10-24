@@ -63,6 +63,8 @@
 					<Table.Head>{t('colState')}</Table.Head>
 					<Table.Head>{t('colAgentIdentity')}</Table.Head>
 					<Table.Head>Docker</Table.Head>
+					<Table.Head>{t('colAgentVersion')}</Table.Head>
+					<Table.Head>{t('colAgentSeen')}</Table.Head>
 					<Table.Head>{t('colLastObserved')}</Table.Head>
 					<Table.Head>{t('colActions')}</Table.Head>
 				</Table.Row>
@@ -82,6 +84,8 @@
 						</Table.Cell>
 						<Table.Cell>{h.agentIdentity ? t('identityRecorded') : t('identityNone')}</Table.Cell>
 						<Table.Cell class="font-mono text-xs">{h.engineVersion ?? t('stateUnknown')}</Table.Cell>
+						<Table.Cell class="font-mono text-xs">{h.agentVersion ?? t('stateUnknown')}</Table.Cell>
+						<Table.Cell>{#if h.agentSeenAt}<Freshness at={h.agentSeenAt} />{:else}<span class="text-xs text-muted-foreground">{t('agentNeverSeen')}</span>{/if}</Table.Cell>
 						<Table.Cell><Freshness at={h.observedAt} /></Table.Cell>
 						<Table.Cell>
 							<div class="flex flex-wrap gap-2">

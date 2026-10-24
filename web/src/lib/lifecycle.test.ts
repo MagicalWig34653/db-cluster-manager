@@ -43,6 +43,9 @@ describe('operation phase and progress', () => {
 			polls: 4,
 			stepFailed: false
 		});
+		expect(progressView({ stepsDone: 1, stepsTotal: 4, lastError: 'agent unreachable' })?.lastError).toBe('agent unreachable');
+		expect(progressView({ stepsDone: 1, stepsTotal: 4, lastError: '' })?.lastError).toBeUndefined();
+		expect(isOperation({ id: 'o', kind: 'k', state: 'running', progress: { stepsDone: 1, stepsTotal: 4, lastError: 7 } })).toBe(false);
 		expect(progressView({ stepsDone: 9, stepsTotal: 4 })).toMatchObject({ done: 4, percent: 100 });
 		expect(progressView({ stepsDone: 0, stepsTotal: 0 })).toMatchObject({ percent: 0 });
 		expect(progressView({ stepsDone: 1, stepsTotal: 2, state: 'failed' })?.stepFailed).toBe(true);

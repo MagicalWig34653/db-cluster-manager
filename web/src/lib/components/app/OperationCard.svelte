@@ -83,6 +83,7 @@
 			</p>
 		{/if}
 		{#if prog.waiting && op.state !== 'succeeded'}<p class="text-xs"><span class="text-muted-foreground">{t('progressWaiting')}:</span> {prog.waiting}</p>{/if}
+		{#if prog.lastError}<p class="text-xs break-words text-red-700 dark:text-red-400"><span class="font-medium">{t('progressLastError')}:</span> <span class="font-mono">{prog.lastError}</span></p>{/if}
 		{#if prog.stepFailed}<p class="text-xs text-red-700 dark:text-red-400">{t('progressStepFailed')}</p>{/if}
 	</div>
 {/if}

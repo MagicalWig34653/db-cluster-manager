@@ -34,6 +34,12 @@ describe('host maintenance', () => {
 		expect(isHost({ ...h, maintenance: maint })).toBe(true);
 		expect(isHost({ ...h, maintenance: { since: 'x' } })).toBe(false);
 	});
+	it('accepts the agent version and last-answer time of a host and rejects bad values', () => {
+		const h = { swarm: 's', nodeId: 'n', enrollment: 'enrolled' };
+		expect(isHost({ ...h, agentVersion: '0.3.1', agentSeenAt: '2026-10-24T10:00:00Z' })).toBe(true);
+		expect(isHost({ ...h, agentVersion: 3 })).toBe(false);
+		expect(isHost({ ...h, agentSeenAt: 'yesterday' })).toBe(false);
+	});
 	const preview = (o: Partial<MaintenancePreview> = {}): MaintenancePreview => ({
 		host: 'n1',
 		end: false,
