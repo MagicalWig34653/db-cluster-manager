@@ -1126,8 +1126,9 @@ paths:
     get:
       summary: List managed services the caller may read
       description: >-
-        Services of a service type (container, traefik). Implemented with
-        fakes only (W07).
+        Services of a service type (container, traefik, galera) with their
+        observed health. Galera clusters are listed as galera services and
+        need cluster read permission. Implemented with fakes only (W07).
       operationId: listServices
       responses:
         "200":
@@ -1153,8 +1154,11 @@ paths:
         (published ports, configuration delivery: the agent cannot do them
         yet) is refused with 409 conflict; preview it with POST
         /services/plan. Needs service create permission in the Swarm; audited.
-        Coarse 409 codes: conflict, settings_incomplete, cluster_exists (name
-        used), busy. 503 not_leader.
+        Type galera runs the unchanged cluster creation (same plan and
+        operation as POST /clusters, cluster create permission, no approval
+        step; approval.digest is empty). Coarse 409 codes: conflict,
+        settings_incomplete, cluster_exists (name used), busy, no_capacity,
+        policy_conflict. 503 not_leader.
       operationId: createService
       requestBody:
         required: true
@@ -1179,9 +1183,13 @@ paths:
       description: >-
         Read-only plan preview: ordered steps, the generated artifacts (Swarm
         service, rendered Traefik YAML; never secret values), warnings and
-        blockers. Changes nothing. Needs service create permission in the
-        Swarm.
+        blockers, and the expert view (agentSteps: the exact agent commands
+        with provisional IDs). Changes nothing. format=yaml exports the same
+        document as YAML. Needs service create permission in the Swarm
+        (galera: cluster create).
       operationId: previewService
+      parameters:
+        - { $ref: "#/components/parameters/PlanFormat" }
       requestBody:
         required: true
         content:
@@ -1192,6 +1200,8 @@ paths:
           description: Plan
           content:
             application/json:
+              schema: { $ref: "#/components/schemas/ServicePlan" }
+            application/yaml:
               schema: { $ref: "#/components/schemas/ServicePlan" }
         "400": { $ref: "#/components/responses/Error" }
         "401": { $ref: "#/components/responses/Error" }
@@ -1245,18 +1255,89 @@ paths:
   /services/{id}/delete-plan:
     get:
       summary: Preview the deletion plan of a managed service
-      description: Read-only. Query removeVolumes=true includes the volume removals.
+      description: >-
+        Read-only, with the expert view. Query removeVolumes=true includes the
+        volume removals; format=yaml exports as YAML. A galera service shows
+        the cluster deletion plan (needs cluster delete permission).
       operationId: previewServiceDelete
       parameters:
         - { $ref: "#/components/parameters/Id" }
         - { name: removeVolumes, in: query, required: false, schema: { type: boolean } }
+        - { $ref: "#/components/parameters/PlanFormat" }
       responses:
         "200":
           description: Plan
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ServicePlan" }
+            application/yaml:
+              schema: { $ref: "#/components/schemas/ServicePlan" }
+        "400": { $ref: "#/components/responses/Error" }
         "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /services/{id}/update-plan:
+    post:
+      summary: Preview the update (or rollback) plan of a managed service
+      description: >-
+        Read-only: update-service with the Swarm update strategy,
+        await-service, and the service-healthy gate, plus the prepared
+        rollback plan and the expert view. What the agent's update-service
+        cannot change (replicas, placement, volumes) is a blocker. format=yaml
+        exports as YAML. Needs service update permission. galera answers 409
+        conflict: its nodes are updated through the cluster flows.
+      operationId: previewServiceUpdate
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+        - { $ref: "#/components/parameters/PlanFormat" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ServiceUpdateInput" }
+      responses:
+        "200":
+          description: Plan
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ServicePlan" }
+            application/yaml:
+              schema: { $ref: "#/components/schemas/ServicePlan" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /services/{id}/update:
+    post:
+      summary: Request an update (or rollback) of a managed service
+      description: >-
+        Stores an operation whose steps wait for an approval bound to the
+        digest of the definition (approve with POST /operations/{id}/approve,
+        service update permission). The stored spec changes only after the
+        operation succeeded; the old spec becomes the rollback target. A
+        failed update keeps the stored spec (Swarm may have rolled back or
+        paused). Needs service update permission; audited. 409 busy while
+        another operation of the service runs.
+      operationId: updateService
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ServiceUpdateInput" }
+      responses:
+        "202":
+          description: Operation started, waiting for approval
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ServiceStarted" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
@@ -2019,6 +2100,12 @@ components:
       in: path
       required: true
       schema: { type: string }
+    PlanFormat:
+      name: format
+      in: query
+      required: false
+      description: Export format of the plan document; json (default) or yaml (application/yaml, same content).
+      schema: { type: string, enum: [json, yaml] }
   securitySchemes:
     sessionCookie:
       type: apiKey
@@ -2215,12 +2302,32 @@ components:
       properties:
         swarm: { type: string }
         name: { type: string, description: "Lower case letters, digits and hyphens." }
-        type: { type: string, enum: [container, traefik] }
-        spec: { type: object, description: "Type-specific desired state; strict, no secret values." }
+        type: { type: string, enum: [container, traefik, galera] }
+        spec:
+          type: object
+          description: >-
+            Type-specific desired state; strict, no secret values. galera: the
+            fields of the cluster creation request other than swarm and name
+            (size, image, network, rootPasswordSecret, gcacheSize, resources,
+            placement, autoReplace).
     ServiceDeleteInput:
       type: object
       properties:
         removeVolumes: { type: boolean }
+    ServiceHealth:
+      type: object
+      required: [state, running, desired]
+      description: >-
+        Observed from the Swarm task state of the owned service (galera: the
+        cluster's wsrep-based state). unknown when not observed or older than
+        two minutes; never reported as healthy without an observation.
+      properties:
+        state: { type: string, enum: [healthy, degraded, unhealthy, unknown, unavailable] }
+        reasons: { type: array, items: { type: string } }
+        running: { type: integer, minimum: 0 }
+        desired: { type: integer, minimum: 0 }
+        updateState: { type: string, description: "Swarm UpdateStatus.State (updating, completed, paused, rollback_completed, ...)" }
+        observedAt: { type: string, format: date-time }
     ServiceInfo:
       type: object
       required: [id, swarm, name, type, spec]
@@ -2234,6 +2341,50 @@ components:
         createdAt: { type: string, format: date-time }
         createOperation: { type: string }
         deleteOperation: { type: string }
+        updateOperation: { type: string, description: A running update or rollback }
+        rollbackable: { type: boolean, description: "A previous spec is kept for POST /services/{id}/update with rollback" }
+        health: { $ref: "#/components/schemas/ServiceHealth" }
+    ServiceUpdateStrategy:
+      type: object
+      description: >-
+        Rolling update through the agent's update-service command with a Swarm
+        UpdateConfig. Defaults: stop-first, parallelism 1, monitor 30 s,
+        onFailure rollback (Swarm restores the previous spec when a new task
+        fails within the monitor period). start-first is refused for services
+        with local volumes. canary is accepted but not executable yet (the
+        plan gets a blocker).
+      properties:
+        order: { type: string, enum: [stop-first, start-first] }
+        parallelism: { type: integer, minimum: 1, maximum: 50 }
+        delaySeconds: { type: integer, minimum: 0, maximum: 3600 }
+        monitorSeconds: { type: integer, minimum: 0, maximum: 3600 }
+        maxFailureRatio: { type: number, minimum: 0, maximum: 1 }
+        onFailure: { type: string, enum: [rollback, pause] }
+        canary:
+          type: object
+          required: [replicas]
+          properties:
+            replicas: { type: integer, minimum: 1 }
+            holdSeconds: { type: integer, minimum: 0 }
+    ServiceUpdateInput:
+      type: object
+      required: [strategy]
+      description: Either spec (the new desired state) or rollback true (back to the spec before the last successful update), not both.
+      properties:
+        spec: { type: object }
+        strategy: { $ref: "#/components/schemas/ServiceUpdateStrategy" }
+        rollback: { type: boolean }
+    AgentStep:
+      type: object
+      required: [id, preconditions]
+      description: One exact step of the stored operation (expert view). No command means a gate.
+      properties:
+        id: { type: string }
+        command: { type: string, description: Agent command kind }
+        target: { type: string, description: Host ID of the agent that receives the command }
+        args: { type: object, description: The command arguments exactly as sent; never secret values }
+        preconditions: { type: array, items: { type: string } }
+        note: { type: string }
     ServiceArtifact:
       type: object
       required: [name, mediaType, content]
@@ -2243,9 +2394,9 @@ components:
         content: { type: string }
     ServicePlan:
       type: object
-      required: [kind, type, name, steps, artifacts, warnings, blockers, executable, requiresApproval, text]
+      required: [kind, type, name, steps, artifacts, warnings, blockers, executable, requiresApproval, text, agentSteps]
       properties:
-        kind: { type: string, enum: [create, delete] }
+        kind: { type: string, enum: [create, delete, update] }
         type: { type: string }
         name: { type: string }
         steps: { type: array, items: { $ref: "#/components/schemas/PlanStep" } }
@@ -2253,8 +2404,20 @@ components:
         warnings: { type: array, items: { type: string } }
         blockers: { type: array, items: { type: string } }
         executable: { type: boolean }
-        requiresApproval: { type: boolean }
+        requiresApproval:
+          type: boolean
+          description: >-
+            Always true except for a galera create, which starts without an
+            approval step exactly like POST /clusters.
         text: { type: string }
+        agentSteps:
+          type: array
+          description: Expert view; empty when the plan has blockers.
+          items: { $ref: "#/components/schemas/AgentStep" }
+        provisionalIds:
+          type: boolean
+          description: In a preview the operation, token, approval (and galera cluster) IDs are provisional; a start issues new ones.
+        rollback: { $ref: "#/components/schemas/ServicePlan" }
     ServiceStarted:
       type: object
       required: [service, operation, approval, plan]

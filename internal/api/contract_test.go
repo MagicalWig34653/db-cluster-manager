@@ -137,3 +137,39 @@ func TestHostSchemaListsEveryField(t *testing.T) {
 		t.Errorf("host JSON: %s", b)
 	}
 }
+
+// TestServiceSchemasListEveryField keeps the service schemas of
+// api/openapi.yaml in step with the JSON fields of their Go types.
+func TestServiceSchemasListEveryField(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "api", "openapi.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(string(raw), "\n")
+	for schema, v := range map[string]any{
+		"ServiceInfo": ServiceInfo{}, "ServicePlan": ServicePlan{}, "ServiceStarted": ServiceStarted{},
+		"ServiceHealth": ServiceHealth{}, "ServiceUpdateInput": ServiceUpdateInput{},
+		"ServiceUpdateStrategy": ServiceUpdateStrategy{}, "AgentStep": AgentStep{}, "ServiceInput": ServiceInput{},
+	} {
+		start := slices.Index(lines, "    "+schema+":")
+		if start < 0 {
+			t.Errorf("schema %s not found", schema)
+			continue
+		}
+		var body []string
+		for _, l := range lines[start+1:] {
+			if strings.HasPrefix(l, "    ") && !strings.HasPrefix(l, "     ") && strings.HasSuffix(l, ":") {
+				break
+			}
+			body = append(body, l)
+		}
+		spec := strings.Join(body, "\n")
+		rt := reflect.TypeOf(v)
+		for i := range rt.NumField() {
+			name, _, _ := strings.Cut(rt.Field(i).Tag.Get("json"), ",")
+			if name != "" && !strings.Contains(spec, "\n        "+name+":") {
+				t.Errorf("api.%s field %q is missing from the %s schema", rt.Name(), name, schema)
+			}
+		}
+	}
+}

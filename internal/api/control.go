@@ -179,6 +179,8 @@ func ApprovalPermission(kind, swarm, cluster string) (authz.Action, authz.Resour
 		return authz.ActionCreate, authz.Resource{Type: authz.ResourceService, Scope: authz.SwarmScope(swarm)}
 	case OperationKindServiceDelete:
 		return authz.ActionDelete, authz.Resource{Type: authz.ResourceService, Scope: authz.SwarmScope(swarm)}
+	case OperationKindServiceUpdate:
+		return authz.ActionUpdate, authz.Resource{Type: authz.ResourceService, Scope: authz.SwarmScope(swarm)}
 	}
 	if swarm == "" || cluster == "" {
 		return authz.ActionRestore, settingsResource

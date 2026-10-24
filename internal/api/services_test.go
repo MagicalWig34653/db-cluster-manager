@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 
@@ -58,6 +59,112 @@ func (f *fakeServices) DeleteService(_ context.Context, a authz.Subject, id stri
 		s += ":volumes"
 	}
 	return ServiceStarted{Service: id, Operation: OperationRef{ID: "op-d", Kind: OperationKindServiceDelete}}, f.rec(s)
+}
+
+func (f *fakeServices) PreviewServiceUpdate(_ context.Context, a authz.Subject, id string, in ServiceUpdateInput) (ServicePlan, error) {
+	return ServicePlan{Kind: "update", Type: "container", AgentSteps: []AgentStep{{ID: "01-update-service-web", Command: "update-service",
+			Target: "mgr", Args: json.RawMessage(`{"service_name":"dbcm-svc-web","spec":{"image":"nginx:1.27.2"}}`)}}},
+		f.rec("update-plan:" + a.ID + ":" + id)
+}
+
+func (f *fakeServices) UpdateService(_ context.Context, a authz.Subject, id string, in ServiceUpdateInput) (ServiceStarted, error) {
+	s := "update:" + a.ID + ":" + id
+	if in.Rollback {
+		s += ":rollback"
+	}
+	return ServiceStarted{Service: id, Operation: OperationRef{ID: "op-u", Kind: OperationKindServiceUpdate}, Approval: OperationApproval{Digest: "u"}}, f.rec(s)
+}
+
+func TestServiceUpdateRoutesAndExport(t *testing.T) {
+	cf := newControlFixture(t)
+	fs := &fakeServices{items: []ServiceInfo{
+		{ID: "svc-1", Swarm: "s1", Name: "web", Type: "container", Spec: json.RawMessage(`{"image":"nginx:1"}`)},
+		{ID: "clu-1", Swarm: "s1", Name: "shop", Type: ServiceTypeGalera, Spec: json.RawMessage(`{"size":3}`)},
+	}}
+	cf.srv.cfg.Services = fs
+	upd := map[string]any{"spec": map[string]any{"image": "nginx:1.27.2"}, "strategy": map[string]any{"order": "start-first"}}
+
+	// Update needs update permission on the service; the operator preset
+	// has only read.
+	op := cf.loggedIn("op", authz.RoleOperator, authz.SwarmScope("s1"))
+	wantError(t, op.do("POST", "/api/v1/services/svc-1/update-plan", upd), http.StatusForbidden, errForbidden)
+	wantError(t, op.do("POST", "/api/v1/services/svc-1/update", upd), http.StatusForbidden, errForbidden)
+
+	sadm := cf.loggedIn("sadm", authz.RoleAdministrator, authz.SwarmScope("s1"))
+	var pl ServicePlan
+	r := sadm.do("POST", "/api/v1/services/svc-1/update-plan", upd)
+	wantStatus(t, r, http.StatusOK)
+	r.decode(t, &pl)
+	if !pl.RequiresApproval || len(pl.AgentSteps) != 1 || pl.AgentSteps[0].Preconditions == nil {
+		t.Fatalf("update plan %+v", pl)
+	}
+	// Export as YAML: the same document, including the exact agent steps.
+	r = sadm.do("POST", "/api/v1/services/svc-1/update-plan?format=yaml", upd)
+	wantStatus(t, r, http.StatusOK)
+	if ct := r.Header().Get("Content-Type"); ct != "application/yaml; charset=utf-8" {
+		t.Fatalf("content type %q", ct)
+	}
+	for _, want := range []string{"kind: \"update\"\n", "agentSteps:\n  - id: \"01-update-service-web\"\n", "    command: \"update-service\"\n",
+		"      service_name: \"dbcm-svc-web\"\n"} {
+		if !strings.Contains(r.Body.String(), want) {
+			t.Errorf("yaml lacks %q:\n%s", want, r.Body.String())
+		}
+	}
+	wantError(t, sadm.do("POST", "/api/v1/services/svc-1/update-plan?format=xml", upd), http.StatusBadRequest, errBadRequest)
+	wantError(t, sadm.do("GET", "/api/v1/services/svc-1/delete-plan?format=toml", nil), http.StatusBadRequest, errBadRequest)
+	wantStatus(t, sadm.do("GET", "/api/v1/services/svc-1/delete-plan?format=yaml", nil), http.StatusOK)
+
+	var st ServiceStarted
+	r = sadm.do("POST", "/api/v1/services/svc-1/update", upd)
+	wantStatus(t, r, http.StatusAccepted)
+	r.decode(t, &st)
+	if st.Operation.Kind != OperationKindServiceUpdate || st.Approval.Digest != "u" {
+		t.Fatalf("%+v", st)
+	}
+	wantStatus(t, sadm.do("POST", "/api/v1/services/svc-1/update", map[string]any{"rollback": true, "strategy": map[string]any{}}), http.StatusAccepted)
+	// A rollback carries no spec; an update needs one.
+	wantError(t, sadm.do("POST", "/api/v1/services/svc-1/update", map[string]any{"rollback": true, "spec": map[string]any{}}), http.StatusBadRequest, errBadRequest)
+	wantError(t, sadm.do("POST", "/api/v1/services/svc-1/update", map[string]any{"strategy": map[string]any{}}), http.StatusBadRequest, errBadRequest)
+
+	// A galera service is a cluster: its authorization is the cluster's.
+	// A service-only role (create/read/delete services) cannot see it or
+	// create one.
+	role := authz.Role{Name: "svc_admin", Permissions: []authz.Permission{
+		{Type: authz.ResourceService, Action: authz.ActionAny}}}
+	if err := cf.policy.AddRole(role); err != nil {
+		t.Fatal(err)
+	}
+	sv := cf.loggedIn("sv", "svc_admin", authz.SwarmScope("s1"))
+	var list List[ServiceInfo]
+	r = sv.do("GET", "/api/v1/services", nil)
+	wantStatus(t, r, http.StatusOK)
+	r.decode(t, &list)
+	if len(list.Items) != 1 || list.Items[0].ID != "svc-1" {
+		t.Fatalf("service role sees %+v", list.Items)
+	}
+	wantError(t, sv.do("GET", "/api/v1/services/clu-1", nil), http.StatusNotFound, errNotFound)
+	wantError(t, sv.do("DELETE", "/api/v1/services/clu-1", nil), http.StatusNotFound, errNotFound)
+	gal := map[string]any{"swarm": "s1", "name": "shop2", "type": "galera", "spec": map[string]any{"size": 3}}
+	wantError(t, sv.do("POST", "/api/v1/services", gal), http.StatusForbidden, errForbidden)
+	wantStatus(t, sadm.do("POST", "/api/v1/services", gal), http.StatusAccepted)
+	if n := auditsOf(cf.fixture, authz.ActionCreate, authz.OutcomeDenied, authz.ResourceCluster); n < 1 {
+		t.Errorf("denied galera create audited as cluster %d times", n)
+	}
+	act, res := ApprovalPermission(OperationKindServiceUpdate, "s1", "")
+	if act != authz.ActionUpdate || res.Type != authz.ResourceService {
+		t.Errorf("update approval: %s on %+v", act, res)
+	}
+}
+
+func TestJSONToYAML(t *testing.T) {
+	got, err := JSONToYAML([]byte(`{"a":1,"b":[],"c":{},"d":[{"x":"y: z","n":null},[true,"q"]],"key with space":"v\n"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "a: 1\nb: []\nc: {}\nd:\n  - x: \"y: z\"\n    n: null\n  - - true\n    - \"q\"\n\"key with space\": \"v\\n\"\n"
+	if got != want {
+		t.Fatalf("got\n%s\nwant\n%s", got, want)
+	}
 }
 
 func TestServiceRoutes(t *testing.T) {

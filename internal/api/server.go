@@ -327,6 +327,14 @@ func (s *server) coreEndpoints() []endpoint {
 			action: authz.ActionRead, resolve: s.resolveService, hideDenied: true, handle: s.handleServiceDeletePreview,
 		},
 		{
+			method: "POST", path: "/services/{id}/update-plan", access: accessPermission,
+			action: authz.ActionUpdate, resolve: s.resolveService, hideUnreadable: true, handle: s.handleServiceUpdatePreview,
+		},
+		{
+			method: "POST", path: "/services/{id}/update", access: accessPermission,
+			action: authz.ActionUpdate, resolve: s.resolveService, hideUnreadable: true, handle: s.handleServiceUpdate,
+		},
+		{
 			method: "DELETE", path: "/services/{id}", access: accessPermission,
 			action: authz.ActionDelete, resolve: s.resolveService, hideUnreadable: true, handle: s.handleServiceDelete,
 		},
