@@ -34,6 +34,6 @@ Haben Teile einer Funktion verschiedene Stufen, sind sie einzeln gekennzeichnet.
 12. [Konfigurationsreferenz](12-configuration-reference.md)
 13. [Image-Builds und Registries (Entwurf)](13-image-builds.md)
 14. [Dienste (Entwurf)](13-services.md)
-15. [Reaktion auf Schwachstellen (Entwurf)](15-vulnerability-response.md)
+15. [Reaktion auf Schwachstellen](15-vulnerability-response.md)
 
 Lesereihenfolge für einen ersten Test: 1, 2, 3, danach 10, bevor Sie irgendetwas vertrauen.

@@ -143,9 +143,22 @@ Der Leader mischt sie bei jedem Leadership-Start ein; leere Felder lassen gespei
 
 `settings.backup` (alle Pflicht, bevor ein Backup starten kann): `jobImage` (Image mit `dbcm-job` und den Backup-Werkzeugen), `backendSecret` (Swarm-Secret mit dem Backend-JSON), `dbCredentialSecret` (Zugangsdaten des Backup-Kontos), `recipientKey` (öffentliche Hälfte des Recovery-Keys; Backups werden dafür verschlüsselt, derselbe Schlüssel ist der Wiederherstellungs-Umschlag des Datenschlüsselrings). Weiter: `keySecret` (Standard-Swarm-Secret mit dem Recovery-Key für Wiederherstellungen), `inspectionNetwork` (Nicht-Produktivnetz für Inspektionen; dafür nötig).
 
-## Reaktion auf Schwachstellen (API-Einstellungen)
+## Reaktion auf Schwachstellen
 
-**Nur [Fakes]; nicht im Manager verdrahtet.** Die Reaktion auf Schwachstellen ([Anleitung](15-vulnerability-response.md)) hat noch keine Felder in der Konfigurationsdatei. Ihre Einstellungen liegen im Metastore und werden über die API geändert (Berechtigung auf die Ressource `vuln`, nur Administrator-Voreinstellung).
+**Nur [Fakes]:** im Manager verdrahtet und mit Fakes und `httptest` getestet; kein echter Feed und kein echter KI-Anbieter wurde angesprochen. Der Abschnitt `manager.vuln` schaltet sie ein (braucht `auth.enabled`; fehlt er, antworten die Routen mit 503 und nichts läuft). Richtlinie, Anbieter und Zustimmung liegen im Metastore und werden in der Oberfläche oder über die API geändert (Berechtigung auf die Ressource `vuln`, nur Administrator-Voreinstellung).
+
+`manager.vuln`:
+
+| Feld | Typ | Standard | Bedeutung |
+| --- | --- | --- | --- |
+| `pollIntervalSeconds` | int | `3600` | Abfrageintervall der Feeds auf dem Leader, mindestens 300. Die erste Abfrage läuft 30 s nach Beginn der Leaderschaft. |
+| `feeds` | Liste | leer | Advisory-Quellen, jede Art einmal: `{"kind": "osv" | "github" | "nvd" | "kev", "url": "https://..."}`, optional `apiKeyFile` (absoluter Pfad einer Datei mit Token oder API-Schlüssel; nur `github` und `nvd`), oder `{"kind": "osvFile", "path": "/abs/mirror.json"}` für einen Offline-OSV-Spiegel. Es gibt keine Standard-URLs; `http` wird nur für Loopback-Hosts akzeptiert. Kein Feed eingetragen: Es wird nichts abgerufen. |
+| `defaultMode` | string | `notify_only` | Setzt die Richtlinie einmalig, wenn keine gespeichert ist: `notify_only` oder `approval_required`. Überschreibt nie eine gespeicherte Richtlinie; `auto_for_policy` lässt sich nur in der Oberfläche oder über die API setzen. |
+| `providers` | Liste | leer | KI-Anbieter, die angelegt werden, wenn ihre ID noch nicht existiert: `id`, `name`, `kind` (`claude_api`, `openai_api` oder `openai_compatible`; CLI-Arten nur über die API), `baseUrl`, `models`, `defaultModel`, `apiKeyFile` (wird einmal gelesen und verschlüsselt im Metastore abgelegt), `limits`, `maxOutputTokens`, `timeoutSeconds`. Sie bleiben unbenutzbar, bis in der Oberfläche zugestimmt wird. |
+
+Anfragen an Feeds und Anbieter folgen keinen Weiterleitungen. Benachrichtigungen (neuer Fund, ablaufende Abschwächung) laufen als Ereignisse der Art `vuln.*` über den Benachrichtigungs-Dispatcher und folgen deinen Routing-Regeln.
+
+### API-Einstellungen
 
 Richtlinie (`PUT /api/v1/vuln/policy`, bedingt auf `version`):
 
@@ -178,7 +191,7 @@ KI-Anbieter (`POST /api/v1/vuln/providers`):
 
 Zustimmung: `PUT /api/v1/vuln/providers/{id}/consent` mit `{"grant": true, "statement": <egressStatement>}`; Widerruf mit `{"grant": false}`.
 
-Feeds (OSV, GitHub, NVD, KEV, Offline-Spiegel) sind Go-Typen ohne Konfigurationsfelder; keiner hat eine Standard-URL.
+Feeds werden in `manager.vuln.feeds` konfiguriert (oben); keiner hat eine Standard-URL.
 
 ## Was der verwaltete Modus braucht
 

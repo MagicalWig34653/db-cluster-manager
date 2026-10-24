@@ -143,7 +143,7 @@
 									</Table.Cell>
 									<Table.Cell class={toneText[severityTone(f.severity)]}>{t(severityLabel[f.severity])}</Table.Cell>
 									<Table.Cell>{t(statusLabel[f.status])}</Table.Cell>
-									<Table.Cell class="text-xs text-muted-foreground">{dateTime(f.firstSeen, locale.value)}</Table.Cell>
+									<Table.Cell class="whitespace-normal text-xs text-muted-foreground">{dateTime(f.firstSeen, locale.value)}</Table.Cell>
 								</Table.Row>
 							{/each}
 						</Table.Body>
