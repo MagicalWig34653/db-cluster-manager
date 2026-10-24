@@ -32,9 +32,17 @@
 //     agent StepID, with bounded attempts and backoff.
 //   - A new leader calls TakeOver: Barrier, then Adopt of every unfinished
 //     journal operation with its own term (Running steps become Unknown),
-//     then Resume applies the same rules.
+//     then Resume applies the same rules. StartStep journals the agent
+//     StepID of each attempt, so an Unknown step is queried under the ID
+//     that was sent. A failure without effect whose retry is due (an
+//     idempotent kind, or a destructive step's RetryCodes) is journaled
+//     with FailForRetry; a new leader retries it under the next agent
+//     StepID, counting the earlier attempts against MaxRetries, while a
+//     plain Failed step stays failed.
 //   - Abort happens only at a safe boundary: never while a step is Running.
 //     An abort requested during a step takes effect before the next step.
+//     An operator abort always ends Aborted; a step failure that it
+//     coincides with is kept in the reason.
 //   - Per-resource locks: two operations that name a common lock key (for
 //     example "cluster/<id>") never execute at the same time. Locks are held
 //     until the operation succeeds, is aborted, or this runner stops owning
@@ -42,7 +50,8 @@
 //
 // Limits (see also the package tests): operation definitions are kept in
 // memory and must be supplied again to a new leader (TakeOver takes a lookup
-// function); locks and retry counters are per runner process; per-attempt
+// function); locks are per runner process, and a new leader derives the
+// retry count of a due retry from the journaled attempts; per-attempt
 // timeouts use real time (context.WithTimeout) while backoff and timestamps
 // use the injected Sleep and Now. The agent transport behind AgentClient is
 // not authenticated here.

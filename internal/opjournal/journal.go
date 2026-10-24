@@ -41,6 +41,14 @@ type Step struct {
 	ID       string
 	State    State
 	Attempts int
+	// AgentStep is the agent step ID of the latest attempt, recorded when
+	// the step started (StartStepAs). A new leader queries the agent under
+	// it for a step whose outcome is Unknown. Empty: the step's own ID.
+	AgentStep string `json:",omitempty"`
+	// Retry marks a Failed step whose failure had no effect and whose retry
+	// was due (FailForRetry): a new leader retries it instead of failing
+	// the operation. StartStep clears it.
+	Retry bool `json:",omitempty"`
 }
 
 // Operation is a journaled long-running operation.
@@ -111,6 +119,12 @@ func stepIndex(e *entry, stepID string) (int, error) {
 // Attempts. It returns ErrNotOwner if term != Owner. Steps start in order: a
 // step may only start when all earlier steps are Succeeded.
 func (j *Journal) StartStep(opID, stepID string, term uint64) error {
+	return j.StartStepAs(opID, stepID, "", term)
+}
+
+// StartStepAs is StartStep that also records the agent step ID of the
+// attempt ("" keeps the recorded one).
+func (j *Journal) StartStepAs(opID, stepID, agentStep string, term uint64) error {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	e, err := j.owned(opID, term)
@@ -137,6 +151,27 @@ func (j *Journal) StartStep(opID, stepID string, term uint64) error {
 	}
 	s.State = Running
 	s.Attempts++
+	s.Retry = false
+	if agentStep != "" {
+		s.AgentStep = agentStep
+	}
+	return nil
+}
+
+// FailForRetry finishes a Running step as Failed and marks its retry as due
+// (Step.Retry): the failure had no effect and the step's retry budget is not
+// used up. Lab E4 (cleanuprestart): a remove-volume step that Docker refused
+// ("volume in use") was in its retry backoff when the manager was killed;
+// the new leader saw only Failed and failed the deletion.
+func (j *Journal) FailForRetry(opID, stepID string, term uint64) error {
+	if err := j.FinishStep(opID, stepID, Failed, term); err != nil {
+		return err
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	e := j.ops[opID]
+	i, _ := stepIndex(e, stepID)
+	e.op.Steps[i].Retry = true
 	return nil
 }
 

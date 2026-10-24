@@ -48,8 +48,12 @@ type Leader interface {
 // consensus (see MetastoreJournal); reads may be local.
 type Journal interface {
 	Begin(opID, kind string, stepIDs []string, term uint64) error
-	StartStep(opID, stepID string, term uint64) error
+	// StartStep records agentStep, the agent step ID of the attempt ("":
+	// keep the recorded one).
+	StartStep(opID, stepID, agentStep string, term uint64) error
 	FinishStep(opID, stepID string, result opjournal.State, term uint64) error
+	// FailForRetry finishes a step Failed and marks its retry as due.
+	FailForRetry(opID, stepID string, term uint64) error
 	Adopt(opID string, term uint64) error
 	Abort(opID string, term uint64) error
 	Get(opID string) (opjournal.Operation, error)

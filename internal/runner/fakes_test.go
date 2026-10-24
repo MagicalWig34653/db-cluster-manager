@@ -132,12 +132,20 @@ func (n *fakeNode) Begin(opID, kind string, steps []string, term uint64) error {
 	return n.do(write{Kind: "begin", OpID: opID, Term: term}, func(j *opjournal.Journal) error { return j.Begin(opID, kind, steps, term) })
 }
 
-func (n *fakeNode) StartStep(opID, stepID string, term uint64) error {
-	return n.do(write{Kind: "start", OpID: opID, StepID: stepID, Term: term}, func(j *opjournal.Journal) error { return j.StartStep(opID, stepID, term) })
+func (n *fakeNode) StartStep(opID, stepID, agentStep string, term uint64) error {
+	return n.do(write{Kind: "start", OpID: opID, StepID: stepID, Term: term}, func(j *opjournal.Journal) error {
+		return j.StartStepAs(opID, stepID, agentStep, term)
+	})
 }
 
 func (n *fakeNode) FinishStep(opID, stepID string, s opjournal.State, term uint64) error {
 	return n.do(write{Kind: "finish", OpID: opID, StepID: stepID, Result: s, Term: term}, func(j *opjournal.Journal) error { return j.FinishStep(opID, stepID, s, term) })
+}
+
+func (n *fakeNode) FailForRetry(opID, stepID string, term uint64) error {
+	return n.do(write{Kind: "finish", OpID: opID, StepID: stepID, Result: opjournal.Failed, Term: term}, func(j *opjournal.Journal) error {
+		return j.FailForRetry(opID, stepID, term)
+	})
 }
 
 func (n *fakeNode) Adopt(opID string, term uint64) error {

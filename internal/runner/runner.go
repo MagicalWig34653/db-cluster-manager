@@ -495,7 +495,7 @@ func (r *Runner) Reconcile(ctx context.Context, opID, stepID string, res Resolut
 		if res == ResolveFailed {
 			result = opjournal.Failed
 		}
-		if err := r.cfg.Journal.StartStep(opID, stepID, st.term); err != nil {
+		if err := r.cfg.Journal.StartStep(opID, stepID, "", st.term); err != nil {
 			err = r.stop(st, stepID, err)
 			r.release(st)
 			return r.view(st), err
@@ -636,9 +636,19 @@ func (r *Runner) execute(ctx context.Context, st *opState) (View, error) {
 		var cont bool
 		switch js.State {
 		case opjournal.Pending, opjournal.Unknown:
-			cont, err = r.runStep(ctx, st, spec, js)
+			cont, err = r.runStep(ctx, st, spec, js, 0)
 		case opjournal.Failed:
-			r.setStatus(st, StatusFailed, spec.ID, "step failed", EventFail)
+			if !js.Retry {
+				r.setStatus(st, StatusFailed, spec.ID, "step failed", EventFail)
+				break
+			}
+			// The previous owner journaled the failure as having no effect
+			// with a retry due, then stopped (crash, leadership change)
+			// before the retry started: retry under the next agent step ID,
+			// with the attempts already made counted against the budget.
+			r.newAgentStep(st, spec.ID, js.Attempts+1)
+			r.event(st, EventRetry, spec.ID, fmt.Sprintf("retry due after attempt %d (journaled before the take-over)", js.Attempts))
+			cont, err = r.runStep(ctx, st, spec, js, js.Attempts)
 		case opjournal.Running:
 			r.setStatus(st, StatusPaused, spec.ID, "step is running under the current term; its completion cannot be observed here", EventPause)
 		default:
@@ -727,11 +737,12 @@ func (r *Runner) finish(st *opState, stepID string, s opjournal.State) error {
 
 // runStep drives one step until it succeeds (true), or the operation pauses,
 // fails or stops (false).
-func (r *Runner) runStep(ctx context.Context, st *opState, spec Step, js opjournal.Step) (bool, error) {
+// extra is the number of retries already used (a retry due from a previous
+// owner counts the attempts it made).
+func (r *Runner) runStep(ctx context.Context, st *opState, spec Step, js opjournal.Step, extra int) (bool, error) {
 	opID := st.def.ID
 	state := js.State
 	idem := Idempotent(spec.Command)
-	extra := 0
 	for {
 		if r.abortRequested(st) {
 			r.pauseForAbort(st, spec.ID, "before the step (re)started")
@@ -745,7 +756,20 @@ func (r *Runner) runStep(ctx context.Context, st *opState, spec Step, js opjourn
 		if err := r.checkLeader(st); err != nil {
 			return false, r.stop(st, spec.ID, err)
 		}
-		if err := r.cfg.Journal.StartStep(opID, spec.ID, st.term); err != nil {
+		r.mu.Lock()
+		agentID := st.agentStep[spec.ID]
+		if agentID == "" && spec.Command != "" {
+			// After a take-over: the journal names the agent step ID of the
+			// latest attempt, so an Unknown step is queried under the ID
+			// that was actually sent.
+			agentID = spec.ID
+			if js.AgentStep != "" {
+				agentID = js.AgentStep
+			}
+			st.agentStep[spec.ID] = agentID
+		}
+		r.mu.Unlock()
+		if err := r.cfg.Journal.StartStep(opID, spec.ID, agentID, st.term); err != nil {
 			return false, r.stop(st, spec.ID, fmt.Errorf("journal start: %w", err))
 		}
 		cur, err := r.journalStep(opID, spec.ID)
@@ -758,11 +782,6 @@ func (r *Runner) runStep(ctx context.Context, st *opState, spec Step, js opjourn
 		}
 
 		r.mu.Lock()
-		agentID := st.agentStep[spec.ID]
-		if agentID == "" {
-			agentID = spec.ID
-			st.agentStep[spec.ID] = agentID
-		}
 		query := state == opjournal.Unknown && !st.fresh[spec.ID]
 		st.fresh[spec.ID] = false
 		r.mu.Unlock()
@@ -790,11 +809,15 @@ func (r *Runner) runStep(ctx context.Context, st *opState, spec Step, js opjourn
 		case outSucceeded:
 			return r.finish(st, spec.ID, opjournal.Succeeded) == nil, r.errIfStopped(st)
 		case outFailed, outRejected:
-			if err := r.finish(st, spec.ID, opjournal.Failed); err != nil {
-				return false, err
-			}
 			retryable := idem || (sendErr == nil && res.Code != "" && slices.Contains(spec.RetryCodes, res.Code))
 			if retryable && extra < spec.MaxRetries && classify(res, sendErr) == outFailed {
+				// Journaled as a due retry: a new leader that takes over
+				// during the backoff retries the step (lab E4
+				// cleanuprestart) instead of failing the operation.
+				if err := r.cfg.Journal.FailForRetry(opID, spec.ID, st.term); err != nil {
+					return false, r.stop(st, spec.ID, fmt.Errorf("journal finish: %w", err))
+				}
+				r.event(st, EventFinish, spec.ID, string(opjournal.Failed)+" (retry due)")
 				extra++
 				r.newAgentStep(st, spec.ID, cur.Attempts+1)
 				if err := r.wait(ctx, st, spec.ID, extra, retryReason(spec, idem, res, sendErr)); err != nil {
@@ -802,6 +825,9 @@ func (r *Runner) runStep(ctx context.Context, st *opState, spec Step, js opjourn
 				}
 				state = opjournal.Failed
 				continue
+			}
+			if err := r.finish(st, spec.ID, opjournal.Failed); err != nil {
+				return false, err
 			}
 			r.setStatus(st, StatusFailed, spec.ID, describe(res, sendErr), EventFail)
 			return false, nil

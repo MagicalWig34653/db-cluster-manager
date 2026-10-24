@@ -27,8 +27,13 @@ func (m MetastoreJournal) Begin(opID, kind string, stepIDs []string, term uint64
 }
 
 // StartStep implements Journal.
-func (m MetastoreJournal) StartStep(opID, stepID string, term uint64) error {
-	return m.apply(metastore.Command{Kind: "start", OpID: opID, StepID: stepID, Term: term})
+func (m MetastoreJournal) StartStep(opID, stepID, agentStep string, term uint64) error {
+	return m.apply(metastore.Command{Kind: "start", OpID: opID, StepID: stepID, AgentStep: agentStep, Term: term})
+}
+
+// FailForRetry implements Journal.
+func (m MetastoreJournal) FailForRetry(opID, stepID string, term uint64) error {
+	return m.apply(metastore.Command{Kind: "finish", OpID: opID, StepID: stepID, Result: opjournal.Failed, Retry: true, Term: term})
 }
 
 // FinishStep implements Journal.

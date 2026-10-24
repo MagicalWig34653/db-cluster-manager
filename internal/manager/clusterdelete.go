@@ -37,7 +37,11 @@ import (
 //     replacement, after the agent verified its identity marker; a volume
 //     that was never created or never got its marker (and holds no file)
 //     counts as removed; Docker's "volume in use" while a task stops is
-//     retried (RetryCodes).
+//     retried (RetryCodes). Docker removes the task containers of a removed
+//     service asynchronously, and a stopped container still holds the
+//     volume, so this retry is the wait for the containers to be gone; the
+//     runner journals a due retry, so it also survives a manager restart
+//     during the backoff (lab E4 cleanuprestart, re-run A3).
 //
 // Operator-provided objects (the network, the root password, TLS, backup
 // and account secrets) are never removed. Docker removes a local bind

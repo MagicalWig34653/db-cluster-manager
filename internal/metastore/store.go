@@ -70,7 +70,13 @@ type Command struct {
 	Steps  []string        // only for "begin"
 	StepID string          // for "start", "finish"
 	Result opjournal.State // only for "finish"
-	Term   uint64          // fencing term the issuer believes it holds
+	// AgentStep ("start") is the attempt's agent step ID; Retry ("finish"
+	// with Result failed) marks the retry as due. Both are omitted when
+	// unset, so other journal commands encode exactly as before; a replica
+	// that does not know them applies a plain start or finish.
+	AgentStep string `json:",omitempty"`
+	Retry     bool   `json:",omitempty"`
+	Term      uint64 // fencing term the issuer believes it holds
 	// Docs is the transaction of a KindDocs command (see docs.go). It is
 	// omitted from the encoding of journal commands, which therefore encode
 	// exactly as before.
@@ -495,8 +501,11 @@ func applyTo(j *opjournal.Journal, cmd Command) error {
 	case "begin":
 		return j.Begin(cmd.OpID, cmd.OpKind, cmd.Steps, cmd.Term)
 	case "start":
-		return j.StartStep(cmd.OpID, cmd.StepID, cmd.Term)
+		return j.StartStepAs(cmd.OpID, cmd.StepID, cmd.AgentStep, cmd.Term)
 	case "finish":
+		if cmd.Retry && cmd.Result == opjournal.Failed {
+			return j.FailForRetry(cmd.OpID, cmd.StepID, cmd.Term)
+		}
 		return j.FinishStep(cmd.OpID, cmd.StepID, cmd.Result, cmd.Term)
 	case "adopt":
 		return j.Adopt(cmd.OpID, cmd.Term)
