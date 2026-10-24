@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/MagicalWig34653/db-cluster-manager/internal/ai"
@@ -62,10 +61,6 @@ func (r AuditRecord) Key() string {
 	return fmt.Sprintf("%s-%012d-%s", r.At.UTC().Format("20060102T150405.000000000Z"), r.Seq, r.ID)
 }
 
-// auditSeq is a process-wide counter; after a restart the clock has moved
-// on, so keys stay ordered.
-var auditSeq atomic.Uint64
-
 func newID(prefix string) string {
 	var b [8]byte
 	_, _ = rand.Read(b[:])
@@ -83,8 +78,8 @@ type Notification struct {
 	Title      string   `json:"title"`
 }
 
-// Notifier delivers notifications. The adapter to internal/notify is not
-// wired yet; MemoryNotifier is the fake.
+// Notifier delivers notifications. The manager uses manager.VulnNotifier
+// (internal/notify dispatcher); MemoryNotifier is the fake.
 type Notifier interface {
 	Notify(ctx context.Context, n Notification) error
 }

@@ -314,8 +314,7 @@ func (s *server) handleVulnAudit(w http.ResponseWriter, r *http.Request, _ *call
 }
 
 // VulnBackend adapts *vuln.Service to the API and maps its errors to the
-// API's sentinel errors. Fakes-only integration: the manager does not
-// construct it yet.
+// API's sentinel errors. The manager mounts it when manager.vuln is set.
 type VulnBackend struct{ Svc *vuln.Service }
 
 var _ Vuln = (*VulnBackend)(nil)

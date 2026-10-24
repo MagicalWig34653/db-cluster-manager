@@ -15,7 +15,7 @@ const CollAISecrets = "ai-secrets"
 // SealedSecretStore implements ai.SecretStore with sealed metastore
 // documents, so provider API keys are encrypted like other secrets and are
 // bound to their key (a value moved to another reference does not
-// decrypt). It is not wired into the running manager yet.
+// decrypt). The manager uses it for the vulnerability response (manager.vuln).
 type SealedSecretStore struct {
 	Store *Store
 	Keys  KeyProvider
