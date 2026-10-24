@@ -3,21 +3,24 @@
 // Package service is the service-type framework of the manager (W07, scope
 // extension X01, X03, X06, X07, X12; ADR 0012). A service type turns a
 // validated, typed desired state into an ordered, human-readable plan, a
-// health verdict and a deletion plan. It is pure domain code: no Docker, no
-// network, no clock, standard library only; it does not import
-// internal/agent. internal/orchestrate converts its service specs into agent
-// specs and internal/runner converts its plans into operations.
+// health verdict, a deletion plan and (update.go) an update plan with a
+// rolling-update strategy. It is pure domain code: no Docker, no network, no
+// clock; it imports only the standard library and the pure domain package
+// internal/galera, never internal/agent. internal/orchestrate converts its
+// service specs into agent specs and internal/runner converts its plans into
+// operations.
 //
 // Status: implemented and tested with fakes only. Nothing here has run
 // against a real Swarm, Docker or Traefik.
 //
 // # Types
 //
-// The registry holds the types "container" (a generic Docker service, X06)
-// and "traefik" (a Traefik reverse proxy with a typed routing model, X07).
-// Galera is not a service type yet: it keeps its own domain package and
-// safety logic (internal/galera) unchanged; expressing it as a type is later
-// W07 work.
+// The registry holds the types "container" (a generic Docker service, X06),
+// "traefik" (a Traefik reverse proxy with a typed routing model, X07) and
+// "galera" (galera.go). The galera type delegates every plan to
+// internal/galera unchanged and attaches it (Plan.Galera); such plans run
+// only through the cluster flows and runner.FromGaleraPlan, so quorum,
+// recovery approval, deny-list and ownership rules stay where they were.
 //
 // # Rules every type follows
 //

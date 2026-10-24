@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/MagicalWig34653/db-cluster-manager/internal/galera"
 )
 
 // Errors of the framework.
@@ -70,6 +72,9 @@ type Step struct {
 	Artifact string `json:"artifact,omitempty"`
 	// Destructive steps remove or overwrite state.
 	Destructive bool `json:"destructive,omitempty"`
+	// Conditions are further preconditions in words (delegated Galera
+	// plans: node synced, quorum, approval).
+	Conditions []string `json:"conditions,omitempty"`
 	// Note is the step in words, for the approval.
 	Note string `json:"note"`
 }
@@ -99,7 +104,18 @@ type Plan struct {
 	Blockers []string `json:"blockers,omitempty"`
 	// RequiresApproval is true for every plan: it changes state.
 	RequiresApproval bool `json:"requiresApproval"`
+	// Rollback (update plans) is the prepared update back to the previous
+	// spec. It is not part of this plan's operation.
+	Rollback *Plan `json:"rollback,omitempty"`
+	// Galera is set on plans of the galera type: the unchanged plan of
+	// internal/galera that the steps above only describe. Such a plan runs
+	// only through the cluster flows (runner.FromGaleraPlan); the generic
+	// service conversion refuses it.
+	Galera *galera.Plan `json:"galera,omitempty"`
 }
+
+// Delegated reports whether the plan is a described Galera plan.
+func (p Plan) Delegated() bool { return p.Galera != nil }
 
 // Executable reports whether the plan has no blockers.
 func (p Plan) Executable() bool { return len(p.Blockers) == 0 }
@@ -114,6 +130,9 @@ func (p Plan) Text() string {
 		if s.Destructive {
 			mark = " [destructive]"
 		}
+		if len(s.Conditions) > 0 {
+			mark += " [after: " + strings.Join(s.Conditions, "; ") + "]"
+		}
 		fmt.Fprintf(&b, "%d. %s: %s%s\n", i+1, s.Kind, s.Note, mark)
 	}
 	for _, w := range p.Warnings {
@@ -125,12 +144,17 @@ func (p Plan) Text() string {
 	return b.String()
 }
 
-// Host is the planner's view of a Swarm node.
+// Host is the planner's view of a Swarm node. Spare, Capacity and
+// Allocated are used by the galera type's placement (internal/galera A01,
+// A04); the other types ignore them.
 type Host struct {
-	ID     string
-	Name   string
-	Ready  bool
-	Active bool
+	ID        string
+	Name      string
+	Ready     bool
+	Active    bool
+	Spare     bool
+	Capacity  ResourceAmount
+	Allocated ResourceAmount
 }
 
 // Context is the identity every call needs.
@@ -229,7 +253,7 @@ func NewRegistry(types ...Type) (*Registry, error) {
 
 // DefaultRegistry returns the registry of the built-in types.
 func DefaultRegistry() *Registry {
-	r, err := NewRegistry(Container{}, Traefik{})
+	r, err := NewRegistry(Container{}, Traefik{}, Galera{})
 	if err != nil {
 		panic(err) // the built-in names are distinct
 	}

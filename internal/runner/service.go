@@ -18,7 +18,13 @@ import (
 const (
 	OpServiceCreate = "service/create"
 	OpServiceDelete = "service/delete"
+	OpServiceUpdate = "service/update"
 )
+
+// CondServiceHealthy holds when every desired task of the service named by
+// Target (the service ID) runs, judged by its type from observed Swarm
+// task state (manager RoutingChecker; fails closed without a Swarm view).
+const CondServiceHealthy = "service-healthy"
 
 // ServiceBindings supply the facts a service plan does not contain.
 type ServiceBindings struct {
@@ -42,6 +48,11 @@ type ServiceBindings struct {
 // so it can be previewed but never started; delivery of configuration files
 // has no agent command and is refused too.
 func FromServicePlan(p service.Plan, b ServiceBindings) (Operation, error) {
+	if p.Delegated() || p.Type == service.TypeGalera {
+		// Galera plans keep their own conversion and its refusals (approval
+		// for recovery, no unknown plan kinds): FromGaleraPlan.
+		return Operation{}, fmt.Errorf("%w: a galera plan runs only through the cluster flows (FromGaleraPlan)", ErrInvalidOperation)
+	}
 	if !p.Executable() {
 		return Operation{}, fmt.Errorf("%w: %s", service.ErrNotExecutable, strings.Join(p.Blockers, "; "))
 	}
@@ -51,6 +62,8 @@ func FromServicePlan(p service.Plan, b ServiceBindings) (Operation, error) {
 		kind = OpServiceCreate
 	case service.PlanDelete:
 		kind = OpServiceDelete
+	case service.PlanUpdate:
+		kind = OpServiceUpdate
 	default:
 		return Operation{}, fmt.Errorf("%w: service plan kind %q", ErrInvalidOperation, p.Kind)
 	}
@@ -101,6 +114,22 @@ func convertServiceStep(p service.Plan, ps service.Step, b ServiceBindings) (Ste
 			return Step{}, err
 		}
 		s.Command, args = agent.KindCreateService, spec
+	case service.StepUpdateService:
+		if ps.Spec == nil {
+			return Step{}, fmt.Errorf("%w: update-service without spec", ErrInvalidOperation)
+		}
+		spec, err := orchestrate.ServiceToAgentSpec(*ps.Spec)
+		if err != nil {
+			return Step{}, err
+		}
+		s.Command, args = agent.KindUpdateService, agent.UpdateServiceArgs{ServiceName: spec.Name, Spec: spec}
+	case service.StepAwaitUpdate:
+		s.Command, args = agent.KindAwaitService, agent.AwaitServiceArgs{ServiceName: ps.ServiceName}
+	case service.StepCheckHealth:
+		// A gate: no command; the checker judges the observed tasks.
+		s.Target = ""
+		s.Preconditions = append(s.Preconditions, Condition{Kind: CondServiceHealthy, Target: p.ServiceID})
+		return s, nil
 	case service.StepRemoveService:
 		s.Command, args = agent.KindRemoveClusterService, agent.RemoveClusterServiceArgs{ServiceName: ps.ServiceName, ClusterID: ps.ServiceID}
 	case service.StepRemoveVolume:
@@ -111,7 +140,7 @@ func convertServiceStep(p service.Plan, ps service.Step, b ServiceBindings) (Ste
 		return Step{}, fmt.Errorf("%w: step kind %q has no agent command", ErrInvalidOperation, ps.Kind)
 	}
 	switch ps.Kind {
-	case service.StepCreateService, service.StepRemoveService:
+	case service.StepCreateService, service.StepRemoveService, service.StepUpdateService, service.StepAwaitUpdate:
 		if b.ServiceHost != "" {
 			s.Target = b.ServiceHost
 		}

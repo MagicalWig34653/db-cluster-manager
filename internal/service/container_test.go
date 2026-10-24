@@ -284,14 +284,14 @@ func TestHealth(t *testing.T) {
 
 func TestRegistry(t *testing.T) {
 	r := DefaultRegistry()
-	if got := r.Names(); !slices.Equal(got, []string{"container", "traefik"}) {
+	if got := r.Names(); !slices.Equal(got, []string{"container", "galera", "traefik"}) {
 		t.Fatalf("names %v", got)
 	}
 	if ty, err := r.Get("traefik"); err != nil || ty.Name() != "traefik" {
 		t.Fatalf("%v %v", ty, err)
 	}
-	if _, err := r.Get("galera"); !errors.Is(err, ErrUnknownType) {
-		t.Fatalf("galera is not a service type yet: %v", err)
+	if _, err := r.Get("mongodb"); !errors.Is(err, ErrUnknownType) {
+		t.Fatalf("unknown type: %v", err)
 	}
 	if _, err := NewRegistry(Container{}, Container{}); err == nil {
 		t.Fatal("duplicate registration accepted")

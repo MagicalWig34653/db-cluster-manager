@@ -93,6 +93,12 @@ func TestAgentCompatibility(t *testing.T) {
 		{string(service.StepCreateService), string(agent.KindCreateService)},
 		{string(service.StepRemoveService), string(agent.KindRemoveClusterService)},
 		{string(service.StepRemoveVolume), string(agent.KindRemoveVolume)},
+		{string(service.StepUpdateService), string(agent.KindUpdateService)},
+		{string(service.StepAwaitUpdate), string(agent.KindAwaitService)},
+		{service.OrderStopFirst, agent.UpdateStopFirst},
+		{service.OrderStartFirst, agent.UpdateStartFirst},
+		{service.OnFailureRollback, agent.FailureActionRollback},
+		{service.OnFailurePause, agent.FailureActionPause},
 	}
 	for _, p := range pairs {
 		if p[0] != p[1] {
@@ -201,6 +207,10 @@ func strictArgs(kind agent.Kind, raw json.RawMessage) error {
 		v = &agent.RemoveClusterServiceArgs{}
 	case agent.KindRemoveVolume:
 		v = &agent.RemoveVolumeArgs{}
+	case agent.KindUpdateService:
+		v = &agent.UpdateServiceArgs{}
+	case agent.KindAwaitService:
+		v = &agent.AwaitServiceArgs{}
 	default:
 		return fmt.Errorf("kind %q is not a service step", kind)
 	}
