@@ -34,5 +34,6 @@ Where one feature has parts at different levels, each part is labelled separatel
 12. [Configuration reference](12-configuration-reference.md)
 13. [Image builds and registries (stub)](13-image-builds.md)
 14. [Services (stub)](13-services.md)
+15. [Vulnerability response (stub)](15-vulnerability-response.md)
 
 Reading order for a first test: 1, 2, 3, then 10 before trusting anything.
