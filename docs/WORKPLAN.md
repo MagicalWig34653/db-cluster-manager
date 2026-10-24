@@ -42,3 +42,29 @@ Next concrete action: import the local commits into a writable checkout, rerun t
 ## cx-configs handover (2026-10-24)
 
 Implemented the scoped W07/W09 config delivery step; contracts, safety rules, actual checks and limitations are recorded in [STATUS](STATUS.md#w07w09-config-delivery-2026-10-24-fakes-only). No infrastructure was created. Targeted race tests pass (including encoding and Galera/service drift contracts); full race suite fails on sandbox-denied listeners plus one manager abort timeout (isolated race rerun passed). Formatting, vet, documentation and static deployment checks pass; deployment checks lack PyYAML. Implementation and guides committed as `5521645` and `2ace890`; no push. Next concrete action: rerun the full race suite with local listeners available, investigate any recurring abort timeout, then test config lifecycle in the owned lab. This does not replace the W05 priorities above.
+
+## Kubernetes and security UI handover (2026-10-24)
+
+Completed the requested frontend increment on `cx-ui-k8s`: Kubernetes metadata
+registration/listing with write-only credentials, global vulnerability audit
+history, Swarm config artifact/dependency display and mock `create-config` /
+`remove-config` agent steps. Existing findings/detail/policy/provider pages and
+replica-key/certificate screens were retained. `integration` has no HTTP API for
+data-key rotation or metastore membership mutation, so those conditional screens
+were not added. DE/EN guides 13/15/16 and UI strings are current.
+
+Actual verification: `gofmt -l .` and `go vet ./...` exit 0 without output;
+`check_docs.py` reports 71 Markdown files / 69 requirements / 0 errors;
+`check_deploy.py` passes static checks (no image built). Frontend check reports
+0 errors / 0 warnings; vitest passes 18 files / 196 tests; static build passes
+and the assets `.gitkeep` was restored with `touch`. Full
+`go test -race -count=1 -p 4 ./...` exits 1: 24 packages pass, 18 fail, 5 have no
+tests; sandbox-denied local TCP/Unix listeners prevent completion. No real
+infrastructure was contacted. See [actual scope and limits](STATUS.md#kubernetes-and-security-ui-follow-up-2026-10-24).
+
+Remaining: browser/DE/EN visual evidence and fake-backed manager UI integration;
+full race rerun where local listeners work. Kubernetes remains metadata-only,
+experimental and unwired in the shipping manager. These local UI changes do not
+alter W05/R1 priorities or satisfy W10/W11 release gates. Next action: review
+both locales with synthetic fixtures and rerun the Go suite in a suitable sandbox.
+No push.

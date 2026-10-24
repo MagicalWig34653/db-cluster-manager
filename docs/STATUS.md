@@ -391,3 +391,70 @@ and documentation as small commits in a session with Git metadata write access;
 rerun the complete race suite where local listeners are permitted. Any real
 Kubernetes work still needs the timing/distribution decision, durable ownership
 inventory, fencing/RBAC/credential review and a scoped, budgeted lab plan.
+
+## Kubernetes and security UI follow-up (2026-10-24)
+
+Scope: frontend only on `cx-ui-k8s`, with existing HTTP contracts, invented mock
+responses and unit tests. No infrastructure, Kubernetes API, Docker daemon,
+advisory feed or AI provider was contacted.
+
+- Added `/kubernetes` to the existing navigation: metadata list and registration
+  form for the GET/POST `/kubernetes-clusters` contract. Validation mirrors DNS
+  name, HTTPS-origin and credential byte limits. Exactly one token or opaque
+  kubeconfig is sent. Credentials are cleared after each request attempt and on
+  type changes; neither credentials nor kubeconfig enter browser storage or
+  mock fixture state. Runtime response guards reject credential-bearing views.
+  The page explicitly distinguishes saved metadata from verified connectivity.
+  The shipping manager still leaves this experimental backend unwired (503).
+- Existing vulnerability findings, detail, policy and provider pages were already
+  present. Added `/vulnerabilities/audit` for the missing global history: polls,
+  policy changes and provider consent without a finding reference, sequence
+  ordering, search, finding links and explicit loading/error/retry/empty states.
+  Backend event codes and results remain verbatim; no HTML is rendered from them.
+- Service plan config sections show owned config names, artifacts and dependency
+  steps. The existing expert view continues to list `create-config` and
+  `remove-config` agent commands. Mock SFTP/FTP/Traefik plans now demonstrate
+  config creation before service creation and cleanup after service removal;
+  external SFTP config references do not become owned create/remove steps.
+  JSON/YAML exports preserve config metadata. No executor or API changed.
+- Added DE/EN UI text and updated guides 13, 15 and 16. Imports added in `web/`
+  are relative; existing Svelte 5 and shadcn components are reused.
+- Examined `integration` API routes and OpenAPI: replica key registration and
+  certificate revocation exist and already have UI; data-key rotation and
+  metastore membership mutation have no HTTP contract. No controls or invented
+  endpoints for those conditional tasks were added.
+
+Actual checks (14 logical CPUs detected with `os.cpu_count()`; Go commands use
+`GOCACHE=/tmp/dbcm-cx-ui-k8s-cache` and `GOMAXPROCS=4`):
+
+- `gofmt -l .`: exit 0, no output.
+- `go vet ./...`: exit 0, no output.
+- `go test -race -count=1 -p 4 ./...`: exit 1; 24 packages passed, 18 failed,
+  5 had no tests. TCP and Unix test listeners are denied by the sandbox
+  (`bind: operation not permitted`, including `httptest` panics). This is not a
+  passing full-suite result. No backend files changed.
+- `python3 scripts/check_docs.py`: `Checked 71 Markdown files and 69 requirements; 0 errors.`
+- `python3 scripts/check_deploy.py`: `deploy checks passed (static only; no image was built)`.
+- `cd web && npm run check`: 0 errors, 0 warnings.
+- `cd web && npm test`: 18 files, 196 tests passed (11 new tests covering
+  registration validation/contracts, global audit ordering/search and config
+  artifact/dependency/export behavior).
+- `cd web && npm run build`: exit 0; static adapter wrote
+  `../internal/webui/assets`. Ran `touch internal/webui/assets/.gitkeep` afterward.
+
+Frontend dependencies were initially absent (`svelte-kit: command not found`);
+`npm ci --offline --ignore-scripts` installed 100 packages from the local cache
+and reported 0 vulnerabilities. An initial frontend check found a test helper
+using `string` instead of the service-type union; corrected before the passing
+checks above. No dependency files changed.
+
+Limits: no browser rendering, screenshot or real-manager UI integration evidence.
+Mock config content/names are illustrative; the real manager supplies authoritative
+plans. Kubernetes provisioning, connectivity tests, deployment/recovery and
+production wiring remain absent. No release gate or Kubernetes timing/distribution
+decision changes. Local implementation commits: `0f66e5f` (Kubernetes),
+`93a34ff` (global audit), `78ec0e2` (Swarm configs). Nothing was pushed.
+
+Next: rerun the complete Go race suite with local listeners permitted; render and
+inspect both locales with synthetic data, then validate these pages against an
+authorized fake-backed manager. Do not infer Kubernetes support from registration.
