@@ -15,7 +15,7 @@
 # loss of a proxy VM (which also hosts a Galera node) does not change the
 # writer and the measured gap is the proxy/VIP/client failover alone.
 
-E8_STEPS="e8prep e8vip e8baseline e8proxyloss e8vmloss e8integrity e8teardown e8node e8allloss"
+E8_STEPS="e8prep e8vip e8baseline e8proxyloss e8vmloss e8integrity e8teardown e8node e8allloss e8staggered"
 
 E8=/root/dbcm-e8 # inside every VM: binaries, configs, passwords (root 0700)
 PX=dbcm-e8-proxy
@@ -511,9 +511,83 @@ e8_primary_any() { # lists any node that reports a Primary component
 	return 0
 }
 
+# e8_power_scenario TAG SENTINEL-IDS — all three VMs are down (hard-stopped
+# by the caller): restart them, restart the lab manager, observe 150 s hands
+# off, then either record the cluster's own recovery (Galera restores the
+# primary component from gvwstate.dat when all nodes agree on the last view)
+# or run the guided recovery with the digest-bound approval.
+e8_power_scenario() {
+	local tag=$1 ids=$2 vm t0 before after i cand
+	t0=$(date +%s)
+	# m1 first: it holds the only Swarm manager and the manager's data.
+	for vm in $VMS; do
+		e8_vm_start "$vm" || { result "VM $vm did not start (see log)"; return 1; }
+		wait_until 300 "$vm reachable over ssh" vm_sh "$vm" true || true
+	done
+	say "all three VMs reachable $(($(date +%s) - t0)) s after the first limactl start"
+	e8_measure "gate $tag: VMs booted, Swarm and database services starting"
+	rec "ground truth after the power loss: grastate.dat per node" e6_grastate
+	rec "Swarm after the boot" vm_docker "$M1" node ls
+	rec "manager unit after the boot (lab: transient systemd unit, not a product service)" vm_sh "$M1" "systemctl is-active $UNIT || true"
+	rec "restart the lab manager unit (same config and data directory)" vm_args "$M1" 'sudo systemd-run --unit "$1" -p Restart=no --collect /usr/local/bin/dbcm-e4-manager -listen "127.0.0.1:$2" -config /etc/dbcm-e4/manager.json' "$UNIT" "$API_PORT"
+	wait_until 60 "manager health" vm_sh "$M1" "curl -fsS http://127.0.0.1:$API_PORT/api/v1/health" || true
+	wait_until 180 "manager leads (API not 503)" api GET /api/v1/setup/status || true
+	e8_login
+	before=$(e6_specs)
+	for i in 1 2 3 4 5 6 7 8 9 10; do
+		sleep 15
+		say "t+$((i * 15))s running db tasks: $(e6_running_tasks); cluster: $(apij GET "/api/v1/clusters/$CLUSTER_ID" 2>/dev/null | jq -c '{state, nodes: [.nodes[] | "\(.id) \(.state)"]}' 2>/dev/null || echo unavailable)"
+	done
+	rec "any node Primary after 150 s?" e8_primary_any
+	after=$(e6_specs)
+	rec "service specs before the observation window" printf '%s\n' "$before"
+	rec "service specs after the observation window" printf '%s\n' "$after"
+	if [ "$before" = "$after" ] && ! printf '%s' "$after" | grep -q 'bootstrap=yes'; then
+		result "$tag hands off: no service spec changed and no bootstrap flag appeared in 150 s after the power loss"
+	else
+		result "$tag service specs CHANGED or bootstrap flag present (see specs above)"
+	fi
+	rec "database task history (restart loop?)" vm_docker "$M1" service ps --format '{{.Name}} {{.Node}} {{.DesiredState}} {{.CurrentState}} {{.Error}}' $(e6_services)
+	rec "ground truth again: grastate.dat per node" e6_grastate
+	rec "cluster via API" api GET "/api/v1/clusters/$CLUSTER_ID"
+	rec "events" e6_events
+	rec "operations (no recovery operation may exist)" e6_ops
+	rec "outage diagnosis (GET, read-only; 409 is the expected refusal while a node is Primary)" api GET "/api/v1/clusters/$CLUSTER_ID/outage-diagnosis" || true
+	if e8_primary_any | grep -q 'wsrep_cluster_status Primary'; then
+		# The nodes found each other: no manager action is needed or allowed.
+		wait_until 600 "Galera cluster back to 3 synced nodes" e8_synced3 || true
+		rec "wsrep status after the self-recovery" e8_status3
+		if [ "$(e6_uuid 1)" = "$E6_UUID" ]; then result "$tag: Galera restored the primary component by itself (gvwstate.dat), same cluster state UUID, no manager action"; else result "$tag: cluster state UUID CHANGED after the self-recovery"; fi
+		rec "operations after the self-recovery (still none)" e6_ops
+		rec "sentinels on every node ($ids expected)" e8_sentinels_all "$ids"
+		rec "write after the self-recovery" rsql 1 "REPLACE INTO e8.sentinel (id, note, node) VALUES (900, 'after $tag self-recovery', @@hostname)"
+		e8_measure "gate $tag after: cluster recovered by itself"
+		E8_SELF=1
+		return 0
+	fi
+	E8_SELF=0
+	rec "diagnosis with position recovery (POST)" api POST "/api/v1/clusters/$CLUSTER_ID/outage-diagnosis" '{}' || true
+	cand=$(apij GET "/api/v1/clusters/$CLUSTER_ID/outage-diagnosis" | jq -r '.candidate // ""')
+	if [ -z "$cand" ]; then
+		say "no candidate yet; operator step: scale the crash-looping services to 0 (the manager has no stop command), then retry the position recovery"
+		rec "operator: scale all three to 0" vm_docker "$M1" service scale -d $(for s in $(e6_services); do printf '%s=0 ' "$s"; done)
+		wait_until 180 "no database task running" e6_none_running || true
+		rec "diagnosis with position recovery (POST) after the operator stopped the services" api POST "/api/v1/clusters/$CLUSTER_ID/outage-diagnosis" '{}' || true
+		cand=$(apij POST "/api/v1/clusters/$CLUSTER_ID/outage-diagnosis" '{}' | jq -r '.candidate // ""')
+	fi
+	say "diagnosis candidate: ${cand:-none}"
+	[ -n "$cand" ] || { result "$tag: no candidate after the power loss even with recovered positions"; return 1; }
+	E8_CANDIDATE=$cand
+	rec "diagnosis (recovered positions) in full" api POST "/api/v1/clusters/$CLUSTER_ID/outage-diagnosis" '{}' || true
+	e6_recover "$cand" || true
+	e6_verify_recovered "$tag" "$((E8_ROW))"
+	rec "sentinels on every node after the guided recovery ($ids expected)" e8_sentinels_all "$ids"
+	e8_measure "gate $tag after: cluster recovered by the guided recovery"
+}
+
 phase_e8allloss() {
 	e8_login
-	section "Phase e8allloss (gate B2): hard power loss of all three VMs, restart, guided recovery"
+	section "Phase e8allloss (gate B2): hard power loss of all three VMs at once, restart"
 	hostload
 	CLUSTER_ID=${CLUSTER_ID:-$(cluster_id)}
 	E6_UUID=$(e6_uuid 1)
@@ -532,55 +606,50 @@ phase_e8allloss() {
 	wait $pids || true
 	say "all three VMs force-stopped in $(($(date +%s) - t0)) s: $(limactl list --format '{{.Name}}={{.Status}}' | grep '^dbcm-lab' | tr '\n' ' ')"
 	sleep 20
-	t0=$(date +%s)
-	# m1 first: it holds the only Swarm manager and the manager's data.
+	E8_ROW=104
+	e8_power_scenario B2 "1,2,3"
+}
+
+# Staggered power loss: n(m3) is lost first and the others keep writing, then
+# the two remaining VMs are lost together. The first-lost node's grastate and
+# gvwstate.dat are stale; it must never be chosen as the bootstrap candidate
+# and the sentinel written in between must survive.
+phase_e8staggered() {
+	e8_login
+	section "Phase e8staggered (gate B3): staggered power loss, stale node must not win"
+	hostload
+	CLUSTER_ID=${CLUSTER_ID:-$(cluster_id)}
+	if [ "$(e6_running_tasks)" != 3 ]; then
+		rec "restore the three services (scale to 1)" vm_docker "$M1" service scale -d $(for s in $(e6_services); do printf '%s=1 ' "$s"; done) || true
+		wait_until 600 "Galera cluster back to 3 synced nodes" e8_synced3 || true
+	fi
+	E6_UUID=$(e6_uuid 1)
+	e6_hosts
+	local first=dbcm-lab-m3 k surv
+	k=$(e8_node_on "$first")
+	surv=1
+	[ "$k" = 1 ] && surv=2
+	rec "sentinel 5 before" e8_sentinel "$surv" 5 'before staggered loss'
+	rec "sentinels on every node" e8_sentinels_all "1,2,3,5"
+	e8_measure "gate B3 before: cluster idle"
+	e8_vm_stop_force "$first"
+	sleep 10
+	rec "sentinel 6 written on n$surv while n$k is already dead" e8_sentinel "$surv" 6 'only on the survivors'
+	sleep 10
+	local vm pids=""
 	for vm in $VMS; do
-		e8_vm_start "$vm" || { result "VM $vm did not start (see log)"; return 1; }
-		wait_until 300 "$vm reachable over ssh" vm_sh "$vm" true || true
+		[ "$vm" = "$first" ] && continue
+		limactl stop --force "$vm" >>"$LOG" 2>&1 &
+		pids="$pids $!"
 	done
-	say "all three VMs reachable $(($(date +%s) - t0)) s after the first limactl start"
-	e8_measure "gate B2: VMs booted, Swarm and database services starting"
-	rec "ground truth after the power loss: grastate.dat per node (read before anything restarts them again)" e6_grastate
-	rec "Swarm after the boot" vm_docker "$M1" node ls
-	rec "manager unit after the boot (lab: transient systemd unit, not a product service)" vm_sh "$M1" "systemctl is-active $UNIT || true"
-	rec "restart the lab manager unit (same config and data directory)" vm_args "$M1" 'sudo systemd-run --unit "$1" -p Restart=no --collect /usr/local/bin/dbcm-e4-manager -listen "127.0.0.1:$2" -config /etc/dbcm-e4/manager.json' "$UNIT" "$API_PORT"
-	wait_until 60 "manager health" vm_sh "$M1" "curl -fsS http://127.0.0.1:$API_PORT/api/v1/health" || true
-	wait_until 180 "manager leads (API not 503)" api GET /api/v1/setup/status || true
-	local before after i
-	before=$(e6_specs)
-	for i in 1 2 3 4 5 6 7 8 9 10; do
-		sleep 15
-		say "t+$((i * 15))s running db tasks: $(e6_running_tasks); cluster: $(apij GET "/api/v1/clusters/$CLUSTER_ID" 2>/dev/null | jq -c '{state, nodes: [.nodes[] | "\(.id) \(.state)"]}' 2>/dev/null || echo unavailable)"
-	done
-	rec "any node Primary after 150 s? (automatic bootstrap would show here)" e8_primary_any
-	after=$(e6_specs)
-	rec "service specs before the observation window" printf '%s\n' "$before"
-	rec "service specs after the observation window" printf '%s\n' "$after"
-	if [ "$before" = "$after" ] && ! printf '%s' "$after" | grep -q 'bootstrap=yes'; then
-		result "B2 hands off: no service spec changed and no bootstrap flag appeared in 150 s after the power loss"
-	else
-		result "B2 service specs CHANGED or bootstrap flag present (see specs above)"
+	# shellcheck disable=SC2086
+	wait $pids || true
+	say "remaining VMs force-stopped: $(limactl list --format '{{.Name}}={{.Status}}' | grep '^dbcm-lab' | tr '\n' ' ')"
+	sleep 20
+	E8_ROW=105
+	e8_power_scenario B3 "1,2,3,5,6"
+	if [ "${E8_SELF:-0}" = 0 ]; then
+		say "stale node n$k was $( [ "${E8_CANDIDATE:-}" = "n$k" ] && echo CHOSEN as candidate '(WRONG)' || echo 'not chosen (candidate '"${E8_CANDIDATE:-none}"')')"
+		result "B3: candidate ${E8_CANDIDATE:-none}; first-lost node was n$k"
 	fi
-	rec "database task history (restart loop?)" vm_docker "$M1" service ps --format '{{.Name}} {{.Node}} {{.DesiredState}} {{.CurrentState}} {{.Error}}' $(e6_services)
-	rec "ground truth again: grastate.dat per node" e6_grastate
-	rec "cluster via API" api GET "/api/v1/clusters/$CLUSTER_ID"
-	rec "events" e6_events
-	rec "operations (no recovery operation yet)" e6_ops
-	e6_diagnose "outage diagnosis (GET, read-only)"
-	rec "diagnosis with position recovery (POST)" api POST "/api/v1/clusters/$CLUSTER_ID/outage-diagnosis" '{}' || true
-	local cand
-	cand=$(apij GET "/api/v1/clusters/$CLUSTER_ID/outage-diagnosis" | jq -r '.candidate // ""')
-	if [ -z "$cand" ]; then
-		say "no candidate yet; operator step: scale the crash-looping services to 0 (the manager has no stop command), then retry the position recovery"
-		rec "operator: scale all three to 0" vm_docker "$M1" service scale -d $(for s in $(e6_services); do printf '%s=0 ' "$s"; done)
-		wait_until 180 "no database task running" e6_none_running || true
-		rec "diagnosis with position recovery (POST) after the operator stopped the services" api POST "/api/v1/clusters/$CLUSTER_ID/outage-diagnosis" '{}' || true
-		cand=$(apij POST "/api/v1/clusters/$CLUSTER_ID/outage-diagnosis" '{}' | jq -r '.candidate // ""')
-	fi
-	say "diagnosis candidate: ${cand:-none}"
-	[ -n "$cand" ] || { result "B2: no candidate after the power loss even with recovered positions"; return 1; }
-	e6_recover "$cand" || true
-	e6_verify_recovered "power-loss" 104
-	rec "sentinels on every node after recovery (1,2,3 expected)" e8_sentinels_all "1,2,3"
-	e8_measure "gate B2 after: cluster recovered"
 }
