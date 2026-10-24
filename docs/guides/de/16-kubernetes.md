@@ -10,8 +10,26 @@ Der ausgelieferte Manager aktiviert und verdrahtet diese Funktion nicht.
 Bibliotheksnutzer müssen Renderer/KubeAPI ausdrücklich aktivieren. Ein
 API-Testhost muss `api.Config.ExperimentalKubernetes` setzen und das
 Registrierungsbackend bereitstellen; auch dessen `Enabled` muss gesetzt sein.
-W10 enthält keinen Produktionsschalter, keine UI, CLI, Provisionierung und
+W10 enthält keinen Produktionsschalter, keine CLI, Provisionierung und
 keinen Kubernetes-Deployment- oder Recovery-Ablauf.
+
+## Registrierungsoberfläche
+
+In der Navigation **Kubernetes-Registrierungen** öffnen. Die Seite zeigt Metadaten
+und das Vorhandensein von Zugangsdaten. Zur Registrierung dienen ID, Anzeigename,
+HTTPS-API-Origin (ohne abschließenden Schrägstrich), Namespace und entweder ein
+Bearer-Token oder eine unverarbeitete kubeconfig. ID und Namespace sind
+kleingeschriebene DNS-Namen mit maximal 63 Zeichen. Zugangsdaten sind nur
+schreibbar, auf 32 KiB begrenzt und werden nach jedem Sendeversuch geleert.
+Auch ein Wechsel der Zugangsdatenart leert das Feld. Der Browser speichert keine
+Zugangsdaten dauerhaft. Erfolg bedeutet gespeicherte Metadaten, keine Prüfung
+von Erreichbarkeit, Kompatibilität oder Deployment-Bereitschaft.
+
+Der Entwicklungs-Mock liefert erfundene Registrierungen ohne Clusterkontakt.
+Der ausgelieferte Manager antwortet weiterhin mit 503, da sein Backend nicht
+verdrahtet ist. Lade-, Berechtigungs-, Deaktivierungs- und Anfragefehler bleiben
+sichtbar. Es gibt keinen Deployment- oder Verbindungstest-Knopf. Browserdarstellung
+und Integration mit einem echten Manager sind für diese Seite noch ungeprüft.
 
 Der HTTP-Vertrag umfasst ausschließlich Registrierung:
 

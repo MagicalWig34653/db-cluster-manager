@@ -9,7 +9,24 @@ The shipping manager does not enable or wire this feature. Library consumers
 must explicitly enable the renderer/KubeAPI. An API test host must set
 `api.Config.ExperimentalKubernetes` and supply the registration backend; the
 backend also requires `Enabled`. There is no production configuration switch,
-UI, CLI, provisioning, deployment or Kubernetes recovery workflow in W10.
+CLI, provisioning, deployment or Kubernetes recovery workflow in W10.
+
+## Registration UI
+
+Open **Kubernetes registrations** in the navigation. The page lists metadata and
+credential presence, and registers an existing cluster with an ID, display name,
+HTTPS API origin (no trailing slash), namespace and either a bearer token or an
+opaque kubeconfig. IDs and namespaces use lowercase DNS names (up to 63 characters).
+Credentials are write only, limited to 32 KiB and cleared after each send attempt.
+Changing the credential type clears the field too. No credential is stored in
+browser storage. A successful registration means metadata was saved; it does
+not establish connectivity, compatibility or deployment readiness.
+
+The development mock provides synthetic registrations without cluster contact.
+The shipping manager still returns 503 because its registration backend is not
+wired. Loading, permission, disabled-feature and request errors remain visible;
+there is no deployment or connectivity-test button. Browser rendering and a
+real-manager integration run of this page remain unverified.
 
 The only HTTP contract is registration:
 

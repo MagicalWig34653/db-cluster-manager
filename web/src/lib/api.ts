@@ -29,6 +29,27 @@ export type OperationState = (typeof operationStates)[number];
 export const severities = ['info', 'warning', 'critical', 'unknown'] as const;
 export type Severity = (typeof severities)[number];
 
+export interface KubernetesRegistration {
+ id: string;
+ name: string;
+ endpoint: string;
+ namespace: string;
+ credentialKind: 'token' | 'kubeconfig';
+ credentialSet: boolean;
+}
+export interface KubernetesRegistrationInput {
+ id: string;
+ name: string;
+ endpoint: string;
+ namespace: string;
+ token?: string;
+ kubeconfig?: string;
+}
+export const isKubernetesRegistration = (v: unknown): v is KubernetesRegistration =>
+ isObj(v) && isStr(v.id) && isStr(v.name) && isStr(v.endpoint) && isStr(v.namespace) &&
+ (v.credentialKind === 'token' || v.credentialKind === 'kubeconfig') && typeof v.credentialSet === 'boolean' &&
+ !('token' in v) && !('kubeconfig' in v);
+
 export interface Swarm {
 	id: string;
 	name: string;
@@ -840,6 +861,9 @@ export interface ServiceInfo {
 }
 
 export interface PlanStep {
+ config?: string;
+ artifact?: string;
+ after?: string[];
 	id: string;
 	kind: string;
 	slot?: string;
@@ -1233,7 +1257,7 @@ export interface ExternalRegistryInput {
 }
 
 const isPlanStep = (v: unknown): v is PlanStep =>
-	isObj(v) && isStr(v.id) && isStr(v.kind) && optStr(v.slot) && optStr(v.note) && (v.conditions === undefined || strArray(v.conditions));
+	isObj(v) && isStr(v.id) && isStr(v.kind) && optStr(v.slot) && optStr(v.note) && optStr(v.config) && optStr(v.artifact) && (v.after === undefined || strArray(v.after)) && (v.conditions === undefined || strArray(v.conditions));
 
 export const isServiceInfo: Guard<ServiceInfo> = (v): v is ServiceInfo =>
 	isObj(v) && isStr(v.id) && isStr(v.swarm) && isStr(v.name) && isStr(v.type) && isObj(v.spec) && optStr(v.createdBy) && optDate(v.createdAt) && optStr(v.createOperation) && optStr(v.deleteOperation) && optStr(v.updateOperation) && (v.rollbackable === undefined || isBool(v.rollbackable)) &&
@@ -1660,6 +1684,8 @@ export function createClient(fetchFn: FetchFn) {
 			call('POST', `/hosts/${encodeURIComponent(nodeId)}/maintenance`, isMaintenanceStarted, reason ? { reason } : {}),
 		leaveMaintenance: (nodeId: string) => call('DELETE', `/hosts/${encodeURIComponent(nodeId)}/maintenance`, isMaintenanceStarted),
 		clusterDrift: (id: string) => call('GET', `/clusters/${encodeURIComponent(id)}/drift`, isDriftReport),
+		kubernetesRegistrations: () => call('GET', '/kubernetes-clusters', listOfArray(isKubernetesRegistration)),
+		registerKubernetes: (input: KubernetesRegistrationInput) => call('POST', '/kubernetes-clusters', isKubernetesRegistration, input),
 		keyring: () => call('GET', '/settings/replicas', isKeyringStatus),
 		registerReplicaKey: (replica: string, publicKey: string) =>
 			call('PUT', `/settings/replicas/${encodeURIComponent(replica)}/data-key-recipient`, isReplicaKeyStatus, { publicKey }),

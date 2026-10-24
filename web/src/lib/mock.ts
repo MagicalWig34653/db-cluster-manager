@@ -5,6 +5,7 @@ import type { ServiceInput } from './api';
 // Every fixture is invented sample data; the UI shows a "MOCK DATA" banner
 // whenever this module is active.
 
+import { kubernetesMock } from './mock-kubernetes';
 import { vulnMock } from './mock-vuln';
 
 const now = Date.now();
@@ -365,7 +366,7 @@ export const mockFetch: typeof fetch = async (input, init) => {
 	} catch {
 		// ignore
 	}
-	const platform = platformMock(method, url.pathname, url.searchParams, parsed) ?? vulnMock(method, url.pathname, parsed);
+	const platform = platformMock(method, url.pathname, url.searchParams, parsed) ?? vulnMock(method, url.pathname, parsed) ?? kubernetesMock(method, url.pathname, parsed);
 	if (platform) return platform;
 	if (method === 'POST') {
 		if (url.pathname === '/api/v1/auth/logout') return new Response(null, { status: 204 });
