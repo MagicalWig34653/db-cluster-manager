@@ -1,0 +1,1674 @@
+
+## Phase build: lab tooling and the API client (linux/arm64) on the host
+
+### go build ./tests/p0/e4client
+
+```
+$ env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o <repo>/.lab/e4/bin/e4client ./tests/p0/e4client
+(exit 0)
+```
+
+### git revision (the image is built from this commit, git archive HEAD)
+
+```
+$ git -C <repo> log -1 --format=%h %s
+67c8aef tests: E7 builds and deploys from the root-owned source directory
+(exit 0)
+```
+
+### uncommitted changes (must be empty for a faithful build)
+
+```
+$ git -C <repo> status --short
+?? tests/p0/results/e7-stack-deploy.log
+(exit 0)
+```
+
+
+## Phase vms: lab VMs (bin/lab) and rootful Docker
+
+host uptime: 10:22  up 5 days, 18:20, 7 users, load averages: 38.30 67.56 45.48
+
+08:22:01Z host load: { 38.30 67.56 45.48 }
+### host free disk before apply
+
+```
+$ host_free_disk
+host free disk (/System/Volumes/Data): 31Gi of 926Gi
+(exit 0)
+```
+
+### bin/lab status before
+
+```
+$ <repo>/bin/lab status
+host:
+  logical CPUs: 14
+  RAM: 48.0 GiB
+budget:
+  lab CPU limit: 7
+  lab RAM limit: 16.0 GiB
+  lab disk limit: 100.0 GiB
+manifest .lab/manifest.json:
+  (empty)
+inventory:
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+unrelated (never touched):
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+(exit 0)
+```
+
+### bin/lab apply -apply -vms 3 -cpus 2 -ram 4 -disk 20 -network lima:user-v2
+
+```
+$ <repo>/bin/lab apply -apply -vms 3 -cpus 2 -ram 4 -disk 20 -network lima:user-v2
+pre-snapshot:
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+executing actions:
+  # create Lima VM dbcm-lab-m1 (2 CPUs, 4 GiB RAM, 20 GiB disk, template docker, network lima:user-v2 (shared Lima state, not owned))
+  limactl create --name=dbcm-lab-m1 --cpus=2 --memory=4 --disk=20 --tty=false --network=lima:user-v2 template:docker
+  # start Lima VM dbcm-lab-m1
+  limactl start --tty=false dbcm-lab-m1
+  # create Lima VM dbcm-lab-m2 (2 CPUs, 4 GiB RAM, 20 GiB disk, template docker, network lima:user-v2 (shared Lima state, not owned))
+  limactl create --name=dbcm-lab-m2 --cpus=2 --memory=4 --disk=20 --tty=false --network=lima:user-v2 template:docker
+  # start Lima VM dbcm-lab-m2
+  limactl start --tty=false dbcm-lab-m2
+  # create Lima VM dbcm-lab-m3 (2 CPUs, 4 GiB RAM, 20 GiB disk, template docker, network lima:user-v2 (shared Lima state, not owned))
+  limactl create --name=dbcm-lab-m3 --cpus=2 --memory=4 --disk=20 --tty=false --network=lima:user-v2 template:docker
+  # start Lima VM dbcm-lab-m3
+  limactl start --tty=false dbcm-lab-m3
+post-snapshot diff:
+  added: lima:dbcm-lab-m1, lima:dbcm-lab-m2, lima:dbcm-lab-m3
+  removed: (none)
+(exit 0)
+```
+
+### switch dbcm-lab-m1 to rootful docker
+
+```
+$ vm_sh dbcm-lab-m1 
+			set -e
+			systemctl --user disable --now docker.service >/dev/null 2>&1 || true
+			sudo systemctl unmask containerd.service docker.service docker.socket >/dev/null 2>&1
+			sudo systemctl enable --now containerd.service docker.socket docker.service >/dev/null 2>&1
+			echo "rootful docker: $(systemctl is-active docker.service)"
+rootful docker: active
+(exit 0)
+```
+
+### facts dbcm-lab-m1
+
+```
+$ vm_sh dbcm-lab-m1 
+			echo "arch: $(uname -m) kernel: $(uname -r)"; grep PRETTY_NAME /etc/os-release; echo "nproc: $(nproc)"
+			free -m | head -2; df -h / | tail -1
+			sudo docker version --format "docker server {{.Server.Version}}"
+arch: aarch64 kernel: 7.0.0-28-generic
+PRETTY_NAME="Ubuntu 26.04 LTS"
+nproc: 2
+               total        used        free      shared  buff/cache   available
+Mem:            3896         515        2241           1        1301        3381
+/dev/vda1        19G  2.9G   16G  16% /
+docker server 29.9.2
+(exit 0)
+```
+
+### switch dbcm-lab-m2 to rootful docker
+
+```
+$ vm_sh dbcm-lab-m2 
+			set -e
+			systemctl --user disable --now docker.service >/dev/null 2>&1 || true
+			sudo systemctl unmask containerd.service docker.service docker.socket >/dev/null 2>&1
+			sudo systemctl enable --now containerd.service docker.socket docker.service >/dev/null 2>&1
+			echo "rootful docker: $(systemctl is-active docker.service)"
+rootful docker: active
+(exit 0)
+```
+
+### facts dbcm-lab-m2
+
+```
+$ vm_sh dbcm-lab-m2 
+			echo "arch: $(uname -m) kernel: $(uname -r)"; grep PRETTY_NAME /etc/os-release; echo "nproc: $(nproc)"
+			free -m | head -2; df -h / | tail -1
+			sudo docker version --format "docker server {{.Server.Version}}"
+arch: aarch64 kernel: 7.0.0-28-generic
+PRETTY_NAME="Ubuntu 26.04 LTS"
+nproc: 2
+               total        used        free      shared  buff/cache   available
+Mem:            3896         532        2224           1        1302        3364
+/dev/vda1        19G  2.9G   16G  16% /
+docker server 29.9.2
+(exit 0)
+```
+
+### switch dbcm-lab-m3 to rootful docker
+
+```
+$ vm_sh dbcm-lab-m3 
+			set -e
+			systemctl --user disable --now docker.service >/dev/null 2>&1 || true
+			sudo systemctl unmask containerd.service docker.service docker.socket >/dev/null 2>&1
+			sudo systemctl enable --now containerd.service docker.socket docker.service >/dev/null 2>&1
+			echo "rootful docker: $(systemctl is-active docker.service)"
+rootful docker: active
+(exit 0)
+```
+
+### facts dbcm-lab-m3
+
+```
+$ vm_sh dbcm-lab-m3 
+			echo "arch: $(uname -m) kernel: $(uname -r)"; grep PRETTY_NAME /etc/os-release; echo "nproc: $(nproc)"
+			free -m | head -2; df -h / | tail -1
+			sudo docker version --format "docker server {{.Server.Version}}"
+arch: aarch64 kernel: 7.0.0-28-generic
+PRETTY_NAME="Ubuntu 26.04 LTS"
+nproc: 2
+               total        used        free      shared  buff/cache   available
+Mem:            3896         542        2213           1        1302        3354
+/dev/vda1        19G  2.9G   16G  16% /
+docker server 29.9.2
+(exit 0)
+```
+
+### host free disk after apply
+
+```
+$ host_free_disk
+host free disk (/System/Volumes/Data): 28Gi of 926Gi
+(exit 0)
+```
+
+
+## Phase swarm: one manager node, two workers
+
+host uptime: 10:25  up 5 days, 18:24, 7 users, load averages: 257.13 112.65 65.81
+
+08:25:36Z host load: { 257.13 112.65 65.81 }
+08:25:36Z m1 user-v2 address: 192.168.104.1
+### swarm init on m1
+
+```
+$ vm_docker dbcm-lab-m1 swarm init --advertise-addr 192.168.104.1
+Swarm initialized: current node (ks6juv2db6uin2k601xlo935q) is now a manager.
+
+To add a worker to this swarm, run the following command:
+
+    docker swarm join --token SWMTKN-<redacted> 192.168.104.1:2377
+
+To add a manager to this swarm, run 'docker swarm join-token manager' and follow the instructions.
+(exit 0)
+```
+
+### swarm join dbcm-lab-m2 (advertise 192.168.104.3, token not recorded)
+
+```
+$ vm_docker dbcm-lab-m2 swarm join --advertise-addr 192.168.104.3 --token SWMTKN-<redacted> 192.168.104.1:2377
+This node joined a swarm as a worker.
+(exit 0)
+```
+
+### swarm join dbcm-lab-m3 (advertise 192.168.104.4, token not recorded)
+
+```
+$ vm_docker dbcm-lab-m3 swarm join --advertise-addr 192.168.104.4 --token SWMTKN-<redacted> 192.168.104.1:2377
+This node joined a swarm as a worker.
+(exit 0)
+```
+
+### docker node ls
+
+```
+$ vm_docker dbcm-lab-m1 node ls
+ID                            HOSTNAME           STATUS    AVAILABILITY   MANAGER STATUS   ENGINE VERSION
+ks6juv2db6uin2k601xlo935q *   lima-dbcm-lab-m1   Ready     Active         Leader           29.9.2
+4ahh4po1e06d17grur3j3zabn     lima-dbcm-lab-m2   Ready     Active                          29.9.2
+fg9eqaz37020cjd4zszuzfs2y     lima-dbcm-lab-m3   Ready     Active                          29.9.2
+(exit 0)
+```
+
+
+## Phase images: docker build -f deploy/Dockerfile inside m1 (arm64), copy to m2/m3 (no registry push)
+
+host uptime: 10:25  up 5 days, 18:24, 7 users, load averages: 257.13 112.65 65.81
+
+08:25:39Z host load: { 257.13 112.65 65.81 }
+### install the API client in m1
+
+```
+$ vm_sh dbcm-lab-m1 sudo install -m 0755 /tmp/e4client /usr/local/bin/dbcm-e4-client && rm -f /tmp/e4client
+(exit 0)
+```
+
+### copy the committed source tree into m1
+
+```
+$ sh -c cd '<repo>' && git archive --format=tar HEAD cmd internal web go.mod go.sum deploy .dockerignore | limactl shell --workdir / dbcm-lab-m1 -- sudo sh -c 'rm -rf /root/dbcm-e7-src && mkdir -p /root/dbcm-e7-src && tar -x -C /root/dbcm-e7-src && ls /root/dbcm-e7-src'
+cmd
+deploy
+go.mod
+go.sum
+internal
+web
+(exit 0)
+```
+
+### docker build -f deploy/Dockerfile (UI + Go binaries + distroless runtime)
+
+```
+$ vm_root dbcm-lab-m1 
+		cd "$1" && time docker build -f deploy/Dockerfile -t "$2" --build-arg VERSION=0.0.0-e7 --build-arg COMMIT="$3" . 2>&1 | tail -40 /root/dbcm-e7-src db-cluster-manager:e7 67c8aef
+#19 6.241 .svelte-kit/output/client/_app/immutable/chunks/ChQPAURq.js          53.18 kB │ gzip: 20.24 kB
+#19 6.241 .svelte-kit/output/client/_app/immutable/nodes/2.Cmulfm4J.js         54.59 kB │ gzip: 16.62 kB
+#19 6.241 .svelte-kit/output/client/_app/immutable/chunks/8FcpOzoq.js          80.89 kB │ gzip: 20.19 kB
+#19 6.241 .svelte-kit/output/client/_app/immutable/chunks/Bgv1brRK.js         103.12 kB │ gzip: 36.24 kB
+#19 6.241 
+#19 6.245 ✓ built in 2.85s
+#19 7.316 
+#19 7.316 Run npm run preview to preview your production build locally.
+#19 7.317 
+#19 7.317 > Using @sveltejs/adapter-static
+#19 7.399 Wrote site to "../internal/webui/assets"
+#19 7.399 ✔ done
+#19 DONE 7.5s
+
+#22 [build 7/8] COPY --from=web /src/internal/webui/assets/ ./internal/webui/assets/
+#22 DONE 0.2s
+
+#23 [build 8/8] RUN set -eu;     PKG=github.com/MagicalWig34653/db-cluster-manager/internal/version;     for c in manager agent cli; do       GOOS=linux GOARCH=arm64 go build -trimpath         -ldflags "-s -w -X ${PKG}.Version=0.0.0-e7 -X ${PKG}.Commit=67c8aef"         -o /out/${c} ./cmd/${c};     done;     mkdir -p /out/data
+#23 DONE 43.3s
+
+#24 [stage-2 2/3] COPY --from=build /out/manager /out/agent /out/cli /usr/local/bin/
+#24 DONE 0.2s
+
+#25 [stage-2 3/3] COPY --from=build --chown=65532:65532 /out/data /var/lib/dbcm
+#25 DONE 0.2s
+
+#26 exporting to image
+#26 exporting layers
+#26 exporting layers 1.6s done
+#26 exporting manifest sha256:983778e9500a99e04f7f9d910cacdfe806e54acd88d2e5270fcbf0760a9bc445 0.0s done
+#26 exporting config sha256:bae812d025dde1cbd08eed8636e21624cdf8bebede4b93948c6a09ebb993ebb2 0.0s done
+#26 exporting attestation manifest sha256:203b776e5d1fb00dc0024c490f10793cee413d50e052c62a297f48c927912c11 0.1s done
+#26 exporting manifest list sha256:8d1aa6e00b2e888fb16beaa076cc53be04f167783b1288f3fa651c32ff984648
+#26 exporting manifest list sha256:8d1aa6e00b2e888fb16beaa076cc53be04f167783b1288f3fa651c32ff984648 0.0s done
+#26 naming to docker.io/library/db-cluster-manager:e7 done
+#26 unpacking to docker.io/library/db-cluster-manager:e7
+#26 unpacking to docker.io/library/db-cluster-manager:e7 1.1s done
+#26 DONE 2.9s
+0.37user 0.29system 1:08.91elapsed 0%CPU (0avgtext+0avgdata 59696maxresident)k
+0inputs+48outputs (0major+14725minor)pagefaults 0swaps
+(exit 0)
+```
+
+### image facts
+
+```
+$ vm_docker dbcm-lab-m1 image inspect --format {{.Id}} {{.Architecture}} {{.Os}} user={{.Config.User}} entrypoint={{.Config.Entrypoint}} size={{.Size}} db-cluster-manager:e7
+sha256:8d1aa6e00b2e888fb16beaa076cc53be04f167783b1288f3fa651c32ff984648 arm64 linux user=65532:65532 entrypoint=[/usr/local/bin/manager] size=48271897
+(exit 0)
+```
+
+### image runs: manager -version
+
+```
+$ vm_docker dbcm-lab-m1 run --rm db-cluster-manager:e7 -version
+0.0.0-e7
+(exit 0)
+```
+
+### copy the image to dbcm-lab-m2 (docker save | docker load through the host)
+
+```
+$ sh -c limactl shell --workdir / dbcm-lab-m1 -- sudo docker save db-cluster-manager:e7 | limactl shell --workdir / dbcm-lab-m2 -- sudo docker load
+Loaded image: db-cluster-manager:e7
+(exit 0)
+```
+
+### copy the image to dbcm-lab-m3 (docker save | docker load through the host)
+
+```
+$ sh -c limactl shell --workdir / dbcm-lab-m1 -- sudo docker save db-cluster-manager:e7 | limactl shell --workdir / dbcm-lab-m3 -- sudo docker load
+Loaded image: db-cluster-manager:e7
+(exit 0)
+```
+
+### pull pinned MariaDB image on dbcm-lab-m1
+
+```
+$ vm_docker dbcm-lab-m1 pull -q mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+docker.io/library/mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+(exit 0)
+```
+
+### pull pinned MariaDB image on dbcm-lab-m2
+
+```
+$ vm_docker dbcm-lab-m2 pull -q mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+docker.io/library/mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+(exit 0)
+```
+
+### pull pinned MariaDB image on dbcm-lab-m3
+
+```
+$ vm_docker dbcm-lab-m3 pull -q mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+docker.io/library/mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+(exit 0)
+```
+
+
+## Phase prereqs: what manager init instructs (directories, secrets, cluster network), labelled dbcm.installation=e7lab
+
+host uptime: 10:27  up 5 days, 18:26, 7 users, load averages: 391.00 186.75 98.85
+
+08:27:20Z host load: { 391.00 186.75 98.85 }
+### host directories on dbcm-lab-m1
+
+```
+$ vm_root dbcm-lab-m1 install -d -m 0755 /var/lib/dbcm-agent "$1" && ls -ld /var/lib/dbcm-agent "$1" /var/lib/dbcm/volumes
+drwxr-xr-x 2 root root 4096 Oct 24 10:27 /var/lib/dbcm-agent
+drwxr-xr-x 2 root root 4096 Oct 24 10:27 /var/lib/dbcm/volumes
+(exit 0)
+```
+
+### host directories on dbcm-lab-m2
+
+```
+$ vm_root dbcm-lab-m2 install -d -m 0755 /var/lib/dbcm-agent "$1" && ls -ld /var/lib/dbcm-agent "$1" /var/lib/dbcm/volumes
+drwxr-xr-x 2 root root 4096 Oct 24 10:27 /var/lib/dbcm-agent
+drwxr-xr-x 2 root root 4096 Oct 24 10:27 /var/lib/dbcm/volumes
+(exit 0)
+```
+
+### host directories on dbcm-lab-m3
+
+```
+$ vm_root dbcm-lab-m3 install -d -m 0755 /var/lib/dbcm-agent "$1" && ls -ld /var/lib/dbcm-agent "$1" /var/lib/dbcm/volumes
+drwxr-xr-x 2 root root 4096 Oct 24 10:27 /var/lib/dbcm-agent
+drwxr-xr-x 2 root root 4096 Oct 24 10:27 /var/lib/dbcm/volumes
+(exit 0)
+```
+
+### database secrets and cluster network on m1 (values never logged)
+
+```
+$ vm_root dbcm-lab-m1 
+		set -e
+		for s in "$2" "$3" "$4"; do
+			if docker secret inspect "$s" >/dev/null 2>&1; then echo "secret $s exists"; else
+				head -c 24 /dev/urandom | base64 | tr -d "\n" | docker secret create --label "dbcm.installation=$1" "$s" - >/dev/null && echo "secret $s"; fi
+		done
+		docker network inspect -f "{{.Name}} exists" "$5" 2>/dev/null || docker network create --driver overlay --attachable --label "dbcm.installation=$1" "$5" e7lab dbcm-e7lab-root-pw dbcm-e7lab-monitor-pw dbcm-e7lab-backup-pw dbcm-e7lab-net
+secret dbcm-e7lab-root-pw
+secret dbcm-e7lab-monitor-pw
+secret dbcm-e7lab-backup-pw
+
+liokkdq6er1jm496ib52tmr2h
+(exit 0)
+```
+
+### state directory for the API client
+
+```
+$ vm_root dbcm-lab-m1 install -d -m 0700 "$1" /root/dbcm-e4
+(exit 0)
+```
+
+
+## Phase init: manager init from the image produces the configuration; stored as a Swarm config
+
+host uptime: 10:27  up 5 days, 18:26, 7 users, load averages: 391.00 186.75 98.85
+
+08:27:20Z host load: { 391.00 186.75 98.85 }
+08:27:21Z m1 user-v2 address: 192.168.104.1
+### docker run --rm db-cluster-manager:e7 init (stdout = configuration, stderr = instructions)
+
+```
+$ vm_args dbcm-lab-m1 
+		set -e
+		sudo rm -f "$1/manager.json"
+		sudo docker run --rm "$2" init -rp-id localhost -origin "http://localhost:$3" -manager-addr "$4" \
+			-installation "$5" -agent-image "$2" -display-name "E7 lab" >"$6" 2>"$7" || { cat "$7"; exit 1; }
+		sudo install -m 0600 "$6" "$1/manager.json"; rm -f "$6"
+		echo "--- configuration:"; sudo cat "$1/manager.json"
+		echo "--- instructions (stderr):"; cat "$7" /root/dbcm-e4 db-cluster-manager:e7 8080 192.168.104.1 e7lab /tmp/e7-manager.json /tmp/e7-init.err
+--- configuration:
+{
+  "auth": {
+    "enabled": true,
+    "rpId": "localhost",
+    "rpDisplayName": "E7 lab",
+    "origins": [
+      "http://localhost:8080"
+    ]
+  },
+  "manager": {
+    "nodeId": "manager-1",
+    "dataDir": "/var/lib/dbcm",
+    "bind": "127.0.0.1:7445",
+    "advertise": "",
+    "peers": [],
+    "bootstrap": true,
+    "keyFile": "",
+    "keyring": false,
+    "labAgents": false,
+    "autoResume": false,
+    "agentTransport": {
+      "enrollListen": "192.168.104.1:7444",
+      "managerUrl": "https://192.168.104.1:7444",
+      "serverDns": [],
+      "serverIps": [],
+      "agentPort": 7443,
+      "allowAnySource": false,
+      "monitorUser": "dbcm_monitor",
+      "monitorSecret": "dbcm-e7lab-monitor-pw",
+      "dbSecrets": [
+        "dbcm-e7lab-root-pw",
+        "dbcm-e7lab-backup-pw"
+      ]
+    },
+    "settings": {
+      "installationId": "e7lab",
+      "volumeBase": "/var/lib/dbcm/volumes",
+      "agentImage": "db-cluster-manager:e7",
+      "monitorSocket": "",
+      "accounts": {
+        "monitorUser": "dbcm_monitor",
+        "monitorSecret": "dbcm-e7lab-monitor-pw",
+        "backupUser": "dbcm_backup",
+        "backupSecret": "dbcm-e7lab-backup-pw",
+        "backupLogical": false
+      }
+    }
+  }
+}
+--- instructions (stderr):
+
+First-run instructions for installation e7lab (deploy/stack.yaml; see docs/INSTALL.md).
+No secret values are printed here. Create each secret from a file or stdin you control.
+
+1. On EVERY Swarm node: create the agent state directory and the volume base:
+     install -d -m 0755 /var/lib/dbcm-agent /var/lib/dbcm/volumes
+2. On a Swarm manager node, create the database secrets and the cluster network
+   (labelled with the installation):
+     for s in dbcm-e7lab-root-pw dbcm-e7lab-monitor-pw dbcm-e7lab-backup-pw; do
+       head -c 24 /dev/urandom | base64 | tr -d '\n' | docker secret create --label dbcm.installation=e7lab "$s" -
+     done
+     docker network create --driver overlay --attachable --label dbcm.installation=e7lab dbcm-e7lab-net
+3. Store this configuration as a Swarm config (configs are immutable; use a new name per change):
+     docker config create dbcm-manager-config-1 <this file>
+4. Deploy on a Swarm manager node, pinned to the node at 192.168.104.1:
+     DBCM_MANAGER_NODE=<hostname of that node> DBCM_DOCKER_GID=$(stat -c %g /var/run/docker.sock) \
+       DBCM_CONFIG_NAME=dbcm-manager-config-1 docker stack deploy -c deploy/stack.yaml dbcm
+5. Read the one-time setup token from the service log (printed only while no administrator exists):
+     docker service logs dbcm_manager 2>&1 | grep 'setup token'
+   Then open http://localhost:8080 through your TLS reverse proxy (to 127.0.0.1:8080 on that node) and create the first administrator.
+6. Register the Swarm in the UI with Docker endpoint unix:///var/run/docker.sock; agents enroll at https://192.168.104.1:7444.
+(exit 0)
+```
+
+### docker config create dbcm-manager-config-1
+
+```
+$ vm_args dbcm-lab-m1 sudo docker config create "$1" "$2/manager.json" dbcm-manager-config-1 /root/dbcm-e4
+o9jk97cs26t6ihnrujzem4r39
+(exit 0)
+```
+
+### docker config ls
+
+```
+$ vm_docker dbcm-lab-m1 config ls
+ID                          NAME                    CREATED                  UPDATED
+o9jk97cs26t6ihnrujzem4r39   dbcm-manager-config-1   Less than a second ago   Less than a second ago
+(exit 0)
+```
+
+
+## Phase stack: docker stack deploy -c deploy/stack.yaml (manager pinned as in ADR 0014)
+
+host uptime: 10:27  up 5 days, 18:26, 7 users, load averages: 375.70 186.97 99.44
+
+08:27:21Z host load: { 375.70 186.97 99.44 }
+08:27:22Z docker socket gid 987, manager node hostname lima-dbcm-lab-m1
+### docker stack deploy
+
+```
+$ vm_root dbcm-lab-m1 
+		cd "$1" && DBCM_IMAGE="$2" DBCM_MANAGER_NODE="$3" DBCM_DOCKER_GID="$4" DBCM_CONFIG_NAME="$5" docker stack deploy -c deploy/stack.yaml --detach=true "$6" 2>&1 /root/dbcm-e7-src db-cluster-manager:e7 lima-dbcm-lab-m1 987 dbcm-manager-config-1 dbcm
+Creating service dbcm_manager
+(exit 0)
+```
+
+08:27:29Z wait ok after 6s: manager task running
+### service ps
+
+```
+$ svc_task
+sesff5pqaru7tqoq9uha5t6b5 lima-dbcm-lab-m1 Running Running less than a second ago 
+(exit 0)
+```
+
+### stack services
+
+```
+$ vm_docker dbcm-lab-m1 stack services dbcm
+ID             NAME           MODE         REPLICAS   IMAGE                   PORTS
+vd8l8vy7likc   dbcm_manager   replicated   1/1        db-cluster-manager:e7   
+(exit 0)
+```
+
+### service placement, user, mounts and limits as Swarm stored them
+
+```
+$ vm_docker dbcm-lab-m1 service inspect --format constraints={{.Spec.TaskTemplate.Placement.Constraints}} replicas={{.Spec.Mode.Replicated.Replicas}} user={{.Spec.TaskTemplate.ContainerSpec.User}} readonly={{.Spec.TaskTemplate.ContainerSpec.ReadOnly}} capdrop={{.Spec.TaskTemplate.ContainerSpec.CapabilityDrop}} networks={{.Spec.TaskTemplate.Networks}} update={{.Spec.UpdateConfig.Order}}/{{.Spec.UpdateConfig.FailureAction}} configs={{len .Spec.TaskTemplate.ContainerSpec.Configs}} dbcm_manager
+constraints=[node.role == manager node.hostname == lima-dbcm-lab-m1] replicas=1 user=65532:987 readonly=true capdrop=[ALL] networks=[{rry9n4zuqr3s0r5n0uobzn5pk [] map[]}] update=stop-first/rollback configs=1
+(exit 0)
+```
+
+### what the container actually got (user, read-only root, caps, network mode, mounts)
+
+```
+$ vm_docker dbcm-lab-m1 inspect --format user={{.Config.User}} readonlyrootfs={{.HostConfig.ReadonlyRootfs}} capdrop={{.HostConfig.CapDrop}} netmode={{.HostConfig.NetworkMode}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}{{range .Mounts}} mount[{{.Type}} {{.Source}}->{{.Destination}} rw={{.RW}}]{{end}} d37aec009725555f6d62e2b553f122857df977ec2092330c1fbdf5123d63bafd
+user=65532:987 readonlyrootfs=true capdrop=[ALL] netmode=host health=healthy mount[tmpfs ->/tmp rw=true] mount[volume /var/lib/docker/volumes/dbcm_manager-data/_data->/var/lib/dbcm rw=true] mount[bind /var/run/docker.sock->/var/run/docker.sock rw=true]
+(exit 0)
+```
+
+### id of the container process, the data volume ownership and the data directory content
+
+```
+$ vm_args dbcm-lab-m1 
+		sudo docker exec "$1" /usr/local/bin/manager -version 2>&1 | head -2 || true
+		sudo docker volume inspect -f "{{.Name}} {{.Mountpoint}}" "$2_manager-data"
+		sudo ls -ln "$(sudo docker volume inspect -f "{{.Mountpoint}}" "$2_manager-data")" d37aec009725555f6d62e2b553f122857df977ec2092330c1fbdf5123d63bafd dbcm
+0.0.0-e7
+dbcm_manager-data /var/lib/docker/volumes/dbcm_manager-data/_data
+total 12
+-rw------- 1 65532 987   32 Oct 24 10:27 data.key
+drwx------ 3 65532 987 4096 Oct 24 10:27 metastore
+drwx------ 3 65532 987 4096 Oct 24 10:27 monitoring
+(exit 0)
+```
+
+### manager logs (setup token line removed)
+
+```
+$ manager_logs 40
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:24 INFO manager: agent enrollment endpoint listening addr=192.168.104.1:7444
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:24 INFO manager listening addr=127.0.0.1:8080 version=0.0.0-e7 auth=true
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:25 INFO manager: leadership started term=2 adopted=0
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:25 INFO manager: configured settings applied
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:25 INFO manager: bound the manager system subject to its system role
+(exit 0)
+```
+
+### listeners on m1
+
+```
+$ vm_sh dbcm-lab-m1 sudo ss -ltnp | grep -E ':8080|:7444|:7445|manager' || true
+LISTEN 0      4096       127.0.0.1:7445      0.0.0.0:*    users:(("manager",pid=33140,fd=7))                     
+LISTEN 0      4096       127.0.0.1:8080      0.0.0.0:*    users:(("manager",pid=33140,fd=9))                     
+LISTEN 0      4096   192.168.104.1:7444      0.0.0.0:*    users:(("manager",pid=33140,fd=8))                     
+(exit 0)
+```
+
+
+## Phase verify: health, UI, authentication
+
+host uptime: 10:27  up 5 days, 18:26, 7 users, load averages: 356.11 186.04 99.63
+
+08:27:30Z host load: { 356.11 186.04 99.63 }
+08:27:30Z wait ok after 0s: manager health
+### GET /api/v1/health
+
+```
+$ vm_sh dbcm-lab-m1 curl -sS -i http://127.0.0.1:8080/api/v1/health
+HTTP/1.1 200 OK
+Cache-Control: no-store
+Content-Type: application/json
+X-Content-Type-Options: nosniff
+Date: Sat, 24 Oct 2026 08:27:30 GMT
+Content-Length: 16
+
+{"status":"ok"}
+(exit 0)
+```
+
+### GET /api/v1/version
+
+```
+$ vm_sh dbcm-lab-m1 curl -sS http://127.0.0.1:8080/api/v1/version
+{"component":"manager","version":"0.0.0-e7","commit":"67c8aef","goVersion":"go1.27.3","platform":"linux/arm64"}
+(exit 0)
+```
+
+### container health state
+
+```
+$ vm_docker dbcm-lab-m1 inspect --format {{.State.Health.Status}} failing={{.State.Health.FailingStreak}} d37aec009725555f6d62e2b553f122857df977ec2092330c1fbdf5123d63bafd
+healthy failing=0
+(exit 0)
+```
+
+08:27:30Z wait ok after 0s: manager leads (setup status 200)
+### GET / (UI)
+
+```
+HTTP/1.1 200 OK
+Accept-Ranges: bytes
+Content-Length: 2293
+Content-Type: text/html; charset=utf-8
+Date: Sat, 24 Oct 2026 08:27:30 GMT
+
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="color-scheme" content="light dark" />
+		<title>DB Cluster Manager</title>
+		<!-- Generated from assets/icon (Icon Composer document); see docs/DESIGN.md "Icon and screenshots". -->
+		<link rel="icon" href="/favicon.ico" sizes="48x48" />
+		<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+		<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+		<script>
+			// Apply stored theme/accent before first paint (same keys as src/lib/theme.svelte.ts).
+			try {
+```
+
+**Result:** PASS (ui): GET / returns the UI HTML
+
+08:27:30Z RESULT: PASS (ui): GET / returns the UI HTML
+### UI asset referenced by the page
+
+```
+$ vm_sh dbcm-lab-m1 p=$(curl -s http://127.0.0.1:8080/ | grep -o '/_app/[^"]*\.js' | head -1); echo "asset: $p"; curl -sS -o /dev/null -w 'asset status %{http_code} bytes %{size_download} type %{content_type}\n' http://127.0.0.1:8080$p
+asset: /_app/immutable/entry/start.D_l-7sIY.js
+asset status 200 bytes 548 type text/javascript; charset=utf-8
+(exit 0)
+```
+
+08:27:30Z unauthenticated GET /api/v1/clusters: HTTP 401
+**Result:** PASS (auth-required): unauthenticated API request refused with 401
+
+08:27:30Z RESULT: PASS (auth-required): unauthenticated API request refused with 401
+### setup status before
+
+```
+$ api GET /api/v1/setup/status
+HTTP 200
+{"setupRequired":true}
+(exit 0)
+```
+
+### setup (WebAuthn registration, ES256 software key)
+
+```
+$ vm_args dbcm-lab-m1 sudo /usr/local/bin/dbcm-e4-client -state "$1/client.json" -base "http://127.0.0.1:$2" -origin "http://localhost:$2" setup -token-file "$1/setup.token" -account admin /root/dbcm-e4 8080
+setup finished: account admin, 10 recovery codes issued (not printed), session cookie set: true
+(exit 0)
+```
+
+### session
+
+```
+$ api GET /api/v1/auth/session
+HTTP 200
+{"accountId":"admin","restricted":false,"pendingPasskeyEnrollment":false,"createdAt":"2026-10-24T08:27:31.085724213Z"}
+(exit 0)
+```
+
+### authenticated GET /api/v1/clusters
+
+```
+$ api GET /api/v1/clusters
+HTTP 200
+{"items":[]}
+(exit 0)
+```
+
+**Result:** PASS (auth): authenticated request accepted after setup
+
+08:27:31Z RESULT: PASS (auth): authenticated request accepted after setup
+### setup status after
+
+```
+$ api GET /api/v1/setup/status
+HTTP 200
+{"setupRequired":false}
+(exit 0)
+```
+
+
+## Phase agents: connect the Swarm, enroll hosts, deploy agents; mTLS
+
+host uptime: 10:27  up 5 days, 18:26, 7 users, load averages: 335.28 184.54 99.61
+
+08:27:31Z host load: { 335.28 184.54 99.61 }
+
+## Phase swarmapi: connect the Swarm, sync, enroll hosts, deploy agents
+
+host uptime: 10:27  up 5 days, 18:26, 7 users, load averages: 335.28 184.54 99.61
+
+08:27:31Z host load: { 335.28 184.54 99.61 }
+### connect swarm
+
+```
+$ api POST /api/v1/swarms {"name":"lab","dockerHost":"unix:///var/run/docker.sock"}
+HTTP 201
+{"id":"swarm-8c7fce1126dd75cf","name":"lab","state":"unknown"}
+(exit 0)
+```
+
+08:27:31Z swarm id: swarm-8c7fce1126dd75cf
+### sync swarm
+
+```
+$ api POST /api/v1/swarms/swarm-8c7fce1126dd75cf/sync
+HTTP 204
+
+(exit 0)
+```
+
+### swarms
+
+```
+$ api GET /api/v1/swarms
+HTTP 200
+{"items":[{"id":"swarm-8c7fce1126dd75cf","name":"lab","state":"healthy","observedAt":"2026-10-24T08:27:31.492707801Z"}]}
+(exit 0)
+```
+
+### hosts after sync
+
+```
+$ api GET /api/v1/hosts
+HTTP 200
+{"items":[{"swarm":"swarm-8c7fce1126dd75cf","nodeId":"4ahh4po1e06d17grur3j3zabn","hostname":"lima-dbcm-lab-m2","role":"worker","availability":"active","state":"ready","engineVersion":"29.9.2","enrollment":"discovered","nanoCpus":2000000000,"memoryBytes":4086222848,"observedAt":"2026-10-24T08:27:31.492707801Z"},{"swarm":"swarm-8c7fce1126dd75cf","nodeId":"fg9eqaz37020cjd4zszuzfs2y","hostname":"lima-dbcm-lab-m3","role":"worker","availability":"active","state":"ready","engineVersion":"29.9.2","enrollment":"discovered","nanoCpus":2000000000,"memoryBytes":4086222848,"observedAt":"2026-10-24T08:27:31.492707801Z"},{"swarm":"swarm-8c7fce1126dd75cf","nodeId":"ks6juv2db6uin2k601xlo935q","hostname":"lima-dbcm-lab-m1","role":"manager","availability":"active","state":"ready","engineVersion":"29.9.2","enrollment":"discovered","nanoCpus":2000000000,"memoryBytes":4086218752,"observedAt":"2026-10-24T08:27:31.492707801Z"}]}
+(exit 0)
+```
+
+### enroll host 4ahh4po1e06d17grur3j3zabn
+
+```
+$ api POST /api/v1/hosts/4ahh4po1e06d17grur3j3zabn/enroll {}
+HTTP 200
+{"swarm":"swarm-8c7fce1126dd75cf","nodeId":"4ahh4po1e06d17grur3j3zabn","hostname":"lima-dbcm-lab-m2","role":"worker","availability":"active","state":"ready","engineVersion":"29.9.2","enrollment":"enrolled","nanoCpus":2000000000,"memoryBytes":4086222848,"observedAt":"2026-10-24T08:27:31.492707801Z"}
+(exit 0)
+```
+
+### enroll host fg9eqaz37020cjd4zszuzfs2y
+
+```
+$ api POST /api/v1/hosts/fg9eqaz37020cjd4zszuzfs2y/enroll {}
+HTTP 200
+{"swarm":"swarm-8c7fce1126dd75cf","nodeId":"fg9eqaz37020cjd4zszuzfs2y","hostname":"lima-dbcm-lab-m3","role":"worker","availability":"active","state":"ready","engineVersion":"29.9.2","enrollment":"enrolled","nanoCpus":2000000000,"memoryBytes":4086222848,"observedAt":"2026-10-24T08:27:31.492707801Z"}
+(exit 0)
+```
+
+### enroll host ks6juv2db6uin2k601xlo935q
+
+```
+$ api POST /api/v1/hosts/ks6juv2db6uin2k601xlo935q/enroll {}
+HTTP 200
+{"swarm":"swarm-8c7fce1126dd75cf","nodeId":"ks6juv2db6uin2k601xlo935q","hostname":"lima-dbcm-lab-m1","role":"manager","availability":"active","state":"ready","engineVersion":"29.9.2","enrollment":"enrolled","nanoCpus":2000000000,"memoryBytes":4086218752,"observedAt":"2026-10-24T08:27:31.492707801Z"}
+(exit 0)
+```
+
+### deploy agents
+
+```
+$ api POST /api/v1/swarms/swarm-8c7fce1126dd75cf/agents/deploy
+HTTP 200
+{"serviceId":"xuo8kzbp92bnpb4qdb7tn5zj6","created":true,"labeled":["4ahh4po1e06d17grur3j3zabn","fg9eqaz37020cjd4zszuzfs2y","ks6juv2db6uin2k601xlo935q"],"unlabeled":[],"failed":[]}
+(exit 0)
+```
+
+### agent service
+
+```
+$ vm_docker dbcm-lab-m1 service ls --filter label=dbcm.installation=e7lab
+ID             NAME               MODE      REPLICAS   IMAGE                   PORTS
+xuo8kzbp92bn   dbcm-agent-e7lab   global    0/3        db-cluster-manager:e7   
+(exit 0)
+```
+
+08:27:34Z wait ok after 2s: all 3 agents enrolled (agentIdentity true)
+### hosts after enrollment
+
+```
+$ api GET /api/v1/hosts
+HTTP 200
+{"items":[{"swarm":"swarm-8c7fce1126dd75cf","nodeId":"4ahh4po1e06d17grur3j3zabn","hostname":"lima-dbcm-lab-m2","role":"worker","availability":"active","state":"ready","engineVersion":"29.9.2","enrollment":"enrolled","nanoCpus":2000000000,"memoryBytes":4086222848,"observedAt":"2026-10-24T08:27:31.492707801Z","agentIdentity":true},{"swarm":"swarm-8c7fce1126dd75cf","nodeId":"fg9eqaz37020cjd4zszuzfs2y","hostname":"lima-dbcm-lab-m3","role":"worker","availability":"active","state":"ready","engineVersion":"29.9.2","enrollment":"enrolled","nanoCpus":2000000000,"memoryBytes":4086222848,"observedAt":"2026-10-24T08:27:31.492707801Z","agentIdentity":true},{"swarm":"swarm-8c7fce1126dd75cf","nodeId":"ks6juv2db6uin2k601xlo935q","hostname":"lima-dbcm-lab-m1","role":"manager","availability":"active","state":"ready","engineVersion":"29.9.2","enrollment":"enrolled","nanoCpus":2000000000,"memoryBytes":4086218752,"observedAt":"2026-10-24T08:27:31.492707801Z","agentIdentity":true}]}
+(exit 0)
+```
+
+### agent tasks
+
+```
+$ vm_docker dbcm-lab-m1 service ps --format {{.Node}} {{.CurrentState}} {{.Error}} dbcm-agent-e7lab
+lima-dbcm-lab-m2 Starting 1 second ago 
+lima-dbcm-lab-m3 Starting 1 second ago 
+lima-dbcm-lab-m1 Starting 1 second ago 
+(exit 0)
+```
+
+**Result:** PASS (agents): three agents enrolled (agentIdentity true)
+
+08:27:34Z RESULT: PASS (agents): three agents enrolled (agentIdentity true)
+### agent logs (enrollment and mTLS lines)
+
+```
+$ vm_args dbcm-lab-m1 sudo docker service logs --no-trunc --tail 40 "dbcm-agent-$1" 2>&1 | cut -c1-300 e7lab
+(exit 0)
+```
+
+### manager log lines about enrollment
+
+```
+$ vm_args dbcm-lab-m1 sudo docker service logs --no-trunc "$1" 2>&1 | grep -v "setup token" | grep -iE "enrol|agent" | tail -15 | cut -c1-300 dbcm_manager
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:24 INFO manager: agent enrollment endpoint listening addr=192.168.104.1:7444
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:33 INFO enroll: agent enrolled host=ks6juv2db6uin2k601xlo935q serial=2d9333ef39de75a03afbdad1192e3842 not_after=2026-11-23T08:27:33Z
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:33 INFO enroll: agent enrolled host=4ahh4po1e06d17grur3j3zabn serial=1dcbc0db706079b7089a6c7fc112a5b6 not_after=2026-11-23T08:27:33Z
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:33 INFO enroll: agent enrolled host=fg9eqaz37020cjd4zszuzfs2y serial=447cea8702c8ea987ca4b6cc09f33e2a not_after=2026-11-23T08:27:33Z
+(exit 0)
+```
+
+### agent port 192.168.104.3:7443 without a client certificate must be refused
+
+```
+$ vm_sh dbcm-lab-m1 curl -sk -m 8 -o /dev/null -w 'http %{http_code}\n' https://192.168.104.3:7443/ ; echo curl-exit $?
+http 000
+curl-exit 56
+(exit 0)
+```
+
+### agent port 192.168.104.3:7443 openssl handshake without a client certificate
+
+```
+$ vm_sh dbcm-lab-m1 echo | timeout 8 openssl s_client -connect 192.168.104.3:7443 -brief 2>&1 | head -8
+Connecting to 192.168.104.3
+Can't use SSL_get_servername
+depth=1 CN=db-cluster-manager agent CA e7lab
+verify error:num=19:self-signed certificate in certificate chain
+CONNECTION ESTABLISHED
+Protocol version: TLSv1.3
+Ciphersuite: TLS_AES_128_GCM_SHA256
+Requested Signature Algorithms: id-ml-dsa-44:id-ml-dsa-65:id-ml-dsa-87:RSA-PSS+SHA256:ECDSA+SHA256:ed25519:RSA-PSS+SHA384:RSA-PSS+SHA512:ECDSA+SHA384:ECDSA+SHA512
+(exit 0)
+```
+
+### agent port 192.168.104.4:7443 without a client certificate must be refused
+
+```
+$ vm_sh dbcm-lab-m1 curl -sk -m 8 -o /dev/null -w 'http %{http_code}\n' https://192.168.104.4:7443/ ; echo curl-exit $?
+http 000
+curl-exit 56
+(exit 0)
+```
+
+### agent port 192.168.104.4:7443 openssl handshake without a client certificate
+
+```
+$ vm_sh dbcm-lab-m1 echo | timeout 8 openssl s_client -connect 192.168.104.4:7443 -brief 2>&1 | head -8
+Connecting to 192.168.104.4
+Can't use SSL_get_servername
+depth=1 CN=db-cluster-manager agent CA e7lab
+verify error:num=19:self-signed certificate in certificate chain
+CONNECTION ESTABLISHED
+Protocol version: TLSv1.3
+Ciphersuite: TLS_AES_128_GCM_SHA256
+Requested Signature Algorithms: id-ml-dsa-44:id-ml-dsa-65:id-ml-dsa-87:RSA-PSS+SHA256:ECDSA+SHA256:ed25519:RSA-PSS+SHA384:RSA-PSS+SHA512:ECDSA+SHA384:ECDSA+SHA512
+(exit 0)
+```
+
+### enrollment endpoint is TLS: plain HTTP is refused
+
+```
+$ vm_sh dbcm-lab-m1 curl -s -m 8 -o /dev/null -w 'http %{http_code}\n' http://192.168.104.1:7444/ ; echo curl-exit $?
+http 400
+curl-exit 0
+(exit 0)
+```
+
+### hosts
+
+```
+$ api GET /api/v1/hosts
+HTTP 200
+{"items":[{"swarm":"swarm-8c7fce1126dd75cf","nodeId":"4ahh4po1e06d17grur3j3zabn","hostname":"lima-dbcm-lab-m2","role":"worker","availability":"active","state":"ready","engineVersion":"29.9.2","enrollment":"enrolled","nanoCpus":2000000000,"memoryBytes":4086222848,"observedAt":"2026-10-24T08:27:31.492707801Z","agentIdentity":true},{"swarm":"swarm-8c7fce1126dd75cf","nodeId":"fg9eqaz37020cjd4zszuzfs2y","hostname":"lima-dbcm-lab-m3","role":"worker","availability":"active","state":"ready","engineVersion":"29.9.2","enrollment":"enrolled","nanoCpus":2000000000,"memoryBytes":4086222848,"observedAt":"2026-10-24T08:27:31.492707801Z","agentIdentity":true},{"swarm":"swarm-8c7fce1126dd75cf","nodeId":"ks6juv2db6uin2k601xlo935q","hostname":"lima-dbcm-lab-m1","role":"manager","availability":"active","state":"ready","engineVersion":"29.9.2","enrollment":"enrolled","nanoCpus":2000000000,"memoryBytes":4086218752,"observedAt":"2026-10-24T08:27:31.492707801Z","agentIdentity":true}]}
+(exit 0)
+```
+
+
+## Phase cluster: Galera cluster create through the API of the stack-deployed manager
+
+host uptime: 10:27  up 5 days, 18:26, 7 users, load averages: 322.84 184.47 100.08
+
+08:27:36Z host load: { 322.84 184.47 100.08 }
+
+## Phase cluster: POST /clusters and wait for the operation
+
+host uptime: 10:27  up 5 days, 18:26, 7 users, load averages: 322.84 184.47 100.08
+
+08:27:36Z host load: { 322.84 184.47 100.08 }
+### create cluster
+
+```
+$ api POST /api/v1/clusters {"swarm":"swarm-8c7fce1126dd75cf","name":"e7db","size":3,"image":"mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873","network":"dbcm-e7lab-net","rootPasswordSecret":"dbcm-e7lab-root-pw","gcacheSize":"128M","resources":{"limits":{"milli_cpu":1000,"memory_bytes":1073741824},"reservations":{"milli_cpu":250,"memory_bytes":536870912}},"placement":{"reserve":{}}}
+HTTP 202
+{"id":"op-439153ea0e99ceea","kind":"galera/create-cluster"}
+```
+
+08:27:36Z operation op-439153ea0e99ceea cluster clu-fd942781a68823f6
+08:27:36Z operation: pending 
+08:27:56Z operation: running 
+08:28:16Z operation: running 
+08:28:36Z operation: running 
+08:28:56Z operation: running 
+08:29:17Z operation: succeeded all steps succeeded
+### operation
+
+```
+$ api GET /api/v1/operations
+HTTP 200
+{"items":[{"id":"op-439153ea0e99ceea","kind":"galera/create-cluster","swarm":"swarm-8c7fce1126dd75cf","cluster":"clu-fd942781a68823f6","state":"succeeded","startedAt":"2026-10-24T08:27:36.265436032Z","endedAt":"2026-10-24T08:29:00.847220002Z","reason":"all steps succeeded","progress":{"stepsDone":23,"stepsTotal":23,"updatedAt":"2026-10-24T08:29:01.530466681Z"}}]}
+(exit 0)
+```
+
+### cluster
+
+```
+$ api GET /api/v1/clusters/clu-fd942781a68823f6
+HTTP 200
+{"id":"clu-fd942781a68823f6","swarm":"swarm-8c7fce1126dd75cf","name":"e7db","engine":"mariadb-galera","state":"healthy","nodes":[{"id":"n1","host":"4ahh4po1e06d17grur3j3zabn","state":"healthy","role":"synced","observedAt":"2026-10-24T08:29:10.534270036Z"},{"id":"n2","host":"fg9eqaz37020cjd4zszuzfs2y","state":"healthy","role":"synced","observedAt":"2026-10-24T08:29:10.534294035Z"},{"id":"n3","host":"ks6juv2db6uin2k601xlo935q","state":"healthy","role":"synced","observedAt":"2026-10-24T08:29:10.532680009Z"}],"observedAt":"2026-10-24T08:29:10.534270036Z","endpoints":[{"name":"n1","host":"dbcm-e7db-n1","port":3306},{"name":"n2","host":"dbcm-e7db-n2","port":3306},{"name":"n3","host":"dbcm-e7db-n3","port":3306}],"automationPolicy":"manual"}
+(exit 0)
+```
+
+### events
+
+```
+$ api GET /api/v1/events
+HTTP 200
+{"items":[{"id":"01792830540849243971-da740f37","time":"2026-10-24T08:29:00.849243971Z","swarm":"swarm-8c7fce1126dd75cf","cluster":"clu-fd942781a68823f6","severity":"info","message":"operation op-439153ea0e99ceea (galera/create-cluster) succeeded"},{"id":"01792830520534456763-9dddd70c","time":"2026-10-24T08:28:40.534456763Z","swarm":"swarm-8c7fce1126dd75cf","cluster":"clu-fd942781a68823f6","severity":"info","message":"node n3 of cluster e7db is healthy again"},{"id":"01792830520533864669-4a52e18b","time":"2026-10-24T08:28:40.533864669Z","swarm":"swarm-8c7fce1126dd75cf","cluster":"clu-fd942781a68823f6","severity":"info","message":"node n1 of cluster e7db is healthy again"},{"id":"01792830505546482420-87496774","time":"2026-10-24T08:28:25.54648242Z","swarm":"swarm-8c7fce1126dd75cf","cluster":"clu-fd942781a68823f6","severity":"warning","message":"node n1 of cluster e7db became degraded: local state Donor/Desynced"},{"id":"01792830490547666381-eafa5bd6","time":"2026-10-24T08:28:10.547666381Z","swarm":"swarm-8c7fce1126dd75cf","cluster":"clu-fd942781a68823f6","severity":"info","message":"node n2 of cluster e7db is healthy again"},{"id":"01792830490545556301-5791143c","time":"2026-10-24T08:28:10.545556301Z","swarm":"swarm-8c7fce1126dd75cf","cluster":"clu-fd942781a68823f6","severity":"info","message":"node n1 of cluster e7db is healthy again"},{"id":"01792830456268599754-9c37a819","time":"2026-10-24T08:27:36.268599754Z","swarm":"swarm-8c7fce1126dd75cf","cluster":"clu-fd942781a68823f6","severity":"info","message":"admin requested cluster e7db (3 nodes), operation op-439153ea0e99ceea"},{"id":"01792830452078124102-9f8563ed","time":"2026-10-24T08:27:32.078124102Z","swarm":"swarm-8c7fce1126dd75cf","severity":"info","message":"admin deployed agents: service xuo8kzbp92bnpb4qdb7tn5zj6, 3 enrolled, 0 revoked, 0 failed"},{"id":"01792830445527811938-d26e1ec9","time":"2026-10-24T08:27:25.527811938Z","severity":"info","message":"manager manager-1 leads term 2; 0 unfinished operation(s) taken over"}]}
+(exit 0)
+```
+
+### services
+
+```
+$ vm_docker dbcm-lab-m1 service ls
+ID             NAME               MODE         REPLICAS   IMAGE                   PORTS
+xuo8kzbp92bn   dbcm-agent-e7lab   global       1/3        db-cluster-manager:e7   
+uvbracm3hc7p   dbcm-e7db-n1       replicated   1/1        mariadb:11.4.13         
+os7l47rkot6c   dbcm-e7db-n2       replicated   1/1        mariadb:11.4.13         
+p8hay6gmqyzw   dbcm-e7db-n3       replicated   1/1        mariadb:11.4.13         
+vd8l8vy7likc   dbcm_manager       replicated   1/1        db-cluster-manager:e7   
+(exit 0)
+```
+
+### galera tasks
+
+```
+$ vm_sh dbcm-lab-m1 sudo docker service ps --no-trunc --format '{{.Name}} {{.Node}} {{.CurrentState}} {{.Error}}' $(sudo docker service ls -q --filter label=dbcm.cluster)
+dbcm-e7db-n1.1 lima-dbcm-lab-m2 Running 27 seconds ago 
+dbcm-e7db-n1.1 lima-dbcm-lab-m2 Shutdown 28 seconds ago 
+dbcm-e7db-n2.1 lima-dbcm-lab-m3 Running about a minute ago 
+dbcm-e7db-n3.1 lima-dbcm-lab-m1 Running about a minute ago 
+(exit 0)
+```
+
+**Result:** PASS (cluster): create operation succeeded
+
+08:29:18Z RESULT: PASS (cluster): create operation succeeded
+
+## Phase verify: real MariaDB checks
+
+host uptime: 10:29  up 5 days, 18:28, 7 users, load averages: 233.58 187.16 110.08
+
+08:29:18Z host load: { 233.58 187.16 110.08 }
+### n1 placement and wsrep status
+
+```
+$ sh -c echo vm=$0; printf '%s\n' "$1" dbcm-lab-m2 dbcm-e7db-n1	/dbcm/run/mysqld.sock	/dbcm/data/
+wsrep_local_state_comment	Synced
+wsrep_cluster_size	3
+wsrep_cluster_state_uuid	c6348126-cf84-11f1-9a85-960f8d818bb1
+wsrep_cluster_status	Primary
+wsrep_connected	ON
+wsrep_ready	ON
+vm=dbcm-lab-m2
+dbcm-e7db-n1	/dbcm/run/mysqld.sock	/dbcm/data/
+wsrep_local_state_comment	Synced
+wsrep_cluster_size	3
+wsrep_cluster_state_uuid	c6348126-cf84-11f1-9a85-960f8d818bb1
+wsrep_cluster_status	Primary
+wsrep_connected	ON
+wsrep_ready	ON
+(exit 0)
+```
+
+### n2 placement and wsrep status
+
+```
+$ sh -c echo vm=$0; printf '%s\n' "$1" dbcm-lab-m3 dbcm-e7db-n2	/dbcm/run/mysqld.sock	/dbcm/data/
+wsrep_local_state_comment	Synced
+wsrep_cluster_size	3
+wsrep_cluster_state_uuid	c6348126-cf84-11f1-9a85-960f8d818bb1
+wsrep_cluster_status	Primary
+wsrep_connected	ON
+wsrep_ready	ON
+vm=dbcm-lab-m3
+dbcm-e7db-n2	/dbcm/run/mysqld.sock	/dbcm/data/
+wsrep_local_state_comment	Synced
+wsrep_cluster_size	3
+wsrep_cluster_state_uuid	c6348126-cf84-11f1-9a85-960f8d818bb1
+wsrep_cluster_status	Primary
+wsrep_connected	ON
+wsrep_ready	ON
+(exit 0)
+```
+
+### n3 placement and wsrep status
+
+```
+$ sh -c echo vm=$0; printf '%s\n' "$1" dbcm-lab-m1 dbcm-e7db-n3	/dbcm/run/mysqld.sock	/dbcm/data/
+wsrep_local_state_comment	Synced
+wsrep_cluster_size	3
+wsrep_cluster_state_uuid	c6348126-cf84-11f1-9a85-960f8d818bb1
+wsrep_cluster_status	Primary
+wsrep_connected	ON
+wsrep_ready	ON
+vm=dbcm-lab-m1
+dbcm-e7db-n3	/dbcm/run/mysqld.sock	/dbcm/data/
+wsrep_local_state_comment	Synced
+wsrep_cluster_size	3
+wsrep_cluster_state_uuid	c6348126-cf84-11f1-9a85-960f8d818bb1
+wsrep_cluster_status	Primary
+wsrep_connected	ON
+wsrep_ready	ON
+(exit 0)
+```
+
+### write on n1
+
+```
+$ rsql 1 CREATE DATABASE IF NOT EXISTS e4; CREATE TABLE IF NOT EXISTS e4.t (id INT PRIMARY KEY, v VARCHAR(64), at TIMESTAMP DEFAULT CURRENT_TIMESTAMP); REPLACE INTO e4.t (id, v) VALUES (1, 'written on n1'); SELECT COUNT(*) FROM e4.t
+1
+(exit 0)
+```
+
+### write on n3
+
+```
+$ rsql 3 REPLACE INTO e4.t (id, v) VALUES (3, 'written on n3')
+(exit 0)
+```
+
+### read on n1
+
+```
+$ rsql 1 SELECT id, v FROM e4.t ORDER BY id
+1	written on n1
+3	written on n3
+(exit 0)
+```
+
+### read on n2
+
+```
+$ rsql 2 SELECT id, v FROM e4.t ORDER BY id
+1	written on n1
+3	written on n3
+(exit 0)
+```
+
+### read on n3
+
+```
+$ rsql 3 SELECT id, v FROM e4.t ORDER BY id
+1	written on n1
+3	written on n3
+(exit 0)
+```
+
+### accounts and grants (n2, replicated)
+
+```
+$ rsql 2 SELECT user, host, plugin FROM mysql.user ORDER BY user, host; SHOW GRANTS FOR 'dbcm_monitor'@'localhost'; SHOW GRANTS FOR 'dbcm_backup'@'%'
+dbcm_backup	%	mysql_native_password
+dbcm_monitor	localhost	mysql_native_password
+healthcheck	127.0.0.1	mysql_native_password
+healthcheck	::1	mysql_native_password
+healthcheck	localhost	mysql_native_password
+mariadb.sys	localhost	mysql_native_password
+mysql	localhost	unix_socket
+root	%	mysql_native_password
+root	localhost	mysql_native_password
+GRANT USAGE ON *.* TO `dbcm_monitor`@`localhost` IDENTIFIED BY PASSWORD '<hash redacted>'
+GRANT RELOAD, PROCESS, LOCK TABLES, BINLOG MONITOR ON *.* TO `dbcm_backup`@`%` IDENTIFIED BY PASSWORD '<hash redacted>'
+(exit 0)
+```
+
+### monitoring account over the node socket (inside the n2 container, password from m1 state file via stdin)
+
+```
+$ sh -c limactl shell --workdir / dbcm-lab-m1 -- sudo cat /root/dbcm-e4/monitor.pw | limactl shell --workdir / dbcm-lab-m3 -- sudo docker exec -i 39a9320a6fda0446399991f03f0cf3ffd27f0426fafa88b4aae905741241db48 sh -c 'read -r pw; exec mariadb -S /dbcm/run/mysqld.sock -udbcm_monitor -p"$pw" -N -B -e "SELECT CURRENT_USER(); SHOW GLOBAL STATUS LIKE \"wsrep_cluster_size\""'
+cat: /root/dbcm-e4/monitor.pw: No such file or directory
+Enter password: ERROR 1045 (28000): Access denied for user 'dbcm_monitor'@'localhost' (using password: NO)
+(exit 1)
+```
+
+### volume layout on the n1 host
+
+```
+$ vm_sh dbcm-lab-m2 sudo ls -la /var/lib/dbcm/volumes/ && sudo ls -la /var/lib/dbcm/volumes/*n1*/ && sudo ls -la /var/lib/dbcm/volumes/*n1*/run/
+total 12
+drwxr-xr-x 3 root root 4096 Oct 24 10:27 .
+drwxr-xr-x 3 root root 4096 Oct 24 10:27 ..
+drwxr-xr-x 4 root root 4096 Oct 24 10:27 dbcm-e7db-n1-2b88c628
+total 20
+drwxr-xr-x 4 root root            4096 Oct 24 10:27 .
+drwxr-xr-x 3 root root            4096 Oct 24 10:27 ..
+drwxr-x--- 6 999  systemd-journal 4096 Oct 24 10:29 data
+-rw-r--r-- 1 root root             126 Oct 24 10:27 dbcm-identity.json
+drwxr-x--- 2 999  systemd-journal 4096 Oct 24 10:28 run
+total 8
+drwxr-x--- 2 999  systemd-journal 4096 Oct 24 10:28 .
+drwxr-xr-x 4 root root            4096 Oct 24 10:27 ..
+srwxrwxrwx 1 999  systemd-journal    0 Oct 24 10:28 mysqld.sock
+(exit 0)
+```
+
+### cluster via API (health)
+
+```
+$ api GET /api/v1/clusters/clu-fd942781a68823f6
+HTTP 200
+{"id":"clu-fd942781a68823f6","swarm":"swarm-8c7fce1126dd75cf","name":"e7db","engine":"mariadb-galera","state":"healthy","nodes":[{"id":"n1","host":"4ahh4po1e06d17grur3j3zabn","state":"healthy","role":"synced","observedAt":"2026-10-24T08:29:10.534270036Z"},{"id":"n2","host":"fg9eqaz37020cjd4zszuzfs2y","state":"healthy","role":"synced","observedAt":"2026-10-24T08:29:10.534294035Z"},{"id":"n3","host":"ks6juv2db6uin2k601xlo935q","state":"healthy","role":"synced","observedAt":"2026-10-24T08:29:10.532680009Z"}],"observedAt":"2026-10-24T08:29:10.534270036Z","endpoints":[{"name":"n1","host":"dbcm-e7db-n1","port":3306},{"name":"n2","host":"dbcm-e7db-n2","port":3306},{"name":"n3","host":"dbcm-e7db-n3","port":3306}],"automationPolicy":"manual"}
+(exit 0)
+```
+
+
+## Phase restart: manager container kill, forced update, behaviour of the running cluster
+
+host uptime: 10:29  up 5 days, 18:28, 7 users, load averages: 235.85 188.40 110.97
+
+08:29:24Z host load: { 235.85 188.40 110.97 }
+### before: cluster
+
+```
+$ cluster_summary
+{"state":"healthy","nodes":[{"id":"n1","state":"healthy","role":"synced"},{"id":"n2","state":"healthy","role":"synced"},{"id":"n3","state":"healthy","role":"synced"}]}
+(exit 0)
+```
+
+### before: manager task and container
+
+```
+$ svc_task
+sesff5pqaru7tqoq9uha5t6b5 lima-dbcm-lab-m1 Running Running about a minute ago 
+(exit 0)
+```
+
+### docker kill the manager container d37aec009725555f6d62e2b553f122857df977ec2092330c1fbdf5123d63bafd
+
+```
+$ vm_docker dbcm-lab-m1 kill d37aec009725555f6d62e2b553f122857df977ec2092330c1fbdf5123d63bafd
+d37aec009725555f6d62e2b553f122857df977ec2092330c1fbdf5123d63bafd
+(exit 0)
+```
+
+08:29:31Z wait ok after 6s: new manager container is running
+08:29:31Z wait ok after 0s: manager health after kill
+08:29:33Z wait ok after 2s: manager leads again
+08:29:33Z kill to leading: 9 s
+### tasks after the kill
+
+```
+$ svc_task
+li161ddi56e33irn3hlujn3ai lima-dbcm-lab-m1 Running Starting 3 seconds ago 
+sesff5pqaru7tqoq9uha5t6b5 lima-dbcm-lab-m1 Shutdown Failed 8 seconds ago "task: non-zero exit (137)"
+(exit 0)
+```
+
+### restart count
+
+```
+$ vm_docker dbcm-lab-m1 inspect --format {{.RestartCount}} started={{.State.StartedAt}} a557468e94fced4084079fe4da6094a941e221d7549f26103bd1d1e23f0dcb45
+0 started=2026-10-24T08:29:30.16047596Z
+(exit 0)
+```
+
+### session survives the restart (old cookie, no new login)
+
+```
+$ api GET /api/v1/auth/session
+HTTP 200
+{"accountId":"admin","restricted":false,"pendingPasskeyEnrollment":false,"createdAt":"2026-10-24T08:27:31.085724213Z"}
+(exit 0)
+```
+
+**Result:** PASS (restart-session): the session cookie of before the kill is still valid
+
+08:29:33Z RESULT: PASS (restart-session): the session cookie of before the kill is still valid
+### installation survived: setup status
+
+```
+$ api GET /api/v1/setup/status
+HTTP 200
+{"setupRequired":false}
+(exit 0)
+```
+
+### cluster after the kill
+
+```
+$ cluster_summary
+{"state":"healthy","nodes":[{"id":"n1","state":"healthy","role":"synced"},{"id":"n2","state":"healthy","role":"synced"},{"id":"n3","state":"healthy","role":"synced"}]}
+(exit 0)
+```
+
+**Result:** PASS (restart-data): cluster record and configuration survived in the data volume
+
+08:29:34Z RESULT: PASS (restart-data): cluster record and configuration survived in the data volume
+### manager log after the restart
+
+```
+$ manager_logs 30
+dbcm_manager.1.li161ddi56e33irn3hlujn3ai@lima-dbcm-lab-m1    | 2026/10/24 08:29:30 INFO manager: agent enrollment endpoint listening addr=192.168.104.1:7444
+dbcm_manager.1.li161ddi56e33irn3hlujn3ai@lima-dbcm-lab-m1    | 2026/10/24 08:29:30 INFO manager listening addr=127.0.0.1:8080 version=0.0.0-e7 auth=true
+dbcm_manager.1.li161ddi56e33irn3hlujn3ai@lima-dbcm-lab-m1    | 2026/10/24 08:29:32 INFO manager: leadership started term=3 adopted=0
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:24 INFO manager: agent enrollment endpoint listening addr=192.168.104.1:7444
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:24 INFO manager listening addr=127.0.0.1:8080 version=0.0.0-e7 auth=true
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:25 INFO manager: leadership started term=2 adopted=0
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:25 INFO manager: configured settings applied
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:25 INFO manager: bound the manager system subject to its system role
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:33 INFO enroll: agent enrolled host=ks6juv2db6uin2k601xlo935q serial=2d9333ef39de75a03afbdad1192e3842 not_after=2026-11-23T08:27:33Z
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:33 INFO enroll: agent enrolled host=4ahh4po1e06d17grur3j3zabn serial=1dcbc0db706079b7089a6c7fc112a5b6 not_after=2026-11-23T08:27:33Z
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:33 INFO enroll: agent enrolled host=fg9eqaz37020cjd4zszuzfs2y serial=447cea8702c8ea987ca4b6cc09f33e2a not_after=2026-11-23T08:27:33Z
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:36 WARN http: TLS handshake error from 192.168.104.1:50446: client sent an HTTP request to an HTTPS server
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:36 WARN runner: step retry op=op-439153ea0e99ceea kind=galera/create-cluster step=05-exec-sql-n1 retry=1 backoff=1s reason="dependency not running: the database on 4ahh4po1e06d17grur3j3zabn is not running: failed (db-not-running): database socket /var/lib/dbcm/volumes/dbcm-e7db-n1-2b88c628/run/mysqld.sock does not exist: the database of this node is not running (check the node service's task state, for example an image that cannot be pulled)"
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:37 WARN runner: step retry op=op-439153ea0e99ceea kind=galera/create-cluster step=05-exec-sql-n1 retry=2 backoff=2s reason="dependency not running: the database on 4ahh4po1e06d17grur3j3zabn is not running: failed (db-not-running): database socket /var/lib/dbcm/volumes/dbcm-e7db-n1-2b88c628/run/mysqld.sock does not exist: the database of this node is not running (check the node service's task state, for example an image that cannot be pulled)"
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:39 WARN runner: step retry op=op-439153ea0e99ceea kind=galera/create-cluster step=05-exec-sql-n1 retry=3 backoff=4s reason="dependency not running: the database on 4ahh4po1e06d17grur3j3zabn is not running: failed (db-not-running): database socket /var/lib/dbcm/volumes/dbcm-e7db-n1-2b88c628/run/mysqld.sock does not exist: the database of this node is not running (check the node service's task state, for example an image that cannot be pulled)"
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:43 WARN runner: step retry op=op-439153ea0e99ceea kind=galera/create-cluster step=12-wait-synced-n2 retry=1 backoff=1s reason="precondition not met"
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:44 WARN runner: step retry op=op-439153ea0e99ceea kind=galera/create-cluster step=12-wait-synced-n2 retry=2 backoff=2s reason="precondition not met"
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:46 WARN runner: step retry op=op-439153ea0e99ceea kind=galera/create-cluster step=12-wait-synced-n2 retry=3 backoff=4s reason="precondition not met"
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:50 WARN runner: step retry op=op-439153ea0e99ceea kind=galera/create-cluster step=12-wait-synced-n2 retry=4 backoff=8s reason="precondition not met"
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:58 WARN runner: step retry op=op-439153ea0e99ceea kind=galera/create-cluster step=12-wait-synced-n2 retry=5 backoff=16s reason="precondition not met"
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:28:14 WARN runner: step retry op=op-439153ea0e99ceea kind=galera/create-cluster step=17-wait-synced-n3 retry=1 backoff=1s reason="precondition not met"
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:28:15 WARN runner: step retry op=op-439153ea0e99ceea kind=galera/create-cluster step=17-wait-synced-n3 retry=2 backoff=2s reason="precondition not met"
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:28:17 WARN runner: step retry op=op-439153ea0e99ceea kind=galera/create-cluster step=17-wait-synced-n3 retry=3 backoff=4s reason="precondition not met"
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:28:21 WARN runner: step retry op=op-439153ea0e99ceea kind=galera/create-cluster step=17-wait-synced-n3 retry=4 backoff=8s reason="precondition not met"
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:28:29 WARN runner: step retry op=op-439153ea0e99ceea kind=galera/create-cluster step=17-wait-synced-n3 retry=5 backoff=16s reason="precondition not met"
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:28:45 WARN runner: step retry op=op-439153ea0e99ceea kind=galera/create-cluster step=19-await-update-n1 retry=1 backoff=1s reason="idempotent step failed: failed (update-pending): service \"dbcm-e7db-n1\" update state \"updating\""
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:28:46 WARN runner: step retry op=op-439153ea0e99ceea kind=galera/create-cluster step=19-await-update-n1 retry=2 backoff=2s reason="idempotent step failed: failed (update-pending): service \"dbcm-e7db-n1\" update state \"updating\""
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:28:48 WARN runner: step retry op=op-439153ea0e99ceea kind=galera/create-cluster step=19-await-update-n1 retry=3 backoff=4s reason="idempotent step failed: failed (update-pending): service \"dbcm-e7db-n1\" update state \"updating\""
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:28:52 WARN runner: step retry op=op-439153ea0e99ceea kind=galera/create-cluster step=19-await-update-n1 retry=4 backoff=8s reason="idempotent step failed: failed (update-pending): service \"dbcm-e7db-n1\" update state \"updating\""
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:29:00 INFO runner: operation succeeded op=op-439153ea0e99ceea kind=galera/create-cluster step="" status=succeeded reason="all steps succeeded"
+(exit 0)
+```
+
+### galera still synced (3 nodes) while the manager was down and back
+
+```
+$ galera_sync
+(exit 0)
+```
+
+**Result:** PASS (restart-galera): wsrep_cluster_size 3
+
+08:29:34Z RESULT: PASS (restart-galera): wsrep_cluster_size 3
+### agents still enrolled
+
+```
+$ sh -c limactl shell --workdir / dbcm-lab-m1 -- sudo /usr/local/bin/dbcm-e4-client -state /root/dbcm-e4/client.json -base http://127.0.0.1:8080 -origin http://localhost:8080 req GET /api/v1/hosts | tail -n +2 | jq -c '[.items[] | {nodeId, agentIdentity, agent: .agentState}]'
+[{"nodeId":"4ahh4po1e06d17grur3j3zabn","agentIdentity":true,"agent":null},{"nodeId":"fg9eqaz37020cjd4zszuzfs2y","agentIdentity":true,"agent":null},{"nodeId":"ks6juv2db6uin2k601xlo935q","agentIdentity":true,"agent":null}]
+(exit 0)
+```
+
+
+## Phase restart (2): docker service update --force (stop-first)
+
+### service update --force
+
+```
+$ vm_docker dbcm-lab-m1 service update --force --detach=false dbcm_manager
+dbcm_manager
+overall progress: 0 out of 1 tasks
+1/1:  
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 1 out of 1 tasks
+verify: Waiting 5 seconds to verify that tasks are stable...
+verify: Waiting 5 seconds to verify that tasks are stable...
+verify: Waiting 5 seconds to verify that tasks are stable...
+verify: Waiting 5 seconds to verify that tasks are stable...
+verify: Waiting 5 seconds to verify that tasks are stable...
+verify: Waiting 4 seconds to verify that tasks are stable...
+verify: Waiting 4 seconds to verify that tasks are stable...
+verify: Waiting 4 seconds to verify that tasks are stable...
+verify: Waiting 4 seconds to verify that tasks are stable...
+verify: Waiting 4 seconds to verify that tasks are stable...
+verify: Waiting 3 seconds to verify that tasks are stable...
+verify: Waiting 3 seconds to verify that tasks are stable...
+verify: Waiting 3 seconds to verify that tasks are stable...
+verify: Waiting 3 seconds to verify that tasks are stable...
+verify: Waiting 3 seconds to verify that tasks are stable...
+verify: Waiting 2 seconds to verify that tasks are stable...
+verify: Waiting 2 seconds to verify that tasks are stable...
+verify: Waiting 2 seconds to verify that tasks are stable...
+verify: Waiting 2 seconds to verify that tasks are stable...
+verify: Waiting 2 seconds to verify that tasks are stable...
+verify: Waiting 1 seconds to verify that tasks are stable...
+verify: Waiting 1 seconds to verify that tasks are stable...
+verify: Waiting 1 seconds to verify that tasks are stable...
+verify: Waiting 1 seconds to verify that tasks are stable...
+verify: Waiting 1 seconds to verify that tasks are stable...
+verify: Service dbcm_manager converged
+(exit 0)
+```
+
+08:29:48Z wait ok after 0s: manager health after update
+08:29:48Z wait ok after 0s: manager leads after update
+08:29:48Z update to leading: 14 s
+**Result:** PASS (restart-update): stop-first update replaced the container and the manager leads again
+
+08:29:48Z RESULT: PASS (restart-update): stop-first update replaced the container and the manager leads again
+### tasks after the update (history shows stop-first)
+
+```
+$ svc_task
+sojaqde6vtixjy1i7dnusy1bq lima-dbcm-lab-m1 Running Running 5 seconds ago 
+li161ddi56e33irn3hlujn3ai lima-dbcm-lab-m1 Shutdown Shutdown 10 seconds ago 
+sesff5pqaru7tqoq9uha5t6b5 lima-dbcm-lab-m1 Shutdown Failed 23 seconds ago "task: non-zero exit (137)"
+(exit 0)
+```
+
+### session after the update
+
+```
+$ api GET /api/v1/auth/session
+HTTP 200
+{"accountId":"admin","restricted":false,"pendingPasskeyEnrollment":false,"createdAt":"2026-10-24T08:27:31.085724213Z"}
+(exit 0)
+```
+
+### cluster after the update
+
+```
+$ cluster_summary
+{"state":"healthy","nodes":[{"id":"n1","state":"healthy","role":"synced"},{"id":"n2","state":"healthy","role":"synced"},{"id":"n3","state":"healthy","role":"synced"}]}
+(exit 0)
+```
+
+
+## Phase drain: drain the pinned manager node m1 and activate it again
+
+host uptime: 10:29  up 5 days, 18:28, 7 users, load averages: 198.58 184.01 111.67
+
+08:29:48Z host load: { 198.58 184.01 111.67 }
+### before: node ls
+
+```
+$ vm_docker dbcm-lab-m1 node ls
+ID                            HOSTNAME           STATUS    AVAILABILITY   MANAGER STATUS   ENGINE VERSION
+ks6juv2db6uin2k601xlo935q *   lima-dbcm-lab-m1   Ready     Active         Leader           29.9.2
+4ahh4po1e06d17grur3j3zabn     lima-dbcm-lab-m2   Ready     Active                          29.9.2
+fg9eqaz37020cjd4zszuzfs2y     lima-dbcm-lab-m3   Ready     Active                          29.9.2
+(exit 0)
+```
+
+### before: services
+
+```
+$ vm_docker dbcm-lab-m1 service ls
+ID             NAME               MODE         REPLICAS   IMAGE                   PORTS
+xuo8kzbp92bn   dbcm-agent-e7lab   global       1/3        db-cluster-manager:e7   
+uvbracm3hc7p   dbcm-e7db-n1       replicated   1/1        mariadb:11.4.13         
+os7l47rkot6c   dbcm-e7db-n2       replicated   1/1        mariadb:11.4.13         
+p8hay6gmqyzw   dbcm-e7db-n3       replicated   1/1        mariadb:11.4.13         
+vd8l8vy7likc   dbcm_manager       replicated   1/1        db-cluster-manager:e7   
+(exit 0)
+```
+
+### docker node update --availability drain m1
+
+```
+$ vm_docker dbcm-lab-m1 node update --availability drain ks6juv2db6uin2k601xlo935q
+ks6juv2db6uin2k601xlo935q
+(exit 0)
+```
+
+### manager tasks after drain (the constraint allows no other node)
+
+```
+$ svc_task
+iasrjm25oi7os9mfurhuarnxa  Ready Pending 35 seconds ago "no suitable node (scheduling constraints not satisfied on 2 nodes; 1 node not available for new tasks)"
+sqln7ehbbdyivopniq1h7hmdt  Shutdown Pending 45 seconds ago "no suitable node (scheduling constraints not satisfied on 2 nodes; 1 node not available for new tasks)"
+sojaqde6vtixjy1i7dnusy1bq lima-dbcm-lab-m1 Shutdown Shutdown 41 seconds ago 
+li161ddi56e33irn3hlujn3ai lima-dbcm-lab-m1 Shutdown Shutdown 56 seconds ago 
+sesff5pqaru7tqoq9uha5t6b5 lima-dbcm-lab-m1 Shutdown Failed about a minute ago "task: non-zero exit (137)"
+(exit 0)
+```
+
+### services after drain
+
+```
+$ vm_docker dbcm-lab-m1 service ls
+ID             NAME               MODE         REPLICAS   IMAGE                   PORTS
+xuo8kzbp92bn   dbcm-agent-e7lab   global       0/2        db-cluster-manager:e7   
+uvbracm3hc7p   dbcm-e7db-n1       replicated   1/1        mariadb:11.4.13         
+os7l47rkot6c   dbcm-e7db-n2       replicated   1/1        mariadb:11.4.13         
+p8hay6gmqyzw   dbcm-e7db-n3       replicated   0/1        mariadb:11.4.13         
+vd8l8vy7likc   dbcm_manager       replicated   0/1        db-cluster-manager:e7   
+(exit 0)
+```
+
+### manager health during drain (expected: down)
+
+```
+$ mgr_health
+curl: (7) Failed to connect to 127.0.0.1 port 8080 after 0 ms: Could not connect to server
+(exit 7)
+```
+
+### task state detail
+
+```
+$ vm_docker dbcm-lab-m1 service ps --no-trunc --format {{.Name}} {{.DesiredState}} {{.CurrentState}} {{.Error}} dbcm_manager
+dbcm_manager.1 Ready Pending 36 seconds ago "no suitable node (scheduling constraints not satisfied on 2 nodes; 1 node not available for new tasks)"
+dbcm_manager.1 Shutdown Pending 45 seconds ago "no suitable node (scheduling constraints not satisfied on 2 nodes; 1 node not available for new tasks)"
+dbcm_manager.1 Shutdown Shutdown 42 seconds ago 
+dbcm_manager.1 Shutdown Shutdown 56 seconds ago 
+dbcm_manager.1 Shutdown Failed about a minute ago "task: non-zero exit (137)"
+(exit 0)
+```
+
+### galera services during drain
+
+```
+$ vm_docker dbcm-lab-m1 service ls --filter label=dbcm.cluster
+ID             NAME           MODE         REPLICAS   IMAGE             PORTS
+uvbracm3hc7p   dbcm-e7db-n1   replicated   1/1        mariadb:11.4.13   
+os7l47rkot6c   dbcm-e7db-n2   replicated   1/1        mariadb:11.4.13   
+p8hay6gmqyzw   dbcm-e7db-n3   replicated   0/1        mariadb:11.4.13   
+(exit 0)
+```
+
+### volumes of the manager are retained on m1
+
+```
+$ vm_docker dbcm-lab-m1 volume ls --filter name=dbcm_manager-data
+DRIVER    VOLUME NAME
+local     dbcm_manager-data
+(exit 0)
+```
+
+### activate m1 again
+
+```
+$ vm_docker dbcm-lab-m1 node update --availability active ks6juv2db6uin2k601xlo935q
+ks6juv2db6uin2k601xlo935q
+(exit 0)
+```
+
+08:30:44Z wait ok after 9s: manager task running again
+08:30:44Z wait ok after 0s: manager health after activate
+08:30:44Z wait ok after 0s: manager leads after activate
+08:30:44Z drain start to leading again: 55 s
+### tasks after activate
+
+```
+$ svc_task
+iasrjm25oi7os9mfurhuarnxa lima-dbcm-lab-m1 Running Running 2 seconds ago 
+sqln7ehbbdyivopniq1h7hmdt lima-dbcm-lab-m1 Shutdown Shutdown 7 seconds ago 
+sojaqde6vtixjy1i7dnusy1bq lima-dbcm-lab-m1 Shutdown Shutdown 52 seconds ago 
+li161ddi56e33irn3hlujn3ai lima-dbcm-lab-m1 Shutdown Shutdown about a minute ago 
+sesff5pqaru7tqoq9uha5t6b5 lima-dbcm-lab-m1 Shutdown Failed about a minute ago "task: non-zero exit (137)"
+(exit 0)
+```
+
+### session and data after the drain cycle
+
+```
+$ api GET /api/v1/auth/session
+HTTP 200
+{"accountId":"admin","restricted":false,"pendingPasskeyEnrollment":false,"createdAt":"2026-10-24T08:27:31.085724213Z"}
+(exit 0)
+```
+
+**Result:** PASS (drain-data): same installation (session valid) and cluster record present after drain and activate
+
+08:30:45Z RESULT: PASS (drain-data): same installation (session valid) and cluster record present after drain and activate
+### cluster after the drain cycle
+
+```
+$ cluster_summary
+{"state":"unknown","nodes":[{"id":"n1","state":"unknown","role":"unknown"},{"id":"n2","state":"unknown","role":"unknown"},{"id":"n3","state":"unknown","role":"unknown"}]}
+(exit 0)
+```
+
+### manager log after reactivation
+
+```
+$ manager_logs 30
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:24 INFO manager: agent enrollment endpoint listening addr=192.168.104.1:7444
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:24 INFO manager listening addr=127.0.0.1:8080 version=0.0.0-e7 auth=true
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:25 INFO manager: leadership started term=2 adopted=0
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:25 INFO manager: configured settings applied
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:25 INFO manager: bound the manager system subject to its system role
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:33 INFO enroll: agent enrolled host=ks6juv2db6uin2k601xlo935q serial=2d9333ef39de75a03afbdad1192e3842 not_after=2026-11-23T08:27:33Z
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:33 INFO enroll: agent enrolled host=4ahh4po1e06d17grur3j3zabn serial=1dcbc0db706079b7089a6c7fc112a5b6 not_after=2026-11-23T08:27:33Z
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:33 INFO enroll: agent enrolled host=fg9eqaz37020cjd4zszuzfs2y serial=447cea8702c8ea987ca4b6cc09f33e2a not_after=2026-11-23T08:27:33Z
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:36 WARN http: TLS handshake error from 192.168.104.1:50446: client sent an HTTP request to an HTTPS server
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:36 WARN runner: step retry op=op-439153ea0e99ceea kind=galera/create-cluster step=05-exec-sql-n1 retry=1 backoff=1s reason="dependency not running: the database on 4ahh4po1e06d17grur3j3zabn is not running: failed (db-not-running): database socket /var/lib/dbcm/volumes/dbcm-e7db-n1-2b88c628/run/mysqld.sock does not exist: the database of this node is not running (check the node service's task state, for example an image that cannot be pulled)"
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:37 WARN runner: step retry op=op-439153ea0e99ceea kind=galera/create-cluster step=05-exec-sql-n1 retry=2 backoff=2s reason="dependency not running: the database on 4ahh4po1e06d17grur3j3zabn is not running: failed (db-not-running): database socket /var/lib/dbcm/volumes/dbcm-e7db-n1-2b88c628/run/mysqld.sock does not exist: the database of this node is not running (check the node service's task state, for example an image that cannot be pulled)"
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:39 WARN runner: step retry op=op-439153ea0e99ceea kind=galera/create-cluster step=05-exec-sql-n1 retry=3 backoff=4s reason="dependency not running: the database on 4ahh4po1e06d17grur3j3zabn is not running: failed (db-not-running): database socket /var/lib/dbcm/volumes/dbcm-e7db-n1-2b88c628/run/mysqld.sock does not exist: the database of this node is not running (check the node service's task state, for example an image that cannot be pulled)"
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:43 WARN runner: step retry op=op-439153ea0e99ceea kind=galera/create-cluster step=12-wait-synced-n2 retry=1 backoff=1s reason="precondition not met"
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:44 WARN runner: step retry op=op-439153ea0e99ceea kind=galera/create-cluster step=12-wait-synced-n2 retry=2 backoff=2s reason="precondition not met"
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:46 WARN runner: step retry op=op-439153ea0e99ceea kind=galera/create-cluster step=12-wait-synced-n2 retry=3 backoff=4s reason="precondition not met"
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:50 WARN runner: step retry op=op-439153ea0e99ceea kind=galera/create-cluster step=12-wait-synced-n2 retry=4 backoff=8s reason="precondition not met"
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:27:58 WARN runner: step retry op=op-439153ea0e99ceea kind=galera/create-cluster step=12-wait-synced-n2 retry=5 backoff=16s reason="precondition not met"
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:28:14 WARN runner: step retry op=op-439153ea0e99ceea kind=galera/create-cluster step=17-wait-synced-n3 retry=1 backoff=1s reason="precondition not met"
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:28:15 WARN runner: step retry op=op-439153ea0e99ceea kind=galera/create-cluster step=17-wait-synced-n3 retry=2 backoff=2s reason="precondition not met"
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:28:17 WARN runner: step retry op=op-439153ea0e99ceea kind=galera/create-cluster step=17-wait-synced-n3 retry=3 backoff=4s reason="precondition not met"
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:28:21 WARN runner: step retry op=op-439153ea0e99ceea kind=galera/create-cluster step=17-wait-synced-n3 retry=4 backoff=8s reason="precondition not met"
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:28:29 WARN runner: step retry op=op-439153ea0e99ceea kind=galera/create-cluster step=17-wait-synced-n3 retry=5 backoff=16s reason="precondition not met"
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:28:45 WARN runner: step retry op=op-439153ea0e99ceea kind=galera/create-cluster step=19-await-update-n1 retry=1 backoff=1s reason="idempotent step failed: failed (update-pending): service \"dbcm-e7db-n1\" update state \"updating\""
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:28:46 WARN runner: step retry op=op-439153ea0e99ceea kind=galera/create-cluster step=19-await-update-n1 retry=2 backoff=2s reason="idempotent step failed: failed (update-pending): service \"dbcm-e7db-n1\" update state \"updating\""
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:28:48 WARN runner: step retry op=op-439153ea0e99ceea kind=galera/create-cluster step=19-await-update-n1 retry=3 backoff=4s reason="idempotent step failed: failed (update-pending): service \"dbcm-e7db-n1\" update state \"updating\""
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:28:52 WARN runner: step retry op=op-439153ea0e99ceea kind=galera/create-cluster step=19-await-update-n1 retry=4 backoff=8s reason="idempotent step failed: failed (update-pending): service \"dbcm-e7db-n1\" update state \"updating\""
+dbcm_manager.1.sesff5pqaru7tqoq9uha5t6b5@lima-dbcm-lab-m1    | 2026/10/24 08:29:00 INFO runner: operation succeeded op=op-439153ea0e99ceea kind=galera/create-cluster step="" status=succeeded reason="all steps succeeded"
+dbcm_manager.1.li161ddi56e33irn3hlujn3ai@lima-dbcm-lab-m1    | 2026/10/24 08:29:30 INFO manager: agent enrollment endpoint listening addr=192.168.104.1:7444
+dbcm_manager.1.li161ddi56e33irn3hlujn3ai@lima-dbcm-lab-m1    | 2026/10/24 08:29:30 INFO manager listening addr=127.0.0.1:8080 version=0.0.0-e7 auth=true
+dbcm_manager.1.li161ddi56e33irn3hlujn3ai@lima-dbcm-lab-m1    | 2026/10/24 08:29:32 INFO manager: leadership started term=3 adopted=0
+dbcm_manager.1.li161ddi56e33irn3hlujn3ai@lima-dbcm-lab-m1    | 2026/10/24 08:29:37 INFO manager: leadership ended term=3 reason=shutdown
+dbcm_manager.1.sojaqde6vtixjy1i7dnusy1bq@lima-dbcm-lab-m1    | 2026/10/24 08:29:38 INFO manager: agent enrollment endpoint listening addr=192.168.104.1:7444
+dbcm_manager.1.sojaqde6vtixjy1i7dnusy1bq@lima-dbcm-lab-m1    | 2026/10/24 08:29:38 INFO manager listening addr=127.0.0.1:8080 version=0.0.0-e7 auth=true
+dbcm_manager.1.sojaqde6vtixjy1i7dnusy1bq@lima-dbcm-lab-m1    | 2026/10/24 08:29:39 INFO manager: leadership started term=4 adopted=0
+dbcm_manager.1.sojaqde6vtixjy1i7dnusy1bq@lima-dbcm-lab-m1    | 2026/10/24 08:29:52 INFO manager: leadership ended term=4 reason=shutdown
+dbcm_manager.1.iasrjm25oi7os9mfurhuarnxa@lima-dbcm-lab-m1    | 2026/10/24 08:30:37 INFO manager: agent enrollment endpoint listening addr=192.168.104.1:7444
+dbcm_manager.1.iasrjm25oi7os9mfurhuarnxa@lima-dbcm-lab-m1    | 2026/10/24 08:30:37 INFO manager listening addr=127.0.0.1:8080 version=0.0.0-e7 auth=true
+dbcm_manager.1.iasrjm25oi7os9mfurhuarnxa@lima-dbcm-lab-m1    | 2026/10/24 08:30:39 INFO manager: leadership started term=5 adopted=0
+(exit 0)
+```
+
+### all services after the drain cycle
+
+```
+$ vm_docker dbcm-lab-m1 service ls
+ID             NAME               MODE         REPLICAS   IMAGE                   PORTS
+xuo8kzbp92bn   dbcm-agent-e7lab   global       1/3        db-cluster-manager:e7   
+uvbracm3hc7p   dbcm-e7db-n1       replicated   1/1        mariadb:11.4.13         
+os7l47rkot6c   dbcm-e7db-n2       replicated   1/1        mariadb:11.4.13         
+p8hay6gmqyzw   dbcm-e7db-n3       replicated   1/1        mariadb:11.4.13         
+vd8l8vy7likc   dbcm_manager       replicated   1/1        db-cluster-manager:e7   
+(exit 0)
+```
+
+
+## Phase peertls: peer TLS evidence
+
+**Result:** deploy/stack.yaml deploys 1 replica by design (ADR 0014, item 4): replicas>1 is NOT supported by the stack, so no peer-TLS refusal can be shown from it. A wrong-certificate replica refusal is evidenced for plain processes in tests/p0/results/e4-rerun-B2.md; the per-replica Swarm-service layout of docs/INSTALL.md (Three-replica variant) is still not run.
+
+08:30:45Z RESULT: deploy/stack.yaml deploys 1 replica by design (ADR 0014, item 4): replicas>1 is NOT supported by the stack, so no peer-TLS refusal can be shown from it. A wrong-certificate replica refusal is evidenced for plain processes in tests/p0/results/e4-rerun-B2.md; the per-replica Swarm-service layout of docs/INSTALL.md (Three-replica variant) is still not run.
+### metastore listener in the stack manager (single replica, loopback)
+
+```
+$ vm_sh dbcm-lab-m1 sudo ss -ltn | grep -E ':7445' || true
+LISTEN 0      4096       127.0.0.1:7445      0.0.0.0:*   
+(exit 0)
+```
+
+08:30:45Z E7_KEEP_VMS=1: VMs kept; run bin/lab cleanup -apply manually
+08:30:45Z E7 finished with exit 0

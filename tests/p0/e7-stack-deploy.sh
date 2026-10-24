@@ -130,15 +130,18 @@ e7_prereqs() {
 	for vm in $VMS; do
 		rec "host directories on $vm" vm_root "$vm" 'install -d -m 0755 /var/lib/dbcm-agent "$1" && ls -ld /var/lib/dbcm-agent "$1"' "$VOLBASE"
 	done
+	rec "state directory for the API client and synthetic passwords (root-only files in m1; the lab monitoring check reads monitor.pw)" vm_root "$M1" 'install -d -m 0700 "$1"' "$STATE"
 	rec "database secrets and cluster network on m1 (values never logged)" vm_root "$M1" '
 		set -e
-		for s in "$2" "$3" "$4"; do
+		for x in "$2:root" "$3:monitor" "$4:backup"; do
+			s=${x%%:*}; f="$6/${x#*:}.pw"
+			[ -f "$f" ] || head -c 24 /dev/urandom | base64 | tr -d "\n" >"$f"
+			chmod 0600 "$f"
 			if docker secret inspect "$s" >/dev/null 2>&1; then echo "secret $s exists"; else
-				head -c 24 /dev/urandom | base64 | tr -d "\n" | docker secret create --label "dbcm.installation=$1" "$s" - >/dev/null && echo "secret $s"; fi
+				docker secret create --label "dbcm.installation=$1" "$s" "$f" >/dev/null && echo "secret $s"; fi
 		done
 		docker network inspect -f "{{.Name}} exists" "$5" 2>/dev/null || docker network create --driver overlay --attachable --label "dbcm.installation=$1" "$5"' \
-		"$INST" "$ROOT_SECRET" "$MON_SECRET" "$BAK_SECRET" "$NET"
-	rec "state directory for the API client" vm_root "$M1" 'install -d -m 0700 "$1"' "$STATE"
+		"$INST" "$ROOT_SECRET" "$MON_SECRET" "$BAK_SECRET" "$NET" "$STATE"
 }
 
 e7_init() {
@@ -291,7 +294,7 @@ e7_restart() {
 e7_drain() {
 	section "Phase drain: drain the pinned manager node m1 and activate it again"
 	hostload
-	local node t0
+	local node t0 t1
 	node=$(vm_docker "$M1" node inspect self --format '{{.ID}}')
 	rec "before: node ls" vm_docker "$M1" node ls
 	rec "before: services" vm_docker "$M1" service ls
@@ -303,6 +306,7 @@ e7_drain() {
 	rec "manager health during drain (expected: down)" mgr_health || true
 	rec "task state detail" vm_docker "$M1" service ps --no-trunc --format '{{.Name}} {{.DesiredState}} {{.CurrentState}} {{.Error}}' "$SVC"
 	rec "galera services during drain" vm_docker "$M1" service ls --filter "label=dbcm.cluster"
+	rec "agent and galera tasks during drain (node, state, error)" vm_args "$M1" 'for s in dbcm-agent-$1 dbcm-$2-n1 dbcm-$2-n2 dbcm-$2-n3; do sudo docker service ps --format "{{.Name}} {{.Node}} {{.DesiredState}} {{.CurrentState}} {{.Error}}" "$s" | head -4; done' "$INST" "$CLUSTER_NAME"
 	rec "volumes of the manager are retained on m1" vm_docker "$M1" volume ls --filter "name=${STACK}_manager-data"
 	rec "activate m1 again" vm_docker "$M1" node update --availability active "$node"
 	wait_until 240 "manager task running again" sh -c "limactl shell --workdir / $M1 -- sudo docker service ps --filter desired-state=running --format '{{.CurrentState}}' $SVC | grep -q '^Running'" ||
@@ -313,7 +317,13 @@ e7_drain() {
 	rec "tasks after activate" svc_task
 	rec "session and data after the drain cycle" api GET /api/v1/auth/session &&
 		ok drain-data "same installation (session valid) and cluster record present after drain and activate" || assert_fail drain "session lost"
+	rec "cluster right after the drain cycle (the manager has just started)" cluster_summary
+	t1=$(date +%s)
+	wait_until 300 "cluster healthy again in the manager's view" sh -c "limactl shell --workdir / $M1 -- sudo /usr/local/bin/dbcm-e4-client -state $STATE/client.json -base http://127.0.0.1:$API_PORT -origin http://localhost:$API_PORT req GET /api/v1/clusters | tail -n +2 | jq -e '.items[0].state==\"healthy\"'" &&
+		ok drain-cluster "cluster reported healthy $(($(date +%s) - t1)) s after the manager came back" || assert_fail drain-cluster "cluster not healthy after reactivation"
 	rec "cluster after the drain cycle" cluster_summary
+	rec "galera size after the drain cycle" galera_sync || assert_fail drain-galera "wsrep_cluster_size is not 3"
+	rec "agents after the drain cycle" vm_docker "$M1" service ls --filter "name=dbcm-agent-$INST"
 	rec "manager log after reactivation" manager_logs 30
 	rec "all services after the drain cycle" vm_docker "$M1" service ls
 }
