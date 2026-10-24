@@ -570,8 +570,16 @@ func (r *Runner) abortNow(st *opState) (View, error) {
 	}
 	r.mu.Lock()
 	st.abortReq = false
+	prior, priorStep, priorReason := st.status, st.pausedStep, st.reason
 	r.mu.Unlock()
+	// An operator abort always ends Aborted, also when it coincides with a
+	// step failure; the failure is kept in the reason (and in the journal).
 	reason := "aborted at a safe boundary"
+	if prior == StatusFailed && priorReason != "" {
+		reason += "; a step had failed: " + priorReason
+	} else if prior == StatusPaused && priorStep != "" && !strings.HasPrefix(priorReason, "abort requested") {
+		reason += fmt.Sprintf("; paused at step %s: %s", priorStep, priorReason)
+	}
 	if jop, err := r.cfg.Journal.Get(st.def.ID); err == nil {
 		var unknown []string
 		for _, s := range jop.Steps {

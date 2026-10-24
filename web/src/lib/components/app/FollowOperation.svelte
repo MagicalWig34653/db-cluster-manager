@@ -11,7 +11,7 @@
 	let { id }: { id: string } = $props();
 	const ops = load(api.operations);
 	const op = $derived(ops.state.status === 'ok' ? ops.state.value.find((o) => o.id === id) : undefined);
-	const finished = $derived(op?.state === 'succeeded' || op?.state === 'failed');
+	const finished = $derived(op?.state === 'succeeded' || op?.state === 'failed' || op?.state === 'aborted');
 	onMount(() => {
 		const timer = setInterval(() => {
 			if (!finished) ops.refresh();

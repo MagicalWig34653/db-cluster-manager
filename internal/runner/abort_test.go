@@ -250,3 +250,26 @@ func TestRetryExhaustionReportsAgentError(t *testing.T) {
 		t.Errorf("%d attempts", n)
 	}
 }
+
+// TestAbortAfterStepFailureEndsAbortedWithTheFailure: an operator abort of
+// an operation whose step failed permanently ends Aborted (the abort is the
+// terminal decision) and keeps the failure in the reason and the journal.
+func TestAbortAfterStepFailureEndsAbortedWithTheFailure(t *testing.T) {
+	h := newHarness(t, "h1", "h2", "h3")
+	h.agents["h2"].addFault("s2", failResult)
+	r := h.runner("m1")
+	v, err := r.Run(context.Background(), threeStepOp("op1"))
+	if err != nil || v.Status != StatusFailed {
+		t.Fatalf("err %v status %s", err, v.Status)
+	}
+	if err := r.Abort("op1"); err != nil {
+		t.Fatal(err)
+	}
+	v, _ = r.Snapshot("op1")
+	if v.Status != StatusAborted || !strings.HasPrefix(v.Reason, "aborted at a safe boundary; a step had failed: ") {
+		t.Fatalf("status %s reason %q", v.Status, v.Reason)
+	}
+	if s := journalStates(t, h.meta.node("m1"), "op1")["s2"]; s.State != opjournal.Failed {
+		t.Errorf("failed step journaled %s after the abort", s.State)
+	}
+}

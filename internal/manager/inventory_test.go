@@ -66,7 +66,7 @@ func TestInventoryReportsUnknownForMissingOrStaleObservations(t *testing.T) {
 func TestOperationStateMapping(t *testing.T) {
 	cases := map[runner.Status]api.OperationState{
 		runner.StatusRunning: api.OperationRunning, runner.StatusSucceeded: api.OperationSucceeded,
-		runner.StatusFailed: api.OperationFailed, runner.StatusAborted: api.OperationFailed,
+		runner.StatusFailed: api.OperationFailed, runner.StatusAborted: api.OperationAborted,
 		runner.StatusPaused: api.OperationPending, runner.StatusStopped: api.OperationUnknown,
 	}
 	for st, want := range cases {

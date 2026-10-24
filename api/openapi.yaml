@@ -1825,7 +1825,7 @@ components:
         kind: { type: string }
         swarm: { type: string }
         cluster: { type: string }
-        state: { type: string, enum: [pending, running, succeeded, failed, unknown] }
+        state: { type: string, enum: [pending, running, succeeded, failed, aborted, unknown], description: "aborted: an operator abort ended the operation at a safe boundary; failed: a step failed without an abort" }
         startedAt: { type: string, format: date-time }
         endedAt: { type: string, format: date-time }
         approval: { $ref: "#/components/schemas/OperationApproval" }

@@ -29,6 +29,7 @@ describe('operation phase and progress', () => {
 		expect(phase(op({ state: 'running', approval: { digest, approvedBy: 'a' } }))).toBe('running');
 		expect(phase(op({ state: 'pending', approval: { digest, approvedBy: 'a' } }))).toBe('paused');
 		expect(phase(op({ state: 'failed', approval: { digest } }))).toBe('failed');
+		expect(phase(op({ state: 'aborted', approval: { digest } }))).toBe('aborted');
 		expect(phase(op({ state: 'unknown' }))).toBe('unknown');
 	});
 	it('derives a clamped progress view and never invents progress', () => {

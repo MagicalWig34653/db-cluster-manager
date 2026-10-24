@@ -57,6 +57,14 @@ func execSQLStep(t *testing.T, l *Service, opID string) (runner.StepView, opjour
 
 func progressOf(t *testing.T, l *Service, opID string) *api.OperationProgress {
 	t.Helper()
+	return apiOperation(t, l, opID).Progress
+}
+
+// apiOperation returns the operation as the API lists it: lab E4 (A3)
+// asserted the API state, which differed from the runner status that the
+// fakes tests checked.
+func apiOperation(t *testing.T, l *Service, opID string) api.Operation {
+	t.Helper()
 	inv := Inventory{Store: l.Store()}
 	list, err := inv.Operations(context.Background())
 	if err != nil {
@@ -64,11 +72,20 @@ func progressOf(t *testing.T, l *Service, opID string) *api.OperationProgress {
 	}
 	for _, o := range list {
 		if o.ID == opID {
-			return o.Progress
+			return o
 		}
 	}
 	t.Fatalf("operation %s not listed", opID)
-	return nil
+	return api.Operation{}
+}
+
+func assertAPIAborted(t *testing.T, l *Service, opID string) api.Operation {
+	t.Helper()
+	o := apiOperation(t, l, opID)
+	if o.State != api.OperationAborted || o.EndedAt.IsZero() || !strings.HasPrefix(o.Reason, "aborted at a safe boundary") {
+		t.Fatalf("API view of the aborted operation: state %s, ended %v, reason %q", o.State, o.EndedAt, o.Reason)
+	}
+	return o
 }
 
 // TestAbortCreateRetryingExecSQLThenDelete reproduces lab E4 failcreate:
@@ -111,6 +128,7 @@ func TestAbortCreateRetryingExecSQLThenDelete(t *testing.T) {
 	if rec.EndedAt.IsZero() {
 		t.Error("aborted create not marked ended")
 	}
+	assertAPIAborted(t, l, create.ID)
 	if sv, _ := execSQLStep(t, l, create.ID); sv.State != opjournal.Failed {
 		t.Errorf("exec-sql step %s; the observed failure must stay recorded", sv.State)
 	}
@@ -154,6 +172,9 @@ func TestAbortCreateWithExecSQLInFlight(t *testing.T) {
 	}
 	if !strings.Contains(rec.View.Reason, "outcome unknown") {
 		t.Errorf("reason %q", rec.View.Reason)
+	}
+	if o := assertAPIAborted(t, l, create.ID); !strings.Contains(o.Reason, "outcome unknown") {
+		t.Errorf("API reason %q", o.Reason)
 	}
 	if _, err := ops.DeleteCluster(adminSubject, create.Cluster); err != nil {
 		t.Fatalf("delete after the abort: %v", err)

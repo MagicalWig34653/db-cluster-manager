@@ -17,7 +17,7 @@ export function approvalView(op: Pick<Operation, 'approval'>): ApprovalView {
 		: { kind: 'required', digest: a.digest };
 }
 
-const finished = (op: Pick<Operation, 'state'>) => op.state === 'succeeded' || op.state === 'failed';
+const finished = (op: Pick<Operation, 'state'>) => op.state === 'succeeded' || op.state === 'failed' || op.state === 'aborted';
 
 export const canApprove = (op: Operation): boolean => approvalView(op).kind === 'required' && !finished(op);
 /** Paused operations report state "pending"; one that still waits for approval is resumed by the approval. */

@@ -31,6 +31,7 @@ const operationViews: Record<OperationState, StatusView> = {
 	running: { icon: LoaderCircle, label: 'opRunning', tone: 'neutral' },
 	succeeded: { icon: CircleCheck, label: 'opSucceeded', tone: 'ok' },
 	failed: { icon: CircleX, label: 'opFailed', tone: 'bad' },
+	aborted: { icon: CircleX, label: 'opAborted', tone: 'warn' },
 	unknown
 };
 

@@ -33,7 +33,7 @@ One pinned Swarm service per node, each with its own local volume and an identit
 
 ## Failed create and deletion
 
-A failed create keeps the cluster name and planned capacity until you delete it. `DELETE /api/v1/clusters/{id}` plans a `cluster/delete` operation and returns an approval digest; nothing is removed before `POST /api/v1/operations/{id}/approve` with that digest. It needs the **delete** permission (administrator preset only). Deletion removes only objects the installation created (database services, unfinished job services, inspection instances, node volumes after the identity check). Operator networks and secrets, host directories of local volumes and backups in the backend are kept. This path ran only against fakes [Fakes]; the E4 failed-create cleanup was done by hand.
+An aborted create (`POST /api/v1/operations/{id}/abort`) ends in the state `aborted`; its reason starts with `aborted at a safe boundary` and names steps whose outcome is unknown. A failed or aborted create keeps the cluster name and planned capacity until you delete it. `DELETE /api/v1/clusters/{id}` plans a `cluster/delete` operation and returns an approval digest; nothing is removed before `POST /api/v1/operations/{id}/approve` with that digest. It needs the **delete** permission (administrator preset only). Deletion removes only objects the installation created (database services, unfinished job services, inspection instances, node volumes after the identity check). Operator networks and secrets, host directories of local volumes and backups in the backend are kept. This path ran only against fakes [Fakes]; the E4 failed-create cleanup was done by hand.
 
 ![Planned cluster deletion waiting for approval](../../assets/screenshots/en-light-delete-approval.png)
 

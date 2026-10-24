@@ -24,7 +24,7 @@ export interface VersionInfo {
 
 export const states = ['healthy', 'degraded', 'unavailable', 'unknown'] as const;
 export type State = (typeof states)[number];
-export const operationStates = ['pending', 'running', 'succeeded', 'failed', 'unknown'] as const;
+export const operationStates = ['pending', 'running', 'succeeded', 'failed', 'aborted', 'unknown'] as const;
 export type OperationState = (typeof operationStates)[number];
 export const severities = ['info', 'warning', 'critical', 'unknown'] as const;
 export type Severity = (typeof severities)[number];

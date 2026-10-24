@@ -12,6 +12,8 @@ describe('operation rules', () => {
 		expect(canApprove(op({ approval: { digest } }))).toBe(true);
 		expect(canApprove(op({ approval: { digest, approvedBy: 'admin', approvedAt: '2026-10-20T10:00:00Z' } }))).toBe(false);
 		expect(canApprove(op({ approval: { digest }, state: 'failed' }))).toBe(false);
+		expect(canApprove(op({ approval: { digest }, state: 'aborted' }))).toBe(false);
+		expect(canAbort(op({ state: 'aborted' }))).toBe(false);
 		expect(approvalView(op({ approval: { digest, approvedBy: 'admin' } }))).toMatchObject({ kind: 'approved', by: 'admin' });
 		expect(approvalView(op())).toEqual({ kind: 'none' });
 	});

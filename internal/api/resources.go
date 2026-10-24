@@ -49,12 +49,15 @@ const (
 	OperationRunning   OperationState = "running"
 	OperationSucceeded OperationState = "succeeded"
 	OperationFailed    OperationState = "failed"
-	OperationUnknown   OperationState = "unknown"
+	// OperationAborted: an operator abort ended the operation at a safe
+	// boundary; the reason names steps whose outcome is unknown.
+	OperationAborted OperationState = "aborted"
+	OperationUnknown OperationState = "unknown"
 )
 
 func normalizeOperationState(s OperationState) OperationState {
 	switch s {
-	case OperationPending, OperationRunning, OperationSucceeded, OperationFailed:
+	case OperationPending, OperationRunning, OperationSucceeded, OperationFailed, OperationAborted:
 		return s
 	}
 	return OperationUnknown

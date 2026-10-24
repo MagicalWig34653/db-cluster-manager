@@ -416,7 +416,7 @@ export const mockFetch: typeof fetch = async (input, init) => {
 				op.state = 'running';
 				return json(200, a);
 			}
-			if (m[2] === 'abort') op.state = 'failed';
+			if (m[2] === 'abort') op.state = 'aborted';
 			else op.state = 'running';
 			return json(202, { id: op.id, kind: op.kind });
 		}

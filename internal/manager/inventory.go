@@ -182,8 +182,12 @@ func operationState(rec OperationRecord) api.OperationState {
 		return api.OperationRunning
 	case runner.StatusSucceeded:
 		return api.OperationSucceeded
-	case runner.StatusFailed, runner.StatusAborted:
+	case runner.StatusFailed:
 		return api.OperationFailed
+	case runner.StatusAborted:
+		// Lab E4 failcreate (A3): an operator abort was reported "failed"
+		// with the reason "aborted at a safe boundary".
+		return api.OperationAborted
 	case runner.StatusPaused:
 		return api.OperationPending
 	}

@@ -21,7 +21,7 @@ import { approvalView } from './operations';
 // ---------------------------------------------------------------------------
 // Operation phase and progress
 
-export type Phase = 'awaitingApproval' | 'paused' | 'running' | 'succeeded' | 'failed' | 'unknown';
+export type Phase = 'awaitingApproval' | 'paused' | 'running' | 'succeeded' | 'failed' | 'aborted' | 'unknown';
 
 /**
  * What an operation is doing, from the fields the manager reports. A paused
@@ -29,7 +29,7 @@ export type Phase = 'awaitingApproval' | 'paused' | 'running' | 'succeeded' | 'f
  * for that approval, not paused.
  */
 export function phase(op: Pick<Operation, 'state' | 'approval'>): Phase {
-	if (op.state === 'succeeded' || op.state === 'failed') return op.state;
+	if (op.state === 'succeeded' || op.state === 'failed' || op.state === 'aborted') return op.state;
 	if (op.state === 'unknown') return 'unknown';
 	if (approvalView(op).kind === 'required') return 'awaitingApproval';
 	return op.state === 'pending' ? 'paused' : 'running';
@@ -41,6 +41,7 @@ export const phaseLabel: Record<Phase, MessageKey> = {
 	running: 'phaseRunning',
 	succeeded: 'opSucceeded',
 	failed: 'opFailed',
+	aborted: 'opAborted',
 	unknown: 'stateUnknown'
 };
 
