@@ -52,6 +52,8 @@ Date: 2026-10-23/24 (log UTC 22:0x-23:07:51Z). Branch `worktree-agent-ab4cfd4c51
 
 ## Open items
 
+Follow-up 2026-10-24 (fakes only, not re-run): the abort, error-capture and script findings below were addressed in code; see `docs/STATUS.md` "failcreate findings fixed".
+
 - Owner decision: abort semantics for a create whose step keeps retrying (`failcreate`). The product was not changed.
 - Re-run Part A from `failcreate` onward, plus `cleanuprestart`, `diskfull`, `sentinels`, `deleteall`, and then Part B.
 - The `exec-sql` retry error text is not captured by the manager log or the agent logs (agent logs show startup lines only). Capturing it would need the operation's step error field, which the script does not record. Follow-up for the script.
