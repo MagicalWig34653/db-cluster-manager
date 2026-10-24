@@ -25,6 +25,30 @@ type wireServiceSpec struct {
 	TaskTemplate wireTaskSpec      `json:"TaskTemplate"`
 	Mode         wireServiceMode   `json:"Mode"`
 	EndpointSpec *wireEndpointSpec `json:"EndpointSpec,omitempty"`
+	// UpdateConfig and RollbackConfig are sent only when the agent spec
+	// sets them. They are not in specShape: an update without them keeps
+	// the service's current values, one with them replaces them.
+	UpdateConfig   *wireUpdateConfig `json:"UpdateConfig,omitempty"`
+	RollbackConfig *wireUpdateConfig `json:"RollbackConfig,omitempty"`
+}
+
+// wireUpdateConfig is a Swarm UpdateConfig or RollbackConfig. Parallelism
+// is always sent: 0 would mean "all at once".
+type wireUpdateConfig struct {
+	Parallelism     uint64  `json:"Parallelism"`
+	Delay           int64   `json:"Delay,omitempty"`
+	FailureAction   string  `json:"FailureAction,omitempty"`
+	Monitor         int64   `json:"Monitor,omitempty"`
+	MaxFailureRatio float64 `json:"MaxFailureRatio,omitempty"`
+	Order           string  `json:"Order,omitempty"`
+}
+
+func toWireUpdate(u *agent.UpdateConfig) *wireUpdateConfig {
+	if u == nil {
+		return nil
+	}
+	return &wireUpdateConfig{Parallelism: u.Parallelism, Delay: u.DelayNS, FailureAction: u.FailureAction,
+		Monitor: u.MonitorNS, MaxFailureRatio: u.MaxFailureRatio, Order: u.Order}
 }
 
 type wireTaskSpec struct {
@@ -164,7 +188,9 @@ func toWireSpec(s agent.ServiceSpec, secrets []agent.Object) wireServiceSpec {
 			Env:             s.Env,
 			StopGracePeriod: s.StopGracePeriodNS,
 		}},
-		Mode: wireServiceMode{Replicated: &wireReplicated{Replicas: s.Replicas}},
+		Mode:           wireServiceMode{Replicated: &wireReplicated{Replicas: s.Replicas}},
+		UpdateConfig:   toWireUpdate(s.UpdateConfig),
+		RollbackConfig: toWireUpdate(s.RollbackConfig),
 	}
 	for _, n := range s.Networks {
 		w.TaskTemplate.Networks = append(w.TaskTemplate.Networks, wireNetworkAttachment{Target: n})
@@ -229,6 +255,12 @@ func validateSpec(s agent.ServiceSpec) error {
 	}
 	if s.StopGracePeriodNS < 0 {
 		return fmt.Errorf("%w: negative stop grace period", ErrInvalidArgument)
+	}
+	if err := agent.CheckUpdateConfig(s.UpdateConfig, false); err != nil {
+		return fmt.Errorf("%w: update config: %v", ErrInvalidArgument, err)
+	}
+	if err := agent.CheckUpdateConfig(s.RollbackConfig, true); err != nil {
+		return fmt.Errorf("%w: rollback config: %v", ErrInvalidArgument, err)
 	}
 	for _, refs := range [][]string{s.Networks, s.Secrets} {
 		for _, r := range refs {

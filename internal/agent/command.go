@@ -552,6 +552,12 @@ func checkSpec(a ServiceSpec) error {
 	if a.StopGracePeriodNS < 0 {
 		return invalid("negative stop_grace_period_ns")
 	}
+	if err := CheckUpdateConfig(a.UpdateConfig, false); err != nil {
+		return invalid("update_config: %v", err)
+	}
+	if err := CheckUpdateConfig(a.RollbackConfig, true); err != nil {
+		return invalid("rollback_config: %v", err)
+	}
 	for _, refs := range [][]string{a.Networks, a.Secrets} {
 		for _, r := range refs {
 			if r == "" || len(r) > maxIDLen {

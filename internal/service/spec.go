@@ -88,6 +88,21 @@ type ServiceSpec struct {
 	RestartCondition string            `json:"restart_condition,omitempty"`
 	StopGracePeriod  time.Duration     `json:"stop_grace_period,omitempty"`
 	Resources        Resources         `json:"resources"`
+	// UpdateConfig and RollbackConfig are the Swarm rolling-update and
+	// rollback behaviour (update.go). Nil leaves the Docker default on
+	// create and the current value on update.
+	UpdateConfig   *SwarmUpdateConfig `json:"update_config,omitempty"`
+	RollbackConfig *SwarmUpdateConfig `json:"rollback_config,omitempty"`
+}
+
+// SwarmUpdateConfig mirrors agent.UpdateConfig in domain units.
+type SwarmUpdateConfig struct {
+	Parallelism     uint64        `json:"parallelism"`
+	Delay           time.Duration `json:"delay,omitempty"`
+	FailureAction   string        `json:"failure_action,omitempty"`
+	Monitor         time.Duration `json:"monitor,omitempty"`
+	MaxFailureRatio float64       `json:"max_failure_ratio,omitempty"`
+	Order           string        `json:"order,omitempty"`
 }
 
 // PublishedPorts returns the ports with a published port.

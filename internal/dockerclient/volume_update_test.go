@@ -149,3 +149,48 @@ func TestUpdateServiceStaleVersionAndMissing(t *testing.T) {
 		t.Fatal("request sent for invalid input")
 	}
 }
+
+// An update that sets an update strategy replaces the service's
+// UpdateConfig and RollbackConfig; one without keeps them (tested above).
+func TestUpdateServiceReplacesUpdateConfig(t *testing.T) {
+	f := newFakeDaemon(t)
+	f.route("GET /v1.47/services/9mnpnzenvg8p8tdbtq4wvbkcz", reply{status: 200, body: cannedService})
+	f.route("POST /v1.47/services/9mnpnzenvg8p8tdbtq4wvbkcz/update", reply{status: 200, body: `{"Warnings":null}`})
+	c := f.client(Options{})
+	err := c.UpdateService(context.Background(), "9mnpnzenvg8p8tdbtq4wvbkcz", agent.ServiceSpec{
+		Name: "hopeful_cori", Image: "redis:7.2", Replicas: 1,
+		Labels:      map[string]string{"dbcm.installation": "inst-1"},
+		Constraints: []string{"node.id==h1"},
+		UpdateConfig: &agent.UpdateConfig{Parallelism: 1, DelayNS: 5e9, FailureAction: agent.FailureActionRollback,
+			MonitorNS: 30e9, Order: agent.UpdateStartFirst},
+		RollbackConfig: &agent.UpdateConfig{Parallelism: 1, FailureAction: agent.FailureActionPause, Order: agent.UpdateStartFirst},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(f.last().Body), &body); err != nil {
+		t.Fatal(err)
+	}
+	jsonEqual(t, string(body["UpdateConfig"]), `{"Parallelism":1,"Delay":5000000000,"FailureAction":"rollback","Monitor":30000000000,"Order":"start-first"}`)
+	jsonEqual(t, string(body["RollbackConfig"]), `{"Parallelism":1,"FailureAction":"pause","Order":"start-first"}`)
+}
+
+func TestUpdateConfigValidation(t *testing.T) {
+	f := newFakeDaemon(t)
+	c := f.client(Options{})
+	bad := []agent.ServiceSpec{
+		{Name: "a", Image: "x:1", UpdateConfig: &agent.UpdateConfig{Parallelism: 0}},
+		{Name: "a", Image: "x:1", UpdateConfig: &agent.UpdateConfig{Parallelism: 1, Order: "sideways"}},
+		{Name: "a", Image: "x:1", UpdateConfig: &agent.UpdateConfig{Parallelism: 1, MaxFailureRatio: 2}},
+		{Name: "a", Image: "x:1", RollbackConfig: &agent.UpdateConfig{Parallelism: 1, FailureAction: agent.FailureActionRollback}},
+	}
+	for _, s := range bad {
+		if _, err := c.CreateService(context.Background(), s); !errors.Is(err, ErrInvalidArgument) {
+			t.Errorf("%+v: err = %v", s.UpdateConfig, err)
+		}
+	}
+	if len(f.requests()) != 0 {
+		t.Fatal("request sent for an invalid update config")
+	}
+}

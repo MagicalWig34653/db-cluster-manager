@@ -5,6 +5,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 )
 
 // Ownership labels from ADR 0004 item 1, plus labels that link an object to
@@ -103,6 +104,74 @@ type ServiceSpec struct {
 	// StopGracePeriodNS is the time between SIGTERM and SIGKILL in
 	// nanoseconds. Zero means the Docker default.
 	StopGracePeriodNS int64 `json:"stop_grace_period_ns,omitempty"`
+	// UpdateConfig and RollbackConfig are the Swarm rolling-update and
+	// rollback behaviour. Nil sends nothing: on create Docker applies its
+	// defaults, on update-service the service keeps its current value
+	// (dockerclient preserves unmodeled keys), so specs without them, such
+	// as every Galera spec, behave exactly as before.
+	UpdateConfig   *UpdateConfig `json:"update_config,omitempty"`
+	RollbackConfig *UpdateConfig `json:"rollback_config,omitempty"`
+}
+
+// UpdateConfig is a Swarm UpdateConfig or RollbackConfig.
+type UpdateConfig struct {
+	// Parallelism is the number of tasks updated at once; at least 1 (the
+	// Swarm value 0, "all at once", is refused).
+	Parallelism uint64 `json:"parallelism"`
+	// DelayNS is the pause between task batches.
+	DelayNS int64 `json:"delay_ns,omitempty"`
+	// FailureAction is "pause", "continue" or (update only) "rollback".
+	FailureAction string `json:"failure_action,omitempty"`
+	// MonitorNS is how long Swarm watches each updated task for a failure
+	// (including a failing container health check) before it counts it as
+	// updated.
+	MonitorNS int64 `json:"monitor_ns,omitempty"`
+	// MaxFailureRatio is the tolerated share of failed tasks, 0..1.
+	MaxFailureRatio float64 `json:"max_failure_ratio,omitempty"`
+	// Order is "stop-first" or "start-first"; empty is the Docker default
+	// (stop-first).
+	Order string `json:"order,omitempty"`
+}
+
+// Update orders and failure actions of a Swarm UpdateConfig.
+const (
+	UpdateStopFirst       = "stop-first"
+	UpdateStartFirst      = "start-first"
+	FailureActionPause    = "pause"
+	FailureActionContinue = "continue"
+	FailureActionRollback = "rollback"
+)
+
+// CheckUpdateConfig validates an update (rollback=false) or rollback
+// config. A nil config is valid.
+func CheckUpdateConfig(u *UpdateConfig, rollback bool) error {
+	if u == nil {
+		return nil
+	}
+	if u.Parallelism < 1 || u.Parallelism > 1000 {
+		return fmt.Errorf("parallelism %d out of range 1..1000", u.Parallelism)
+	}
+	if u.DelayNS < 0 || u.MonitorNS < 0 {
+		return fmt.Errorf("negative delay or monitor period")
+	}
+	if u.MaxFailureRatio < 0 || u.MaxFailureRatio > 1 || u.MaxFailureRatio != u.MaxFailureRatio {
+		return fmt.Errorf("max_failure_ratio %v out of range 0..1", u.MaxFailureRatio)
+	}
+	switch u.FailureAction {
+	case "", FailureActionPause, FailureActionContinue:
+	case FailureActionRollback:
+		if rollback {
+			return fmt.Errorf("a rollback config cannot have failure_action rollback")
+		}
+	default:
+		return fmt.Errorf("failure_action %q (want pause, continue or rollback)", u.FailureAction)
+	}
+	switch u.Order {
+	case "", UpdateStopFirst, UpdateStartFirst:
+	default:
+		return fmt.Errorf("order %q (want stop-first or start-first)", u.Order)
+	}
+	return nil
 }
 
 // Endpoint modes of a Swarm service.

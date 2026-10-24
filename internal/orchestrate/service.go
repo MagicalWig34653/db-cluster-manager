@@ -42,6 +42,8 @@ func ServiceToAgentSpec(s service.ServiceSpec) (agent.ServiceSpec, error) {
 		Secrets:           slices.Clone(s.Secrets),
 		StopGracePeriodNS: s.StopGracePeriod.Nanoseconds(),
 		Resources:         serviceResources(s.Resources),
+		UpdateConfig:      updateConfig(s.UpdateConfig),
+		RollbackConfig:    updateConfig(s.RollbackConfig),
 	}
 	for _, m := range s.Mounts {
 		out.Mounts = append(out.Mounts, agent.Mount{Type: m.Type, Source: m.Source, Target: m.Target, ReadOnly: m.ReadOnly})
@@ -50,6 +52,14 @@ func ServiceToAgentSpec(s service.ServiceSpec) (agent.ServiceSpec, error) {
 		out.RestartPolicy = &agent.RestartPolicy{Condition: s.RestartCondition}
 	}
 	return out, nil
+}
+
+func updateConfig(u *service.SwarmUpdateConfig) *agent.UpdateConfig {
+	if u == nil {
+		return nil
+	}
+	return &agent.UpdateConfig{Parallelism: u.Parallelism, DelayNS: u.Delay.Nanoseconds(), FailureAction: u.FailureAction,
+		MonitorNS: u.Monitor.Nanoseconds(), MaxFailureRatio: u.MaxFailureRatio, Order: u.Order}
 }
 
 func cloneMap(m map[string]string) map[string]string {

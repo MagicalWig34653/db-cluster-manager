@@ -49,7 +49,21 @@ var specFieldMap = []struct {
 	{"Resources.Limits.MemoryBytes", "Resources.Limits.MemoryBytes", nil},
 	{"Resources.Reservations.MilliCPU", "Resources.Reservations.NanoCPUs", milliToNano},
 	{"Resources.Reservations.MemoryBytes", "Resources.Reservations.MemoryBytes", nil},
+	{"UpdateConfig.Parallelism", "UpdateConfig.Parallelism", nil},
+	{"UpdateConfig.Delay", "UpdateConfig.DelayNS", durNS},
+	{"UpdateConfig.FailureAction", "UpdateConfig.FailureAction", nil},
+	{"UpdateConfig.Monitor", "UpdateConfig.MonitorNS", durNS},
+	{"UpdateConfig.MaxFailureRatio", "UpdateConfig.MaxFailureRatio", nil},
+	{"UpdateConfig.Order", "UpdateConfig.Order", nil},
+	{"RollbackConfig.Parallelism", "RollbackConfig.Parallelism", nil},
+	{"RollbackConfig.Delay", "RollbackConfig.DelayNS", durNS},
+	{"RollbackConfig.FailureAction", "RollbackConfig.FailureAction", nil},
+	{"RollbackConfig.Monitor", "RollbackConfig.MonitorNS", durNS},
+	{"RollbackConfig.MaxFailureRatio", "RollbackConfig.MaxFailureRatio", nil},
+	{"RollbackConfig.Order", "RollbackConfig.Order", nil},
 }
+
+func durNS(v any) any { return int64(v.(time.Duration)) }
 
 // domainOnly are domain leaves with no agent counterpart yet. Ports is
 // refused by the conversion (ErrPortsUnsupported), not dropped.
@@ -279,6 +293,11 @@ func fill(v reflect.Value, seed *int) {
 		v.SetUint(uint64(*seed))
 	case reflect.Bool:
 		v.SetBool(true)
+	case reflect.Float32, reflect.Float64:
+		v.SetFloat(float64(*seed) / 1000)
+	case reflect.Pointer:
+		v.Set(reflect.New(v.Type().Elem()))
+		fill(v.Elem(), seed)
 	default:
 		panic("fill: unsupported kind " + v.Kind().String())
 	}

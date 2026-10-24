@@ -58,6 +58,21 @@ var agentUnused = map[string]bool{
 	"RestartPolicy.MaxAttempts": true,
 	"RestartPolicy.WindowNS":    true,
 	"Resources.Limits.Pids":     true,
+	// Galera never sets a Swarm update strategy: its updates are planned
+	// node by node (wait-synced gates), and a nil config keeps the
+	// service's current value on update-service.
+	"UpdateConfig.Parallelism":       true,
+	"UpdateConfig.DelayNS":           true,
+	"UpdateConfig.FailureAction":     true,
+	"UpdateConfig.MonitorNS":         true,
+	"UpdateConfig.MaxFailureRatio":   true,
+	"UpdateConfig.Order":             true,
+	"RollbackConfig.Parallelism":     true,
+	"RollbackConfig.DelayNS":         true,
+	"RollbackConfig.FailureAction":   true,
+	"RollbackConfig.MonitorNS":       true,
+	"RollbackConfig.MaxFailureRatio": true,
+	"RollbackConfig.Order":           true,
 }
 
 func milliToNano(v any) any { return v.(int64) * 1_000_000 }
