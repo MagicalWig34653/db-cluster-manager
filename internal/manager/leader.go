@@ -299,6 +299,9 @@ func (s *Service) saveView(v runner.View) error {
 		if v.Status == runner.StatusSucceeded && rec.Kind == runner.OpServiceDelete {
 			s.finishServiceDelete(rec)
 		}
+		if rec.Kind == runner.OpServiceUpdate {
+			s.finishServiceUpdate(rec, v.Status == runner.StatusSucceeded)
+		}
 	}
 	return nil
 }

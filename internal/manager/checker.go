@@ -12,6 +12,7 @@ import (
 
 	"github.com/MagicalWig34653/db-cluster-manager/internal/dbbackup"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/runner"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/service"
 )
 
 // RoutingChecker is the runner.Checker of the manager. It routes each
@@ -32,8 +33,11 @@ type RoutingChecker struct {
 	// replaced per call. Nil leaves them unmet.
 	Backup *dbbackup.Checker
 	// Ops resolves an operation's cluster and hosts for CondSourceEligible
-	// (only Svc is used).
+	// (Svc), and observes services for runner.CondServiceHealthy (Svc and
+	// Swarms; without Swarms the condition is unmet).
 	Ops *Operations
+	// Registry judges service health; nil is service.DefaultRegistry.
+	Registry *service.Registry
 }
 
 var _ runner.Checker = (*RoutingChecker)(nil)
@@ -49,6 +53,8 @@ func (c *RoutingChecker) Check(ctx context.Context, opID string, step runner.Ste
 		return true, "", nil
 	case dbbackup.CondRestoreVerified:
 		return c.restoreVerified(ctx, cond.Target)
+	case runner.CondServiceHealthy:
+		return c.serviceHealthy(ctx, cond.Target)
 	case dbbackup.CondSourceEligible, dbbackup.CondBackupComplete, dbbackup.CondRestoreComplete:
 		if c.Backup == nil {
 			return false, "no backup backend configured", nil

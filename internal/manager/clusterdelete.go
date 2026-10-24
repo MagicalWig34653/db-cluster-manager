@@ -73,59 +73,12 @@ func (o *Operations) DeleteCluster(actor authz.Subject, clusterID string) (Clust
 	if err != nil {
 		return ClusterDeletion{}, err
 	}
-	cur, ok, err := Get[ClusterRecord](o.Svc.store, CollClusters, clusterID, Consistent())
+	pd, err := o.prepareClusterDelete(actor, clusterID)
 	if err != nil {
 		return ClusterDeletion{}, err
 	}
-	if !ok {
-		return ClusterDeletion{}, fmt.Errorf("%w: cluster %q", api.ErrNotFound, clusterID)
-	}
-	c := cur.Value
-	if err := o.authorize(actor, authz.ActionDelete, clusterRes(c.Swarm, c.ID)); err != nil {
-		return ClusterDeletion{}, err
-	}
-	st, err := o.settings()
-	if err != nil {
-		return ClusterDeletion{}, err
-	}
-	ops, err := List[OperationRecord](o.Svc.store, CollOperations, Consistent())
-	if err != nil {
-		return ClusterDeletion{}, err
-	}
-	var failed []string
-	var clusterOps []OperationRecord
-	for _, r := range ops {
-		v := r.Value
-		if v.Cluster != c.ID {
-			continue
-		}
-		clusterOps = append(clusterOps, v)
-		switch {
-		case v.EndedAt.IsZero() && v.View != nil && v.View.Status == runner.StatusStopped && len(v.View.Steps) == 0:
-			// never started
-		case v.EndedAt.IsZero():
-			return ClusterDeletion{}, fmt.Errorf("%w: operation %s is not finished; abort it first", runner.ErrBusy, v.ID)
-		case v.View != nil && v.View.Status == runner.StatusFailed:
-			failed = append(failed, v.ID)
-		}
-	}
-	svcHost, err := o.serviceHostFor(c.Swarm)
-	if err != nil {
-		return ClusterDeletion{}, err
-	}
-	opID, approvalID := newID("op"), newID("apr")
-	op, sessions, err := o.planClusterDelete(opID, c, st, svcHost, clusterOps)
-	if err != nil {
-		return ClusterDeletion{}, err
-	}
-	requireApproval(&op, approvalID)
-	if err := op.Validate(); err != nil {
-		return ClusterDeletion{}, err
-	}
-	digest, err := DefinitionDigest(op)
-	if err != nil {
-		return ClusterDeletion{}, err
-	}
+	cur, c, op, sessions, failed, digest := pd.cur, pd.cur.Value, pd.op, pd.sessions, pd.failed, pd.digest
+	opID, approvalID := pd.op.ID, pd.approvalID
 	rec := OperationRecord{ID: opID, Kind: op.Kind, Swarm: c.Swarm, Cluster: c.ID, RequestedBy: actor.ID,
 		RequestedAt: o.Svc.cfg.Now(), Definition: op, Nodes: c.Nodes, ApprovalID: approvalID, ApprovalDigest: digest}
 	opDoc, err := PutOp(CollOperations, opID, rec, IfVersion(0))
@@ -166,6 +119,76 @@ func (o *Operations) DeleteCluster(actor authz.Subject, clusterID string) (Clust
 	// succeeded (Service.saveView -> finishClusterDelete).
 	o.start(l, op, nil)
 	return ClusterDeletion{Operation: rec, Digest: digest}, nil
+}
+
+// preparedDeletion is a planned cluster deletion that is not stored yet.
+type preparedDeletion struct {
+	cur        Versioned[ClusterRecord]
+	op         runner.Operation
+	sessions   []Versioned[InspectionRecord]
+	failed     []string
+	approvalID string
+	digest     string
+}
+
+// prepareClusterDelete checks, authorizes and plans a cluster deletion
+// without changing anything (DeleteCluster, and the preview of the galera
+// service type).
+func (o *Operations) prepareClusterDelete(actor authz.Subject, clusterID string) (preparedDeletion, error) {
+	cur, ok, err := Get[ClusterRecord](o.Svc.store, CollClusters, clusterID, Consistent())
+	if err != nil {
+		return preparedDeletion{}, err
+	}
+	if !ok {
+		return preparedDeletion{}, fmt.Errorf("%w: cluster %q", api.ErrNotFound, clusterID)
+	}
+	c := cur.Value
+	if err := o.authorize(actor, authz.ActionDelete, clusterRes(c.Swarm, c.ID)); err != nil {
+		return preparedDeletion{}, err
+	}
+	st, err := o.settings()
+	if err != nil {
+		return preparedDeletion{}, err
+	}
+	ops, err := List[OperationRecord](o.Svc.store, CollOperations, Consistent())
+	if err != nil {
+		return preparedDeletion{}, err
+	}
+	var failed []string
+	var clusterOps []OperationRecord
+	for _, r := range ops {
+		v := r.Value
+		if v.Cluster != c.ID {
+			continue
+		}
+		clusterOps = append(clusterOps, v)
+		switch {
+		case v.EndedAt.IsZero() && v.View != nil && v.View.Status == runner.StatusStopped && len(v.View.Steps) == 0:
+			// never started
+		case v.EndedAt.IsZero():
+			return preparedDeletion{}, fmt.Errorf("%w: operation %s is not finished; abort it first", runner.ErrBusy, v.ID)
+		case v.View != nil && v.View.Status == runner.StatusFailed:
+			failed = append(failed, v.ID)
+		}
+	}
+	svcHost, err := o.serviceHostFor(c.Swarm)
+	if err != nil {
+		return preparedDeletion{}, err
+	}
+	opID, approvalID := newID("op"), newID("apr")
+	op, sessions, err := o.planClusterDelete(opID, c, st, svcHost, clusterOps)
+	if err != nil {
+		return preparedDeletion{}, err
+	}
+	requireApproval(&op, approvalID)
+	if err := op.Validate(); err != nil {
+		return preparedDeletion{}, err
+	}
+	digest, err := DefinitionDigest(op)
+	if err != nil {
+		return preparedDeletion{}, err
+	}
+	return preparedDeletion{cur: cur, op: op, sessions: sessions, failed: failed, approvalID: approvalID, digest: digest}, nil
 }
 
 // finishClusterDelete deletes the cluster record and its backup policy

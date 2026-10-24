@@ -208,7 +208,10 @@ func DescribeGaleraPlan(ctx Context, gp galera.Plan) Plan {
 	if gp.Kind == galera.PlanCreateCluster {
 		kind = PlanCreate
 	}
-	p := Plan{Kind: kind, Type: TypeGalera, ServiceID: gp.ClusterID, Name: gp.Cluster.Name, RequiresApproval: true,
+	// RequiresApproval is the galera plan's own flag: a cluster creation
+	// starts without an approval step on the direct path too (POST
+	// /clusters), recovery waits for one.
+	p := Plan{Kind: kind, Type: TypeGalera, ServiceID: gp.ClusterID, Name: gp.Cluster.Name, RequiresApproval: gp.RequiresApproval,
 		Warnings: append([]string(nil), gp.Warnings...)}
 	if p.Name == "" {
 		p.Name = ctx.Name

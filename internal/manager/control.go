@@ -221,7 +221,8 @@ func MapCommandError(err error) error {
 		sentinel = api.ErrSettingsIncomplete
 	case errors.Is(err, ErrServiceExists):
 		sentinel = api.ErrClusterExists
-	case errors.Is(err, service.ErrNotExecutable):
+	case errors.Is(err, service.ErrNotExecutable), errors.Is(err, service.ErrUpdateUnsupported), errors.Is(err, service.ErrDelegated),
+		errors.Is(err, service.ErrGaleraScale), errors.Is(err, ErrNoPreviousSpec):
 		sentinel = api.ErrConflict
 	case errors.Is(err, service.ErrInvalidSpec), errors.Is(err, service.ErrUnknownType), errors.Is(err, orchestrate.ErrPortsUnsupported):
 		sentinel = api.ErrInvalidInput

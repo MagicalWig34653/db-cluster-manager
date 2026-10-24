@@ -201,34 +201,45 @@ func tokens(nodes []galera.Node, slots ...string) map[string]string {
 // CreateCluster plans a new cluster (galera.PlanCreate), converts it into
 // an operation (runner.FromGaleraPlan) and starts it.
 func (o *Operations) CreateCluster(actor authz.Subject, req CreateClusterRequest) (OperationRecord, error) {
-	l, err := o.leadership()
-	if err != nil {
-		return OperationRecord{}, err
-	}
+	rec, _, err := o.createCluster(actor, req)
+	return rec, err
+}
+
+// preparedCluster is a planned cluster creation that is not stored yet.
+type preparedCluster struct {
+	clusterID string
+	plan      galera.Plan
+	op        runner.Operation
+}
+
+// prepareCreateCluster checks, authorizes and plans a cluster creation
+// without changing anything. CreateCluster and the galera service type
+// (services.go) share it, so both produce the same operation.
+func (o *Operations) prepareCreateCluster(actor authz.Subject, req CreateClusterRequest) (preparedCluster, error) {
 	if _, ok, err := Get[SwarmRecord](o.Svc.store, CollSwarms, req.Swarm, Consistent()); err != nil {
-		return OperationRecord{}, err
+		return preparedCluster{}, err
 	} else if !ok {
-		return OperationRecord{}, fmt.Errorf("%w: swarm %q", api.ErrNotFound, req.Swarm)
+		return preparedCluster{}, fmt.Errorf("%w: swarm %q", api.ErrNotFound, req.Swarm)
 	}
 	if err := o.authorize(actor, authz.ActionCreate, authz.Resource{Type: authz.ResourceCluster, Scope: authz.SwarmScope(req.Swarm)}); err != nil {
-		return OperationRecord{}, err
+		return preparedCluster{}, err
 	}
 	st, err := o.settings()
 	if err != nil {
-		return OperationRecord{}, err
+		return preparedCluster{}, err
 	}
 	existing, err := List[ClusterRecord](o.Svc.store, CollClusters)
 	if err != nil {
-		return OperationRecord{}, err
+		return preparedCluster{}, err
 	}
 	for _, c := range existing {
 		if c.Value.Swarm == req.Swarm && c.Value.Name == req.Name {
-			return OperationRecord{}, fmt.Errorf("%w: %s", ErrClusterExists, req.Name)
+			return preparedCluster{}, fmt.Errorf("%w: %s", ErrClusterExists, req.Name)
 		}
 	}
 	hosts, err := o.enrolledHosts(req.Swarm)
 	if err != nil {
-		return OperationRecord{}, err
+		return preparedCluster{}, err
 	}
 	clusterID := newID("clu")
 	plan, err := galera.PlanCreate(galera.Topology{
@@ -238,11 +249,11 @@ func (o *Operations) CreateCluster(actor authz.Subject, req CreateClusterRequest
 		Size: req.Size, Resources: req.Resources,
 	}, hosts, req.Placement)
 	if err != nil {
-		return OperationRecord{}, err
+		return preparedCluster{}, err
 	}
 	svcHost, err := o.serviceHostFor(req.Swarm)
 	if err != nil {
-		return OperationRecord{}, err
+		return preparedCluster{}, err
 	}
 	opID := newID("op")
 	op, err := runner.FromGaleraPlan(plan, runner.GaleraBindings{
@@ -250,11 +261,24 @@ func (o *Operations) CreateCluster(actor authz.Subject, req CreateClusterRequest
 		StepTimeout: o.StepTimeout, MaxRetries: o.MaxRetries, ServiceHost: svcHost,
 	})
 	if err != nil {
-		return OperationRecord{}, err
+		return preparedCluster{}, err
 	}
 	if err := o.allowReferenced(&op, req.Swarm, st.InstallationID, append(nodeHosts(plan.Nodes), svcHost), clusterRefs(plan.Cluster)); err != nil {
-		return OperationRecord{}, err
+		return preparedCluster{}, err
 	}
+	return preparedCluster{clusterID: clusterID, plan: plan, op: op}, nil
+}
+
+func (o *Operations) createCluster(actor authz.Subject, req CreateClusterRequest) (OperationRecord, galera.Plan, error) {
+	l, err := o.leadership()
+	if err != nil {
+		return OperationRecord{}, galera.Plan{}, err
+	}
+	pc, err := o.prepareCreateCluster(actor, req)
+	if err != nil {
+		return OperationRecord{}, galera.Plan{}, err
+	}
+	clusterID, plan, op, opID := pc.clusterID, pc.plan, pc.op, pc.op.ID
 	now := o.Svc.cfg.Now()
 	cluster := ClusterRecord{
 		ID: clusterID, Swarm: req.Swarm, Name: req.Name, Engine: "mariadb-galera", Spec: plan.Cluster, Size: req.Size,
@@ -264,7 +288,7 @@ func (o *Operations) CreateCluster(actor authz.Subject, req CreateClusterRequest
 	rec := OperationRecord{ID: opID, Kind: op.Kind, Swarm: req.Swarm, Cluster: clusterID, RequestedBy: actor.ID,
 		RequestedAt: now, Definition: op, Nodes: plan.Nodes}
 	if err := o.commit(rec, &cluster); err != nil {
-		return OperationRecord{}, err
+		return OperationRecord{}, galera.Plan{}, err
 	}
 	o.Svc.recordEvent(req.Swarm, clusterID, api.SeverityInfo, fmt.Sprintf("%s requested cluster %s (%d nodes), operation %s", actor.ID, req.Name, req.Size, opID))
 	o.start(l, op, func(v runner.View) {
@@ -280,7 +304,7 @@ func (o *Operations) CreateCluster(actor authz.Subject, req CreateClusterRequest
 			o.Svc.log.Warn("manager: service IDs not recorded", "cluster", clusterID, "err", err)
 		}
 	})
-	return rec, nil
+	return rec, plan, nil
 }
 
 // commit stores the operation record (and the cluster record, if given)

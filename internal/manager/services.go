@@ -43,6 +43,14 @@ type ServiceRecord struct {
 	CreatedAt time.Time       `json:"createdAt"`
 	CreateOp  string          `json:"createOp,omitempty"`
 	DeleteOp  string          `json:"deleteOp,omitempty"`
+	// UpdateOp and PendingSpec name a running update and its target spec;
+	// Spec becomes PendingSpec only after the update succeeded. PreviousSpec
+	// is the spec before the last successful update (rollback target).
+	UpdateOp     string          `json:"updateOp,omitempty"`
+	PendingSpec  json.RawMessage `json:"pendingSpec,omitempty"`
+	PreviousSpec json.RawMessage `json:"previousSpec,omitempty"`
+	// Observed is the last health observation (servicehealth.go).
+	Observed *ServiceObservation `json:"observed,omitempty"`
 }
 
 // Services implements api.Services on top of Operations.
@@ -64,20 +72,30 @@ func serviceRes(swarm, id string) authz.Resource {
 	return authz.Resource{Type: authz.ResourceService, Scope: authz.SwarmScope(swarm), ID: id}
 }
 
-func toAPIService(r ServiceRecord) api.ServiceInfo {
+func toAPIService(r ServiceRecord, now time.Time) api.ServiceInfo {
 	return api.ServiceInfo{ID: r.ID, Swarm: r.Swarm, Name: r.Name, Type: r.Type, Spec: r.Spec, CreatedBy: r.CreatedBy,
-		CreatedAt: r.CreatedAt, CreateOperation: r.CreateOp, DeleteOperation: r.DeleteOp}
+		CreatedAt: r.CreatedAt, CreateOperation: r.CreateOp, DeleteOperation: r.DeleteOp,
+		UpdateOperation: r.UpdateOp, Rollbackable: len(r.PreviousSpec) > 0, Health: apiServiceHealth(r.Observed, now)}
 }
 
-// Services implements api.Services (local read).
+// Services implements api.Services (local read). Galera clusters are
+// listed as services of the galera type.
 func (s *Services) Services(context.Context) ([]api.ServiceInfo, error) {
 	recs, err := List[ServiceRecord](s.Ops.Svc.store, CollServices)
 	if err != nil {
 		return nil, MapCommandError(err)
 	}
-	out := make([]api.ServiceInfo, 0, len(recs))
+	clusters, err := List[ClusterRecord](s.Ops.Svc.store, CollClusters)
+	if err != nil {
+		return nil, MapCommandError(err)
+	}
+	now := s.Ops.Svc.cfg.Now()
+	out := make([]api.ServiceInfo, 0, len(recs)+len(clusters))
 	for _, r := range recs {
-		out = append(out, toAPIService(r.Value))
+		out = append(out, toAPIService(r.Value, now))
+	}
+	for _, c := range clusters {
+		out = append(out, galeraServiceInfo(c.Value))
 	}
 	slices.SortFunc(out, func(a, b api.ServiceInfo) int { return a.CreatedAt.Compare(b.CreatedAt) })
 	return out, nil
@@ -89,10 +107,17 @@ func (s *Services) Service(_ context.Context, id string) (api.ServiceInfo, error
 	if err != nil {
 		return api.ServiceInfo{}, MapCommandError(err)
 	}
-	if !ok {
-		return api.ServiceInfo{}, fmt.Errorf("%w: service %q", api.ErrNotFound, id)
+	if ok {
+		return toAPIService(r.Value, s.Ops.Svc.cfg.Now()), nil
 	}
-	return toAPIService(r.Value), nil
+	c, ok, err := Get[ClusterRecord](s.Ops.Svc.store, CollClusters, id)
+	if err != nil {
+		return api.ServiceInfo{}, MapCommandError(err)
+	}
+	if ok {
+		return galeraServiceInfo(c.Value), nil
+	}
+	return api.ServiceInfo{}, fmt.Errorf("%w: service %q", api.ErrNotFound, id)
 }
 
 // serviceHosts returns the planner view of the enrolled hosts of a Swarm.
@@ -103,7 +128,9 @@ func (o *Operations) serviceHosts(swarm string) ([]service.Host, error) {
 	}
 	out := make([]service.Host, 0, len(hs))
 	for _, h := range hs {
-		out = append(out, service.Host{ID: h.ID, Name: h.Name, Ready: h.Ready, Active: h.Active})
+		out = append(out, service.Host{ID: h.ID, Name: h.Name, Ready: h.Ready, Active: h.Active, Spare: h.Spare,
+			Capacity:  service.ResourceAmount{MilliCPU: h.Capacity.MilliCPU, MemoryBytes: h.Capacity.MemoryBytes},
+			Allocated: service.ResourceAmount{MilliCPU: h.Allocated.MilliCPU, MemoryBytes: h.Allocated.MemoryBytes}})
 	}
 	return out, nil
 }
@@ -173,12 +200,29 @@ func (s *Services) planCreate(actor authz.Subject, in api.ServiceInput) (service
 
 // PreviewService implements api.Services.
 func (s *Services) PreviewService(_ context.Context, actor authz.Subject, in api.ServiceInput) (api.ServicePlan, error) {
-	plan, _, _, err := s.planCreate(actor, in)
+	if in.Type == service.TypeGalera {
+		p, err := s.previewGalera(actor, in)
+		return p, MapCommandError(err)
+	}
+	plan, _, st, err := s.planCreate(actor, in)
 	if err != nil {
 		return api.ServicePlan{}, MapCommandError(err)
 	}
-	return toAPIPlan(plan), nil
+	out := toAPIPlan(plan)
+	if plan.Executable() {
+		// The expert view: the operation a start would store, with
+		// provisional IDs (a start issues its own).
+		op, err := s.createOperation(plan, in.Swarm, st, previewID("op"), previewID("apr"), func() string { return previewID("tok") })
+		if err != nil {
+			return api.ServicePlan{}, MapCommandError(err)
+		}
+		out.AgentSteps, out.ProvisionalIDs = agentSteps(op), true
+	}
+	return out, nil
 }
+
+// previewID marks the provisional IDs of a preview's expert view.
+func previewID(prefix string) string { return prefix + "-preview" }
 
 func toAPIPlan(p service.Plan) api.ServicePlan {
 	out := api.ServicePlan{Kind: string(p.Kind), Type: p.Type, Name: p.Name, Warnings: p.Warnings, Blockers: p.Blockers,
@@ -188,7 +232,8 @@ func toAPIPlan(p service.Plan) api.ServicePlan {
 		for _, a := range st.After {
 			ps.Conditions = append(ps.Conditions, "step "+a+" succeeded")
 		}
-		if st.Destructive {
+		ps.Conditions = append(ps.Conditions, st.Conditions...)
+		if st.Destructive && p.Type != service.TypeGalera {
 			ps.Conditions = append(ps.Conditions, "approved")
 		}
 		out.Steps = append(out.Steps, ps)
@@ -196,7 +241,73 @@ func toAPIPlan(p service.Plan) api.ServicePlan {
 	for _, a := range p.Artifacts {
 		out.Artifacts = append(out.Artifacts, api.ServiceArtifact{Name: a.Name, MediaType: a.MediaType, Content: a.Content})
 	}
+	if p.Rollback != nil {
+		rb := toAPIPlan(*p.Rollback)
+		out.Rollback = &rb
+	}
 	return out
+}
+
+// agentSteps is the expert view of an operation: exactly its steps.
+func agentSteps(op runner.Operation) []api.AgentStep {
+	out := make([]api.AgentStep, 0, len(op.Steps))
+	for _, st := range op.Steps {
+		as := api.AgentStep{ID: st.ID, Command: string(st.Command), Target: st.Target, Args: st.Args, Note: st.Note, Preconditions: []string{}}
+		for _, c := range st.Preconditions {
+			as.Preconditions = append(as.Preconditions, conditionText(c))
+		}
+		out = append(out, as)
+	}
+	return out
+}
+
+func conditionText(c runner.Condition) string {
+	switch c.Kind {
+	case runner.CondStepSucceeded:
+		return "step-succeeded " + c.StepID
+	case runner.CondNodeSynced:
+		return fmt.Sprintf("node-synced %s size %d", c.Target, c.ClusterSize)
+	case runner.CondQuorum:
+		return fmt.Sprintf("quorum %d", c.ClusterSize)
+	}
+	if c.Target != "" {
+		return c.Kind + " " + c.Target
+	}
+	return c.Kind
+}
+
+// createOperation converts a create, update or delete plan into the
+// operation that is stored: agent steps, the allow-objects steps of the
+// referenced operator objects, and the approval on every step.
+func (s *Services) createOperation(plan service.Plan, swarm string, st Settings, opID, approvalID string, token func() string) (runner.Operation, error) {
+	o := s.Ops
+	svcHost, err := o.commandHost(swarm)
+	if err != nil {
+		return runner.Operation{}, err
+	}
+	tokenIDs := map[string]string{}
+	var hosts []string
+	for _, step := range plan.Steps {
+		if step.Kind == service.StepInitIdentity {
+			tokenIDs[step.Volume] = token()
+		}
+		if step.HostID != "" {
+			hosts = append(hosts, step.HostID)
+		}
+	}
+	op, err := runner.FromServicePlan(plan, runner.ServiceBindings{OpID: opID, InstallationID: st.InstallationID, VolumeBase: st.VolumeBase,
+		TokenIDs: tokenIDs, StepTimeout: o.StepTimeout, MaxRetries: o.MaxRetries, ServiceHost: svcHost})
+	if err != nil {
+		return runner.Operation{}, err
+	}
+	if err := o.allowReferenced(&op, swarm, st.InstallationID, append(hosts, svcHost), serviceRefs(plan)); err != nil {
+		return runner.Operation{}, err
+	}
+	requireApproval(&op, approvalID)
+	if err := op.Validate(); err != nil {
+		return runner.Operation{}, err
+	}
+	return op, nil
 }
 
 // serviceRefs are the operator-provided objects a service spec's plan uses.
@@ -223,35 +334,16 @@ func (s *Services) create(actor authz.Subject, in api.ServiceInput) (api.Service
 	if err != nil {
 		return api.ServiceStarted{}, err
 	}
+	if in.Type == service.TypeGalera {
+		return s.createGalera(actor, in)
+	}
 	plan, id, st, err := s.planCreate(actor, in)
 	if err != nil {
 		return api.ServiceStarted{}, err
 	}
-	svcHost, err := o.commandHost(in.Swarm)
-	if err != nil {
-		return api.ServiceStarted{}, err
-	}
-	tokenIDs := map[string]string{}
-	var hosts []string
-	for _, step := range plan.Steps {
-		if step.Kind == service.StepInitIdentity {
-			tokenIDs[step.Volume] = newID("tok")
-		}
-		if step.HostID != "" {
-			hosts = append(hosts, step.HostID)
-		}
-	}
 	opID, approvalID := newID("op"), newID("apr")
-	op, err := runner.FromServicePlan(plan, runner.ServiceBindings{OpID: opID, InstallationID: st.InstallationID, VolumeBase: st.VolumeBase,
-		TokenIDs: tokenIDs, StepTimeout: o.StepTimeout, MaxRetries: o.MaxRetries, ServiceHost: svcHost})
+	op, err := s.createOperation(plan, in.Swarm, st, opID, approvalID, func() string { return newID("tok") })
 	if err != nil {
-		return api.ServiceStarted{}, err
-	}
-	if err := o.allowReferenced(&op, in.Swarm, st.InstallationID, append(hosts, svcHost), serviceRefs(plan)); err != nil {
-		return api.ServiceStarted{}, err
-	}
-	requireApproval(&op, approvalID)
-	if err := op.Validate(); err != nil {
 		return api.ServiceStarted{}, err
 	}
 	digest, err := DefinitionDigest(op)
@@ -277,7 +369,7 @@ func (s *Services) create(actor authz.Subject, in api.ServiceInput) (api.Service
 	o.Svc.recordEvent(in.Swarm, "", api.SeverityInfo, fmt.Sprintf("%s requested %s service %s, operation %s (waits for approval)", actor.ID, in.Type, in.Name, opID))
 	o.start(l, op, nil)
 	return api.ServiceStarted{Service: id, Operation: api.OperationRef{ID: opID, Kind: op.Kind},
-		Approval: api.OperationApproval{Digest: digest}, Plan: toAPIPlan(plan)}, nil
+		Approval: api.OperationApproval{Digest: digest}, Plan: withAgentSteps(toAPIPlan(plan), op, false)}, nil
 }
 
 // planDelete plans the removal of a stored service.
@@ -311,15 +403,31 @@ func (s *Services) planDelete(actor authz.Subject, id string, removeVolumes bool
 
 // PreviewServiceDelete implements api.Services.
 func (s *Services) PreviewServiceDelete(_ context.Context, actor authz.Subject, id string, removeVolumes bool) (api.ServicePlan, error) {
-	plan, _, _, err := s.planDelete(actor, id, removeVolumes)
+	if s.isCluster(id) {
+		p, err := s.previewGaleraDelete(actor, id)
+		return p, MapCommandError(err)
+	}
+	plan, cur, st, err := s.planDelete(actor, id, removeVolumes)
 	if err != nil {
 		return api.ServicePlan{}, MapCommandError(err)
 	}
-	return toAPIPlan(plan), nil
+	out := toAPIPlan(plan)
+	if plan.Executable() {
+		op, err := s.deleteOperation(plan, cur.Value.Swarm, st, previewID("op"), previewID("apr"))
+		if err != nil {
+			return api.ServicePlan{}, MapCommandError(err)
+		}
+		out = withAgentSteps(out, op, true)
+	}
+	return out, nil
 }
 
 // DeleteService implements api.Services.
 func (s *Services) DeleteService(_ context.Context, actor authz.Subject, id string, removeVolumes bool) (api.ServiceStarted, error) {
+	if s.isCluster(id) {
+		started, err := s.deleteGalera(actor, id)
+		return started, MapCommandError(err)
+	}
 	started, err := s.delete(actor, id, removeVolumes)
 	return started, MapCommandError(err)
 }
@@ -354,18 +462,9 @@ func (s *Services) delete(actor authz.Subject, id string, removeVolumes bool) (a
 			failed = append(failed, v.ID)
 		}
 	}
-	svcHost, err := o.commandHost(r.Swarm)
-	if err != nil {
-		return api.ServiceStarted{}, err
-	}
 	opID, approvalID := newID("op"), newID("apr")
-	op, err := runner.FromServicePlan(plan, runner.ServiceBindings{OpID: opID, InstallationID: st.InstallationID, VolumeBase: st.VolumeBase,
-		StepTimeout: o.StepTimeout, MaxRetries: o.MaxRetries, ServiceHost: svcHost})
+	op, err := s.deleteOperation(plan, r.Swarm, st, opID, approvalID)
 	if err != nil {
-		return api.ServiceStarted{}, err
-	}
-	requireApproval(&op, approvalID)
-	if err := op.Validate(); err != nil {
 		return api.ServiceStarted{}, err
 	}
 	digest, err := DefinitionDigest(op)
@@ -398,7 +497,31 @@ func (s *Services) delete(actor authz.Subject, id string, removeVolumes bool) (a
 	o.Svc.recordEvent(r.Swarm, "", api.SeverityWarning, fmt.Sprintf("%s requested deletion of service %s, operation %s (waits for approval)", actor.ID, r.Name, opID))
 	o.start(l, op, nil)
 	return api.ServiceStarted{Service: id, Operation: api.OperationRef{ID: opID, Kind: op.Kind},
-		Approval: api.OperationApproval{Digest: digest}, Plan: toAPIPlan(plan)}, nil
+		Approval: api.OperationApproval{Digest: digest}, Plan: withAgentSteps(toAPIPlan(plan), op, false)}, nil
+}
+
+// deleteOperation converts a delete plan into the stored operation.
+func (s *Services) deleteOperation(plan service.Plan, swarm string, st Settings, opID, approvalID string) (runner.Operation, error) {
+	o := s.Ops
+	svcHost, err := o.commandHost(swarm)
+	if err != nil {
+		return runner.Operation{}, err
+	}
+	op, err := runner.FromServicePlan(plan, runner.ServiceBindings{OpID: opID, InstallationID: st.InstallationID, VolumeBase: st.VolumeBase,
+		StepTimeout: o.StepTimeout, MaxRetries: o.MaxRetries, ServiceHost: svcHost})
+	if err != nil {
+		return runner.Operation{}, err
+	}
+	requireApproval(&op, approvalID)
+	if err := op.Validate(); err != nil {
+		return runner.Operation{}, err
+	}
+	return op, nil
+}
+
+func withAgentSteps(p api.ServicePlan, op runner.Operation, provisional bool) api.ServicePlan {
+	p.AgentSteps, p.ProvisionalIDs = agentSteps(op), provisional
+	return p
 }
 
 // finishServiceDelete removes the service record after its deletion

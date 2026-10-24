@@ -421,6 +421,15 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 		manager.SyncReconciler{Swarms: swarms},
 		manager.DriftDetector{Swarms: swarms},
 		manager.BackupScheduler{Backups: rt.backups.Load, Interval: mc.scheduleInterval()},
+		// Service health from the Swarm task state; transitions go to the
+		// monitoring dispatcher like node health (rt.monitoring is set
+		// before Start).
+		manager.ServiceHealthCollector{Swarms: swarms, Notify: func(ctx context.Context, e notify.Event) bool {
+			if rt.monitoring == nil {
+				return false
+			}
+			return rt.monitoring.Notify(ctx, e)
+		}},
 	}
 	if keyring != nil {
 		rt.keyring = keyring
@@ -465,7 +474,8 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 		return nil, err
 	}
 	probe.Svc = svc
-	checker.Store, checker.Ops = svc.Store(), &manager.Operations{Svc: svc}
+	// Swarms lets the checker observe services for the update health gate.
+	checker.Store, checker.Ops = svc.Store(), &manager.Operations{Svc: svc, Swarms: swarms}
 	monCfg := manager.MonitoringConfig{DataDir: mc.monitoringDir(), Checker: rt, Keys: keys, Logger: log}
 	if agents {
 		monCfg.Status = manager.AgentStatusSource{Svc: svc}
