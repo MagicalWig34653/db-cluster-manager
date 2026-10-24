@@ -48,9 +48,21 @@ DECOY_VOL=dbcm-e4fail-n1-decoy
 SENT_DIR=$VOLBASE/dbcm-e4r-sentinel-dir
 APIVM=$M1
 
+# Failed assertions of phases that continue after an expected refusal
+# (failcreate, cleanuprestart, deleteall); they make the exit status 1.
+ASSERT_FAILS=""
+assert_fail() { # PHASE MESSAGE
+	ASSERT_FAILS="$ASSERT_FAILS $1"
+	result "ASSERTION FAILED ($1): $2"
+}
+
 finishr() {
 	local rc=$?
 	trap - EXIT INT TERM
+	if [ -n "$ASSERT_FAILS" ]; then
+		say "failed assertions in:$ASSERT_FAILS"
+		[ "$rc" != 0 ] || rc=1
+	fi
 	if [ "${R_KEEP_VMS:-0}" = 1 ]; then
 		say "R_KEEP_VMS=1: VMs kept; run bin/lab cleanup -apply manually"
 	else
@@ -102,7 +114,17 @@ with_timeout() {
 }
 opjson() { apij GET /api/v1/operations | jq -c --arg id "$1" '.items[] | select(.id==$id)'; }
 opline() {
-	opjson "$1" | jq -r '"\(.state) \(.reason // "") | \(.progress // {} | "\(.stepsDone // 0)/\(.stepsTotal // 0) \(.step // "") \(.command // "") \(.state // "") att=\(.attempts // 0) polls=\(.polls // 0) \(.waiting // "" | .[0:120])")"'
+	opjson "$1" | jq -r '"\(.state) \(.reason // "") | \(.progress // {} | "\(.stepsDone // 0)/\(.stepsTotal // 0) \(.step // "") \(.command // "") \(.state // "") att=\(.attempts // 0) polls=\(.polls // 0) \(.waiting // "" | .[0:120]) err=\(.lastError // "" | .[0:160])")"'
+}
+# op_diag OP SERVICE_PREFIX — record why a step keeps failing: the
+# operation's reason, waiting and lastError, the manager's runner log lines
+# for OP (retries with step and attempt), and the Swarm task states with
+# their errors (for example an image that cannot be pulled).
+op_error() { opjson "$1" | jq '{state, reason, progress: (.progress // {} | {step, command, target, state, attempts, waiting, lastError})}'; }
+op_diag() {
+	rec "step error of $1 (reason, waiting, lastError)" op_error "$1" || true
+	rec "manager runner log for $1" vm_args "$M1" 'sudo journalctl -u "$1" --no-pager | grep -F "$2" | grep -E "runner: (step retry|operation)" | tail -15 | cut -c1-400' "$UNIT" "$1" || true
+	rec "Swarm tasks of $2* (state and error)" vm_args "$M1" 'for s in $(sudo docker service ls --format "{{.Name}}" | grep "^$1"); do sudo docker service ps --no-trunc --format "{{.Name}} {{.Node}} {{.DesiredState}} {{.CurrentState}} {{.Error}}" "$s"; done' "$2" || true
 }
 # wait_op OP DEADLINE INTERVAL — poll with progress until a terminal state.
 OPSTATE=""
@@ -255,7 +277,7 @@ phase_rinspect() {
 	rec "inspection query on m2 with the one-time account (password via stdin)" sh -c \
 		"limactl shell --workdir / $M1 -- sudo sh -c \"tail -1 $STATE/inspect.json | python3 -c 'import json,sys; print(json.load(sys.stdin)[\\\"inspectionPassword\\\"])'\" | limactl shell --workdir / dbcm-lab-m2 -- sudo sh -c 'c=\$(docker ps -q -f label=com.docker.swarm.service.name=$svc); read -r pw; exec docker exec -i \$c mariadb -h127.0.0.1 -P$port -udbcm_inspect -p\"\$pw\" -N -B -e \"SELECT CURRENT_USER(); SELECT @@wsrep_on; SELECT id, v FROM e4.t ORDER BY id\"'" || true
 	vm_sh "$M1" "sudo rm -f $STATE/inspect.json"
-	rec "cluster lastVerifiedRestoreAt" jq_api /api/v1/clusters/$CLUSTER_ID '{lastVerifiedRestoreAt, lastBackupAt}'
+	rec "cluster lastVerifiedRestoreAt" jq_api "/api/v1/clusters/$CLUSTER_ID" '{lastVerifiedRestoreAt, lastBackupAt}'
 	rec "inspection secrets before expiry" vm_sh "$M1" "sudo docker secret ls --format '{{.Name}} {{.Labels}}' | grep -i -E 'insp|init' || echo none"
 	say "waiting for the TTL teardown (4 min TTL, 30 s schedule)"
 	local start
@@ -290,36 +312,79 @@ phase_capacity() {
 phase_failcreate() {
 	section "Phase failcreate: create with an unpullable image, abort, delete (discard), create the same name again"
 	hostload
+	# Every expected refusal and outcome below is asserted (assert_fail)
+	# instead of left to set -e: re-run A2 exited 1 at the refused delete
+	# (delete_cluster returned 1 under set -e) and lost the later phases.
 	local bad="mariadb:11.4.13@sha256:0000000000000000000000000000000000000000000000000000000000000000"
-	create_cluster e4fail "$bad"
-	local op=$CREATED_OP fid
+	if ! create_cluster e4fail "$bad"; then
+		assert_fail failcreate "create of e4fail with the unpullable image was not accepted"
+		return 0
+	fi
+	local op=$CREATED_OP fid i resp aborted=0
 	fid=$(cid_of e4fail)
-	local i
 	for i in $(seq 1 18); do
 		say "failing create t+$((i * 10))s: $(opline "$op")"
 		sleep 10
 	done
-	rec "failing create (progress while it polls)" opjson "$op"
-	rec "objects of e4fail before the abort" owned_objects e4fail
-	rec "abort the failing create" api POST "/api/v1/operations/$op/abort" '{}' || true
-	wait_op "$op" 300 10 || true
-	rec "aborted create" opjson "$op"
-	rec "create the same name while the failed one exists (must be refused)" api POST /api/v1/clusters "$(cluster_body e4fail "$MARIADB_IMAGE" 1073741824 3)" || true
-	delete_cluster "$fid"
+	rec "failing create (progress while it polls)" opjson "$op" || true
+	op_diag "$op" dbcm-e4fail-
+	rec "objects of e4fail before the abort" owned_objects e4fail || true
+	rec "abort the failing create" api POST "/api/v1/operations/$op/abort" '{}' || assert_fail failcreate "abort request refused"
+	if wait_op "$op" 300 10; then
+		if [ "$OPSTATE" = aborted ]; then
+			aborted=1
+		else
+			assert_fail failcreate "create ended $OPSTATE after the abort, expected aborted"
+		fi
+	else
+		assert_fail failcreate "create $op not finished 300 s after the abort"
+		op_diag "$op" dbcm-e4fail-
+	fi
+	rec "aborted create" opjson "$op" || true
+	resp=$(api POST /api/v1/clusters "$(cluster_body e4fail "$MARIADB_IMAGE" 1073741824 3)" 2>&1) || true
+	printf '### create the same name while the failed one exists (must be refused)\n\n```\n%s\n```\n\n' "$resp" >>"$LOG"
+	case "$resp" in
+	*cluster_exists*) result "re-create of the existing name refused (cluster_exists)" ;;
+	*) assert_fail failcreate "re-create of e4fail was not refused with cluster_exists: $(printf '%s' "$resp" | head -c 200)" ;;
+	esac
+	if ! delete_cluster "$fid"; then
+		if [ "$aborted" = 1 ]; then
+			assert_fail failcreate "deletion of the aborted create refused: $(tail -n 4 "$LOG" | tr '\n' ' ' | head -c 200)"
+		else
+			# Expected consequence of the failed abort: the create still
+			# holds the cluster (busy). Asserted above; the rest of the
+			# phase needs the deletion.
+			result "deletion refused while the create has not ended (consequence of the failed abort)"
+		fi
+		return 0
+	fi
 	sleep 10
-	rec "deletion before approval (must wait)" opjson "$DEL_OP"
-	rec "approve with a wrong digest (must be refused)" api POST "/api/v1/operations/$DEL_OP/approve" '{"digest":"0000000000000000000000000000000000000000000000000000000000000000"}' || true
-	approve_digest "$DEL_OP" "$DEL_DIGEST"
+	rec "deletion before approval (must wait)" opjson "$DEL_OP" || true
+	if rec "approve with a wrong digest (must be refused)" api POST "/api/v1/operations/$DEL_OP/approve" '{"digest":"0000000000000000000000000000000000000000000000000000000000000000"}'; then
+		assert_fail failcreate "approval with a wrong digest was accepted"
+	fi
+	approve_digest "$DEL_OP" "$DEL_DIGEST" || assert_fail failcreate "approval with the digest refused"
 	wait_op "$DEL_OP" 900 5 || true
-	rec "deletion of the failed create (final view)" opjson "$DEL_OP"
+	rec "deletion of the failed create (final view)" opjson "$DEL_OP" || true
 	result "deletion of the failed create ended: $OPSTATE"
-	rec "objects of e4fail after the deletion" owned_objects e4fail
-	rec "clusters after the deletion" jq_api /api/v1/clusters '.items[] | {id, name, state}'
-	create_cluster e4fail "$MARIADB_IMAGE"
-	wait_op "$CREATED_OP" 1500 10
-	rec "create of the reused name (final view)" opjson "$CREATED_OP"
+	rec "objects of e4fail after the deletion" owned_objects e4fail || true
+	rec "clusters after the deletion" jq_api /api/v1/clusters '.items[] | {id, name, state}' || true
+	if [ "$OPSTATE" != succeeded ]; then
+		assert_fail failcreate "deletion of the failed create ended $OPSTATE"
+		op_diag "$DEL_OP" dbcm-e4fail-
+		return 0
+	fi
+	if ! create_cluster e4fail "$MARIADB_IMAGE"; then
+		assert_fail failcreate "create of the reused name e4fail was not accepted"
+		return 0
+	fi
+	wait_op "$CREATED_OP" 1500 10 || true
+	rec "create of the reused name (final view)" opjson "$CREATED_OP" || true
 	result "create of the reused name e4fail ended: $OPSTATE"
-	[ "$OPSTATE" = succeeded ]
+	if [ "$OPSTATE" != succeeded ]; then
+		assert_fail failcreate "create of the reused name ended $OPSTATE"
+		op_diag "$CREATED_OP" dbcm-e4fail-
+	fi
 }
 
 phase_cleanuprestart() {
@@ -327,10 +392,17 @@ phase_cleanuprestart() {
 	hostload
 	local fid op
 	fid=$(cid_of e4fail)
-	rec "objects of e4fail before the deletion" owned_objects e4fail
-	delete_cluster "$fid"
+	if [ -z "$fid" ]; then
+		assert_fail cleanuprestart "no cluster e4fail (failcreate did not create the reused name); phase skipped"
+		return 0
+	fi
+	rec "objects of e4fail before the deletion" owned_objects e4fail || true
+	if ! delete_cluster "$fid"; then
+		assert_fail cleanuprestart "deletion of e4fail refused; phase skipped"
+		return 0
+	fi
 	op=$DEL_OP
-	approve_digest "$op" "$DEL_DIGEST"
+	approve_digest "$op" "$DEL_DIGEST" || assert_fail cleanuprestart "approval with the digest refused"
 	local start done=0
 	start=$(date +%s)
 	while [ $(($(date +%s) - start)) -lt 120 ]; do
@@ -350,9 +422,10 @@ phase_cleanuprestart() {
 	wait_op "$op" 900 5 || true
 	rec "deletion after the restart (final view)" opjson "$op"
 	result "deletion across a manager SIGKILL and an agent kill ended: $OPSTATE"
+	[ "$OPSTATE" = succeeded ] || assert_fail cleanuprestart "deletion across the restart ended $OPSTATE"
 	rec "objects of e4fail after the deletion" owned_objects e4fail
 	rec "e4db untouched" owned_objects "$CLUSTER_NAME"
-	rec "e4db health" jq_api /api/v1/clusters/$CLUSTER_ID '{name, state, nodes: [.nodes[] | "\(.id) \(.state)"]}'
+	rec "e4db health" jq_api "/api/v1/clusters/$CLUSTER_ID" '{name, state, nodes: [.nodes[] | "\(.id) \(.state)"]}'
 	rec "manager log around the restart" vm_args "$M1" 'sudo journalctl -u "$1" --no-pager | grep -v "setup token" | grep -i -E "resum|taken|operation|leader" | tail -20' "$UNIT" || true
 	rec "e4fail volume directories kept on the hosts (documented: host data stays)" sh -c "for v in $VMS; do echo \$v; limactl shell --workdir / \$v -- sudo sh -c 'ls -d $VOLBASE/dbcm-e4fail-* 2>/dev/null || true'; done"
 }
@@ -411,10 +484,15 @@ phase_deleteall() {
 	section "Phase deleteall: delete e4db through the API (healthy cluster, second deletion)"
 	hostload
 	CLUSTER_ID=${CLUSTER_ID:-$(cluster_id)}
-	delete_cluster "$CLUSTER_ID"
-	approve_digest "$DEL_OP" "$DEL_DIGEST"
+	if ! delete_cluster "$CLUSTER_ID"; then
+		assert_fail deleteall "deletion of $CLUSTER_NAME refused"
+		rec "clusters" api GET /api/v1/clusters || true
+		return 0
+	fi
+	approve_digest "$DEL_OP" "$DEL_DIGEST" || assert_fail deleteall "approval with the digest refused"
 	wait_op "$DEL_OP" 900 10 || true
 	result "deletion of $CLUSTER_NAME ended: $OPSTATE"
+	[ "$OPSTATE" = succeeded ] || assert_fail deleteall "deletion of $CLUSTER_NAME ended $OPSTATE"
 	rec "objects of $CLUSTER_NAME after the deletion" owned_objects "$CLUSTER_NAME"
 	rec "clusters" api GET /api/v1/clusters
 	rec "events (last 8)" jq_api /api/v1/events '.items[-8:][] | {severity, message}'
