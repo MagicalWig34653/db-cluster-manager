@@ -9,6 +9,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/MagicalWig34653/db-cluster-manager/internal/ai"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/metastore"
 )
 
@@ -30,6 +31,7 @@ const (
 	CollPolicy     = "vuln_policy"
 	CollProviders  = "vuln_ai_providers"
 	CollAudit      = "vuln_audit"
+	CollBudget     = "vuln_budget"
 )
 
 // KVDoc is one stored document.
@@ -419,4 +421,50 @@ func (s *Store) AppendAudit(r AuditRecord) error {
 		return err
 	}
 	return s.KV.Txn(p)
+}
+
+// MaxAuditSeq returns the highest sequence number among the stored audit
+// records (0 when there are none or the store cannot be read).
+func (s *Store) MaxAuditSeq() uint64 {
+	recs, err := s.AuditRecords()
+	if err != nil {
+		return 0
+	}
+	var m uint64
+	for _, r := range recs {
+		m = max(m, r.Seq)
+	}
+	return m
+}
+
+// BudgetStore persists the AI usage counters (ai.BudgetBacking) in the KV
+// store, one document per provider.
+type BudgetStore struct{ KV KV }
+
+var _ ai.BudgetBacking = BudgetStore{}
+
+// LoadUsage implements ai.BudgetBacking.
+func (b BudgetStore) LoadUsage() (map[string]ai.Usage, error) {
+	docs, err := b.KV.List(CollBudget)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]ai.Usage{}
+	for _, d := range docs {
+		var u ai.Usage
+		if err := json.Unmarshal(d.Value, &u); err != nil {
+			return nil, fmt.Errorf("vuln: decode %s/%s: %w", CollBudget, d.Key, err)
+		}
+		out[d.Key] = u
+	}
+	return out, nil
+}
+
+// SaveUsage implements ai.BudgetBacking.
+func (b BudgetStore) SaveUsage(id string, u ai.Usage) error {
+	p, err := put(CollBudget, id, u, nil)
+	if err != nil {
+		return err
+	}
+	return b.KV.Txn(p)
 }

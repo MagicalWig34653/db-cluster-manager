@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/MagicalWig34653/db-cluster-manager/internal/ai"
@@ -61,10 +60,6 @@ const (
 func (r AuditRecord) Key() string {
 	return fmt.Sprintf("%s-%012d-%s", r.At.UTC().Format("20060102T150405.000000000Z"), r.Seq, r.ID)
 }
-
-// auditSeq is a process-wide counter; after a restart the clock has moved
-// on, so keys stay ordered.
-var auditSeq atomic.Uint64
 
 func newID(prefix string) string {
 	var b [8]byte

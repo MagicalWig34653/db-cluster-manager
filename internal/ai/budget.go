@@ -10,13 +10,25 @@ import (
 
 // Budget enforces per-provider daily request and token limits. At the
 // limit the caller skips the analysis and the finding stays deterministic
-// (ADR 0015 section 6). The counters are in memory per manager replica, so
-// a leader change resets them (a limitation of this groundwork).
+// (ADR 0015 section 6). Without a Backing the counters are in memory per
+// manager replica and a leader change resets them; with a Backing every
+// change is saved and Reload re-reads the saved day (call it when a replica
+// becomes leader).
 type Budget struct {
 	mu  sync.Mutex
 	Now func() time.Time
-	day string
-	use map[string]*Usage
+	// Backing persists the counters; nil keeps them in memory only.
+	Backing BudgetBacking
+	day     string
+	use     map[string]*Usage
+}
+
+// BudgetBacking persists per-provider usage of one UTC day.
+type BudgetBacking interface {
+	// LoadUsage returns the saved usage of the given day by provider ID;
+	// entries of other days are ignored by the caller.
+	LoadUsage() (map[string]Usage, error)
+	SaveUsage(id string, u Usage) error
 }
 
 // Usage is one provider's usage of the current UTC day.
@@ -32,13 +44,45 @@ func (b *Budget) today() string {
 		now = b.Now
 	}
 	d := now().UTC().Format("2006-01-02")
-	if d != b.day {
+	if d != b.day || b.use == nil {
 		b.day, b.use = d, map[string]*Usage{}
-	}
-	if b.use == nil {
-		b.use = map[string]*Usage{}
+		b.load()
 	}
 	return d
+}
+
+// load fills the counters from the backing for the current day. A failing
+// backing leaves them empty; Reserve then fails closed through SaveUsage.
+func (b *Budget) load() {
+	if b.Backing == nil {
+		return
+	}
+	saved, err := b.Backing.LoadUsage()
+	if err != nil {
+		return
+	}
+	for id, u := range saved {
+		if u.Day == b.day {
+			c := u
+			b.use[id] = &c
+		}
+	}
+}
+
+// Reload discards the cached counters and reads them from the backing
+// again (a replica that became leader must not trust an older cache).
+func (b *Budget) Reload() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.use = nil
+	b.today()
+}
+
+func (b *Budget) save(id string, u *Usage) error {
+	if b.Backing == nil || u == nil {
+		return nil
+	}
+	return b.Backing.SaveUsage(id, *u)
 }
 
 func limitsOf(l Limits) (int, int) {
@@ -67,6 +111,11 @@ func (b *Budget) Reserve(id string, l Limits) error {
 		return ErrBudgetExceeded
 	}
 	u.Requests++
+	if err := b.save(id, u); err != nil {
+		// Fail closed: a request that cannot be counted is not made.
+		u.Requests--
+		return err
+	}
 	return nil
 }
 
@@ -77,6 +126,7 @@ func (b *Budget) Record(id string, tokens int) {
 	b.today()
 	if u := b.use[id]; u != nil {
 		u.Tokens += tokens
+		_ = b.save(id, u)
 	}
 }
 
