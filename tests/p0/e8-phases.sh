@@ -90,7 +90,8 @@ e8_synced3() {
 	local n s
 	for n in 1 2 3; do
 		s=$(rsql "$n" "SHOW GLOBAL STATUS WHERE Variable_name IN ('wsrep_cluster_size','wsrep_local_state_comment')" 2>/dev/null | tr '\n\t' '  ') || return 1
-		case "$s" in *"wsrep_cluster_size 3"*Synced*) ;; *) return 1 ;; esac
+		case "$s" in *"wsrep_cluster_size 3"*) ;; *) return 1 ;; esac
+		case "$s" in *"wsrep_local_state_comment Synced"*) ;; *) return 1 ;; esac
 	done
 }
 e8_status3() { # N lines: wsrep status of each node (best effort)
