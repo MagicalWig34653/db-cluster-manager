@@ -1651,6 +1651,365 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
+  /vuln/findings:
+    get:
+      summary: Vulnerability findings (proposal, fakes only)
+      description: >-
+        Deterministic matches of advisories against the inventory, highest
+        priority first, with VEX-like status, severity, KEV/EPSS inputs and
+        the computed priority. Needs vuln read permission (administrator
+        preset only; denied by default).
+      operationId: listVulnFindings
+      responses:
+        "200":
+          description: Findings
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/VulnFinding" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /vuln/findings/{id}:
+    get:
+      summary: One vulnerability finding
+      operationId: getVulnFinding
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      responses:
+        "200":
+          description: Finding
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VulnFinding" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /vuln/findings/{id}/status:
+    put:
+      summary: Record a VEX-like decision on a finding
+      description: >-
+        not_affected needs a justification. A not_affected or fixed finding
+        does not re-alert for the same component version. Needs vuln update;
+        audited.
+      operationId: setVulnFindingStatus
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VulnStatusInput" }
+      responses:
+        "200":
+          description: Updated finding
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VulnFinding" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /vuln/findings/{id}/proposals:
+    post:
+      summary: Request a remediation proposal for a finding
+      description: >-
+        Without useAi the deterministic proposer runs (patched rebuild to the
+        stated fixed version, or no-op). With useAi the policy's provider and
+        model analyse the allow-listed, redacted context; the answer is parsed
+        against a strict schema and validated against the finding and the
+        typed allow-lists. The result is always a proposal with an approvable
+        plan and a benefit/risk rating, or a proposal with status invalid and
+        the validator's reasons. Nothing is changed. Under auto_for_policy a
+        proposal that passes every allow-list rule is approved at once.
+        Needs vuln operate; audited. 409 settings_incomplete when the
+        provider has no consent, 409 busy when its daily limit is reached.
+      operationId: proposeVulnRemediation
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                useAi: { type: boolean }
+      responses:
+        "201":
+          description: Proposal
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VulnProposal" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /vuln/proposals:
+    get:
+      summary: Remediation proposals, newest first
+      operationId: listVulnProposals
+      responses:
+        "200":
+          description: Proposals
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/VulnProposal" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /vuln/proposals/{id}/approve:
+    post:
+      summary: Approve the plan with this digest
+      description: >-
+        The plan is recomputed from the current finding and inventory; the
+        digest must match both the shown plan and the recomputed one (409
+        approval_mismatch otherwise). notify_only refuses approval (409
+        policy_conflict). Invalid, declined or already decided proposals
+        answer 409 conflict. The approved plan goes to the executor (image
+        build service; rollout is not automated). Needs vuln update; audited.
+      operationId: approveVulnProposal
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [digest]
+              properties:
+                digest: { type: string, maxLength: 128 }
+      responses:
+        "200":
+          description: Approved proposal
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VulnProposal" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /vuln/proposals/{id}/decline:
+    post:
+      summary: Decline a proposal
+      operationId: declineVulnProposal
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                reason: { type: string, maxLength: 1024 }
+      responses:
+        "200":
+          description: Declined proposal
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VulnProposal" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /vuln/feeds:
+    get:
+      summary: Advisory feed polling state
+      description: >-
+        Per feed: last attempt and success, coarse error class, failures,
+        backoff and whether the feed is stale (no success for 24 h).
+      operationId: listVulnFeeds
+      responses:
+        "200":
+          description: Feed states
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/VulnFeedState" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /vuln/poll:
+    post:
+      summary: Poll the due feeds and match now
+      description: >-
+        Leader only (503 not_leader on a follower). Failing feeds are backed
+        off; the others still run. Needs vuln operate; audited.
+      operationId: pollVulnFeeds
+      responses:
+        "200":
+          description: Poll report
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VulnPollReport" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /vuln/policy:
+    get:
+      summary: Vulnerability response policy and its version
+      operationId: getVulnPolicy
+      responses:
+        "200":
+          description: Policy (notify_only when none is stored)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [policy, version]
+                properties:
+                  policy: { $ref: "#/components/schemas/VulnPolicy" }
+                  version: { type: integer }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+    put:
+      summary: Replace the policy
+      description: >-
+        Conditional on version (0 when none is stored; 409 conflict when it
+        changed). auto_for_policy needs non-empty severities, named services
+        (no wildcard), kinds (patched_rebuild, mitigation) and maxPerDay
+        1..20; the caller is recorded as opt-in. A selected provider must
+        exist and allow the model. Needs vuln update; audited.
+      operationId: setVulnPolicy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [policy, version]
+              properties:
+                policy: { $ref: "#/components/schemas/VulnPolicy" }
+                version: { type: integer }
+      responses:
+        "200":
+          description: Stored policy
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VulnPolicy" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /vuln/providers:
+    get:
+      summary: AI providers (no secrets)
+      description: >-
+        Provider configurations with credentialSet, local (data stays in the
+        host network), the egress statement to consent to, consent and the
+        current day's usage.
+      operationId: listVulnProviders
+      responses:
+        "200":
+          description: Providers
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/VulnProvider" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Register an AI provider
+      description: >-
+        Kinds claude_api, openai_api (API key required), openai_compatible
+        (base URL required; plain http only to loopback or private
+        addresses), claude_code_cli and codex_cli (experimental: absolute
+        binary path and the experimental acknowledgement required, no API
+        key). The API key is stored through the secret store and never
+        returned or logged. A new provider has no consent. Needs vuln create;
+        audited.
+      operationId: createVulnProvider
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VulnProviderInput" }
+      responses:
+        "201":
+          description: Provider
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VulnProvider" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /vuln/providers/{id}/consent:
+    put:
+      summary: Grant or revoke data-egress consent
+      description: >-
+        Granting requires the statement to equal the provider's current
+        egressStatement (409 approval_mismatch otherwise). Needs vuln update;
+        audited.
+      operationId: setVulnProviderConsent
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [grant]
+              properties:
+                grant: { type: boolean }
+                statement: { type: string }
+      responses:
+        "200":
+          description: Provider
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VulnProvider" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /vuln/audit:
+    get:
+      summary: Vulnerability response audit trail
+      description: >-
+        Every step: polls, findings, analyses (provider, model, prompt and
+        response SHA-256), proposals, validator results, approvals, executions,
+        policy and provider changes. Prompts and secrets are never recorded.
+      operationId: listVulnAudit
+      responses:
+        "200":
+          description: Records in order
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/VulnAuditRecord" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
 security:
   - sessionCookie: []
 components:
@@ -2399,3 +2758,240 @@ components:
         endpoint: { type: string, description: "Required for generic; https (http only for loopback)" }
         username: { type: string, maxLength: 512 }
         password: { type: string, writeOnly: true, maxLength: 4096 }
+    VulnComponent:
+      type: object
+      required: [ecosystem, name, version]
+      properties:
+        ecosystem: { type: string }
+        name: { type: string }
+        version: { type: string }
+        purl: { type: string }
+    VulnFinding:
+      type: object
+      required: [id, advisoryId, entryId, image, services, serviceKind, coverage, component, severity, score, priority, status, firstSeen, lastSeen, sources]
+      properties:
+        id: { type: string }
+        advisoryId: { type: string }
+        aliases: { type: array, items: { type: string } }
+        entryId: { type: string }
+        image: { type: string }
+        services: { type: array, items: { type: string } }
+        serviceKind: { type: string, enum: [web, generic, database, galera, proxy, registry] }
+        coverage: { type: string, enum: [sbom, reference, unknown] }
+        component: { $ref: "#/components/schemas/VulnComponent" }
+        fixedVersions: { type: array, items: { type: string } }
+        severity: { type: string, enum: [unknown, low, medium, high, critical] }
+        cvss: { type: number }
+        kev: { type: boolean }
+        epss: { type: number }
+        score: { type: integer, minimum: 0, maximum: 100 }
+        priority: { type: string, enum: [P1, P2, P3, P4] }
+        basis: { type: string }
+        status: { type: string, enum: [affected, under_investigation, not_affected, fixed] }
+        justification: { type: string }
+        statusBy: { type: string }
+        firstSeen: { type: string, format: date-time }
+        lastSeen: { type: string, format: date-time }
+        resolvedAt: { type: string, format: date-time }
+        sources: { type: array, items: { type: string } }
+    VulnStatusInput:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status: { type: string, enum: [affected, under_investigation, not_affected, fixed] }
+        justification: { type: string, maxLength: 1024 }
+    VulnPlan:
+      type: object
+      required: [digest, manual, steps, warnings]
+      properties:
+        digest: { type: string, description: "Approval binds to this digest" }
+        manual: { type: boolean, description: "No automated step; approval records the decision" }
+        build: { $ref: "#/components/schemas/ImageBuildRequest" }
+        buildPlanDigest: { type: string }
+        steps:
+          type: array
+          items:
+            type: object
+            properties:
+              order: { type: integer }
+              title: { type: string }
+              detail: { type: string }
+        warnings: { type: array, items: { type: string } }
+        majorUpgrade: { type: boolean }
+    VulnProposal:
+      type: object
+      required: [id, findingId, advisoryId, entryId, kind, origin, component, rating, plan, validation, decision, status, createdBy, createdAt]
+      properties:
+        id: { type: string }
+        findingId: { type: string }
+        advisoryId: { type: string }
+        entryId: { type: string }
+        kind: { type: string, enum: [patched_rebuild, mitigation, no_op] }
+        origin: { type: string, enum: [deterministic, ai] }
+        provider: { type: string }
+        model: { type: string }
+        promptSha256: { type: string }
+        responseSha256: { type: string }
+        component: { $ref: "#/components/schemas/VulnComponent" }
+        targetVersion: { type: string }
+        mitigation:
+          type: object
+          properties:
+            setting: { type: string }
+            value: { type: string }
+            expiresAt: { type: string, format: date-time }
+        rating:
+          type: object
+          required: [benefit, risk, basis]
+          properties:
+            benefit: { type: string, enum: [none, low, medium, high] }
+            risk: { type: string, enum: [low, medium, high] }
+            basis: { type: string }
+        aiAssessment:
+          type: object
+          description: What the model said; display only
+          properties:
+            affected: { type: string }
+            benefit: { type: string }
+            risk: { type: string }
+        rationale: { type: string, description: "Display-only text; never executed or interpolated" }
+        plan: { $ref: "#/components/schemas/VulnPlan" }
+        validation:
+          type: object
+          required: [ok]
+          properties:
+            ok: { type: boolean }
+            errors: { type: array, items: { type: string } }
+        decision:
+          type: object
+          required: [mode, action]
+          properties:
+            mode: { type: string, enum: [notify_only, approval_required, auto_for_policy] }
+            action: { type: string, enum: [notify, await_approval, auto_approve] }
+            reasons: { type: array, items: { type: string } }
+        status: { type: string, enum: [proposed, awaiting_approval, invalid, approved, declined, failed] }
+        createdBy: { type: string }
+        createdAt: { type: string, format: date-time }
+        decidedBy: { type: string }
+        decidedAt: { type: string, format: date-time }
+        execution: { type: string }
+    VulnFeedState:
+      type: object
+      required: [name, stale]
+      properties:
+        name: { type: string }
+        etag: { type: string }
+        lastModified: { type: string }
+        cursor: { type: string, format: date-time }
+        lastAttempt: { type: string, format: date-time }
+        lastSuccess: { type: string, format: date-time }
+        lastError: { type: string, enum: [rate_limited, too_large, malformed, http_status, timeout, transport] }
+        failures: { type: integer }
+        nextAttempt: { type: string, format: date-time }
+        stale: { type: boolean }
+        advisories: { type: integer }
+    VulnPollReport:
+      type: object
+      required: [feeds, advisories, findings, newFindings, resolved, unknown]
+      properties:
+        feeds: { type: array, items: { $ref: "#/components/schemas/VulnFeedState" } }
+        advisories: { type: integer }
+        findings: { type: integer, description: "Open findings" }
+        newFindings: { type: array, items: { type: string } }
+        resolved: { type: array, items: { type: string } }
+        unknown: { type: array, items: { type: string }, description: "Inventory entries without known components (not covered, not safe)" }
+    VulnPolicy:
+      type: object
+      required: [mode]
+      properties:
+        mode: { type: string, enum: [notify_only, approval_required, auto_for_policy] }
+        provider: { type: string }
+        model: { type: string }
+        auto:
+          type: object
+          properties:
+            severities: { type: array, items: { type: string, enum: [low, medium, high, critical] } }
+            services: { type: array, items: { type: string } }
+            kinds: { type: array, items: { type: string, enum: [patched_rebuild, mitigation] } }
+            maxPerDay: { type: integer, minimum: 1, maximum: 20 }
+        autoOptInBy: { type: string, readOnly: true }
+        killSwitch: { type: boolean }
+        mitigationDays: { type: integer, minimum: 1, maximum: 90 }
+        retainPrompts: { type: boolean }
+        updatedBy: { type: string, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+    VulnProviderLimits:
+      type: object
+      properties:
+        requestsPerDay: { type: integer, description: "Default 50" }
+        tokensPerDay: { type: integer, description: "Default 200000" }
+    VulnProvider:
+      type: object
+      required: [id, name, kind, credentialSet, local, egressStatement]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        kind: { type: string, enum: [claude_api, openai_api, openai_compatible, claude_code_cli, codex_cli] }
+        baseUrl: { type: string }
+        models: { type: array, items: { type: string } }
+        defaultModel: { type: string }
+        binary: { type: string }
+        home: { type: string }
+        experimental: { type: boolean }
+        consent:
+          type: object
+          properties:
+            by: { type: string }
+            at: { type: string, format: date-time }
+            statement: { type: string }
+        limits: { $ref: "#/components/schemas/VulnProviderLimits" }
+        maxOutputTokens: { type: integer }
+        timeoutSeconds: { type: integer }
+        createdBy: { type: string }
+        createdAt: { type: string, format: date-time }
+        credentialSet: { type: boolean }
+        local: { type: boolean }
+        egressStatement: { type: string }
+        usage:
+          type: object
+          properties:
+            day: { type: string }
+            requests: { type: integer }
+            tokens: { type: integer }
+    VulnProviderInput:
+      type: object
+      additionalProperties: false
+      required: [id, name, kind]
+      properties:
+        id: { type: string, pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$" }
+        name: { type: string, maxLength: 100 }
+        kind: { type: string, enum: [claude_api, openai_api, openai_compatible, claude_code_cli, codex_cli] }
+        baseUrl: { type: string }
+        models: { type: array, maxItems: 64, items: { type: string } }
+        defaultModel: { type: string }
+        binary: { type: string, description: "Absolute path; CLI kinds only" }
+        home: { type: string, description: "Absolute path of the CLI login state; CLI kinds only" }
+        experimental: { type: boolean, description: "Required true for CLI kinds" }
+        limits: { $ref: "#/components/schemas/VulnProviderLimits" }
+        maxOutputTokens: { type: integer }
+        timeoutSeconds: { type: integer, maximum: 600 }
+        apiKey: { type: string, writeOnly: true, maxLength: 4096 }
+    VulnAuditRecord:
+      type: object
+      required: [id, at, seq, actor, event, result]
+      properties:
+        id: { type: string }
+        at: { type: string, format: date-time }
+        seq: { type: integer }
+        actor: { type: string }
+        event: { type: string }
+        findingId: { type: string }
+        proposalId: { type: string }
+        provider: { type: string }
+        model: { type: string }
+        promptSha256: { type: string }
+        responseSha256: { type: string }
+        planDigest: { type: string }
+        result: { type: string }
+        detail: { type: string }

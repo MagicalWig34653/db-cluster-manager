@@ -69,6 +69,9 @@ type Config struct {
 	Registries  Registries
 	// Services backs the managed service endpoints (W07); nil answers 503.
 	Services Services
+	// Vuln backs the vulnerability response endpoints (X13, proposal,
+	// fakes only); nil answers 503.
+	Vuln Vuln
 	// RecoveryCodeIterations is passed to recovery.GenerateCodes; 0 selects
 	// the default.
 	RecoveryCodeIterations int
@@ -175,6 +178,10 @@ type server struct {
 // endpoints is the route table. It is safe to call on a nil server: method
 // values are only bound, not invoked.
 func (s *server) endpoints() []endpoint {
+	return append(s.coreEndpoints(), s.vulnEndpoints()...)
+}
+
+func (s *server) coreEndpoints() []endpoint {
 	return []endpoint{
 		{method: "GET", path: "/health", access: accessPublic, prototype: true, handle: handleHealth},
 		{method: "GET", path: "/version", access: accessPublic, prototype: true, handle: handleVersion},
