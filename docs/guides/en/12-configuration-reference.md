@@ -65,6 +65,7 @@ Presence of this section selects managed mode. Required: `dataDir` and `bind`.
 | `agentTransport` | object | absent | Authenticated mTLS agent transport with enrollment ([ADR 0010](../../decisions/0010-agent-transport-and-enrollment.md)). Required in practice for hosts, clusters and backups. |
 | `monitoring` | object | enabled | Metric store and alerts. |
 | `backup` | object | absent | Manager side of cluster backups. |
+| `imageBuild` | object | absent | Enables the image build service (proposal, fakes only), see below. Registry endpoints work without it. |
 | `settings` | object | absent | Installation settings merged into the replicated settings on every leadership start (no API sets them yet). |
 
 ### `manager.peers[]`
@@ -114,6 +115,18 @@ All four fields are required if the section exists. Produced by `manager -issue-
 | --- | --- | --- | --- |
 | `backendConfigFile` | string | empty | Absolute path of a JSON file with the same content as the jobs' backend secret: `{"type": "sftp" or "s3" or "dir", ...}` plus an `sftp`, `s3` or `dir` section (host key verification is mandatory for SFTP). Without it backup conditions stay unmet and restores are refused (`settings_incomplete`). `dir` works for lab tests only. |
 | `scheduleIntervalSeconds` | int | `60` | How often the leader evaluates schedules, retention and inspection expiry; minimum 10. |
+
+### `manager.imageBuild`
+
+Presence enables image builds (`POST /image-builds`); without it the build routes answer 503 while `/registries` still works. The manager runs `docker buildx build` as its own process. The shipped manager image has no docker CLI and the stack gives it no BuildKit, so a build needs both added first [Untested]. `manager init -image-build` writes this section with its defaults.
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `dockerBinary` | string | `docker` | Docker CLI path or command name (no arguments). |
+| `workDir` | string | OS temp dir | Absolute directory for temporary build contexts and docker configs (the latter hold the registry credential, mode 0600, removed after the build). |
+| `maxLogBytes` | int | `262144` | Cap of the stored, redacted job log; minimum 1024. |
+
+Registry credentials, job records and plans are kept in the replicated store; credentials are sealed with the data key (`keyFile` or `keyring`) like session digests.
 
 ### `manager.settings`
 

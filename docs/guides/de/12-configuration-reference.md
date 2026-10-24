@@ -65,6 +65,7 @@ Der Abschnitt wählt den verwalteten Modus. Pflicht: `dataDir` und `bind`.
 | `agentTransport` | Objekt | fehlt | Authentifizierter mTLS-Agententransport mit Einbindung ([ADR 0010](../../decisions/0010-agent-transport-and-enrollment.md)). Praktisch nötig für Hosts, Cluster und Backups. |
 | `monitoring` | Objekt | aktiv | Metrikspeicher und Alarme. |
 | `backup` | Objekt | fehlt | Manager-Seite der Cluster-Backups. |
+| `imageBuild` | Objekt | fehlt | Aktiviert den Image-Build-Dienst (Entwurf, nur Fakes), siehe unten. Die Registry-Endpunkte funktionieren auch ohne. |
 | `settings` | Objekt | fehlt | Installationseinstellungen, die der Leader bei jedem Leadership-Start in die replizierten Einstellungen einmischt (noch keine API dafür). |
 
 ### `manager.peers[]`
@@ -114,6 +115,18 @@ Existiert der Abschnitt, sind alle vier Felder Pflicht. Erzeugt von `manager -is
 | --- | --- | --- | --- |
 | `backendConfigFile` | string | leer | Absoluter Pfad einer JSON-Datei mit demselben Inhalt wie das Backend-Secret der Jobs: `{"type": "sftp" oder "s3" oder "dir", ...}` plus ein Abschnitt `sftp`, `s3` oder `dir` (Hostschlüsselprüfung ist bei SFTP Pflicht). Ohne sie bleiben Backup-Bedingungen unerfüllt und Wiederherstellungen werden abgelehnt (`settings_incomplete`). `dir` taugt nur für Labortests. |
 | `scheduleIntervalSeconds` | int | `60` | Wie oft der Leader Zeitpläne, Aufbewahrung und Ablauf von Inspektionen prüft; mindestens 10. |
+
+### `manager.imageBuild`
+
+Ist der Abschnitt vorhanden, sind Image-Builds aktiv (`POST /image-builds`); ohne ihn antworten die Build-Routen mit 503, `/registries` funktioniert weiter. Der Manager führt `docker buildx build` als eigenen Prozess aus. Das mitgelieferte Manager-Image enthält kein Docker-CLI und der Stack gibt ihm kein BuildKit; für einen Build muss beides zuerst ergänzt werden [Ungetestet]. `manager init -image-build` schreibt den Abschnitt mit den Standardwerten.
+
+| Feld | Typ | Standard | Bedeutung |
+| --- | --- | --- | --- |
+| `dockerBinary` | string | `docker` | Pfad oder Befehlsname des Docker-CLI (ohne Argumente). |
+| `workDir` | string | Temp-Verzeichnis des Systems | Absolutes Verzeichnis für temporäre Build-Kontexte und Docker-Configs (diese enthalten die Registry-Zugangsdaten, Modus 0600, nach dem Build gelöscht). |
+| `maxLogBytes` | int | `262144` | Obergrenze des gespeicherten, geschwärzten Job-Protokolls; mindestens 1024. |
+
+Registry-Zugangsdaten, Job-Aufzeichnungen und Pläne liegen im replizierten Speicher; Zugangsdaten werden wie Sitzungs-Digests mit dem Datenschlüssel (`keyFile` oder `keyring`) versiegelt.
 
 ### `manager.settings`
 
