@@ -1126,7 +1126,7 @@ paths:
     get:
       summary: List managed services the caller may read
       description: >-
-        Services of a service type (container, traefik). Implemented with
+        Services of a service type (container, traefik, sftp, ftp, s3, nfs). Implemented with
         fakes only (W07).
       operationId: listServices
       responses:
@@ -2215,7 +2215,7 @@ components:
       properties:
         swarm: { type: string }
         name: { type: string, description: "Lower case letters, digits and hyphens." }
-        type: { type: string, enum: [container, traefik] }
+        type: { type: string, enum: [container, traefik, sftp, ftp, s3, nfs] }
         spec: { type: object, description: "Type-specific desired state; strict, no secret values." }
     ServiceDeleteInput:
       type: object

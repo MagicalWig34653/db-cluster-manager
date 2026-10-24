@@ -539,8 +539,13 @@ func (Traefik) Plan(in PlanInput) (Plan, error) {
 		p.Steps = append(p.Steps, Step{ID: fmt.Sprintf("%02d-deliver-dynamic-config", len(p.Steps)+1), Kind: StepDeliverConfig, After: []string{last},
 			Artifact: "traefik-dynamic.yml",
 			Note:     "place traefik-dynamic.yml at " + TraefikDynamicFile + " for Traefik's file provider"})
-		p.Blockers = append(p.Blockers, "the dynamic configuration (routers, services, middlewares) cannot be delivered yet: the agent has no command to place configuration files")
+		p.Blockers = append(p.Blockers, "the dynamic configuration (routers, services, middlewares) cannot be delivered yet: the agent can mount an existing Swarm config as a file but has no command to create one")
 	}
+	mgmt, err := t.managementArtifact(in.Name)
+	if err != nil {
+		return Plan{}, err
+	}
+	p.Artifacts = append(p.Artifacts, mgmt)
 	if len(t.Resolvers) > 0 {
 		p.Warnings = append(p.Warnings, "ACME certificates and their private keys are stored on the local volume "+VolumeName(in.Name, traefikACMEVolume)+
 			" (host "+t.Placement.HostID+"); Traefik OSS cannot share them, so the service runs one replica and a lost host loses the certificates (they can be re-issued)")
@@ -588,4 +593,56 @@ func (Traefik) Health(in HealthInput) (Health, error) {
 		return Health{}, err
 	}
 	return observationHealth(in.Observed), nil
+}
+
+// managementArtifact is the metadata a UI needs to manage this Traefik
+// instance without parsing the rendered files: what the instance exposes,
+// which objects the manager owns, where the dynamic file lives and that the
+// dashboard and the insecure API are off.
+func (t TraefikSpec) managementArtifact(name string) (Artifact, error) {
+	type ep struct {
+		Name       string `json:"name"`
+		Port       int    `json:"port"`
+		Published  int    `json:"published"`
+		RedirectTo string `json:"redirectTo,omitempty"`
+	}
+	type obj struct {
+		Name    string   `json:"name"`
+		Kind    string   `json:"kind,omitempty"`
+		Hosts   []string `json:"hosts,omitempty"`
+		Service string   `json:"service,omitempty"`
+	}
+	m := struct {
+		Service       string   `json:"service"`
+		Dashboard     bool     `json:"dashboard"`
+		InsecureAPI   bool     `json:"insecureApi"`
+		DynamicFile   string   `json:"dynamicFile,omitempty"`
+		EntryPoints   []ep     `json:"entryPoints"`
+		Routers       []obj    `json:"routers"`
+		Backends      []obj    `json:"services"`
+		Middlewares   []obj    `json:"middlewares"`
+		CertResolvers []string `json:"certResolvers"`
+	}{
+		Service:     SwarmServiceName(name),
+		EntryPoints: []ep{}, Routers: []obj{}, Backends: []obj{}, Middlewares: []obj{}, CertResolvers: []string{},
+	}
+	if t.hasDynamic() {
+		m.DynamicFile = TraefikDynamicFile
+	}
+	for _, e := range sortedBy(t.EntryPoints, func(e EntryPoint) string { return e.Name }) {
+		m.EntryPoints = append(m.EntryPoints, ep{Name: e.Name, Port: e.Port, Published: t.published(e), RedirectTo: e.RedirectTo})
+	}
+	for _, r := range sortedBy(t.Routers, func(r Router) string { return r.Name }) {
+		m.Routers = append(m.Routers, obj{Name: r.Name, Hosts: sortedUnique(r.Match.Hosts), Service: r.Service})
+	}
+	for _, b := range sortedBy(t.Services, func(b Backend) string { return b.Name }) {
+		m.Backends = append(m.Backends, obj{Name: b.Name})
+	}
+	for _, mw := range sortedBy(t.Middlewares, func(x Middleware) string { return x.Name }) {
+		m.Middlewares = append(m.Middlewares, obj{Name: mw.Name, Kind: mw.Type})
+	}
+	for _, r := range sortedBy(t.Resolvers, func(r CertResolver) string { return r.Name }) {
+		m.CertResolvers = append(m.CertResolvers, r.Name)
+	}
+	return jsonArtifact("traefik-management.json", m)
 }

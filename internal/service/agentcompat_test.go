@@ -334,3 +334,70 @@ func fieldNames(t reflect.Type) []string {
 	}
 	return out
 }
+
+// TestStoragePlansConvertToAgentCommands carries the storage types through
+// the runner into the agent's own argument type: published ports and config
+// references must survive, and an NFS plan must never become an operation.
+func TestStoragePlansConvertToAgentCommands(t *testing.T) {
+	base := service.StorageBase{Image: "example/server:1.2.3", Placement: service.Placement{HostID: "h1"}}
+	ctx := service.Context{InstallationID: "inst-1", ServiceID: "svc-1", Name: "files"}
+	b := runner.ServiceBindings{OpID: "op1", InstallationID: "inst-1", VolumeBase: "/srv/dbcm",
+		TokenIDs: map[string]string{"dbcm-svc-files-data": "tok1"}, StepTimeout: time.Second, ServiceHost: "mgr1"}
+	cases := []struct {
+		typ         string
+		spec        any
+		ports       int
+		configs     int
+		wantBlocked bool
+	}{
+		{"sftp", service.SFTPSpec{StorageBase: base, PublishedPort: 2222, UsersConfig: "sftp-users",
+			Users: []service.StorageUser{{Name: "alice", UID: 1001, PasswordSecret: "alice-pw"}}}, 1, 1, false},
+		{"ftp", service.FTPSpec{StorageBase: base, Passive: service.PassiveRange{Min: 30000, Max: 30004}, PassiveAddress: "10.0.0.1",
+			CertSecret: "c", KeySecret: "k", Users: []service.StorageUser{{Name: "bob", UID: 1002, PasswordSecret: "bob-pw"}}}, 6, 0, false},
+		{"s3", service.S3Spec{StorageBase: base, RootUserSecret: "u", RootPasswordSecret: "p", APIPublishedPort: 9000}, 1, 0, false},
+		{"nfs", service.NFSSpec{StorageBase: base, Exports: []service.NFSExport{{Path: "/", Clients: []string{"10.0.0.0/24"}}}}, 1, 0, true},
+	}
+	for _, c := range cases {
+		t.Run(c.typ, func(t *testing.T) {
+			raw, _ := json.Marshal(c.spec)
+			ty, err := service.DefaultRegistry().Get(c.typ)
+			if err != nil {
+				t.Fatal(err)
+			}
+			p, err := ty.Plan(service.PlanInput{Context: ctx, Spec: raw})
+			if err != nil {
+				t.Fatal(err)
+			}
+			op, err := runner.FromServicePlan(p, b)
+			if c.wantBlocked {
+				if !errors.Is(err, service.ErrNotExecutable) {
+					t.Fatalf("blocked plan: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, st := range op.Steps {
+				if err := strictArgs(st.Command, st.Args); err != nil {
+					t.Fatalf("step %s: %v", st.ID, err)
+				}
+				if st.Command != agent.KindCreateService {
+					continue
+				}
+				var spec agent.ServiceSpec
+				if err := json.Unmarshal(st.Args, &spec); err != nil {
+					t.Fatal(err)
+				}
+				if len(spec.Ports) != c.ports || len(spec.Configs) != c.configs {
+					t.Errorf("agent spec has %d ports and %d configs, want %d and %d", len(spec.Ports), len(spec.Configs), c.ports, c.configs)
+				}
+				for _, p := range spec.Ports {
+					if p.Published == 0 || p.Target == 0 {
+						t.Errorf("port %+v", p)
+					}
+				}
+			}
+		})
+	}
+}
