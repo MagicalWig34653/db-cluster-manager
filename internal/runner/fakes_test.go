@@ -174,11 +174,12 @@ func (p *memPersister) Save(t uint64) error {
 type fault int
 
 const (
-	dropRequest  fault = iota + 1 // lost before the agent: no effect, error
-	dropResponse                  // effect and record, but the answer is lost
-	crashInDoubt                  // intent recorded, effect maybe, no result recorded
-	failResult                    // StatusFailed recorded
-	failInUse                     // StatusFailed with CodeVolumeInUse (no effect)
+	dropRequest    fault = iota + 1 // lost before the agent: no effect, error
+	dropResponse                    // effect and record, but the answer is lost
+	crashInDoubt                    // intent recorded, effect maybe, no result recorded
+	failResult                      // StatusFailed recorded
+	failInUse                       // StatusFailed with CodeVolumeInUse (no effect)
+	failNotRunning                  // StatusFailed with CodeDBNotRunning (no effect)
 )
 
 var errNet = errors.New("fake network: connection reset")
@@ -202,6 +203,8 @@ type fakeAgent struct {
 	blocks      map[string]chan struct{} // by agent step ID: wait before the effect
 	entered     map[string]chan struct{} // closed when the blocked step is entered
 	before      func(cmd agent.Command)
+	// kindFault applies to every command of a kind without a step fault.
+	kindFault map[agent.Kind]fault
 }
 
 func newFakeAgent(t *testing.T, name string) *fakeAgent {
@@ -262,6 +265,8 @@ func (a *fakeAgent) Handle(ctx context.Context, cmd agent.Command) (agent.Result
 	var f fault
 	if q := a.faults[cmd.StepID]; len(q) > 0 {
 		f, a.faults[cmd.StepID] = q[0], q[1:]
+	} else if kf, ok := a.kindFault[cmd.Kind]; ok {
+		f = kf
 	}
 	if f == dropRequest {
 		return agent.Result{}, errNet
@@ -287,7 +292,14 @@ func (a *fakeAgent) Handle(ctx context.Context, cmd agent.Command) (agent.Result
 		close(a.entered[cmd.StepID])
 		delete(a.blocks, cmd.StepID)
 		a.mu.Unlock()
-		<-ch
+		select {
+		case <-ch:
+		case <-ctx.Done():
+			// The caller gave up (transport cancelled): no answer, the
+			// recorded intent stays without a result.
+			a.mu.Lock()
+			return agent.Result{}, ctx.Err()
+		}
 		a.mu.Lock()
 	}
 	a.effects = append(a.effects, key)
@@ -299,6 +311,8 @@ func (a *fakeAgent) Handle(ctx context.Context, cmd agent.Command) (agent.Result
 		res.Status, res.Code, res.Message = agent.StatusFailed, agent.CodeDocker, "simulated failure"
 	case failInUse:
 		res.Status, res.Code, res.Message = agent.StatusFailed, agent.CodeVolumeInUse, "simulated volume in use"
+	case failNotRunning:
+		res.Status, res.Code, res.Message = agent.StatusFailed, agent.CodeDBNotRunning, "database socket /v/run/mysqld.sock does not exist"
 	}
 	rec.result = &res
 	if f == dropResponse {

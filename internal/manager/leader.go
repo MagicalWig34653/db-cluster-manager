@@ -142,6 +142,9 @@ func (s *Service) becomeLeader(parent context.Context) error {
 	rc := runner.Config{
 		Leader: s.node, Journal: runner.MetastoreJournal{Node: s.node}, Agents: l.Agents,
 		Checker: s.cfg.Checker, Now: s.cfg.Now, BarrierTimeout: s.cfg.BarrierTimeout,
+		// Retries are logged with operation, step, attempt and the agent's
+		// (redacted) error: lab E4 could not see why exec-sql kept failing.
+		Log: s.log,
 	}
 	if s.cfg.RunnerTune != nil {
 		s.cfg.RunnerTune(&rc)

@@ -7,8 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"regexp"
 	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -35,6 +38,9 @@ type Config struct {
 	StepTimeout    time.Duration // default 60s; per command attempt
 	BackoffBase    time.Duration // default 1s; doubled per retry
 	BackoffMax     time.Duration // default 30s
+	// Log receives retries, pauses, failures and aborts with the operation,
+	// step and attempt; nil discards them.
+	Log *slog.Logger
 }
 
 // Runner executes operations. It is safe for concurrent use; independent
@@ -55,6 +61,10 @@ type opState struct {
 	pausedStep string
 	active     bool // an execute loop or a management call owns it
 	abortReq   bool
+	// abortCh is closed when an abort is requested while the operation
+	// executes: it interrupts retry backoff and cancels an in-flight
+	// command that has no effect (Idempotent kinds).
+	abortCh    chan struct{}
 	locked     bool
 	agentStep  map[string]string // step ID -> agent step ID in use
 	fresh      map[string]bool   // agent step ID not sent yet
@@ -82,6 +92,9 @@ func New(cfg Config) (*Runner, error) {
 	def(&cfg.StepTimeout, 60*time.Second)
 	def(&cfg.BackoffBase, time.Second)
 	def(&cfg.BackoffMax, 30*time.Second)
+	if cfg.Log == nil {
+		cfg.Log = slog.New(slog.DiscardHandler)
+	}
 	return &Runner{cfg: cfg, ops: map[string]*opState{}, locks: map[string]string{}}, nil
 }
 
@@ -107,8 +120,59 @@ func cloneOp(op Operation) Operation {
 }
 
 func newOpState(op Operation, term uint64) *opState {
-	return &opState{def: op, status: StatusRunning, term: term,
+	return &opState{def: op, status: StatusRunning, term: term, abortCh: make(chan struct{}),
 		agentStep: map[string]string{}, fresh: map[string]bool{}, lastResult: map[string]*agent.Result{}}
+}
+
+// requestAbortLocked records an abort request and wakes the execute loop.
+// The caller holds r.mu.
+func (r *Runner) requestAbortLocked(st *opState) {
+	st.abortReq = true
+	select {
+	case <-st.abortCh:
+	default:
+		close(st.abortCh)
+	}
+}
+
+func (r *Runner) abortRequested(st *opState) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return st.abortReq
+}
+
+// abortable returns a context that also ends when an abort of st is
+// requested. Lab E4 (failcreate): an abort of a create whose idempotent
+// exec-sql step kept failing returned 202, but the operation stayed
+// running through its retry backoff for more than 300 s.
+func (r *Runner) abortable(ctx context.Context, st *opState) (context.Context, context.CancelFunc) {
+	actx, cancel := context.WithCancel(ctx)
+	go func() {
+		select {
+		case <-st.abortCh:
+			cancel()
+		case <-actx.Done():
+		}
+	}()
+	return actx, cancel
+}
+
+// errAbortWait: a wait ended because an abort was requested; the step
+// state is journaled and the operation is paused, so execute aborts it.
+var errAbortWait = errors.New("runner: abort requested")
+
+// noAbort maps errAbortWait to nil for the step loop.
+func noAbort(err error) error {
+	if errors.Is(err, errAbortWait) {
+		return nil
+	}
+	return err
+}
+
+// pauseForAbort pauses st for the requested abort; execute turns the pause
+// into the abort.
+func (r *Runner) pauseForAbort(st *opState, stepID, why string) {
+	r.setStatus(st, StatusPaused, stepID, "abort requested "+why, EventPause)
 }
 
 // lead verifies leadership and runs the barrier. It returns the term that
@@ -194,6 +258,13 @@ func (r *Runner) setStatus(st *opState, s Status, stepID, reason string, typ Eve
 		r.unlockLocked(st)
 	}
 	r.eventLocked(st, typ, stepID, reason)
+	log := r.cfg.Log.With("op", st.def.ID, "kind", st.def.Kind, "step", stepID, "status", string(s), "reason", reason)
+	switch s {
+	case StatusFailed, StatusStopped:
+		log.Warn("runner: operation " + string(s))
+	case StatusPaused, StatusAborted, StatusSucceeded:
+		log.Info("runner: operation " + string(s))
+	}
 }
 
 func lostLeadership(err error) bool {
@@ -454,8 +525,13 @@ func (r *Runner) Reconcile(ctx context.Context, opID, stepID string, res Resolut
 }
 
 // Abort ends an operation at a safe boundary. If the operation is
-// executing, the abort is recorded and takes effect before its next step;
-// otherwise it is journaled now. A Running step blocks the abort.
+// executing, the abort is recorded and takes effect before its next step,
+// before its next retry (it interrupts the retry backoff) or, for a command
+// without effect (Idempotent kinds), at once: that command's context is
+// cancelled and its step is journaled Unknown, never Succeeded. A
+// destructive command in flight is not cancelled: its answer is awaited
+// (bounded by the step timeout) so that its outcome stays observable.
+// Otherwise the abort is journaled now. A Running step blocks the abort.
 func (r *Runner) Abort(opID string) error {
 	r.mu.Lock()
 	st, ok := r.ops[opID]
@@ -467,7 +543,7 @@ func (r *Runner) Abort(opID string) error {
 		r.mu.Unlock()
 		return fmt.Errorf("%w: %q is %s", ErrFinished, opID, st.status)
 	case st.active:
-		st.abortReq = true
+		r.requestAbortLocked(st)
 		r.eventLocked(st, EventAbortRequested, "", "abort at the next safe boundary")
 		r.mu.Unlock()
 		return nil
@@ -495,7 +571,21 @@ func (r *Runner) abortNow(st *opState) (View, error) {
 	r.mu.Lock()
 	st.abortReq = false
 	r.mu.Unlock()
-	r.setStatus(st, StatusAborted, "", "aborted at a safe boundary", EventAbort)
+	reason := "aborted at a safe boundary"
+	if jop, err := r.cfg.Journal.Get(st.def.ID); err == nil {
+		var unknown []string
+		for _, s := range jop.Steps {
+			if s.State == opjournal.Unknown {
+				unknown = append(unknown, s.ID)
+			}
+		}
+		if len(unknown) > 0 {
+			// The journal keeps these steps Unknown; an abort never records
+			// them as succeeded.
+			reason += fmt.Sprintf("; outcome unknown for step(s) %v (inspect live state)", unknown)
+		}
+	}
+	r.setStatus(st, StatusAborted, "", reason, EventAbort)
 	return r.view(st), nil
 }
 
@@ -602,7 +692,15 @@ func (r *Runner) backoff(n int) time.Duration {
 func (r *Runner) wait(ctx context.Context, st *opState, stepID string, n int, why string) error {
 	d := r.backoff(n)
 	r.event(st, EventRetry, stepID, fmt.Sprintf("%s; retry %d after %s", why, n, d))
-	if err := r.cfg.Sleep(ctx, d); err != nil {
+	r.cfg.Log.Warn("runner: step retry", "op", st.def.ID, "kind", st.def.Kind, "step", stepID, "retry", n, "backoff", d.String(), "reason", why)
+	actx, cancel := r.abortable(ctx, st)
+	err := r.cfg.Sleep(actx, d)
+	cancel()
+	if ctx.Err() == nil && r.abortRequested(st) {
+		r.pauseForAbort(st, stepID, "while waiting to retry")
+		return errAbortWait
+	}
+	if err != nil {
 		return r.stop(st, stepID, fmt.Errorf("runner stopped while waiting: %w", err))
 	}
 	if err := r.checkLeader(st); err != nil {
@@ -627,6 +725,10 @@ func (r *Runner) runStep(ctx context.Context, st *opState, spec Step, js opjourn
 	idem := Idempotent(spec.Command)
 	extra := 0
 	for {
+		if r.abortRequested(st) {
+			r.pauseForAbort(st, spec.ID, "before the step (re)started")
+			return false, nil
+		}
 		if state == opjournal.Pending || spec.Command == "" {
 			if ok, err := r.awaitPreconditions(ctx, st, spec); !ok || err != nil {
 				return false, err
@@ -667,7 +769,13 @@ func (r *Runner) runStep(ctx context.Context, st *opState, spec Step, js opjourn
 			typ = EventQuery
 		}
 		r.event(st, typ, spec.ID, fmt.Sprintf("%s %s to %s", spec.Command, agentID, spec.Target))
-		res, sendErr := r.send(ctx, st, spec, agentID)
+		sendCtx, cancelSend := ctx, context.CancelFunc(func() {})
+		if idem {
+			// A command without effect may be cancelled by an abort.
+			sendCtx, cancelSend = r.abortable(ctx, st)
+		}
+		res, sendErr := r.send(sendCtx, st, spec, agentID)
+		cancelSend()
 		r.recordResult(st, spec.ID, res, sendErr)
 
 		switch classify(res, sendErr) {
@@ -681,12 +789,8 @@ func (r *Runner) runStep(ctx context.Context, st *opState, spec Step, js opjourn
 			if retryable && extra < spec.MaxRetries && classify(res, sendErr) == outFailed {
 				extra++
 				r.newAgentStep(st, spec.ID, cur.Attempts+1)
-				why := "idempotent step failed"
-				if !idem {
-					why = "step failed without effect (" + string(res.Code) + ")"
-				}
-				if err := r.wait(ctx, st, spec.ID, extra, why); err != nil {
-					return false, err
+				if err := r.wait(ctx, st, spec.ID, extra, retryReason(spec, idem, res, sendErr)); err != nil {
+					return false, noAbort(err)
 				}
 				state = opjournal.Failed
 				continue
@@ -702,8 +806,8 @@ func (r *Runner) runStep(ctx context.Context, st *opState, spec Step, js opjourn
 			if idem && extra < spec.MaxRetries {
 				extra++
 				r.newAgentStep(st, spec.ID, cur.Attempts+1)
-				if err := r.wait(ctx, st, spec.ID, extra, "idempotent step in doubt"); err != nil {
-					return false, err
+				if err := r.wait(ctx, st, spec.ID, extra, "idempotent step in doubt: "+describe(res, sendErr)); err != nil {
+					return false, noAbort(err)
 				}
 				state = opjournal.Unknown
 				continue
@@ -717,17 +821,22 @@ func (r *Runner) runStep(ctx context.Context, st *opState, spec Step, js opjourn
 			if ctx.Err() != nil {
 				return false, r.stop(st, spec.ID, fmt.Errorf("runner context ended: %w", ctx.Err()))
 			}
+			if idem && r.abortRequested(st) {
+				// The abort cancelled the command; the step stays Unknown.
+				r.pauseForAbort(st, spec.ID, fmt.Sprintf("while %s was in flight; it was cancelled and its outcome is unknown", spec.Command))
+				return false, nil
+			}
 			if extra < spec.MaxRetries {
 				extra++
 				// Same agent step ID: the agent replays a recorded result or
 				// executes a command it never received; it never runs twice.
-				if err := r.wait(ctx, st, spec.ID, extra, "no answer: "+sendErr.Error()); err != nil {
-					return false, err
+				if err := r.wait(ctx, st, spec.ID, extra, "no answer: "+Redact(sendErr.Error())); err != nil {
+					return false, noAbort(err)
 				}
 				state = opjournal.Unknown
 				continue
 			}
-			r.setStatus(st, StatusPaused, spec.ID, "agent did not answer; outcome unknown: "+sendErr.Error(), EventPause)
+			r.setStatus(st, StatusPaused, spec.ID, "agent did not answer; outcome unknown: "+Redact(sendErr.Error()), EventPause)
 			return false, nil
 		}
 	}
@@ -750,9 +859,28 @@ func (r *Runner) newAgentStep(st *opState, stepID string, attempt int) {
 	st.fresh[stepID] = true
 }
 
+// retryReason explains a retry of a failed step with the agent's answer
+// (lab E4: only "idempotent step failed" was visible, not why). A database
+// that is not running yet is named as such: the step waits for that
+// dependency, not for the SQL itself.
+func retryReason(spec Step, idem bool, res agent.Result, err error) string {
+	d := describe(res, err)
+	switch {
+	case err == nil && res.Code == agent.CodeDBNotRunning:
+		return fmt.Sprintf("dependency not running: the database on %s is not running: %s", spec.Target, d)
+	case idem:
+		return "idempotent step failed: " + d
+	default:
+		return "step failed without effect: " + d
+	}
+}
+
+// describe renders an attempt's outcome for reasons, the timeline and the
+// log. The agent already redacts the secrets it knows; Redact is a second
+// line for anything that looks like a credential.
 func describe(res agent.Result, err error) string {
 	if err != nil {
-		return err.Error()
+		return Redact(err.Error())
 	}
 	s := string(res.Status)
 	if res.Code != "" {
@@ -760,6 +888,33 @@ func describe(res agent.Result, err error) string {
 	}
 	if res.Message != "" {
 		s += ": " + res.Message
+	}
+	return Redact(s)
+}
+
+// maxDetail bounds an error text stored in reasons and timeline entries.
+const maxDetail = 1024
+
+var redactions = []struct {
+	re   *regexp.Regexp
+	repl string
+}{
+	// SQL: IDENTIFIED BY [PASSWORD] '...'
+	{regexp.MustCompile(`(?i)(identified\s+by\s+(?:password\s+)?)'(?:[^'\\]|\\.)*'`), "${1}'***'"},
+	// key=value or key: value for credential-like keys.
+	{regexp.MustCompile(`(?i)\b(password|passwd|pwd|secret|token)(\s*[=:]\s*)("[^"]*"|'[^']*'|\S+)`), "${1}${2}***"},
+	// DSN user:password@unix(...) or @tcp(...).
+	{regexp.MustCompile(`([\w.-]+):[^@\s/]+@(unix|tcp)\(`), "${1}:***@${2}("},
+}
+
+// Redact masks credential-looking parts of an error text and bounds its
+// length.
+func Redact(s string) string {
+	for _, r := range redactions {
+		s = r.re.ReplaceAllString(s, r.repl)
+	}
+	if len(s) > maxDetail {
+		s = strings.ToValidUTF8(s[:maxDetail], "") + "..."
 	}
 	return s
 }
@@ -814,7 +969,7 @@ func (r *Runner) awaitPreconditions(ctx context.Context, st *opState, spec Step)
 		}
 		r.event(st, EventWait, spec.ID, reason)
 		if err := r.wait(ctx, st, spec.ID, polls+1, "precondition not met"); err != nil {
-			return false, err
+			return false, noAbort(err)
 		}
 	}
 }

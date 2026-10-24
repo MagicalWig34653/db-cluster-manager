@@ -211,7 +211,13 @@ func TestExecSQLGuards(t *testing.T) {
 	if err := os.Remove(filepath.Join(root, DefaultSocket)); err != nil {
 		t.Fatal(err)
 	}
-	wantStatus(t, f.mustDo(1, "op", "nosock", KindExecSQL, monitorArgs(root)), StatusRefused, CodeInvalidPath)
+	// A missing socket is classified as a database that is not running
+	// (lab E4 failcreate: the node's task never started).
+	r = f.mustDo(1, "op", "nosock", KindExecSQL, monitorArgs(root))
+	wantStatus(t, r, StatusFailed, CodeDBNotRunning)
+	if !strings.Contains(r.Message, "not running") || !strings.Contains(r.Message, DefaultSocket) {
+		t.Errorf("message %q", r.Message)
+	}
 	other := f.volume("galera-2")
 	writeRaw(t, filepath.Join(other, DefaultSocket), "")
 	if err := os.Symlink(filepath.Join(other, DefaultSocket), filepath.Join(root, DefaultSocket)); err != nil {

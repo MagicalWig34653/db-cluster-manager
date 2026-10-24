@@ -282,7 +282,12 @@ const (
 	CodeInDoubt               Code = "in-doubt"
 	CodeImmutable             Code = "immutable-field"
 	CodeDBUnavailable         Code = "db-unavailable"
-	CodeNotConfigured         Code = "not-configured"
+	// CodeDBNotRunning: the node's database socket does not exist, so the
+	// database of the node is not running (yet); for example its service
+	// task never started because the image cannot be pulled (lab E4
+	// failcreate). Nothing was executed.
+	CodeDBNotRunning  Code = "db-not-running"
+	CodeNotConfigured Code = "not-configured"
 )
 
 // Result is the recorded outcome of one step.

@@ -74,6 +74,13 @@ func (e *Executor) execSQL(ctx context.Context, a ExecSQLArgs) Result {
 	// this node's volume: a link to another node's socket would run the
 	// statements on the wrong database.
 	socket, err := filepath.EvalSymlinks(filepath.Join(root, DefaultSocket))
+	if errors.Is(err, os.ErrNotExist) {
+		// Lab E4 failcreate: reported only as a failed exec-sql while the
+		// node's task never started (unpullable image).
+		return Result{Status: StatusFailed, Code: CodeDBNotRunning, Message: fmt.Sprintf(
+			"database socket %s does not exist: the database of this node is not running (check the node service's task state, for example an image that cannot be pulled)",
+			filepath.Join(root, DefaultSocket))}
+	}
 	if err != nil {
 		return Result{Status: StatusRefused, Code: CodeInvalidPath, Message: "database socket: " + err.Error()}
 	}
