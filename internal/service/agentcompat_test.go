@@ -94,6 +94,8 @@ func TestAgentCompatibility(t *testing.T) {
 		{service.LabelCluster, agent.LabelCluster},
 		{service.LabelNode, agent.LabelNode},
 		{service.MarkerFileName, agent.MarkerFileName},
+		{string(service.StepCreateConfig), string(agent.KindCreateConfig)},
+		{string(service.StepRemoveConfig), string(agent.KindRemoveConfig)},
 		{string(service.StepCreateVolume), string(agent.KindCreateVolume)},
 		{string(service.StepInitIdentity), string(agent.KindInitIdentity)},
 		{string(service.StepCreateService), string(agent.KindCreateService)},
@@ -193,6 +195,10 @@ func TestPublishedPortsConverted(t *testing.T) {
 func strictArgs(kind agent.Kind, raw json.RawMessage) error {
 	var v any
 	switch kind {
+	case agent.KindCreateConfig:
+		v = &agent.ConfigSpec{}
+	case agent.KindRemoveConfig:
+		v = &agent.RemoveConfigArgs{}
 	case agent.KindCreateVolume:
 		v = &agent.CreateVolumeArgs{}
 	case agent.KindInitIdentity:
@@ -266,14 +272,14 @@ func TestPlanConvertsToAgentCommands(t *testing.T) {
 	if _, err := runner.FromServicePlan(p, runner.ServiceBindings{OpID: "o", InstallationID: "i", VolumeBase: "/srv/dbcm"}); err == nil {
 		t.Error("missing token accepted")
 	}
-	// Blocked plans never become operations (a deliver-config step has no
-	// agent command).
+	// Explicit blockers still prevent conversion.
 	blocked, _ := json.Marshal(service.TraefikSpec{Image: "traefik:v3.1",
 		EntryPoints: []service.EntryPoint{{Name: "web", Port: 80}},
 		Services:    []service.Backend{{Name: "b", Servers: []string{"http://web:80"}}},
 		Routers:     []service.Router{{Name: "r", Match: service.Match{Hosts: []string{"a.example.org"}}, EntryPoints: []string{"web"}, Service: "b"}}})
 	ty, _ = service.DefaultRegistry().Get("traefik")
 	bp, _ := ty.Plan(service.PlanInput{Context: ctx, Spec: blocked})
+	bp.Blockers = append(bp.Blockers, "test blocker")
 	if _, err := runner.FromServicePlan(bp, b); !errors.Is(err, service.ErrNotExecutable) {
 		t.Errorf("blocked plan: %v", err)
 	}
@@ -382,7 +388,7 @@ func TestStoragePlansConvertToAgentCommands(t *testing.T) {
 		{"sftp", service.SFTPSpec{StorageBase: base, PublishedPort: 2222, UsersConfig: "sftp-users",
 			Users: []service.StorageUser{{Name: "alice", UID: 1001, PasswordSecret: "alice-pw"}}}, 1, 1, false},
 		{"ftp", service.FTPSpec{StorageBase: base, Passive: service.PassiveRange{Min: 30000, Max: 30004}, PassiveAddress: "10.0.0.1",
-			CertSecret: "c", KeySecret: "k", Users: []service.StorageUser{{Name: "bob", UID: 1002, PasswordSecret: "bob-pw"}}}, 6, 0, false},
+			CertSecret: "c", KeySecret: "k", Users: []service.StorageUser{{Name: "bob", UID: 1002, PasswordSecret: "bob-pw"}}}, 6, 1, false},
 		{"s3", service.S3Spec{StorageBase: base, RootUserSecret: "u", RootPasswordSecret: "p", APIPublishedPort: 9000}, 1, 0, false},
 		{"nfs", service.NFSSpec{StorageBase: base, Exports: []service.NFSExport{{Path: "/", Clients: []string{"10.0.0.0/24"}}}}, 1, 0, true},
 	}

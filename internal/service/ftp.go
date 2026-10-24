@@ -176,6 +176,7 @@ func (f FTPSpec) container() ContainerSpec {
 	c.Env = []EnvVar{
 		{Name: "DBCM_FTP_MODE", Value: f.mode()},
 		{Name: "DBCM_FTP_DATA_DIR", Value: FTPDataDir},
+		{Name: "DBCM_FTP_USERS_FILE", Value: "/etc/dbcm/ftp-users.json"},
 		{Name: "DBCM_FTP_CONTROL_PORT", Value: strconv.Itoa(f.controlPort())},
 		{Name: "DBCM_FTP_PASSIVE_MIN", Value: strconv.Itoa(f.Passive.Min)},
 		{Name: "DBCM_FTP_PASSIVE_MAX", Value: strconv.Itoa(f.Passive.Max)},
@@ -223,6 +224,7 @@ func (FTP) Plan(in PlanInput) (Plan, error) {
 		return Plan{}, err
 	}
 	p.Artifacts = append(p.Artifacts, users, ports)
+	deliverConfig(&p, in.Context, "ftp-users.json", "/etc/dbcm/ftp-users.json")
 	p.Warnings = append(p.Warnings, storageBackupWarning)
 	n := f.Passive.Max - f.Passive.Min + 1
 	p.Warnings = append(p.Warnings, fmt.Sprintf("passive FTP publishes %d data ports plus the control port %d on the Swarm; the firewall in front of the host must allow %d-%d and %d",
@@ -251,7 +253,9 @@ func (FTP) DeletePlan(in PlanInput) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
-	return f.container().deletePlan(in, TypeFTP), nil
+	p := f.container().deletePlan(in, TypeFTP)
+	removeManagedConfig(&p, in.Context, "ftp-users.json")
+	return p, nil
 }
 
 // Health implements Type.

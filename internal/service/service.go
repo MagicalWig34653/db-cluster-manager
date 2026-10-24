@@ -40,6 +40,8 @@ type StepKind string
 
 // Step kinds.
 const (
+	StepCreateConfig  StepKind = "create-config"
+	StepRemoveConfig  StepKind = "remove-config"
 	StepCreateVolume  StepKind = "create-volume"
 	StepInitIdentity  StepKind = "init-identity"
 	StepCreateService StepKind = "create-service"
@@ -68,7 +70,9 @@ type Step struct {
 	// ServiceName and ServiceID name the service of remove steps.
 	ServiceName string `json:"serviceName,omitempty"`
 	ServiceID   string `json:"serviceId,omitempty"`
-	// Artifact names the artifact a deliver-config step places.
+	// Config names the managed config of config steps.
+	Config string `json:"config,omitempty"`
+	// Artifact names the non-secret artifact a create-config step places.
 	Artifact string `json:"artifact,omitempty"`
 	// Destructive steps remove or overwrite state.
 	Destructive bool `json:"destructive,omitempty"`
@@ -86,6 +90,7 @@ type Artifact struct {
 	Name      string `json:"name"`
 	MediaType string `json:"mediaType"`
 	Content   string `json:"content"`
+	Secret    bool   `json:"secret,omitempty"`
 }
 
 // Plan is an ordered, explainable plan. Executing it is elsewhere

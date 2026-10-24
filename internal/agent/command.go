@@ -338,6 +338,10 @@ func decodeCommand(cmd Command, volumeBase string) (decoded, error) {
 	}
 	var args any
 	switch cmd.Kind {
+	case KindCreateConfig:
+		args = &ConfigSpec{}
+	case KindRemoveConfig:
+		args = &RemoveConfigArgs{}
 	case KindCreateService:
 		args = &ServiceSpec{}
 	case KindRemoveService, KindStopDB:
@@ -398,6 +402,9 @@ func decodeCommand(cmd Command, volumeBase string) (decoded, error) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(args); err != nil {
+		if cmd.Kind == KindCreateConfig {
+			return decoded{}, invalid("invalid config arguments")
+		}
 		return decoded{}, invalid("args for %s: %v", cmd.Kind, err)
 	}
 	if dec.More() {
@@ -422,6 +429,20 @@ func checkID(name, v string) error {
 
 func checkArgs(args any, volumeBase string) error {
 	switch a := args.(type) {
+	case *ConfigSpec:
+		if !volumeName.MatchString(a.Name) || len(a.Data) == 0 || len(a.Data) > 500*1024 {
+			return invalid("config requires a valid name and 1..512000 bytes")
+		}
+		if a.Secret {
+			return invalid("secret config content is refused; use Swarm secrets")
+		}
+		if a.Labels[LabelCluster] == "" || a.Labels[LabelNode] == "" {
+			return invalid("config cluster and node ownership labels required")
+		}
+	case *RemoveConfigArgs:
+		if !volumeName.MatchString(a.Config) || a.ClusterID == "" {
+			return invalid("config and cluster_id required")
+		}
 	case *ServiceSpec:
 		if _, ok := a.Labels[LabelJob]; ok {
 			return invalid("label %s is reserved for run-backup and run-restore", LabelJob)

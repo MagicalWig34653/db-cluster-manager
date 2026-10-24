@@ -190,10 +190,10 @@ func TestTraefikPlan(t *testing.T) {
 	for _, s := range p.Steps {
 		kinds = append(kinds, s.Kind)
 	}
-	if !slices.Equal(kinds, []StepKind{StepCreateVolume, StepInitIdentity, StepCreateService, StepDeliverConfig}) {
+	if !slices.Equal(kinds, []StepKind{StepCreateVolume, StepInitIdentity, StepCreateConfig, StepCreateService}) {
 		t.Fatalf("steps %v", kinds)
 	}
-	svc := p.Steps[2].Spec
+	svc := p.Steps[3].Spec
 	if svc.Replicas != 1 || svc.Labels[LabelServiceType] != TypeTraefik || !slices.Equal(svc.Secrets, []string{"admin-users"}) ||
 		len(svc.Mounts) != 1 || svc.Mounts[0].Target != TraefikACMEDir {
 		t.Fatalf("%+v", svc)
@@ -204,9 +204,8 @@ func TestTraefikPlan(t *testing.T) {
 	if len(svc.PublishedPorts()) != 2 {
 		t.Fatalf("ports %+v", svc.Ports)
 	}
-	// Ports are published by the agent now; creating the dynamic config as a
-	// Swarm config is not possible: the plan must say so and refuse to run.
-	if p.Executable() || len(p.Blockers) != 1 {
+	// Both ports and the dynamic config can now be deployed.
+	if !p.Executable() || len(p.Blockers) != 0 {
 		t.Fatalf("blockers %v", p.Blockers)
 	}
 	names := map[string]bool{}
@@ -232,11 +231,24 @@ func TestTraefikPlan(t *testing.T) {
 
 func TestTraefikDeleteAndHealth(t *testing.T) {
 	d, err := Traefik{}.DeletePlan(PlanInput{Context: ctx(), Spec: raw(t, goodTraefik()), RemoveVolumes: true})
-	if err != nil || len(d.Steps) != 2 || d.Type != TypeTraefik || d.Steps[1].Kind != StepRemoveVolume {
+	if err != nil || len(d.Steps) != 3 || d.Type != TypeTraefik || d.Steps[1].Kind != StepRemoveVolume {
 		t.Fatalf("%+v %v", d, err)
 	}
 	h, err := Traefik{}.Health(HealthInput{Spec: raw(t, goodTraefik()), Observed: Observation{}})
 	if err != nil || h.State != HealthUnknown {
 		t.Fatalf("%v %v", h, err)
+	}
+}
+
+func TestTraefikConfigRotationStaysBlocked(t *testing.T) {
+	current := goodTraefik()
+	desired := goodTraefik()
+	desired.Services[0].Servers = []string{"http://changed:80"}
+	p, err := Traefik{}.UpdatePlan(UpdateInput{Context: ctx(), Current: raw(t, current), Spec: raw(t, desired)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Executable() || !strings.Contains(strings.Join(p.Blockers, " "), "config rotation") {
+		t.Fatal(p.Blockers)
 	}
 }

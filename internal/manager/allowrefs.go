@@ -31,7 +31,7 @@ var ErrUnknownReference = errors.New("manager: referenced network or secret not 
 
 // objectRefs are the names (or IDs) of referenced objects.
 type objectRefs struct {
-	Networks, Secrets []string
+	Networks, Secrets, Configs []string
 }
 
 // resolveRefs returns the IDs of refs in the Swarm, each carrying the
@@ -55,7 +55,7 @@ func (s *Swarms) resolveRefs(ctx context.Context, swarmID, inst string, refs obj
 	for _, k := range []struct {
 		kind agent.ObjectKind
 		refs []string
-	}{{agent.KindNetwork, refs.Networks}, {agent.KindSecret, refs.Secrets}} {
+	}{{agent.KindNetwork, refs.Networks}, {agent.KindSecret, refs.Secrets}, {agent.KindConfig, refs.Configs}} {
 		if len(k.refs) == 0 {
 			continue
 		}

@@ -265,6 +265,8 @@ var ErrConflict = errors.New("agent: docker conflict")
 // implemented by internal/dockerclient (Docker Engine API) and by a test
 // fake.
 type DockerAPI interface {
+	CreateConfig(context.Context, ConfigSpec) (string, error)
+	RemoveConfig(context.Context, string) error
 	CreateService(ctx context.Context, spec ServiceSpec) (id string, err error)
 	RemoveService(ctx context.Context, id string) error
 	ScaleService(ctx context.Context, id string, replicas uint64) error
