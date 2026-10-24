@@ -233,3 +233,8 @@ func condKinds(s runner.Step) []string {
 	}
 	return out
 }
+
+func (nopDocker) CreateConfig(context.Context, agent.ConfigSpec) (string, error) {
+	return "", agent.ErrObjectNotFound
+}
+func (nopDocker) RemoveConfig(context.Context, string) error { return agent.ErrObjectNotFound }

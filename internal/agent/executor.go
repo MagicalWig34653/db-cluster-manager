@@ -200,6 +200,10 @@ func (e *Executor) handleRead(ctx context.Context, d decoded) (Result, error) {
 
 func (e *Executor) execute(ctx context.Context, d decoded) Result {
 	switch a := d.args.(type) {
+	case *ConfigSpec:
+		return e.createConfig(ctx, d.cmd, *a)
+	case *RemoveConfigArgs:
+		return e.removeConfig(ctx, *a)
 	case *ServiceSpec:
 		return e.createService(ctx, d.cmd, *a)
 	case *ServiceArgs:

@@ -196,3 +196,29 @@ func (f *fakeDocker) UpdateService(_ context.Context, id string, spec ServiceSpe
 	f.specs[id] = spec
 	return nil
 }
+
+func (f *fakeDocker) CreateConfig(_ context.Context, s ConfigSpec) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record("create-config %s", s.Name)
+	if err := f.takeFail(); err != nil {
+		return "", err
+	}
+	f.nextID++
+	id := fmt.Sprintf("cfg-new-%d", f.nextID)
+	f.objects[id] = Object{Kind: KindConfig, ID: id, Name: s.Name, Labels: maps.Clone(s.Labels)}
+	return id, nil
+}
+func (f *fakeDocker) RemoveConfig(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record("remove-config %s", id)
+	if err := f.takeFail(); err != nil {
+		return err
+	}
+	if o, ok := f.objects[id]; !ok || o.Kind != KindConfig {
+		return ErrObjectNotFound
+	}
+	delete(f.objects, id)
+	return nil
+}

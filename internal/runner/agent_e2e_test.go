@@ -56,7 +56,16 @@ func (d *memDocker) CreateVolume(_ context.Context, v agent.VolumeSpec) error {
 	return nil
 }
 
-func (d *memDocker) RemoveService(context.Context, string) error { return agent.ErrObjectNotFound }
+func (d *memDocker) RemoveService(_ context.Context, id string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if _, ok := d.objects[id]; !ok {
+		return agent.ErrObjectNotFound
+	}
+	delete(d.objects, id)
+	delete(d.specs, id)
+	return nil
+}
 func (d *memDocker) ScaleService(context.Context, string, uint64) error {
 	return agent.ErrObjectNotFound
 }
@@ -70,7 +79,7 @@ func (d *memDocker) Inspect(_ context.Context, kind agent.ObjectKind, id string)
 		return o, nil
 	}
 	for _, o := range d.objects {
-		if o.Kind == kind && o.Name == id && (kind == agent.KindNetwork || kind == agent.KindSecret) {
+		if o.Kind == kind && o.Name == id && (kind == agent.KindNetwork || kind == agent.KindSecret || kind == agent.KindConfig) {
 			return o, nil
 		}
 	}
@@ -193,4 +202,29 @@ func TestGaleraCreatePlanRunsAgainstRealExecutor(t *testing.T) {
 	if stored != 3 {
 		t.Fatalf("%d stored services, want 3", stored)
 	}
+}
+
+func (d *memDocker) CreateConfig(_ context.Context, s agent.ConfigSpec) (string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.n++
+	id := fmt.Sprintf("cfg-%d", d.n)
+	d.objects[id] = agent.Object{Kind: agent.KindConfig, ID: id, Name: s.Name, Labels: maps.Clone(s.Labels)}
+	return id, nil
+}
+func (d *memDocker) RemoveConfig(_ context.Context, id string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for _, s := range d.specs {
+		for _, c := range s.Configs {
+			if c.Config == id {
+				return agent.ErrConflict
+			}
+		}
+	}
+	if o, ok := d.objects[id]; !ok || o.Kind != agent.KindConfig {
+		return agent.ErrObjectNotFound
+	}
+	delete(d.objects, id)
+	return nil
 }
