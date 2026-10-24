@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/MagicalWig34653/db-cluster-manager/internal/agent"
 )
@@ -72,6 +73,23 @@ type wireContainerSpec struct {
 	Mounts          []wireMount       `json:"Mounts,omitempty"`
 	StopGracePeriod int64             `json:"StopGracePeriod,omitempty"` // nanoseconds
 	Secrets         []wireSecretRef   `json:"Secrets,omitempty"`
+	Configs         []wireConfigRef   `json:"Configs,omitempty"`
+}
+
+// wireConfigRef is an item of TaskSpec.ContainerSpec.Configs: like a secret
+// reference, with ConfigID and ConfigName.
+type wireConfigRef struct {
+	File       wireSecretFile `json:"File"`
+	ConfigID   string         `json:"ConfigID"`
+	ConfigName string         `json:"ConfigName"`
+}
+
+// wirePort is an item of EndpointSpec.Ports.
+type wirePort struct {
+	Protocol      string `json:"Protocol"`
+	TargetPort    int    `json:"TargetPort"`
+	PublishedPort int    `json:"PublishedPort"`
+	PublishMode   string `json:"PublishMode"`
 }
 
 // wireSecretRef is an item of TaskSpec.ContainerSpec.Secrets. The daemon
@@ -93,12 +111,16 @@ type wireSecretFile struct {
 // default: readable, root-owned.
 const secretFileMode = 0o444
 
+// configFileMode is the default mode of a config file.
+const configFileMode = 0o444
+
 type wireNetworkAttachment struct {
 	Target string `json:"Target"` // network name or ID
 }
 
 type wireEndpointSpec struct {
-	Mode string `json:"Mode,omitempty"`
+	Mode  string     `json:"Mode,omitempty"`
+	Ports []wirePort `json:"Ports,omitempty"`
 }
 
 type wireMount struct {
@@ -174,7 +196,7 @@ type wireService struct {
 // toWireSpec converts an agent spec. Service labels are also set on the
 // container spec so the service's containers carry the ownership labels.
 // secrets are the resolved s.Secrets in the same order.
-func toWireSpec(s agent.ServiceSpec, secrets []agent.Object) wireServiceSpec {
+func toWireSpec(s agent.ServiceSpec, secrets, configs []agent.Object) wireServiceSpec {
 	w := wireServiceSpec{
 		Name:   s.Name,
 		Labels: maps.Clone(s.Labels),
@@ -195,8 +217,28 @@ func toWireSpec(s agent.ServiceSpec, secrets []agent.Object) wireServiceSpec {
 	for _, n := range s.Networks {
 		w.TaskTemplate.Networks = append(w.TaskTemplate.Networks, wireNetworkAttachment{Target: n})
 	}
-	if s.EndpointMode != "" {
+	if s.EndpointMode != "" || len(s.Ports) > 0 {
 		w.EndpointSpec = &wireEndpointSpec{Mode: s.EndpointMode}
+	}
+	for _, p := range s.Ports {
+		proto, mode := p.Protocol, p.Mode
+		if proto == "" {
+			proto = agent.PortProtocolTCP
+		}
+		if mode == "" {
+			mode = agent.PortModeIngress
+		}
+		w.EndpointSpec.Ports = append(w.EndpointSpec.Ports, wirePort{Protocol: proto, TargetPort: p.Target, PublishedPort: p.Published, PublishMode: mode})
+	}
+	for i, c := range configs {
+		mode := s.Configs[i].Mode
+		if mode == 0 {
+			mode = configFileMode
+		}
+		w.TaskTemplate.ContainerSpec.Configs = append(w.TaskTemplate.ContainerSpec.Configs, wireConfigRef{
+			File:     wireSecretFile{Name: s.Configs[i].Target, UID: "0", GID: "0", Mode: mode},
+			ConfigID: c.ID, ConfigName: c.Name,
+		})
 	}
 	for _, sec := range secrets {
 		w.TaskTemplate.ContainerSpec.Secrets = append(w.TaskTemplate.ContainerSpec.Secrets, wireSecretRef{
@@ -269,7 +311,40 @@ func validateSpec(s agent.ServiceSpec) error {
 			}
 		}
 	}
+	for _, p := range s.Ports {
+		proto := p.Protocol
+		if proto == "" {
+			proto = agent.PortProtocolTCP
+		}
+		if p.Target < 1 || p.Target > 65535 || p.Published < 1 || p.Published > 65535 ||
+			(proto != agent.PortProtocolTCP && proto != agent.PortProtocolUDP) ||
+			(p.Mode != "" && p.Mode != agent.PortModeIngress && p.Mode != agent.PortModeHost) {
+			return fmt.Errorf("%w: port %d->%d/%s mode %q", ErrInvalidArgument, p.Published, p.Target, p.Protocol, p.Mode)
+		}
+	}
+	for _, c := range s.Configs {
+		if !objectID.MatchString(c.Config) || c.Target == "" || !strings.HasPrefix(c.Target, "/") || c.Mode > 0o777 {
+			return fmt.Errorf("%w: config reference %q target %q", ErrInvalidArgument, c.Config, c.Target)
+		}
+	}
 	return nil
+}
+
+// resolveConfigs inspects each referenced config: the API needs both its ID
+// and its name. The result is in the order of refs.
+func (c *Client) resolveConfigs(ctx context.Context, refs []agent.ConfigRef) ([]agent.Object, error) {
+	out := make([]agent.Object, 0, len(refs))
+	for _, ref := range refs {
+		obj, err := c.Inspect(ctx, agent.KindConfig, ref.Config)
+		if err != nil {
+			return nil, fmt.Errorf("dockerclient: config %q: %w", ref.Config, err)
+		}
+		if obj.ID == "" || obj.Name == "" {
+			return nil, fmt.Errorf("dockerclient: config %q: response lacks ID or name", ref.Config)
+		}
+		out = append(out, obj)
+	}
+	return out, nil
 }
 
 // resolveSecrets inspects each referenced secret: the API needs both its ID
@@ -307,11 +382,15 @@ func (c *Client) CreateService(ctx context.Context, spec agent.ServiceSpec) (str
 	if err != nil {
 		return "", err
 	}
+	configs, err := c.resolveConfigs(ctx, spec.Configs)
+	if err != nil {
+		return "", err
+	}
 	var resp struct {
 		ID       string   `json:"ID"`
 		Warnings []string `json:"Warnings"`
 	}
-	if err := c.do(ctx, http.MethodPost, "/services/create", nil, toWireSpec(spec, secrets), &resp, true); err != nil {
+	if err := c.do(ctx, http.MethodPost, "/services/create", nil, toWireSpec(spec, secrets, configs), &resp, true); err != nil {
 		return "", err
 	}
 	if resp.ID == "" {
@@ -385,16 +464,16 @@ type shape struct {
 
 // specShape is the part of the Swarm ServiceSpec that toWireSpec produces.
 // Everything else in a service's current spec (UpdateConfig, RollbackConfig,
-// LogDriver, ForceUpdate, endpoint ports, ...) is preserved on update.
+// LogDriver, ForceUpdate, ...) is preserved on update.
 var specShape = &shape{
 	keys: []string{"Name", "Labels", "Mode"},
 	sub: map[string]*shape{
 		"TaskTemplate": {
 			keys: []string{"Resources", "RestartPolicy", "Placement", "Networks"},
 			sub: map[string]*shape{"ContainerSpec": {keys: []string{
-				"Image", "Labels", "Command", "Args", "User", "Hostname", "Env", "Mounts", "StopGracePeriod", "Secrets"}}},
+				"Image", "Labels", "Command", "Args", "User", "Hostname", "Env", "Mounts", "StopGracePeriod", "Secrets", "Configs"}}},
 		},
-		"EndpointSpec": {keys: []string{"Mode"}},
+		"EndpointSpec": {keys: []string{"Mode", "Ports"}},
 	},
 }
 
@@ -469,6 +548,10 @@ func (c *Client) UpdateService(ctx context.Context, id string, spec agent.Servic
 	if err != nil {
 		return err
 	}
+	configs, err := c.resolveConfigs(ctx, spec.Configs)
+	if err != nil {
+		return err
+	}
 	var svc struct {
 		Version struct {
 			Index uint64 `json:"Index"`
@@ -481,7 +564,7 @@ func (c *Client) UpdateService(ctx context.Context, id string, spec agent.Servic
 	if svc.Spec == nil {
 		return fmt.Errorf("dockerclient: service %q: response has no spec", id)
 	}
-	want, err := toRawMap(toWireSpec(spec, secrets))
+	want, err := toRawMap(toWireSpec(spec, secrets, configs))
 	if err != nil {
 		return err
 	}

@@ -406,13 +406,6 @@ func (c ContainerSpec) plan(in PlanInput, typ string) (Plan, error) {
 		return Plan{}, err
 	}
 	p.Artifacts = append(p.Artifacts, Artifact{Name: "swarm-service.json", MediaType: "application/json", Content: string(raw) + "\n"})
-	if pp := spec.PublishedPorts(); len(pp) > 0 {
-		var ps []string
-		for _, x := range pp {
-			ps = append(ps, fmt.Sprintf("%d->%d/%s", x.Published, x.Target, x.Protocol))
-		}
-		p.Blockers = append(p.Blockers, "published ports ("+strings.Join(ps, ", ")+") cannot be created yet: the agent's service spec has no port publishing")
-	}
 	if spec.Resources.Limits.MemoryBytes == 0 {
 		p.Warnings = append(p.Warnings, "no memory limit is set; a runaway container can use all memory of its host")
 	}

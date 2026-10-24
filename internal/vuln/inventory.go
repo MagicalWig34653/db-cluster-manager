@@ -101,8 +101,8 @@ func (e InventoryEntry) Validate() error {
 	return nil
 }
 
-// InventorySource provides the current inventory. The production source
-// (service records plus build records and SBOMs) is not wired yet;
+// InventorySource provides the current inventory. The manager's source is
+// manager.VulnInventory (service, cluster and build records);
 // StaticInventory is the fake.
 type InventorySource interface {
 	Inventory(ctx context.Context) ([]InventoryEntry, error)

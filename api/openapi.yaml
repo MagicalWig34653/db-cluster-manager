@@ -1126,9 +1126,10 @@ paths:
     get:
       summary: List managed services the caller may read
       description: >-
-        Services of a service type (container, traefik, galera) with their
-        observed health. Galera clusters are listed as galera services and
-        need cluster read permission. Implemented with fakes only (W07).
+        Services of a service type (container, traefik, galera, sftp, ftp,
+        s3, nfs) with their observed health. Galera clusters are listed as
+        galera services and need cluster read permission. Implemented with
+        fakes only (W07, W09).
       operationId: listServices
       responses:
         "200":
@@ -2302,7 +2303,7 @@ components:
       properties:
         swarm: { type: string }
         name: { type: string, description: "Lower case letters, digits and hyphens." }
-        type: { type: string, enum: [container, traefik, galera] }
+        type: { type: string, enum: [container, traefik, galera, sftp, ftp, s3, nfs] }
         spec:
           type: object
           description: >-

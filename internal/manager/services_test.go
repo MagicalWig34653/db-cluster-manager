@@ -202,12 +202,20 @@ func TestServiceCreateDeleteWithApproval(t *testing.T) {
 func TestServiceWithBlockersIsPreviewedButNotStarted(t *testing.T) {
 	_, svcs, agents := serviceFixture(t)
 	ctx := context.Background()
-	in := containerInput(t, func(c *service.ContainerSpec) { c.Ports = []service.Port{{Target: 8080, Published: 8080}} })
+	// An NFS server needs privileges the agent cannot grant: always blocked.
+	nfs, err := json.Marshal(service.NFSSpec{
+		StorageBase: service.StorageBase{Image: "example/nfs:1", Placement: service.Placement{HostID: "h1"}},
+		Exports:     []service.NFSExport{{Path: "/", Clients: []string{"10.0.0.0/24"}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := api.ServiceInput{Swarm: "sw1", Name: "web", Type: "nfs", Spec: nfs}
 	pv, err := svcs.PreviewService(ctx, adminSubject, in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pv.Executable || len(pv.Blockers) != 1 {
+	if pv.Executable || len(pv.Blockers) != 2 {
 		t.Fatalf("%+v", pv)
 	}
 	if _, err := svcs.CreateService(ctx, adminSubject, in); !errors.Is(err, api.ErrConflict) {

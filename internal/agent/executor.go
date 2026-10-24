@@ -293,6 +293,9 @@ func (e *Executor) createService(ctx context.Context, cmd Command, spec ServiceS
 	if spec.Secrets, res, ok = e.ownedRefs(ctx, KindSecret, spec.Secrets); !ok {
 		return res
 	}
+	if spec.Configs, res, ok = e.ownedConfigs(ctx, spec.Configs); !ok {
+		return res
+	}
 	id, err := e.docker.CreateService(ctx, spec)
 	if err != nil {
 		return outcome(err)
@@ -472,6 +475,9 @@ func (e *Executor) updateService(ctx context.Context, a UpdateServiceArgs) Resul
 	if spec.Secrets, res, ok = e.ownedRefs(ctx, KindSecret, spec.Secrets); !ok {
 		return res
 	}
+	if spec.Configs, res, ok = e.ownedConfigs(ctx, spec.Configs); !ok {
+		return res
+	}
 	if err := e.docker.UpdateService(ctx, cur.ID, spec); err != nil {
 		return outcome(err)
 	}
@@ -633,6 +639,28 @@ func (e *Executor) ownedRefs(ctx context.Context, kind ObjectKind, refs []string
 			return nil, outcome(fmt.Errorf("referenced %s %q: %w", kind, ref, err)), false
 		}
 		out = append(out, obj.ID)
+	}
+	return out, Result{}, true
+}
+
+// ownedConfigs applies the ownership guard to every referenced Swarm config
+// and pins each reference to the ID that was checked, like ownedRefs does
+// for networks and secrets.
+func (e *Executor) ownedConfigs(ctx context.Context, refs []ConfigRef) ([]ConfigRef, Result, bool) {
+	if len(refs) == 0 {
+		return refs, Result{}, true
+	}
+	out := make([]ConfigRef, 0, len(refs))
+	for _, ref := range refs {
+		obj, err := e.docker.Inspect(ctx, KindConfig, ref.Config)
+		if err != nil {
+			return nil, outcome(fmt.Errorf("%s %q: %w", KindConfig, ref.Config, err)), false
+		}
+		if err := e.owner.Check(obj, KindConfig); err != nil {
+			return nil, outcome(fmt.Errorf("referenced %s %q: %w", KindConfig, ref.Config, err)), false
+		}
+		ref.Config = obj.ID
+		out = append(out, ref)
 	}
 	return out, Result{}, true
 }

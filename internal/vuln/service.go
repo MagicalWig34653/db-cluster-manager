@@ -80,6 +80,10 @@ type Service struct {
 	BaseBackoff time.Duration
 
 	mu sync.Mutex
+
+	seqMu     sync.Mutex
+	seq       uint64
+	seqLoaded bool
 }
 
 func (s *Service) now() time.Time {
@@ -97,11 +101,32 @@ func (s *Service) leader() error {
 }
 
 func (s *Service) audit(r AuditRecord) error {
-	r.ID, r.At, r.Seq = newID("va-"), s.now(), auditSeq.Add(1)
+	r.ID, r.At, r.Seq = newID("va-"), s.now(), s.nextSeq()
 	if r.Result == "" {
 		r.Result = "ok"
 	}
 	return s.Store.AppendAudit(r)
+}
+
+// nextSeq returns the next audit sequence number. It continues after the
+// highest sequence in the store (read once per leadership by ResetSeq or on
+// first use), so the order survives restarts and leader changes.
+func (s *Service) nextSeq() uint64 {
+	s.seqMu.Lock()
+	defer s.seqMu.Unlock()
+	if !s.seqLoaded {
+		s.seq, s.seqLoaded = s.Store.MaxAuditSeq(), true
+	}
+	s.seq++
+	return s.seq
+}
+
+// ResetSeq makes the next audit write re-read the stored sequence (call it
+// when this replica becomes leader).
+func (s *Service) ResetSeq() {
+	s.seqMu.Lock()
+	s.seqLoaded = false
+	s.seqMu.Unlock()
 }
 
 func (s *Service) notify(ctx context.Context, n Notification) {

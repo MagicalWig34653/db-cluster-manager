@@ -142,7 +142,7 @@ func (f *fakeDocker) Inspect(_ context.Context, kind ObjectKind, id string) (Obj
 	if !ok {
 		// Like Docker, networks and secrets can also be inspected by name.
 		for _, c := range f.objects {
-			if (kind == KindNetwork || kind == KindSecret) && c.Kind == kind && c.Name == id {
+			if (kind == KindNetwork || kind == KindSecret || kind == KindConfig) && c.Kind == kind && c.Name == id {
 				o, ok = c, true
 				break
 			}

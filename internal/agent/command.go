@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -564,6 +565,52 @@ func checkSpec(a ServiceSpec) error {
 				return invalid("network or secret reference must be 1..%d bytes", maxIDLen)
 			}
 		}
+	}
+	return checkPortsAndConfigs(a)
+}
+
+// checkPortsAndConfigs validates the published ports and config references
+// of a service spec.
+func checkPortsAndConfigs(a ServiceSpec) error {
+	type pk struct {
+		port  int
+		proto string
+	}
+	seenPort := map[pk]bool{}
+	for _, p := range a.Ports {
+		proto := p.Protocol
+		if proto == "" {
+			proto = PortProtocolTCP
+		}
+		switch {
+		case p.Target < 1 || p.Target > 65535:
+			return invalid("port target %d out of range 1..65535", p.Target)
+		case p.Published < 1 || p.Published > 65535:
+			return invalid("published port %d out of range 1..65535", p.Published)
+		case proto != PortProtocolTCP && proto != PortProtocolUDP:
+			return invalid("port protocol %q (want tcp or udp)", p.Protocol)
+		case p.Mode != "" && p.Mode != PortModeIngress && p.Mode != PortModeHost:
+			return invalid("port mode %q (want ingress or host)", p.Mode)
+		case seenPort[pk{p.Published, proto}]:
+			return invalid("published port %d/%s listed twice", p.Published, proto)
+		}
+		seenPort[pk{p.Published, proto}] = true
+	}
+	seenTarget := map[string]bool{}
+	for _, c := range a.Configs {
+		switch {
+		case c.Config == "" || len(c.Config) > maxIDLen:
+			return invalid("config reference must be 1..%d bytes", maxIDLen)
+		case !path.IsAbs(c.Target) || path.Clean(c.Target) != c.Target || c.Target == "/" || len(c.Target) > 4096:
+			return invalid("config target %q must be a clean absolute file path", c.Target)
+		case c.Target == SecretsDir || strings.HasPrefix(c.Target, SecretsDir+"/"):
+			return invalid("config target %q is inside %s", c.Target, SecretsDir)
+		case c.Mode > 0o777:
+			return invalid("config mode %o out of range", c.Mode)
+		case seenTarget[c.Target]:
+			return invalid("config target %q used twice", c.Target)
+		}
+		seenTarget[c.Target] = true
 	}
 	return nil
 }

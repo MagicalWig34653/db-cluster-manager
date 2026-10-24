@@ -80,6 +80,12 @@ func TestManagedModeWiresImageBuilds(t *testing.T) {
 	}
 	mux := newMux(rt)
 	for _, p := range []string{"/api/v1/image-builds", "/api/v1/registries"} {
+		// The leader API is swapped into the mux after the backend is
+		// stored, so a 503 right after startup is only the not-yet-mounted
+		// window.
+		waitUntil(t, p+" mounted", func() bool {
+			return serve(t, mux, "GET", p, "").Code != http.StatusServiceUnavailable
+		})
 		if rec := serve(t, mux, "GET", p, ""); rec.Code != http.StatusUnauthorized {
 			t.Errorf("%s = %d, want 401 (mounted, session required)", p, rec.Code)
 		}

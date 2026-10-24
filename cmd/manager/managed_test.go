@@ -339,7 +339,11 @@ func TestManagedModeAppliesConfiguredSettings(t *testing.T) {
 		s.Accounts.MonitorSecret != "dbcm-e4-monitor" || s.Backup.JobImage != "dbcm-job:e4" {
 		t.Fatalf("settings %+v", s)
 	}
-	if ops := rt.commandServices(rt.stack.Load()).control.Ops; ops.MaxRetries <= 0 {
+	set, err := rt.commandServices(rt.stack.Load())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ops := set.control.Ops; ops.MaxRetries <= 0 {
 		t.Fatalf("operations without retries: %+v", ops)
 	}
 }

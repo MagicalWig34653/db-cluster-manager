@@ -31,7 +31,7 @@ Nothing has run on a production Swarm; the first Swarm trial has not started. Le
 | Replicated manager (Raft metastore, peer mTLS with `-issue-peer-certs`, wrapped data keyring with `-print-replica-key`) | Fakes; no multi-replica run on VMs |
 | Web UI in German and English, light and dark; pages for services, image builds, registries, host maintenance, drift, replica keyring, logical backup and retention | Mock only |
 | Kubernetes, provisioning, web/storage servers, Traefik, image builds, engine updates | Planned ([ADR 0012](docs/decisions/0012-broadened-scope-platform.md)) |
-| AI-assisted vulnerability response (advisory feeds, patched rebuilds or mitigations, selectable AI providers, approval by default) | Planned, proposed ([ADR 0015](docs/decisions/0015-ai-assisted-vulnerability-response.md)) |
+| AI-assisted vulnerability response (advisory feeds, patched rebuilds or mitigations, selectable AI providers, approval by default) | Wired and UI built, fakes and mock only; proposed ([ADR 0015](docs/decisions/0015-ai-assisted-vulnerability-response.md)) |
 
 ## Screenshots
 
@@ -50,6 +50,12 @@ All from the development mock server with invented data; they show the interface
 | ![Host maintenance plan](docs/assets/screenshots/en-light-host-maintenance.png) | ![Drift check](docs/assets/screenshots/en-light-drift.png) |
 | **Replicas and keyring** | **Logical backup and retention** |
 | ![Replicas and keyring](docs/assets/screenshots/en-light-keyring.png) | ![Backup schedule form](docs/assets/screenshots/en-light-backup-policy.png) |
+
+| **Vulnerabilities: findings** | **Finding detail with proposal and plan** |
+| --- | --- |
+| ![Vulnerability findings](docs/assets/screenshots/en-light-vulnerabilities.png) | ![Finding detail with a proposal](docs/assets/screenshots/en-light-vulnerability-detail.png) |
+| **Policy with the auto-approval warning** | **AI providers and the consent step** |
+| ![Vulnerability policy](docs/assets/screenshots/en-light-vulnerability-policy.png) | ![AI providers and consent](docs/assets/screenshots/en-light-vulnerability-providers.png) |
 
 More views, also in German, are in [docs/assets/screenshots](docs/assets/screenshots/) and in the user guides ([English](docs/guides/en/index.md), [Deutsch](docs/guides/de/index.md)).
 

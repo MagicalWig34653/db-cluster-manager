@@ -204,9 +204,9 @@ func TestTraefikPlan(t *testing.T) {
 	if len(svc.PublishedPorts()) != 2 {
 		t.Fatalf("ports %+v", svc.Ports)
 	}
-	// Published ports and file delivery are not possible with the current
-	// agent: the plan must say so and refuse to run.
-	if p.Executable() || len(p.Blockers) != 2 {
+	// Ports are published by the agent now; creating the dynamic config as a
+	// Swarm config is not possible: the plan must say so and refuse to run.
+	if p.Executable() || len(p.Blockers) != 1 {
 		t.Fatalf("blockers %v", p.Blockers)
 	}
 	names := map[string]bool{}

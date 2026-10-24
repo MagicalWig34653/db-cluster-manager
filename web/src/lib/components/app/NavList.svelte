@@ -7,6 +7,7 @@
 	import Archive from '@lucide/svelte/icons/archive';
 	import Layers from '@lucide/svelte/icons/layers';
 	import Hammer from '@lucide/svelte/icons/hammer';
+	import ShieldAlert from '@lucide/svelte/icons/shield-alert';
 	import PackageOpen from '@lucide/svelte/icons/package-open';
 	import ChartColumn from '@lucide/svelte/icons/chart-column';
 	import ListChecks from '@lucide/svelte/icons/list-checks';
@@ -24,6 +25,7 @@
 		{ href: '/databases', label: 'navDatabases', icon: HardDrive, available: true },
 		{ href: '/services', label: 'navServices', icon: Layers, available: true },
 		{ href: '/images', label: 'navImages', icon: Hammer, available: true },
+		{ href: '/vulnerabilities', label: 'navVulnerabilities', icon: ShieldAlert, available: true },
 		{ href: '/registries', label: 'navRegistries', icon: PackageOpen, available: true },
 		{ href: '/backups', label: 'navBackups', icon: Archive, available: true },
 		{ href: '/dashboards', label: 'navDashboards', icon: ChartColumn, available: true },

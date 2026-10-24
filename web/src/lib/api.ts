@@ -981,6 +981,207 @@ export interface ImageBuildResult {
 	job?: ImageBuildJob;
 }
 
+// ---------------------------------------------------------------------------
+// Vulnerability response (X13, ADR 0015; api/openapi.yaml /vuln/*)
+
+export const vulnSeverities = ['unknown', 'low', 'medium', 'high', 'critical'] as const;
+export type VulnSeverity = (typeof vulnSeverities)[number];
+export const vulnPriorities = ['P1', 'P2', 'P3', 'P4'] as const;
+export type VulnPriority = (typeof vulnPriorities)[number];
+export const vulnStatuses = ['affected', 'under_investigation', 'not_affected', 'fixed'] as const;
+export type VulnStatus = (typeof vulnStatuses)[number];
+export const vulnServiceKinds = ['web', 'generic', 'database', 'galera', 'proxy', 'registry'] as const;
+export type VulnServiceKind = (typeof vulnServiceKinds)[number];
+export const vulnCoverages = ['sbom', 'reference', 'unknown'] as const;
+export type VulnCoverage = (typeof vulnCoverages)[number];
+export const vulnProposalKinds = ['patched_rebuild', 'mitigation', 'no_op'] as const;
+export type VulnProposalKind = (typeof vulnProposalKinds)[number];
+export const vulnProposalStatuses = ['proposed', 'awaiting_approval', 'invalid', 'approved', 'declined', 'failed'] as const;
+export type VulnProposalStatus = (typeof vulnProposalStatuses)[number];
+export const vulnModes = ['notify_only', 'approval_required', 'auto_for_policy'] as const;
+export type VulnMode = (typeof vulnModes)[number];
+export const vulnProviderKinds = ['claude_api', 'openai_api', 'openai_compatible', 'claude_code_cli', 'codex_cli'] as const;
+export type VulnProviderKind = (typeof vulnProviderKinds)[number];
+export const vulnFeedErrors = ['rate_limited', 'too_large', 'malformed', 'http_status', 'timeout', 'transport'] as const;
+export type VulnFeedError = (typeof vulnFeedErrors)[number];
+
+export interface VulnComponent {
+	ecosystem: string;
+	name: string;
+	version: string;
+	purl?: string;
+}
+
+export interface VulnFinding {
+	id: string;
+	advisoryId: string;
+	aliases?: string[];
+	entryId: string;
+	image: string;
+	services: string[];
+	serviceKind: VulnServiceKind;
+	coverage: VulnCoverage;
+	component: VulnComponent;
+	fixedVersions?: string[];
+	severity: VulnSeverity;
+	cvss?: number;
+	kev?: boolean;
+	epss?: number;
+	score: number;
+	priority: VulnPriority;
+	basis?: string;
+	status: VulnStatus;
+	justification?: string;
+	statusBy?: string;
+	firstSeen: string;
+	lastSeen: string;
+	resolvedAt?: string;
+	sources: string[];
+}
+
+export interface VulnPlanStep {
+	order?: number;
+	title?: string;
+	detail?: string;
+}
+
+export interface VulnPlan {
+	/** Approval binds to this digest. */
+	digest: string;
+	/** No automated step: approval records the decision only. */
+	manual: boolean;
+	buildPlanDigest?: string;
+	steps: VulnPlanStep[];
+	warnings: string[];
+	majorUpgrade?: boolean;
+}
+
+export const vulnLevels = ['none', 'low', 'medium', 'high'] as const;
+
+export interface VulnProposal {
+	id: string;
+	findingId: string;
+	advisoryId: string;
+	entryId: string;
+	kind: VulnProposalKind;
+	origin: 'deterministic' | 'ai';
+	provider?: string;
+	model?: string;
+	promptSha256?: string;
+	responseSha256?: string;
+	component: VulnComponent;
+	targetVersion?: string;
+	mitigation?: { setting?: string; value?: string; expiresAt?: string };
+	rating: { benefit: (typeof vulnLevels)[number]; risk: 'low' | 'medium' | 'high'; basis: string };
+	/** What the model said; display only. */
+	aiAssessment?: { affected?: string; benefit?: string; risk?: string };
+	/** Display-only text; never executed or interpolated. */
+	rationale?: string;
+	plan: VulnPlan;
+	validation: { ok: boolean; errors?: string[] };
+	decision: { mode: VulnMode; action: 'notify' | 'await_approval' | 'auto_approve'; reasons?: string[] };
+	status: VulnProposalStatus;
+	createdBy: string;
+	createdAt: string;
+	decidedBy?: string;
+	decidedAt?: string;
+	execution?: string;
+}
+
+export interface VulnFeedState {
+	name: string;
+	lastAttempt?: string;
+	lastSuccess?: string;
+	lastError?: VulnFeedError;
+	failures?: number;
+	nextAttempt?: string;
+	stale: boolean;
+	advisories?: number;
+}
+
+export interface VulnPollReport {
+	feeds: VulnFeedState[];
+	advisories: number;
+	findings: number;
+	newFindings: string[];
+	resolved: string[];
+	/** Inventory entries without known components: not covered, which is not the same as safe. */
+	unknown: string[];
+}
+
+export interface VulnPolicy {
+	mode: VulnMode;
+	provider?: string;
+	model?: string;
+	auto?: { severities?: string[]; services?: string[]; kinds?: string[]; maxPerDay?: number };
+	autoOptInBy?: string;
+	killSwitch?: boolean;
+	mitigationDays?: number;
+	retainPrompts?: boolean;
+	updatedBy?: string;
+	updatedAt?: string;
+}
+
+export interface VulnPolicyView {
+	policy: VulnPolicy;
+	version: number;
+}
+
+export interface VulnProviderLimits {
+	requestsPerDay?: number;
+	tokensPerDay?: number;
+}
+
+export interface VulnProvider {
+	id: string;
+	name: string;
+	kind: VulnProviderKind;
+	baseUrl?: string;
+	models?: string[];
+	defaultModel?: string;
+	binary?: string;
+	home?: string;
+	experimental?: boolean;
+	consent?: { by?: string; at?: string; statement?: string };
+	limits?: VulnProviderLimits;
+	credentialSet: boolean;
+	/** Data stays inside the host network. */
+	local: boolean;
+	/** The exact statement the administrator consents to. */
+	egressStatement: string;
+	usage?: { day?: string; requests?: number; tokens?: number };
+}
+
+/** The API key is write-only: sent once, never returned or kept in the UI after the request. */
+export interface VulnProviderInput {
+	id: string;
+	name: string;
+	kind: VulnProviderKind;
+	baseUrl?: string;
+	models?: string[];
+	defaultModel?: string;
+	binary?: string;
+	home?: string;
+	experimental?: boolean;
+	limits?: VulnProviderLimits;
+	apiKey?: string;
+}
+
+export interface VulnAuditRecord {
+	id: string;
+	at: string;
+	seq: number;
+	actor: string;
+	event: string;
+	findingId?: string;
+	proposalId?: string;
+	provider?: string;
+	model?: string;
+	planDigest?: string;
+	result: string;
+	detail?: string;
+}
+
 export const registryKinds = ['ghcr', 'dockerhub', 'generic', 'managed'] as const;
 export type RegistryKind = (typeof registryKinds)[number];
 
@@ -1098,6 +1299,156 @@ export const isImageBuildResult = (v: unknown): v is ImageBuildResult =>
 
 export const isRegistry: Guard<Registry> = (v): v is Registry =>
 	isObj(v) && isStr(v.id) && isStr(v.name) && oneOf(registryKinds)(v.kind) && optStr(v.endpoint) && optStr(v.username) && isBool(v.credentialSet) && optStr(v.createdBy);
+
+const optBool = (v: unknown) => v === undefined || isBool(v);
+const optStrArray = (v: unknown) => v === undefined || strArray(v);
+
+const isVulnComponent: Guard<VulnComponent> = (v): v is VulnComponent =>
+	isObj(v) && isStr(v.ecosystem) && isStr(v.name) && isStr(v.version) && optStr(v.purl);
+
+export const isVulnFinding: Guard<VulnFinding> = (v): v is VulnFinding =>
+	isObj(v) &&
+	isStr(v.id) &&
+	isStr(v.advisoryId) &&
+	optStrArray(v.aliases) &&
+	isStr(v.entryId) &&
+	isStr(v.image) &&
+	(v.services === null || strArray(v.services)) &&
+	oneOf(vulnServiceKinds)(v.serviceKind) &&
+	oneOf(vulnCoverages)(v.coverage) &&
+	isVulnComponent(v.component) &&
+	optStrArray(v.fixedVersions) &&
+	oneOf(vulnSeverities)(v.severity) &&
+	optNum(v.cvss) &&
+	optBool(v.kev) &&
+	optNum(v.epss) &&
+	isNum(v.score) &&
+	oneOf(vulnPriorities)(v.priority) &&
+	optStr(v.basis) &&
+	oneOf(vulnStatuses)(v.status) &&
+	optStr(v.justification) &&
+	optStr(v.statusBy) &&
+	isDate(v.firstSeen) &&
+	isDate(v.lastSeen) &&
+	optDate(v.resolvedAt) &&
+	(v.sources === null || strArray(v.sources));
+
+const isVulnPlan: Guard<VulnPlan> = (v): v is VulnPlan =>
+	isObj(v) &&
+	isStr(v.digest) &&
+	isBool(v.manual) &&
+	optStr(v.buildPlanDigest) &&
+	(v.steps === null || (Array.isArray(v.steps) && v.steps.every((x) => isObj(x) && optStr(x.title) && optStr(x.detail) && optNum(x.order)))) &&
+	(v.warnings === null || strArray(v.warnings)) &&
+	optBool(v.majorUpgrade);
+
+export const isVulnProposal: Guard<VulnProposal> = (v): v is VulnProposal =>
+	isObj(v) &&
+	isStr(v.id) &&
+	isStr(v.findingId) &&
+	isStr(v.advisoryId) &&
+	isStr(v.entryId) &&
+	oneOf(vulnProposalKinds)(v.kind) &&
+	oneOf(['deterministic', 'ai'] as const)(v.origin) &&
+	optStr(v.provider) &&
+	optStr(v.model) &&
+	isVulnComponent(v.component) &&
+	optStr(v.targetVersion) &&
+	(v.mitigation === undefined || (isObj(v.mitigation) && optStr(v.mitigation.setting) && optStr(v.mitigation.value) && optDate(v.mitigation.expiresAt))) &&
+	isObj(v.rating) &&
+	oneOf(vulnLevels)(v.rating.benefit) &&
+	oneOf(['low', 'medium', 'high'] as const)(v.rating.risk) &&
+	isStr(v.rating.basis) &&
+	(v.aiAssessment === undefined || (isObj(v.aiAssessment) && optStr(v.aiAssessment.affected) && optStr(v.aiAssessment.benefit) && optStr(v.aiAssessment.risk))) &&
+	optStr(v.rationale) &&
+	isVulnPlan(v.plan) &&
+	isObj(v.validation) &&
+	isBool(v.validation.ok) &&
+	optStrArray(v.validation.errors) &&
+	isObj(v.decision) &&
+	oneOf(vulnModes)(v.decision.mode) &&
+	oneOf(['notify', 'await_approval', 'auto_approve'] as const)(v.decision.action) &&
+	optStrArray(v.decision.reasons) &&
+	oneOf(vulnProposalStatuses)(v.status) &&
+	isStr(v.createdBy) &&
+	isDate(v.createdAt) &&
+	optStr(v.decidedBy) &&
+	optDate(v.decidedAt) &&
+	optStr(v.execution);
+
+export const isVulnFeedState: Guard<VulnFeedState> = (v): v is VulnFeedState =>
+	isObj(v) &&
+	isStr(v.name) &&
+	optDate(v.lastAttempt) &&
+	optDate(v.lastSuccess) &&
+	(v.lastError === undefined || v.lastError === '' || oneOf(vulnFeedErrors)(v.lastError)) &&
+	optNum(v.failures) &&
+	optDate(v.nextAttempt) &&
+	isBool(v.stale) &&
+	optNum(v.advisories);
+
+export const isVulnPollReport: Guard<VulnPollReport> = (v): v is VulnPollReport =>
+	isObj(v) &&
+	Array.isArray(v.feeds) &&
+	v.feeds.every(isVulnFeedState) &&
+	isNum(v.advisories) &&
+	isNum(v.findings) &&
+	strArray(v.newFindings) &&
+	strArray(v.resolved) &&
+	strArray(v.unknown);
+
+const isVulnPolicy: Guard<VulnPolicy> = (v): v is VulnPolicy =>
+	isObj(v) &&
+	oneOf(vulnModes)(v.mode) &&
+	optStr(v.provider) &&
+	optStr(v.model) &&
+	(v.auto === undefined || (isObj(v.auto) && optStrArray(v.auto.severities) && optStrArray(v.auto.services) && optStrArray(v.auto.kinds) && optNum(v.auto.maxPerDay))) &&
+	optStr(v.autoOptInBy) &&
+	optBool(v.killSwitch) &&
+	optNum(v.mitigationDays) &&
+	optBool(v.retainPrompts) &&
+	optStr(v.updatedBy) &&
+	optDate(v.updatedAt);
+
+export const isVulnPolicyView: Guard<VulnPolicyView> = (v): v is VulnPolicyView => isObj(v) && isVulnPolicy(v.policy) && isNum(v.version);
+export const isVulnPolicyOnly: Guard<VulnPolicy> = isVulnPolicy;
+
+export const isVulnProvider: Guard<VulnProvider> = (v): v is VulnProvider =>
+	isObj(v) &&
+	isStr(v.id) &&
+	isStr(v.name) &&
+	oneOf(vulnProviderKinds)(v.kind) &&
+	optStr(v.baseUrl) &&
+	optStrArray(v.models) &&
+	optStr(v.defaultModel) &&
+	optStr(v.binary) &&
+	optStr(v.home) &&
+	optBool(v.experimental) &&
+	(v.consent === undefined || (isObj(v.consent) && optStr(v.consent.by) && optDate(v.consent.at) && optStr(v.consent.statement))) &&
+	(v.limits === undefined || (isObj(v.limits) && optNum(v.limits.requestsPerDay) && optNum(v.limits.tokensPerDay))) &&
+	isBool(v.credentialSet) &&
+	isBool(v.local) &&
+	isStr(v.egressStatement) &&
+	(v.usage === undefined || (isObj(v.usage) && optStr(v.usage.day) && optNum(v.usage.requests) && optNum(v.usage.tokens)));
+
+export const isVulnAuditRecord: Guard<VulnAuditRecord> = (v): v is VulnAuditRecord =>
+	isObj(v) &&
+	isStr(v.id) &&
+	isDate(v.at) &&
+	isNum(v.seq) &&
+	isStr(v.actor) &&
+	isStr(v.event) &&
+	optStr(v.findingId) &&
+	optStr(v.proposalId) &&
+	optStr(v.provider) &&
+	optStr(v.model) &&
+	optStr(v.planDigest) &&
+	isStr(v.result) &&
+	optStr(v.detail);
+
+/** The Go API can send null for an empty list in invalid proposals; the UI always sees arrays. */
+const fixFinding = (f: VulnFinding): VulnFinding => ({ ...f, services: f.services ?? [], sources: f.sources ?? [] });
+const fixProposal = (p: VulnProposal): VulnProposal => ({ ...p, plan: { ...p.plan, steps: p.plan.steps ?? [], warnings: p.plan.warnings ?? [] } });
 
 const listOfArray =
 	<T>(item: (v: unknown) => v is T) =>
@@ -1287,6 +1638,30 @@ export function createClient(fetchFn: FetchFn) {
 				(v): v is { replica: string; revoked: number } => isObj(v) && isStr(v.replica) && isNum(v.revoked),
 				{}
 			),
+		// --- Vulnerability response (X13, ADR 0015). Administrator-only; 503 until manager.vuln is configured.
+		vulnFindings: async () => (await call('GET', '/vuln/findings', listOfArray(isVulnFinding))).map(fixFinding),
+		vulnFinding: async (id: string) => fixFinding(await call('GET', `/vuln/findings/${encodeURIComponent(id)}`, isVulnFinding)),
+		setVulnFindingStatus: async (id: string, status: VulnStatus, justification?: string) =>
+			fixFinding(await call('PUT', `/vuln/findings/${encodeURIComponent(id)}/status`, isVulnFinding, { status, ...(justification ? { justification } : {}) })),
+		/** Without useAi the deterministic proposer runs; nothing is changed either way. */
+		proposeVulnRemediation: async (id: string, useAi: boolean) =>
+			fixProposal(await call('POST', `/vuln/findings/${encodeURIComponent(id)}/proposals`, isVulnProposal, { useAi })),
+		vulnProposals: async () => (await call('GET', '/vuln/proposals', listOfArray(isVulnProposal))).map(fixProposal),
+		/** The digest is the one of the displayed plan; the manager refuses a mismatch. */
+		approveVulnProposal: async (id: string, digest: string) =>
+			fixProposal(await call('POST', `/vuln/proposals/${encodeURIComponent(id)}/approve`, isVulnProposal, { digest })),
+		declineVulnProposal: async (id: string, reason?: string) =>
+			fixProposal(await call('POST', `/vuln/proposals/${encodeURIComponent(id)}/decline`, isVulnProposal, reason ? { reason } : {})),
+		vulnFeeds: () => call('GET', '/vuln/feeds', listOfArray(isVulnFeedState)),
+		pollVuln: () => call('POST', '/vuln/poll', isVulnPollReport, {}),
+		vulnPolicy: () => call('GET', '/vuln/policy', isVulnPolicyView),
+		saveVulnPolicy: (policy: VulnPolicy, version: number) => call('PUT', '/vuln/policy', isVulnPolicyOnly, { policy, version }),
+		vulnProviders: () => call('GET', '/vuln/providers', listOfArray(isVulnProvider)),
+		createVulnProvider: (input: VulnProviderInput) => call('POST', '/vuln/providers', isVulnProvider, input),
+		/** Granting needs the provider's current egress statement verbatim. */
+		setVulnProviderConsent: (id: string, grant: boolean, statement?: string) =>
+			call('PUT', `/vuln/providers/${encodeURIComponent(id)}/consent`, isVulnProvider, { grant, ...(statement !== undefined ? { statement } : {}) }),
+		vulnAudit: () => call('GET', '/vuln/audit', listOfArray(isVulnAuditRecord)),
 		notificationSettings: () => call('GET', '/settings/notifications', isNotificationSettings),
 		saveNotificationSettings: (s: NotificationSettingsInput) =>
 			call('PUT', '/settings/notifications', isNotificationSettings, s)

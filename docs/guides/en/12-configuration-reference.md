@@ -143,9 +143,22 @@ Merged by the leader at every leadership start; empty fields leave stored values
 
 `settings.backup` (all required before a backup can start): `jobImage` (image with `dbcm-job` and the backup tools), `backendSecret` (Swarm secret with the backend JSON), `dbCredentialSecret` (backup account credential), `recipientKey` (public half of the recovery key; backups are encrypted for it, and the same key is the recovery envelope of the data keyring). Further: `keySecret` (default Swarm secret with the recovery key for restores), `inspectionNetwork` (non-production network for inspection restores; required for them).
 
-## Vulnerability response (API settings)
+## Vulnerability response
 
-**[Fakes] only; not wired into the manager.** The vulnerability response ([guide](15-vulnerability-response.md)) has no configuration file fields yet. Its settings are stored in the metastore and changed through the API (permission on resource `vuln`, administrator preset only).
+**[Fakes] only:** wired into the manager and tested with fakes and `httptest`; no real feed or AI provider was contacted. The section `manager.vuln` enables it (needs `auth.enabled`; absent: routes answer 503, nothing runs). The policy, providers and consent are stored in the metastore and changed in the UI or through the API (permission on resource `vuln`, administrator preset only).
+
+`manager.vuln`:
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `pollIntervalSeconds` | int | `3600` | Feed polling interval of the leader, at least 300. The first poll runs 30 s after leadership starts. |
+| `feeds` | list | empty | Advisory sources, each kind once: `{"kind": "osv" | "github" | "nvd" | "kev", "url": "https://..."}`, optionally `apiKeyFile` (absolute path of a file holding a token or API key; `github` and `nvd` only), or `{"kind": "osvFile", "path": "/abs/mirror.json"}` for an offline OSV mirror. There are no default URLs; `http` is accepted only for loopback hosts. No feed listed: nothing is fetched. |
+| `defaultMode` | string | `notify_only` | Seeds the policy once, when none is stored: `notify_only` or `approval_required`. Never overwrites a stored policy; `auto_for_policy` can only be set through the UI or API. |
+| `providers` | list | empty | AI providers registered when their ID does not exist yet: `id`, `name`, `kind` (`claude_api`, `openai_api` or `openai_compatible`; CLI kinds only through the API), `baseUrl`, `models`, `defaultModel`, `apiKeyFile` (read once and sealed into the metastore), `limits`, `maxOutputTokens`, `timeoutSeconds`. They stay unusable until consent is granted in the UI. |
+
+Feed and provider requests follow no redirects. Notifications (new finding, mitigation expiring) go through the notification dispatcher as events of kind `vuln.*` and follow your routing rules.
+
+### API settings
 
 Policy (`PUT /api/v1/vuln/policy`, conditional on `version`):
 
@@ -178,7 +191,7 @@ AI provider (`POST /api/v1/vuln/providers`):
 
 Consent: `PUT /api/v1/vuln/providers/{id}/consent` with `{"grant": true, "statement": <egressStatement>}`; revoke with `{"grant": false}`.
 
-Feeds (OSV, GitHub, NVD, KEV, offline mirror) are Go types without configuration fields yet; none has a default URL.
+Feeds are configured in `manager.vuln.feeds` (above); none has a default URL.
 
 ## What managed mode needs
 

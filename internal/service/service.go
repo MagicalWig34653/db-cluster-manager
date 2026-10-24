@@ -253,7 +253,7 @@ func NewRegistry(types ...Type) (*Registry, error) {
 
 // DefaultRegistry returns the registry of the built-in types.
 func DefaultRegistry() *Registry {
-	r, err := NewRegistry(Container{}, Traefik{}, Galera{})
+	r, err := NewRegistry(Container{}, Traefik{}, Galera{}, SFTP{}, FTP{}, S3{}, NFS{})
 	if err != nil {
 		panic(err) // the built-in names are distinct
 	}
