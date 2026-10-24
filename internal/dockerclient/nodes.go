@@ -187,7 +187,11 @@ func (c *Client) CreateGlobalService(ctx context.Context, spec agent.ServiceSpec
 	if err != nil {
 		return "", err
 	}
-	w := toWireSpec(spec, secrets)
+	configs, err := c.resolveConfigs(ctx, spec.Configs)
+	if err != nil {
+		return "", err
+	}
+	w := toWireSpec(spec, secrets, configs)
 	w.Mode = wireServiceMode{Global: &struct{}{}}
 	var resp struct {
 		ID string `json:"ID"`

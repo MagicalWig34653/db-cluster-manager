@@ -39,6 +39,13 @@ var specFieldMap = []struct {
 	{"Mounts[].Source", "Mounts[].Source", nil},
 	{"Mounts[].Target", "Mounts[].Target", nil},
 	{"Mounts[].ReadOnly", "Mounts[].ReadOnly", nil},
+	{"Ports[].Target", "Ports[].Target", nil},
+	{"Ports[].Published", "Ports[].Published", nil},
+	{"Ports[].Protocol", "Ports[].Protocol", nil},
+	{"Ports[].Mode", "Ports[].Mode", nil},
+	{"Configs[].Config", "Configs[].Config", nil},
+	{"Configs[].Target", "Configs[].Target", nil},
+	{"Configs[].Mode", "Configs[].Mode", nil},
 	{"Constraints", "Constraints", nil},
 	{"Replicas", "Replicas", nil},
 	{"Networks", "Networks", nil},
@@ -51,11 +58,10 @@ var specFieldMap = []struct {
 	{"Resources.Reservations.MemoryBytes", "Resources.Reservations.MemoryBytes", nil},
 }
 
-// domainOnly are domain leaves with no agent counterpart yet. Ports is
-// refused by the conversion (ErrPortsUnsupported), not dropped.
-var domainOnly = map[string]bool{
-	"Ports[].Target": true, "Ports[].Published": true, "Ports[].Protocol": true, "Ports[].Mode": true,
-}
+// domainOnly are domain leaves with no agent counterpart. Unpublished ports
+// are not converted (only the published ones are), but every leaf of a
+// port is carried.
+var domainOnly = map[string]bool{}
 
 // agentUnused are agent leaves the service framework does not set.
 var agentUnused = map[string]bool{
@@ -94,15 +100,10 @@ func TestConversionDropsNothing(t *testing.T) {
 	var d service.ServiceSpec
 	seed := 0
 	fill(reflect.ValueOf(&d).Elem(), &seed)
-	// Ports are refused by the conversion (TestPublishedPortsRefused); the
-	// filled value is kept only to check that the leaves are declared.
-	filledPorts := d.Ports
-	d.Ports = nil
 	a, err := orchestrate.ServiceToAgentSpec(d)
 	if err != nil {
 		t.Fatal(err)
 	}
-	d.Ports = filledPorts
 	dl, al := map[string]reflect.Value{}, map[string]reflect.Value{}
 	leaves(reflect.ValueOf(d), "", dl)
 	leaves(reflect.ValueOf(a), "", al)
@@ -153,22 +154,17 @@ func TestConversionDropsNothing(t *testing.T) {
 	}
 }
 
-// TestPublishedPortsRefused pins the port gap: the conversion refuses, and
-// the agent spec still has no port field. When the agent gains one, this
-// fails and the refusal has to be replaced by a mapping.
-func TestPublishedPortsRefused(t *testing.T) {
-	_, err := orchestrate.ServiceToAgentSpec(service.ServiceSpec{Name: "x", Image: "i:1", Ports: []service.Port{{Target: 80, Published: 80}}})
-	if !errors.Is(err, orchestrate.ErrPortsUnsupported) {
-		t.Fatalf("err %v", err)
+// TestPublishedPortsConverted checks that published ports reach the agent
+// spec (with defaults left to the agent) and unpublished ones stay internal.
+func TestPublishedPortsConverted(t *testing.T) {
+	a, err := orchestrate.ServiceToAgentSpec(service.ServiceSpec{Name: "x", Image: "i:1",
+		Ports: []service.Port{{Target: 80, Published: 8080, Protocol: "udp", Mode: "host"}, {Target: 81}}})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := orchestrate.ServiceToAgentSpec(service.ServiceSpec{Name: "x", Image: "i:1", Ports: []service.Port{{Target: 80}}}); err != nil {
-		t.Fatalf("unpublished port: %v", err)
-	}
-	at := reflect.TypeFor[agent.ServiceSpec]()
-	for i := range at.NumField() {
-		if n := at.Field(i).Name; n == "Ports" || n == "PublishedPorts" {
-			t.Fatalf("agent.ServiceSpec gained %s: map service.Port and remove ErrPortsUnsupported", n)
-		}
+	want := []agent.PortSpec{{Target: 80, Published: 8080, Protocol: "udp", Mode: "host"}}
+	if !reflect.DeepEqual(a.Ports, want) {
+		t.Fatalf("ports %+v, want %+v", a.Ports, want)
 	}
 }
 
@@ -246,8 +242,13 @@ func TestPlanConvertsToAgentCommands(t *testing.T) {
 	if _, err := runner.FromServicePlan(p, runner.ServiceBindings{OpID: "o", InstallationID: "i", VolumeBase: "/srv/dbcm"}); err == nil {
 		t.Error("missing token accepted")
 	}
-	// Blocked plans never become operations.
-	blocked, _ := json.Marshal(service.ContainerSpec{Image: "nginx:1", Ports: []service.Port{{Target: 80, Published: 80}}})
+	// Blocked plans never become operations (a deliver-config step has no
+	// agent command).
+	blocked, _ := json.Marshal(service.TraefikSpec{Image: "traefik:v3.1",
+		EntryPoints: []service.EntryPoint{{Name: "web", Port: 80}},
+		Services:    []service.Backend{{Name: "b", Servers: []string{"http://web:80"}}},
+		Routers:     []service.Router{{Name: "r", Match: service.Match{Hosts: []string{"a.example.org"}}, EntryPoints: []string{"web"}, Service: "b"}}})
+	ty, _ = service.DefaultRegistry().Get("traefik")
 	bp, _ := ty.Plan(service.PlanInput{Context: ctx, Spec: blocked})
 	if _, err := runner.FromServicePlan(bp, b); !errors.Is(err, service.ErrNotExecutable) {
 		t.Errorf("blocked plan: %v", err)

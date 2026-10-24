@@ -13,7 +13,6 @@ import (
 	"github.com/MagicalWig34653/db-cluster-manager/internal/dbbackup"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/galera"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/metastore"
-	"github.com/MagicalWig34653/db-cluster-manager/internal/orchestrate"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/runner"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/service"
 )
@@ -223,7 +222,7 @@ func MapCommandError(err error) error {
 		sentinel = api.ErrClusterExists
 	case errors.Is(err, service.ErrNotExecutable):
 		sentinel = api.ErrConflict
-	case errors.Is(err, service.ErrInvalidSpec), errors.Is(err, service.ErrUnknownType), errors.Is(err, orchestrate.ErrPortsUnsupported):
+	case errors.Is(err, service.ErrInvalidSpec), errors.Is(err, service.ErrUnknownType):
 		sentinel = api.ErrInvalidInput
 	case errors.Is(err, ErrClusterExists):
 		sentinel = api.ErrClusterExists

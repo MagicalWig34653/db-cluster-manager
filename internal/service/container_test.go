@@ -167,23 +167,26 @@ func TestPlanIsDeterministic(t *testing.T) {
 	}
 }
 
-func TestPublishedPortsBlockThePlan(t *testing.T) {
+func TestPublishedPortsArePlanned(t *testing.T) {
 	c := goodContainer()
 	c.Ports = []Port{{Target: 8080, Published: 80}, {Target: 9090}}
 	p, err := Container{}.Plan(PlanInput{Context: ctx(), Spec: raw(t, c)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Executable() || len(p.Blockers) != 1 || !strings.Contains(p.Blockers[0], "80->8080/tcp") || strings.Contains(p.Blockers[0], "9090") {
+	// The agent publishes ports now: a published port is no blocker, and
+	// the spec artifact shows it for the approval.
+	if !p.Executable() {
 		t.Fatalf("blockers %v", p.Blockers)
 	}
-	if !strings.Contains(p.Text(), "blocked:") {
-		t.Fatal("blocker missing from the plan text")
+	var art string
+	for _, a := range p.Artifacts {
+		if a.Name == "swarm-service.json" {
+			art = a.Content
+		}
 	}
-	// An unpublished port is not a blocker.
-	c.Ports = []Port{{Target: 9090}}
-	if p, _ = (Container{}).Plan(PlanInput{Context: ctx(), Spec: raw(t, c)}); !p.Executable() {
-		t.Fatalf("blockers %v", p.Blockers)
+	if !strings.Contains(art, `"published": 80`) {
+		t.Fatalf("artifact lacks the published port:\n%s", art)
 	}
 }
 
@@ -284,7 +287,7 @@ func TestHealth(t *testing.T) {
 
 func TestRegistry(t *testing.T) {
 	r := DefaultRegistry()
-	if got := r.Names(); !slices.Equal(got, []string{"container", "traefik"}) {
+	if got := r.Names(); !slices.Equal(got, []string{"container", "ftp", "nfs", "s3", "sftp", "traefik"}) {
 		t.Fatalf("names %v", got)
 	}
 	if ty, err := r.Get("traefik"); err != nil || ty.Name() != "traefik" {

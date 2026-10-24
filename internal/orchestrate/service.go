@@ -3,31 +3,19 @@
 package orchestrate
 
 import (
-	"errors"
-	"fmt"
 	"slices"
 
 	"github.com/MagicalWig34653/db-cluster-manager/internal/agent"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/service"
 )
 
-// ErrPortsUnsupported: the service publishes ports, which agent.ServiceSpec
-// cannot express yet. The conversion refuses instead of dropping the ports,
-// because a service without its published ports would silently be
-// unreachable. TestServiceSpecDriftGuard fails when the agent gains a port
-// field, so this refusal is removed together with the mapping.
-var ErrPortsUnsupported = errors.New("orchestrate: the agent service spec cannot publish ports")
-
 // ServiceToAgentSpec converts a service-framework spec into the spec of an
 // agent create-service command. The result shares no slices or maps with s.
 // Ports without a published port are internal to the overlay network and
-// need no Swarm configuration; published ports are refused
-// (ErrPortsUnsupported). Validation stays with the service types and the
-// agent; the conversion does not drop or rewrite other values.
+// need no Swarm configuration, so only published ports are converted.
+// Validation stays with the service types and the agent; the conversion
+// does not drop or rewrite other values.
 func ServiceToAgentSpec(s service.ServiceSpec) (agent.ServiceSpec, error) {
-	if pp := s.PublishedPorts(); len(pp) > 0 {
-		return agent.ServiceSpec{}, fmt.Errorf("%w (%d published port(s))", ErrPortsUnsupported, len(pp))
-	}
 	out := agent.ServiceSpec{
 		Name:              s.Name,
 		Image:             s.Image,
@@ -45,6 +33,12 @@ func ServiceToAgentSpec(s service.ServiceSpec) (agent.ServiceSpec, error) {
 	}
 	for _, m := range s.Mounts {
 		out.Mounts = append(out.Mounts, agent.Mount{Type: m.Type, Source: m.Source, Target: m.Target, ReadOnly: m.ReadOnly})
+	}
+	for _, p := range s.PublishedPorts() {
+		out.Ports = append(out.Ports, agent.PortSpec{Target: p.Target, Published: p.Published, Protocol: p.Protocol, Mode: p.Mode})
+	}
+	for _, c := range s.Configs {
+		out.Configs = append(out.Configs, agent.ConfigRef{Config: c.Config, Target: c.Target, Mode: c.Mode})
 	}
 	if s.RestartCondition != "" {
 		out.RestartPolicy = &agent.RestartPolicy{Condition: s.RestartCondition}

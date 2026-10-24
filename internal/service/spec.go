@@ -39,11 +39,8 @@ type Mount struct {
 	ReadOnly bool   `json:"read_only,omitempty"`
 }
 
-// Port is a container port, optionally published on the Swarm.
-//
-// agent.ServiceSpec cannot publish ports yet, so a plan with a published
-// port carries a blocker (Plan.Blockers); the field is in the domain model
-// so that the preview is honest about what is wanted.
+// Port is a container port, optionally published on the Swarm. Published
+// ports are converted into agent.PortSpec; unpublished ports stay internal.
 type Port struct {
 	// Target is the container port.
 	Target int `json:"target"`
@@ -53,6 +50,14 @@ type Port struct {
 	Protocol string `json:"protocol,omitempty"`
 	// Mode is "ingress" (default, routing mesh) or "host".
 	Mode string `json:"mode,omitempty"`
+}
+
+// ConfigRef mounts an existing Swarm config as a file. The content is not
+// secret (credentials are Swarm secrets). Mirrors agent.ConfigRef.
+type ConfigRef struct {
+	Config string `json:"config"`
+	Target string `json:"target"`
+	Mode   uint32 `json:"mode,omitempty"`
 }
 
 // ResourceAmount is CPU in thousandths of a CPU and memory in bytes.
@@ -85,6 +90,7 @@ type ServiceSpec struct {
 	Replicas         uint64            `json:"replicas"`
 	Networks         []string          `json:"networks,omitempty"`
 	Secrets          []string          `json:"secrets,omitempty"`
+	Configs          []ConfigRef       `json:"configs,omitempty"`
 	RestartCondition string            `json:"restart_condition,omitempty"`
 	StopGracePeriod  time.Duration     `json:"stop_grace_period,omitempty"`
 	Resources        Resources         `json:"resources"`

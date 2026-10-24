@@ -103,6 +103,44 @@ type ServiceSpec struct {
 	// StopGracePeriodNS is the time between SIGTERM and SIGKILL in
 	// nanoseconds. Zero means the Docker default.
 	StopGracePeriodNS int64 `json:"stop_grace_period_ns,omitempty"`
+	// Ports are the ports published on the Swarm. Only published ports are
+	// expressible: an unpublished port needs no Swarm configuration.
+	Ports []PortSpec `json:"ports,omitempty"`
+	// Configs are references to existing Swarm configs, mounted as files.
+	// Like Secrets they must pass the ownership guard and are pinned to the
+	// object ID that was checked.
+	Configs []ConfigRef `json:"configs,omitempty"`
+}
+
+// Port protocols and publish modes of a PortSpec.
+const (
+	PortProtocolTCP = "tcp"
+	PortProtocolUDP = "udp"
+	PortModeIngress = "ingress"
+	PortModeHost    = "host"
+)
+
+// PortSpec publishes a container port on the Swarm.
+type PortSpec struct {
+	// Target is the container port (1..65535).
+	Target int `json:"target"`
+	// Published is the port on the Swarm (1..65535).
+	Published int `json:"published"`
+	// Protocol is "tcp" (default) or "udp".
+	Protocol string `json:"protocol,omitempty"`
+	// Mode is "ingress" (default, routing mesh) or "host".
+	Mode string `json:"mode,omitempty"`
+}
+
+// ConfigRef mounts a Swarm config as a read-only file. The config's content
+// is not secret; credentials belong in Secrets.
+type ConfigRef struct {
+	// Config is the name or ID of the config.
+	Config string `json:"config"`
+	// Target is the absolute file path in the container.
+	Target string `json:"target"`
+	// Mode is the file mode (default 0444).
+	Mode uint32 `json:"mode,omitempty"`
 }
 
 // Endpoint modes of a Swarm service.
