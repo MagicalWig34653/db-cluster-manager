@@ -503,7 +503,7 @@ phase_e8node() {
 e8_primary_any() { # lists any node that reports a Primary component
 	local n s any=0
 	for n in 1 2 3; do
-		s=$(rsql "$n" "SHOW GLOBAL STATUS WHERE Variable_name IN ('wsrep_cluster_status','wsrep_cluster_size')" 2>/dev/null | tr '\n\t' '  ') || continue
+		s=$( (rsql "$n" "SHOW GLOBAL STATUS WHERE Variable_name IN ('wsrep_cluster_status','wsrep_cluster_size')" 2>/dev/null | tr '\n\t' '  ') ) || continue
 		[ -n "$s" ] || continue
 		echo "n$n: $s"
 		case "$s" in *"wsrep_cluster_status Primary"*) any=1 ;; esac
@@ -554,7 +554,10 @@ e8_power_scenario() {
 	rec "events" e6_events
 	rec "operations (no recovery operation may exist)" e6_ops
 	rec "outage diagnosis (GET, read-only; 409 is the expected refusal while a node is Primary)" api GET "/api/v1/clusters/$CLUSTER_ID/outage-diagnosis" || true
-	if e8_primary_any | grep -q 'wsrep_cluster_status Primary'; then
+	local prim
+	prim=$(e8_primary_any 2>/dev/null || true)
+	if printf '%s\n' "$prim" | grep -q 'wsrep_cluster_status Primary'; then
+		rec "logs of the slot that did not join yet (all of its tasks)" sh -c "limactl shell --workdir / $M1 -- sudo docker service logs --no-task-ids --tail 60 $(svc 2) 2>&1 | grep -E 'WSREP|ERROR|abort|Aborting|failed' | cut -c1-200 | tail -30"
 		# The nodes found each other: no manager action is needed or allowed.
 		wait_until 600 "Galera cluster back to 3 synced nodes" e8_synced3 || true
 		rec "wsrep status after the self-recovery" e8_status3

@@ -1,0 +1,3407 @@
+
+## Phase build: cross-compile linux/arm64 binaries on the host
+
+### go build ./cmd/manager
+
+```
+$ env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o <repo>/.lab/e4/bin/manager ./cmd/manager
+(exit 0)
+```
+
+### go build ./cmd/agent
+
+```
+$ env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o <repo>/.lab/e4/bin/agent ./cmd/agent
+(exit 0)
+```
+
+### go build ./cmd/dbcm-job
+
+```
+$ env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o <repo>/.lab/e4/bin/dbcm-job ./cmd/dbcm-job
+(exit 0)
+```
+
+### go build ./cmd/proxy
+
+```
+$ env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o <repo>/.lab/e4/bin/proxy ./cmd/proxy
+(exit 0)
+```
+
+### go build ./tests/p0/e4client
+
+```
+$ env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o <repo>/.lab/e4/bin/e4client ./tests/p0/e4client
+(exit 0)
+```
+
+### go build ./tests/p0/e5client
+
+```
+$ env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o <repo>/.lab/e4/bin/e5client ./tests/p0/e5client
+(exit 0)
+```
+
+### git revision
+
+```
+$ git -C <repo> log -1 --format=%h %s
+40870f0 tests: E8 helper phase only on request
+(exit 0)
+```
+
+
+## Phase vms: lab VMs (bin/lab) and rootful Docker
+
+host uptime: 21:22  up 6 days,  5:20, 5 users, load averages: 8.62 6.66 6.41
+
+19:22:00Z host load: { 8.62 6.66 6.41 }
+### host free disk before apply
+
+```
+$ host_free_disk
+host free disk (/System/Volumes/Data): 44Gi of 926Gi
+(exit 0)
+```
+
+### bin/lab status before
+
+```
+$ <repo>/bin/lab status
+host:
+  logical CPUs: 14
+  RAM: 48.0 GiB
+budget:
+  lab CPU limit: 7
+  lab RAM limit: 16.0 GiB
+  lab disk limit: 100.0 GiB
+manifest .lab/manifest.json:
+  (empty)
+inventory:
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+unrelated (never touched):
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+(exit 0)
+```
+
+### bin/lab apply -apply -vms 3 -cpus 2 -ram 4 -disk 20 -network lima:user-v2
+
+```
+$ <repo>/bin/lab apply -apply -vms 3 -cpus 2 -ram 4 -disk 20 -network lima:user-v2
+pre-snapshot:
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+executing actions:
+  # create Lima VM dbcm-lab-m1 (2 CPUs, 4 GiB RAM, 20 GiB disk, template docker, network lima:user-v2 (shared Lima state, not owned))
+  limactl create --name=dbcm-lab-m1 --cpus=2 --memory=4 --disk=20 --tty=false --network=lima:user-v2 template:docker
+  # start Lima VM dbcm-lab-m1
+  limactl start --tty=false dbcm-lab-m1
+  # create Lima VM dbcm-lab-m2 (2 CPUs, 4 GiB RAM, 20 GiB disk, template docker, network lima:user-v2 (shared Lima state, not owned))
+  limactl create --name=dbcm-lab-m2 --cpus=2 --memory=4 --disk=20 --tty=false --network=lima:user-v2 template:docker
+  # start Lima VM dbcm-lab-m2
+  limactl start --tty=false dbcm-lab-m2
+  # create Lima VM dbcm-lab-m3 (2 CPUs, 4 GiB RAM, 20 GiB disk, template docker, network lima:user-v2 (shared Lima state, not owned))
+  limactl create --name=dbcm-lab-m3 --cpus=2 --memory=4 --disk=20 --tty=false --network=lima:user-v2 template:docker
+  # start Lima VM dbcm-lab-m3
+  limactl start --tty=false dbcm-lab-m3
+post-snapshot diff:
+  added: lima:dbcm-lab-m1, lima:dbcm-lab-m2, lima:dbcm-lab-m3
+  removed: (none)
+(exit 0)
+```
+
+### switch dbcm-lab-m1 to rootful docker
+
+```
+$ vm_sh dbcm-lab-m1 
+			set -e
+			systemctl --user disable --now docker.service >/dev/null 2>&1 || true
+			sudo systemctl unmask containerd.service docker.service docker.socket >/dev/null 2>&1
+			sudo systemctl enable --now containerd.service docker.socket docker.service >/dev/null 2>&1
+			echo "rootful docker: $(systemctl is-active docker.service)"
+rootful docker: active
+(exit 0)
+```
+
+### facts dbcm-lab-m1
+
+```
+$ vm_sh dbcm-lab-m1 
+			echo "arch: $(uname -m) kernel: $(uname -r)"; grep PRETTY_NAME /etc/os-release; echo "nproc: $(nproc)"
+			free -m | head -2; df -h / | tail -1
+			sudo docker version --format "docker server {{.Server.Version}}"
+arch: aarch64 kernel: 7.0.0-28-generic
+PRETTY_NAME="Ubuntu 26.04 LTS"
+nproc: 2
+               total        used        free      shared  buff/cache   available
+Mem:            3896         522        2234           1        1301        3373
+/dev/vda1        19G  2.9G   16G  16% /
+docker server 29.9.2
+(exit 0)
+```
+
+### switch dbcm-lab-m2 to rootful docker
+
+```
+$ vm_sh dbcm-lab-m2 
+			set -e
+			systemctl --user disable --now docker.service >/dev/null 2>&1 || true
+			sudo systemctl unmask containerd.service docker.service docker.socket >/dev/null 2>&1
+			sudo systemctl enable --now containerd.service docker.socket docker.service >/dev/null 2>&1
+			echo "rootful docker: $(systemctl is-active docker.service)"
+rootful docker: active
+(exit 0)
+```
+
+### facts dbcm-lab-m2
+
+```
+$ vm_sh dbcm-lab-m2 
+			echo "arch: $(uname -m) kernel: $(uname -r)"; grep PRETTY_NAME /etc/os-release; echo "nproc: $(nproc)"
+			free -m | head -2; df -h / | tail -1
+			sudo docker version --format "docker server {{.Server.Version}}"
+arch: aarch64 kernel: 7.0.0-28-generic
+PRETTY_NAME="Ubuntu 26.04 LTS"
+nproc: 2
+               total        used        free      shared  buff/cache   available
+Mem:            3896         528        2227           1        1303        3368
+/dev/vda1        19G  2.9G   16G  16% /
+docker server 29.9.2
+(exit 0)
+```
+
+### switch dbcm-lab-m3 to rootful docker
+
+```
+$ vm_sh dbcm-lab-m3 
+			set -e
+			systemctl --user disable --now docker.service >/dev/null 2>&1 || true
+			sudo systemctl unmask containerd.service docker.service docker.socket >/dev/null 2>&1
+			sudo systemctl enable --now containerd.service docker.socket docker.service >/dev/null 2>&1
+			echo "rootful docker: $(systemctl is-active docker.service)"
+rootful docker: active
+(exit 0)
+```
+
+### facts dbcm-lab-m3
+
+```
+$ vm_sh dbcm-lab-m3 
+			echo "arch: $(uname -m) kernel: $(uname -r)"; grep PRETTY_NAME /etc/os-release; echo "nproc: $(nproc)"
+			free -m | head -2; df -h / | tail -1
+			sudo docker version --format "docker server {{.Server.Version}}"
+arch: aarch64 kernel: 7.0.0-28-generic
+PRETTY_NAME="Ubuntu 26.04 LTS"
+nproc: 2
+               total        used        free      shared  buff/cache   available
+Mem:            3896         538        2218           1        1302        3358
+/dev/vda1        19G  2.9G   16G  16% /
+docker server 29.9.2
+(exit 0)
+```
+
+### host free disk after apply
+
+```
+$ host_free_disk
+host free disk (/System/Volumes/Data): 37Gi of 926Gi
+(exit 0)
+```
+
+
+## Phase swarm: one manager node, two workers
+
+host uptime: 21:26  up 6 days,  5:25, 5 users, load averages: 133.60 86.55 41.96
+
+19:26:12Z host load: { 133.60 86.55 41.96 }
+19:26:12Z m1 user-v2 address: 192.168.104.1
+### swarm init on m1
+
+```
+$ vm_docker dbcm-lab-m1 swarm init --advertise-addr 192.168.104.1
+Swarm initialized: current node (zp8ih08ej9gz60wukvc6czba6) is now a manager.
+
+To add a worker to this swarm, run the following command:
+
+    docker swarm join --token SWMTKN-<redacted> 192.168.104.1:2377
+
+To add a manager to this swarm, run 'docker swarm join-token manager' and follow the instructions.
+(exit 0)
+```
+
+### swarm join dbcm-lab-m2 (advertise 192.168.104.3, token not recorded)
+
+```
+$ vm_docker dbcm-lab-m2 swarm join --advertise-addr 192.168.104.3 --token SWMTKN-<redacted> 192.168.104.1:2377
+This node joined a swarm as a worker.
+(exit 0)
+```
+
+### swarm join dbcm-lab-m3 (advertise 192.168.104.4, token not recorded)
+
+```
+$ vm_docker dbcm-lab-m3 swarm join --advertise-addr 192.168.104.4 --token SWMTKN-<redacted> 192.168.104.1:2377
+This node joined a swarm as a worker.
+(exit 0)
+```
+
+### docker node ls
+
+```
+$ vm_docker dbcm-lab-m1 node ls
+ID                            HOSTNAME           STATUS    AVAILABILITY   MANAGER STATUS   ENGINE VERSION
+zp8ih08ej9gz60wukvc6czba6 *   lima-dbcm-lab-m1   Ready     Active         Leader           29.9.2
+j99zpnm3gt803ekn2m3taan37     lima-dbcm-lab-m2   Ready     Active                          29.9.2
+uk776geuoew2o4xqn0xi9gnu8     lima-dbcm-lab-m3   Ready     Active                          29.9.2
+(exit 0)
+```
+
+
+## Phase images: binaries, agent and job images built inside m1, copied to m2/m3
+
+host uptime: 21:26  up 6 days,  5:25, 5 users, load averages: 127.22 86.01 42.03
+
+19:26:14Z host load: { 127.22 86.01 42.03 }
+### host-built linux/arm64 binaries (sha256)
+
+```
+$ sh -c cd '<repo>/.lab/e4/bin' && shasum -a 256 manager agent dbcm-job e4client && go version
+f7d21449f6da8617505a47f519fef578e80a84a14a185b9051ea992ca1840b0a  manager
+79c93d81212487ab009d844098fc7089954036f5301c67082c023da2b2ad9628  agent
+10cbe52fdadb58df4f141d8e04c16fe675504d5f66762728703f9eeb7c540b23  dbcm-job
+acc000c08e0015eca799b7da3eb9d537aa9d4ba9eee5e248f7216ffab472543f  e4client
+go version go1.27.1 darwin/arm64
+(exit 0)
+```
+
+### install binaries in m1
+
+```
+$ vm_sh dbcm-lab-m1 
+		set -e
+		sudo install -m 0755 /tmp/manager /usr/local/bin/dbcm-e4-manager
+		sudo install -m 0755 /tmp/e4client /usr/local/bin/dbcm-e4-client
+		sudo mkdir -p /root/dbcm-e4-build/agent /root/dbcm-e4-build/job
+		sudo install -m 0755 /tmp/manager /tmp/agent /root/dbcm-e4-build/agent/
+		sudo install -m 0755 /tmp/dbcm-job /root/dbcm-e4-build/job/
+		rm -f /tmp/manager /tmp/agent /tmp/dbcm-job /tmp/e4client
+		/usr/local/bin/dbcm-e4-manager -version
+0.0.0-dev
+(exit 0)
+```
+
+### agent image Dockerfile (runtime stage of deploy/Dockerfile)
+
+```
+$ vm_args dbcm-lab-m1 
+		cat <<EOF | sudo tee /root/dbcm-e4-build/agent/Dockerfile
+FROM $1
+COPY manager agent /usr/local/bin/
+USER 65532:65532
+ENTRYPOINT ["/usr/local/bin/manager"]
+CMD ["-listen", "0.0.0.0:8080"]
+EOF gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
+COPY manager agent /usr/local/bin/
+USER 65532:65532
+ENTRYPOINT ["/usr/local/bin/manager"]
+CMD ["-listen", "0.0.0.0:8080"]
+(exit 0)
+```
+
+### build agent image in m1
+
+```
+$ vm_args dbcm-lab-m1 sudo docker build -q -t "$1" /root/dbcm-e4-build/agent && sudo docker image inspect --format "{{.Id}} {{.Architecture}} user={{.Config.User}} entrypoint={{.Config.Entrypoint}}" "$1" dbcm-agent:e4
+sha256:f3e4fac4ffe7a193d38ebc359ad9f87baac4eaf13e67544913bc85bd2013ff4b
+sha256:f3e4fac4ffe7a193d38ebc359ad9f87baac4eaf13e67544913bc85bd2013ff4b arm64 user=65532:65532 entrypoint=[/usr/local/bin/manager]
+(exit 0)
+```
+
+### job image Dockerfile (final stage of deploy/Dockerfile.jobs)
+
+```
+$ vm_args dbcm-lab-m1 
+		cat <<EOF | sudo tee /root/dbcm-e4-build/job/Dockerfile
+FROM $1
+RUN set -eu; for t in mariabackup mbstream mariadb-dump mariadb; do test -x "/usr/bin/\$t"; done; \\
+    test "\$(id -u mysql):\$(id -g mysql)" = "999:999"
+COPY dbcm-job /usr/local/bin/dbcm-job
+USER 999:999
+HEALTHCHECK NONE
+ENTRYPOINT ["/usr/local/bin/dbcm-job"]
+CMD ["-version"]
+EOF mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+FROM mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+RUN set -eu; for t in mariabackup mbstream mariadb-dump mariadb; do test -x "/usr/bin/$t"; done; \
+    test "$(id -u mysql):$(id -g mysql)" = "999:999"
+COPY dbcm-job /usr/local/bin/dbcm-job
+USER 999:999
+HEALTHCHECK NONE
+ENTRYPOINT ["/usr/local/bin/dbcm-job"]
+CMD ["-version"]
+(exit 0)
+```
+
+### build job image in m1
+
+```
+$ vm_args dbcm-lab-m1 sudo docker build -q -t "$1" /root/dbcm-e4-build/job && sudo docker image inspect --format "{{.Id}} {{.Architecture}} user={{.Config.User}} volumes={{.Config.Volumes}}" "$1" && sudo docker run --rm "$1" -version dbcm-job:e4
+sha256:e30c61fc7f6e4306b6f9d80dc4b4db795b536df03229658d353b191e03201c32
+sha256:e30c61fc7f6e4306b6f9d80dc4b4db795b536df03229658d353b191e03201c32 arm64 user=999:999 volumes=map[/var/lib/mysql:map[]]
+dbcm-job 0.0.0-dev unknown
+(exit 0)
+```
+
+### copy images to dbcm-lab-m2 (docker save | docker load through the host)
+
+```
+$ sh -c limactl shell --workdir / dbcm-lab-m1 -- sudo docker save dbcm-agent:e4 dbcm-job:e4 | limactl shell --workdir / dbcm-lab-m2 -- sudo docker load
+Loaded image: dbcm-agent:e4
+Loaded image: dbcm-job:e4
+(exit 0)
+```
+
+### copy images to dbcm-lab-m3 (docker save | docker load through the host)
+
+```
+$ sh -c limactl shell --workdir / dbcm-lab-m1 -- sudo docker save dbcm-agent:e4 dbcm-job:e4 | limactl shell --workdir / dbcm-lab-m3 -- sudo docker load
+Loaded image: dbcm-agent:e4
+Loaded image: dbcm-job:e4
+(exit 0)
+```
+
+### pull pinned MariaDB image on dbcm-lab-m1
+
+```
+$ vm_docker dbcm-lab-m1 pull -q mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+docker.io/library/mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+(exit 0)
+```
+
+### pull pinned MariaDB image on dbcm-lab-m2
+
+```
+$ vm_docker dbcm-lab-m2 pull -q mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+docker.io/library/mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+(exit 0)
+```
+
+### pull pinned MariaDB image on dbcm-lab-m3
+
+```
+$ vm_docker dbcm-lab-m3 pull -q mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+docker.io/library/mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+(exit 0)
+```
+
+
+## Phase prereqs: operator-provided host directories, network and secrets (labelled with the installation)
+
+host uptime: 21:27  up 6 days,  5:25, 5 users, load averages: 66.68 76.11 40.89
+
+19:27:04Z host load: { 66.68 76.11 40.89 }
+### host directories on dbcm-lab-m1
+
+```
+$ vm_root dbcm-lab-m1 install -d -m 0700 /var/lib/dbcm-agent && install -d -m 0755 "$1" && ls -ld /var/lib/dbcm-agent "$1" /var/lib/dbcm/volumes
+drwx------ 2 root root 4096 Oct 24 21:27 /var/lib/dbcm-agent
+drwxr-xr-x 2 root root 4096 Oct 24 21:27 /var/lib/dbcm/volumes
+(exit 0)
+```
+
+### host directories on dbcm-lab-m2
+
+```
+$ vm_root dbcm-lab-m2 install -d -m 0700 /var/lib/dbcm-agent && install -d -m 0755 "$1" && ls -ld /var/lib/dbcm-agent "$1" /var/lib/dbcm/volumes
+drwx------ 2 root root 4096 Oct 24 21:27 /var/lib/dbcm-agent
+drwxr-xr-x 2 root root 4096 Oct 24 21:27 /var/lib/dbcm/volumes
+(exit 0)
+```
+
+### host directories on dbcm-lab-m3
+
+```
+$ vm_root dbcm-lab-m3 install -d -m 0700 /var/lib/dbcm-agent && install -d -m 0755 "$1" && ls -ld /var/lib/dbcm-agent "$1" /var/lib/dbcm/volumes
+drwx------ 2 root root 4096 Oct 24 21:27 /var/lib/dbcm-agent
+drwxr-xr-x 2 root root 4096 Oct 24 21:27 /var/lib/dbcm/volumes
+(exit 0)
+```
+
+### overlay network
+
+```
+$ vm_args dbcm-lab-m1 sudo docker network inspect -f "{{.Name}} exists" "$1" 2>/dev/null || sudo docker network create --driver overlay --attachable --label "dbcm.installation=$2" "$1" dbcm-e4-net e4lab
+
+oo2083a2w8rulzha1lnpr2fk8
+(exit 0)
+```
+
+### inspection network (operator-provided, labelled)
+
+```
+$ vm_args dbcm-lab-m1 sudo docker network inspect -f "{{.Name}} exists" dbcm-e4-inspect 2>/dev/null || sudo docker network create --driver overlay --attachable --label "dbcm.installation=$1" dbcm-e4-inspect e4lab
+
+exc3l2p4yvikbmil8zbwuj4rt
+(exit 0)
+```
+
+### synthetic passwords and secrets (values never logged)
+
+```
+$ vm_root dbcm-lab-m1 
+		set -e
+		sudo install -d -m 0700 "$1"
+		for n in root monitor backup; do
+			[ -f "$1/$n.pw" ] || head -c 18 /dev/urandom | base64 | tr -d "\n" >"$1/$n.pw"
+		done
+		printf "[client]\nuser=dbcm_backup\npassword=%s\n" "$(sudo cat "$1/backup.pw")" | sudo tee "$1/backup.cnf" >/dev/null
+		sudo chmod 0600 "$1"/*
+		mk() { if sudo docker secret inspect "$1" >/dev/null 2>&1; then echo "secret $1 exists"; else sudo docker secret create --label "dbcm.installation=$2" "$1" "$3" >/dev/null && echo "secret $1"; fi; }
+		mk "$3" "$2" "$1/root.pw"; mk "$4" "$2" "$1/monitor.pw"; mk "$5" "$2" "$1/backup.pw"; mk "$6" "$2" "$1/backup.cnf" /root/dbcm-e4 e4lab dbcm-e4-root-pw dbcm-e4-monitor-pw dbcm-e4-backup-pw dbcm-e4-backup-cred
+secret dbcm-e4-root-pw
+secret dbcm-e4-monitor-pw
+secret dbcm-e4-backup-pw
+secret dbcm-e4-backup-cred
+(exit 0)
+```
+
+
+## Phase backend: SFTP backup target on m1 (OpenSSH of the VM, lab user)
+
+host uptime: 21:27  up 6 days,  5:25, 5 users, load averages: 66.68 76.11 40.89
+
+19:27:06Z host load: { 66.68 76.11 40.89 }
+### lab SFTP user and key
+
+```
+$ vm_root dbcm-lab-m1 
+		set -e
+		id dbcme4bak >/dev/null 2>&1 || sudo useradd -m -s /bin/sh dbcme4bak
+		sudo install -d -o dbcme4bak -g dbcme4bak -m 0700 /home/dbcme4bak/.ssh /home/dbcme4bak/backups
+		[ -f "$1/sftp_key" ] || sudo ssh-keygen -q -t ed25519 -N "" -f "$1/sftp_key"
+		sudo cp "$1/sftp_key.pub" /home/dbcme4bak/.ssh/authorized_keys
+		sudo chown dbcme4bak:dbcme4bak /home/dbcme4bak/.ssh/authorized_keys
+		sudo chmod 0600 /home/dbcme4bak/.ssh/authorized_keys
+		for t in ecdsa ed25519 rsa; do sudo ssh-keygen -lf /etc/ssh/ssh_host_${t}_key.pub | cut -d" " -f1,2,4; done /root/dbcm-e4
+256 SHA256:J2/E2wCzdQdrRNAkYqKVC520VPHX0igtJNG1gy32FWY (ECDSA)
+256 SHA256:MmgfHynLn+kBZ+XQHu0Fru2mMgS4hYsnZ2gwYoPdvAc (ED25519)
+3072 SHA256:NomlAq4uk10aoGuzx7Cjjmy/zCcpjLJSpZTF34xlzA0 (RSA)
+(exit 0)
+```
+
+19:27:06Z pinned host key fingerprint (ecdsa): SHA256:J2/E2wCzdQdrRNAkYqKVC520VPHX0igtJNG1gy32FWY
+### backend config (private key not logged) and recovery key
+
+```
+$ vm_root dbcm-lab-m1 
+		set -e
+		key=$(sudo cat "$1/sftp_key" | python3 -c "import json,sys; print(json.dumps(sys.stdin.read()))")
+		printf "{\"type\":\"sftp\",\"sftp\":{\"addr\":\"%s:22\",\"user\":\"dbcme4bak\",\"dir\":\"/home/dbcme4bak/backups\",\"host_key_fingerprint\":\"%s\",\"private_key_pem\":%s}}\n" "$2" "$3" "$key" | sudo tee "$1/backend.json" >/dev/null
+		sudo chmod 0600 "$1/backend.json"
+		sudo python3 -c "import json,sys; c=json.load(open(sys.argv[1])); c[\"sftp\"][\"private_key_pem\"]=\"<redacted>\"; print(json.dumps(c))" "$1/backend.json"
+		[ -f "$1/recipient.pub" ] || /usr/local/bin/dbcm-e4-client -state "$1/client.json" keygen "$1/recovery.key" >"$1/recipient.pub"
+		cat "$1/recipient.pub"
+		for x in "$5:backend.json" "$6:recovery.key"; do
+			n=${x%%:*}; f=${x#*:}
+			if docker secret inspect "$n" >/dev/null 2>&1; then echo "secret $n exists"; else docker secret create --label "dbcm.installation=$4" "$n" "$1/$f" >/dev/null && echo "secret $n"; fi
+		done /root/dbcm-e4 192.168.104.1 SHA256:J2/E2wCzdQdrRNAkYqKVC520VPHX0igtJNG1gy32FWY e4lab dbcm-e4-backend dbcm-e4-recovery-key
+{"type": "sftp", "sftp": {"addr": "192.168.104.1:22", "user": "dbcme4bak", "dir": "/home/dbcme4bak/backups", "host_key_fingerprint": "SHA256:J2/E2wCzdQdrRNAkYqKVC520VPHX0igtJNG1gy32FWY", "private_key_pem": "<redacted>"}}
+dbcmpk1:Y1VoxTVIdkQf2p0n3FcSPtT1LnZTkgBCA4K5BOqsFFU
+secret dbcm-e4-backend
+secret dbcm-e4-recovery-key
+(exit 0)
+```
+
+
+## Phase manager: start bin/manager (managed single-instance mode, auth, mTLS agents)
+
+host uptime: 21:27  up 6 days,  5:25, 5 users, load averages: 66.68 76.11 40.89
+
+19:27:07Z host load: { 66.68 76.11 40.89 }
+### manager config
+
+```
+$ vm_root dbcm-lab-m1 
+		set -e
+		sudo install -d -m 0700 /etc/dbcm-e4 /var/lib/dbcm-e4
+		cat <<EOF | sudo tee /etc/dbcm-e4/manager.json
+{
+  "auth": {"enabled": true, "rpId": "localhost", "rpDisplayName": "E4 lab", "origins": ["http://localhost:$2"]},
+  "manager": {
+    "nodeId": "manager-1", "dataDir": "/var/lib/dbcm-e4", "bind": "127.0.0.1:$3", "bootstrap": true, "autoResume": ${11},
+    "agentTransport": {
+      "enrollListen": "$1:$4", "managerUrl": "https://$1:$4", "agentPort": 7443,
+      "monitorUser": "dbcm_monitor", "monitorSecret": "$5", "dbSecrets": ["$6", "$7"]
+    },
+    "backup": {"backendConfigFile": "$9/backend.json", "scheduleIntervalSeconds": 30},
+    "settings": {
+      "installationId": "$8", "volumeBase": "/var/lib/dbcm/volumes", "agentImage": "dbcm-agent:e4",
+      "accounts": {"monitorUser": "dbcm_monitor", "monitorSecret": "$5", "backupSecret": "$7"},
+      "backup": {"jobImage": "dbcm-job:e4", "backendSecret": "dbcm-e4-backend", "dbCredentialSecret": "dbcm-e4-backup-cred",
+                 "recipientKey": "${10}", "keySecret": "dbcm-e4-recovery-key", "inspectionNetwork": "dbcm-e4-inspect"}
+    }
+  }
+}
+EOF 192.168.104.1 18480 18490 7444 dbcm-e4-monitor-pw dbcm-e4-root-pw dbcm-e4-backup-pw e4lab /root/dbcm-e4 dbcmpk1:Y1VoxTVIdkQf2p0n3FcSPtT1LnZTkgBCA4K5BOqsFFU false
+{
+  "auth": {"enabled": true, "rpId": "localhost", "rpDisplayName": "E4 lab", "origins": ["http://localhost:18480"]},
+  "manager": {
+    "nodeId": "manager-1", "dataDir": "/var/lib/dbcm-e4", "bind": "127.0.0.1:18490", "bootstrap": true, "autoResume": false,
+    "agentTransport": {
+      "enrollListen": "192.168.104.1:7444", "managerUrl": "https://192.168.104.1:7444", "agentPort": 7443,
+      "monitorUser": "dbcm_monitor", "monitorSecret": "dbcm-e4-monitor-pw", "dbSecrets": ["dbcm-e4-root-pw", "dbcm-e4-backup-pw"]
+    },
+    "backup": {"backendConfigFile": "/root/dbcm-e4/backend.json", "scheduleIntervalSeconds": 30},
+    "settings": {
+      "installationId": "e4lab", "volumeBase": "/var/lib/dbcm/volumes", "agentImage": "dbcm-agent:e4",
+      "accounts": {"monitorUser": "dbcm_monitor", "monitorSecret": "dbcm-e4-monitor-pw", "backupSecret": "dbcm-e4-backup-pw"},
+      "backup": {"jobImage": "dbcm-job:e4", "backendSecret": "dbcm-e4-backend", "dbCredentialSecret": "dbcm-e4-backup-cred",
+                 "recipientKey": "dbcmpk1:Y1VoxTVIdkQf2p0n3FcSPtT1LnZTkgBCA4K5BOqsFFU", "keySecret": "dbcm-e4-recovery-key", "inspectionNetwork": "dbcm-e4-inspect"}
+    }
+  }
+}
+(exit 0)
+```
+
+### start manager unit
+
+```
+$ vm_args dbcm-lab-m1 sudo systemd-run --unit "$1" -p Restart=no --collect /usr/local/bin/dbcm-e4-manager -listen "127.0.0.1:$2" -config /etc/dbcm-e4/manager.json dbcm-e4-manager 18480
+Running as unit: dbcm-e4-manager.service; invocation ID: 4fe41b6b726e45e7b3f508ca3eda0806
+(exit 0)
+```
+
+19:27:09Z wait ok after 2s: manager health
+19:27:12Z wait ok after 3s: manager leads (API not 503)
+### manager log (setup token line removed)
+
+```
+$ vm_args dbcm-lab-m1 sudo journalctl -u "$1" --no-pager | grep -v "setup token" | tail -20 dbcm-e4-manager
+Oct 24 21:27:07 lima-dbcm-lab-m1 systemd[1]: Started dbcm-e4-manager.service - [systemd-run] /usr/local/bin/dbcm-e4-manager -listen 127.0.0.1:18480 -config /etc/dbcm-e4/manager.json.
+Oct 24 21:27:08 lima-dbcm-lab-m1 dbcm-e4-manager[31098]: 2026/10/24 21:27:08 INFO manager: agent enrollment endpoint listening addr=192.168.104.1:7444
+Oct 24 21:27:08 lima-dbcm-lab-m1 dbcm-e4-manager[31098]: 2026/10/24 21:27:08 INFO manager listening addr=127.0.0.1:18480 version=0.0.0-dev auth=true
+Oct 24 21:27:09 lima-dbcm-lab-m1 dbcm-e4-manager[31098]: 2026/10/24 21:27:09 INFO manager: leadership started term=2 adopted=0
+Oct 24 21:27:10 lima-dbcm-lab-m1 dbcm-e4-manager[31098]: 2026/10/24 21:27:10 INFO manager: configured settings applied
+Oct 24 21:27:10 lima-dbcm-lab-m1 dbcm-e4-manager[31098]: 2026/10/24 21:27:10 INFO manager: bound the manager system subject to its system role
+(exit 0)
+```
+
+### listeners in m1
+
+```
+$ vm_sh dbcm-lab-m1 sudo ss -ltnp | grep -E 'dbcm-e4|:18480|:18490|:7444' || true
+LISTEN 0      4096       127.0.0.1:18490      0.0.0.0:*    users:(("dbcm-e4-manager",pid=31098,fd=7))             
+LISTEN 0      4096       127.0.0.1:18480      0.0.0.0:*    users:(("dbcm-e4-manager",pid=31098,fd=9))             
+LISTEN 0      4096   192.168.104.1:7444       0.0.0.0:*    users:(("dbcm-e4-manager",pid=31098,fd=8))             
+(exit 0)
+```
+
+
+## Phase setup: first administrator with a software passkey through the API
+
+host uptime: 21:27  up 6 days,  5:26, 5 users, load averages: 62.86 75.16 40.76
+
+19:27:12Z host load: { 62.86 75.16 40.76 }
+### setup status
+
+```
+$ api GET /api/v1/setup/status
+HTTP 200
+{"setupRequired":true}
+(exit 0)
+```
+
+### setup (WebAuthn registration, ES256 software key)
+
+```
+$ vm_args dbcm-lab-m1 sudo /usr/local/bin/dbcm-e4-client -state "$1/client.json" -base "http://127.0.0.1:$2" -origin "http://localhost:$2" setup -token-file "$1/setup.token" -account admin /root/dbcm-e4 18480
+setup finished: account admin, 10 recovery codes issued (not printed), session cookie set: true
+(exit 0)
+```
+
+### session
+
+```
+$ api GET /api/v1/auth/session
+HTTP 200
+{"accountId":"admin","restricted":false,"pendingPasskeyEnrollment":false,"createdAt":"2026-10-24T21:27:16.606509631+02:00"}
+(exit 0)
+```
+
+### setup status after
+
+```
+$ api GET /api/v1/setup/status
+HTTP 200
+{"setupRequired":false}
+(exit 0)
+```
+
+
+## Phase swarmapi: connect the Swarm, sync, enroll hosts, deploy agents
+
+host uptime: 21:27  up 6 days,  5:26, 5 users, load averages: 58.15 73.98 40.54
+
+19:27:16Z host load: { 58.15 73.98 40.54 }
+### connect swarm
+
+```
+$ api POST /api/v1/swarms {"name":"lab","dockerHost":"unix:///var/run/docker.sock"}
+HTTP 201
+{"id":"swarm-65a4e88803ff6a56","name":"lab","state":"unknown"}
+(exit 0)
+```
+
+19:27:17Z swarm id: swarm-65a4e88803ff6a56
+### sync swarm
+
+```
+$ api POST /api/v1/swarms/swarm-65a4e88803ff6a56/sync
+HTTP 204
+
+(exit 0)
+```
+
+### swarms
+
+```
+$ api GET /api/v1/swarms
+HTTP 200
+{"items":[{"id":"swarm-65a4e88803ff6a56","name":"lab","state":"healthy","observedAt":"2026-10-24T21:27:17.006382587+02:00"}]}
+(exit 0)
+```
+
+### hosts after sync
+
+```
+$ api GET /api/v1/hosts
+HTTP 200
+{"items":[{"swarm":"swarm-65a4e88803ff6a56","nodeId":"j99zpnm3gt803ekn2m3taan37","hostname":"lima-dbcm-lab-m2","role":"worker","availability":"active","state":"ready","engineVersion":"29.9.2","enrollment":"discovered","nanoCpus":2000000000,"memoryBytes":4086222848,"observedAt":"2026-10-24T21:27:17.006382587+02:00"},{"swarm":"swarm-65a4e88803ff6a56","nodeId":"uk776geuoew2o4xqn0xi9gnu8","hostname":"lima-dbcm-lab-m3","role":"worker","availability":"active","state":"ready","engineVersion":"29.9.2","enrollment":"discovered","nanoCpus":2000000000,"memoryBytes":4086222848,"observedAt":"2026-10-24T21:27:17.006382587+02:00"},{"swarm":"swarm-65a4e88803ff6a56","nodeId":"zp8ih08ej9gz60wukvc6czba6","hostname":"lima-dbcm-lab-m1","role":"manager","availability":"active","state":"ready","engineVersion":"29.9.2","enrollment":"discovered","nanoCpus":2000000000,"memoryBytes":4086218752,"observedAt":"2026-10-24T21:27:17.006382587+02:00"}]}
+(exit 0)
+```
+
+### enroll host j99zpnm3gt803ekn2m3taan37
+
+```
+$ api POST /api/v1/hosts/j99zpnm3gt803ekn2m3taan37/enroll {}
+HTTP 200
+{"swarm":"swarm-65a4e88803ff6a56","nodeId":"j99zpnm3gt803ekn2m3taan37","hostname":"lima-dbcm-lab-m2","role":"worker","availability":"active","state":"ready","engineVersion":"29.9.2","enrollment":"enrolled","nanoCpus":2000000000,"memoryBytes":4086222848,"observedAt":"2026-10-24T21:27:17.006382587+02:00"}
+(exit 0)
+```
+
+### enroll host uk776geuoew2o4xqn0xi9gnu8
+
+```
+$ api POST /api/v1/hosts/uk776geuoew2o4xqn0xi9gnu8/enroll {}
+HTTP 200
+{"swarm":"swarm-65a4e88803ff6a56","nodeId":"uk776geuoew2o4xqn0xi9gnu8","hostname":"lima-dbcm-lab-m3","role":"worker","availability":"active","state":"ready","engineVersion":"29.9.2","enrollment":"enrolled","nanoCpus":2000000000,"memoryBytes":4086222848,"observedAt":"2026-10-24T21:27:17.006382587+02:00"}
+(exit 0)
+```
+
+### enroll host zp8ih08ej9gz60wukvc6czba6
+
+```
+$ api POST /api/v1/hosts/zp8ih08ej9gz60wukvc6czba6/enroll {}
+HTTP 200
+{"swarm":"swarm-65a4e88803ff6a56","nodeId":"zp8ih08ej9gz60wukvc6czba6","hostname":"lima-dbcm-lab-m1","role":"manager","availability":"active","state":"ready","engineVersion":"29.9.2","enrollment":"enrolled","nanoCpus":2000000000,"memoryBytes":4086218752,"observedAt":"2026-10-24T21:27:17.006382587+02:00"}
+(exit 0)
+```
+
+### deploy agents
+
+```
+$ api POST /api/v1/swarms/swarm-65a4e88803ff6a56/agents/deploy
+HTTP 200
+{"serviceId":"xgkzgn77irbsatamvd2oh1hk4","created":true,"labeled":["j99zpnm3gt803ekn2m3taan37","uk776geuoew2o4xqn0xi9gnu8","zp8ih08ej9gz60wukvc6czba6"],"unlabeled":[],"failed":[]}
+(exit 0)
+```
+
+### agent service
+
+```
+$ vm_docker dbcm-lab-m1 service ls --filter label=dbcm.installation=e4lab
+ID             NAME               MODE      REPLICAS   IMAGE           PORTS
+xgkzgn77irbs   dbcm-agent-e4lab   global    0/3        dbcm-agent:e4   
+(exit 0)
+```
+
+19:27:20Z wait ok after 3s: all 3 agents enrolled (agentIdentity true)
+### hosts after enrollment
+
+```
+$ api GET /api/v1/hosts
+HTTP 200
+{"items":[{"swarm":"swarm-65a4e88803ff6a56","nodeId":"j99zpnm3gt803ekn2m3taan37","hostname":"lima-dbcm-lab-m2","role":"worker","availability":"active","state":"ready","engineVersion":"29.9.2","enrollment":"enrolled","nanoCpus":2000000000,"memoryBytes":4086222848,"observedAt":"2026-10-24T21:27:17.006382587+02:00","agentIdentity":true},{"swarm":"swarm-65a4e88803ff6a56","nodeId":"uk776geuoew2o4xqn0xi9gnu8","hostname":"lima-dbcm-lab-m3","role":"worker","availability":"active","state":"ready","engineVersion":"29.9.2","enrollment":"enrolled","nanoCpus":2000000000,"memoryBytes":4086222848,"observedAt":"2026-10-24T21:27:17.006382587+02:00","agentIdentity":true},{"swarm":"swarm-65a4e88803ff6a56","nodeId":"zp8ih08ej9gz60wukvc6czba6","hostname":"lima-dbcm-lab-m1","role":"manager","availability":"active","state":"ready","engineVersion":"29.9.2","enrollment":"enrolled","nanoCpus":2000000000,"memoryBytes":4086218752,"observedAt":"2026-10-24T21:27:17.006382587+02:00","agentIdentity":true}]}
+(exit 0)
+```
+
+### agent tasks
+
+```
+$ vm_docker dbcm-lab-m1 service ps --format {{.Node}} {{.CurrentState}} {{.Error}} dbcm-agent-e4lab
+lima-dbcm-lab-m2 Running 1 second ago 
+lima-dbcm-lab-m3 Running 1 second ago 
+lima-dbcm-lab-m1 Running 1 second ago 
+(exit 0)
+```
+
+
+## Phase cluster: POST /clusters and wait for the operation
+
+host uptime: 21:27  up 6 days,  5:26, 5 users, load averages: 56.13 73.30 40.50
+
+19:27:20Z host load: { 56.13 73.30 40.50 }
+### create cluster
+
+```
+$ api POST /api/v1/clusters {"swarm":"swarm-65a4e88803ff6a56","name":"e4db","size":3,"image":"mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873","network":"dbcm-e4-net","rootPasswordSecret":"dbcm-e4-root-pw","gcacheSize":"128M","resources":{"limits":{"milli_cpu":1000,"memory_bytes":1073741824},"reservations":{"milli_cpu":250,"memory_bytes":536870912}},"placement":{"reserve":{}}}
+HTTP 202
+{"id":"op-ce307475bb4c470c","kind":"galera/create-cluster"}
+```
+
+19:27:20Z operation op-ce307475bb4c470c cluster clu-20ed55397be71892
+19:27:20Z operation: pending 
+19:27:41Z operation: running 
+19:28:01Z operation: running 
+19:28:26Z operation: running 
+19:28:47Z operation: running 
+19:29:08Z operation: succeeded all steps succeeded
+### operation
+
+```
+$ api GET /api/v1/operations
+HTTP 200
+{"items":[{"id":"op-ce307475bb4c470c","kind":"galera/create-cluster","swarm":"swarm-65a4e88803ff6a56","cluster":"clu-20ed55397be71892","state":"succeeded","startedAt":"2026-10-24T21:27:20.413489245+02:00","endedAt":"2026-10-24T21:28:55.982526009+02:00","reason":"all steps succeeded","progress":{"stepsDone":23,"stepsTotal":23,"updatedAt":"2026-10-24T21:28:56.061780718+02:00"}}]}
+(exit 0)
+```
+
+### cluster
+
+```
+$ api GET /api/v1/clusters/clu-20ed55397be71892
+HTTP 200
+{"id":"clu-20ed55397be71892","swarm":"swarm-65a4e88803ff6a56","name":"e4db","engine":"mariadb-galera","state":"healthy","nodes":[{"id":"n1","host":"j99zpnm3gt803ekn2m3taan37","state":"healthy","role":"synced","observedAt":"2026-10-24T21:28:55.069760006+02:00"},{"id":"n2","host":"uk776geuoew2o4xqn0xi9gnu8","state":"healthy","role":"synced","observedAt":"2026-10-24T21:28:55.069785631+02:00"},{"id":"n3","host":"zp8ih08ej9gz60wukvc6czba6","state":"healthy","role":"synced","observedAt":"2026-10-24T21:28:55.068325047+02:00"}],"observedAt":"2026-10-24T21:28:55.069760006+02:00","endpoints":[{"name":"n1","host":"dbcm-e4db-n1","port":3306},{"name":"n2","host":"dbcm-e4db-n2","port":3306},{"name":"n3","host":"dbcm-e4db-n3","port":3306}],"automationPolicy":"manual"}
+(exit 0)
+```
+
+### events
+
+```
+$ api GET /api/v1/events
+HTTP 200
+{"items":[{"id":"01792870135983200676-f1b746a7","time":"2026-10-24T21:28:55.983200676+02:00","swarm":"swarm-65a4e88803ff6a56","cluster":"clu-20ed55397be71892","severity":"info","message":"operation op-ce307475bb4c470c (galera/create-cluster) succeeded"},{"id":"01792870135071340464-a314b193","time":"2026-10-24T21:28:55.071340464+02:00","swarm":"swarm-65a4e88803ff6a56","cluster":"clu-20ed55397be71892","severity":"info","message":"node n1 of cluster e4db is healthy again"},{"id":"01792870120238171606-389c9257","time":"2026-10-24T21:28:40.238171606+02:00","swarm":"swarm-65a4e88803ff6a56","cluster":"clu-20ed55397be71892","severity":"info","message":"node n3 of cluster e4db is healthy again"},{"id":"01792870120190568012-006c23fb","time":"2026-10-24T21:28:40.190568012+02:00","swarm":"swarm-65a4e88803ff6a56","cluster":"clu-20ed55397be71892","severity":"warning","message":"node n1 of cluster e4db became unknown: no answer from agent: agent answered refused/invalid-path: lstat /var/lib/dbcm/volumes/dbcm-e4db-n1-5badfc33/run/mysqld.sock: no such file or directory"},{"id":"01792870076483481352-b14b6ef2","time":"2026-10-24T21:27:56.483481352+02:00","swarm":"swarm-65a4e88803ff6a56","cluster":"clu-20ed55397be71892","severity":"info","message":"node n2 of cluster e4db is healthy again"},{"id":"01792870061193825160-b06e259c","time":"2026-10-24T21:27:41.19382516+02:00","swarm":"swarm-65a4e88803ff6a56","cluster":"clu-20ed55397be71892","severity":"info","message":"node n1 of cluster e4db is healthy again"},{"id":"01792870040418651628-c913ddbc","time":"2026-10-24T21:27:20.418651628+02:00","swarm":"swarm-65a4e88803ff6a56","cluster":"clu-20ed55397be71892","severity":"info","message":"admin requested cluster e4db (3 nodes), operation op-ce307475bb4c470c"},{"id":"01792870037606377104-cfffea71","time":"2026-10-24T21:27:17.606377104+02:00","swarm":"swarm-65a4e88803ff6a56","severity":"info","message":"admin deployed agents: service xgkzgn77irbsatamvd2oh1hk4, 3 enrolled, 0 revoked, 0 failed"},{"id":"01792870029957659905-fde45563","time":"2026-10-24T21:27:09.957659905+02:00","severity":"info","message":"manager manager-1 leads term 2; 0 unfinished operation(s) taken over"}]}
+(exit 0)
+```
+
+### services
+
+```
+$ vm_docker dbcm-lab-m1 service ls
+ID             NAME               MODE         REPLICAS   IMAGE             PORTS
+xgkzgn77irbs   dbcm-agent-e4lab   global       3/3        dbcm-agent:e4     
+4f7ixz1vtzky   dbcm-e4db-n1       replicated   1/1        mariadb:11.4.13   
+3ryd67ye5u86   dbcm-e4db-n2       replicated   1/1        mariadb:11.4.13   
+lbuq30vcucoz   dbcm-e4db-n3       replicated   1/1        mariadb:11.4.13   
+(exit 0)
+```
+
+### galera tasks
+
+```
+$ vm_sh dbcm-lab-m1 sudo docker service ps --no-trunc --format '{{.Name}} {{.Node}} {{.CurrentState}} {{.Error}}' $(sudo docker service ls -q --filter label=dbcm.cluster)
+dbcm-e4db-n1.1 lima-dbcm-lab-m2 Running 19 seconds ago 
+dbcm-e4db-n1.1 lima-dbcm-lab-m2 Shutdown 20 seconds ago 
+dbcm-e4db-n2.1 lima-dbcm-lab-m3 Running about a minute ago 
+dbcm-e4db-n3.1 lima-dbcm-lab-m1 Running about a minute ago 
+(exit 0)
+```
+
+
+## Phase verify: real MariaDB checks
+
+host uptime: 21:29  up 6 days,  5:28, 5 users, load averages: 25.95 58.08 38.40
+
+19:29:08Z host load: { 25.95 58.08 38.40 }
+### n1 placement and wsrep status
+
+```
+$ sh -c echo vm=$0; printf '%s\n' "$1" dbcm-lab-m2 dbcm-e4db-n1	/dbcm/run/mysqld.sock	/dbcm/data/
+wsrep_local_state_comment	Synced
+wsrep_cluster_size	3
+wsrep_cluster_state_uuid	f1ae8092-cfe0-11f1-a0ce-577372ecbe89
+wsrep_cluster_status	Primary
+wsrep_connected	ON
+wsrep_ready	ON
+vm=dbcm-lab-m2
+dbcm-e4db-n1	/dbcm/run/mysqld.sock	/dbcm/data/
+wsrep_local_state_comment	Synced
+wsrep_cluster_size	3
+wsrep_cluster_state_uuid	f1ae8092-cfe0-11f1-a0ce-577372ecbe89
+wsrep_cluster_status	Primary
+wsrep_connected	ON
+wsrep_ready	ON
+(exit 0)
+```
+
+### n2 placement and wsrep status
+
+```
+$ sh -c echo vm=$0; printf '%s\n' "$1" dbcm-lab-m3 dbcm-e4db-n2	/dbcm/run/mysqld.sock	/dbcm/data/
+wsrep_local_state_comment	Synced
+wsrep_cluster_size	3
+wsrep_cluster_state_uuid	f1ae8092-cfe0-11f1-a0ce-577372ecbe89
+wsrep_cluster_status	Primary
+wsrep_connected	ON
+wsrep_ready	ON
+vm=dbcm-lab-m3
+dbcm-e4db-n2	/dbcm/run/mysqld.sock	/dbcm/data/
+wsrep_local_state_comment	Synced
+wsrep_cluster_size	3
+wsrep_cluster_state_uuid	f1ae8092-cfe0-11f1-a0ce-577372ecbe89
+wsrep_cluster_status	Primary
+wsrep_connected	ON
+wsrep_ready	ON
+(exit 0)
+```
+
+### n3 placement and wsrep status
+
+```
+$ sh -c echo vm=$0; printf '%s\n' "$1" dbcm-lab-m1 dbcm-e4db-n3	/dbcm/run/mysqld.sock	/dbcm/data/
+wsrep_local_state_comment	Synced
+wsrep_cluster_size	3
+wsrep_cluster_state_uuid	f1ae8092-cfe0-11f1-a0ce-577372ecbe89
+wsrep_cluster_status	Primary
+wsrep_connected	ON
+wsrep_ready	ON
+vm=dbcm-lab-m1
+dbcm-e4db-n3	/dbcm/run/mysqld.sock	/dbcm/data/
+wsrep_local_state_comment	Synced
+wsrep_cluster_size	3
+wsrep_cluster_state_uuid	f1ae8092-cfe0-11f1-a0ce-577372ecbe89
+wsrep_cluster_status	Primary
+wsrep_connected	ON
+wsrep_ready	ON
+(exit 0)
+```
+
+### write on n1
+
+```
+$ rsql 1 CREATE DATABASE IF NOT EXISTS e4; CREATE TABLE IF NOT EXISTS e4.t (id INT PRIMARY KEY, v VARCHAR(64), at TIMESTAMP DEFAULT CURRENT_TIMESTAMP); REPLACE INTO e4.t (id, v) VALUES (1, 'written on n1'); SELECT COUNT(*) FROM e4.t
+1
+(exit 0)
+```
+
+### write on n3
+
+```
+$ rsql 3 REPLACE INTO e4.t (id, v) VALUES (3, 'written on n3')
+(exit 0)
+```
+
+### read on n1
+
+```
+$ rsql 1 SELECT id, v FROM e4.t ORDER BY id
+1	written on n1
+3	written on n3
+(exit 0)
+```
+
+### read on n2
+
+```
+$ rsql 2 SELECT id, v FROM e4.t ORDER BY id
+1	written on n1
+3	written on n3
+(exit 0)
+```
+
+### read on n3
+
+```
+$ rsql 3 SELECT id, v FROM e4.t ORDER BY id
+1	written on n1
+3	written on n3
+(exit 0)
+```
+
+### accounts and grants (n2, replicated)
+
+```
+$ rsql 2 SELECT user, host, plugin FROM mysql.user ORDER BY user, host; SHOW GRANTS FOR 'dbcm_monitor'@'localhost'; SHOW GRANTS FOR 'dbcm_backup'@'%'
+dbcm_backup	%	mysql_native_password
+dbcm_monitor	localhost	mysql_native_password
+healthcheck	127.0.0.1	mysql_native_password
+healthcheck	::1	mysql_native_password
+healthcheck	localhost	mysql_native_password
+mariadb.sys	localhost	mysql_native_password
+mysql	localhost	unix_socket
+root	%	mysql_native_password
+root	localhost	mysql_native_password
+GRANT USAGE ON *.* TO `dbcm_monitor`@`localhost` IDENTIFIED BY PASSWORD '<hash redacted>'
+GRANT RELOAD, PROCESS, LOCK TABLES, BINLOG MONITOR ON *.* TO `dbcm_backup`@`%` IDENTIFIED BY PASSWORD '<hash redacted>'
+(exit 0)
+```
+
+### monitoring account over the node socket (inside the n2 container, password from m1 state file via stdin)
+
+```
+$ sh -c limactl shell --workdir / dbcm-lab-m1 -- sudo cat /root/dbcm-e4/monitor.pw | limactl shell --workdir / dbcm-lab-m3 -- sudo docker exec -i 372a2b58fa4892f508c3691e063edd89419bc2ece0d02299346a911c4113cc9e sh -c 'read -r pw; exec mariadb -S /dbcm/run/mysqld.sock -udbcm_monitor -p"$pw" -N -B -e "SELECT CURRENT_USER(); SHOW GLOBAL STATUS LIKE \"wsrep_cluster_size\""'
+dbcm_monitor@localhost
+wsrep_cluster_size	3
+(exit 0)
+```
+
+### volume layout on the n1 host
+
+```
+$ vm_sh dbcm-lab-m2 sudo ls -la /var/lib/dbcm/volumes/ && sudo ls -la /var/lib/dbcm/volumes/*n1*/ && sudo ls -la /var/lib/dbcm/volumes/*n1*/run/
+total 12
+drwxr-xr-x 3 root root 4096 Oct 24 21:27 .
+drwxr-xr-x 3 root root 4096 Oct 24 21:27 ..
+drwxr-xr-x 4 root root 4096 Oct 24 21:27 dbcm-e4db-n1-5badfc33
+total 20
+drwxr-xr-x 4 root root            4096 Oct 24 21:27 .
+drwxr-xr-x 3 root root            4096 Oct 24 21:27 ..
+drwxr-x--- 6 999  systemd-journal 4096 Oct 24 21:29 data
+-rw-r--r-- 1 root root             126 Oct 24 21:27 dbcm-identity.json
+drwxr-x--- 2 999  systemd-journal 4096 Oct 24 21:28 run
+total 8
+drwxr-x--- 2 999  systemd-journal 4096 Oct 24 21:28 .
+drwxr-xr-x 4 root root            4096 Oct 24 21:27 ..
+srwxrwxrwx 1 999  systemd-journal    0 Oct 24 21:28 mysqld.sock
+(exit 0)
+```
+
+### cluster via API (health)
+
+```
+$ api GET /api/v1/clusters/clu-20ed55397be71892
+HTTP 200
+{"id":"clu-20ed55397be71892","swarm":"swarm-65a4e88803ff6a56","name":"e4db","engine":"mariadb-galera","state":"healthy","nodes":[{"id":"n1","host":"j99zpnm3gt803ekn2m3taan37","state":"healthy","role":"synced","observedAt":"2026-10-24T21:29:10.062900894+02:00"},{"id":"n2","host":"uk776geuoew2o4xqn0xi9gnu8","state":"healthy","role":"synced","observedAt":"2026-10-24T21:29:10.06301831+02:00"},{"id":"n3","host":"zp8ih08ej9gz60wukvc6czba6","state":"healthy","role":"synced","observedAt":"2026-10-24T21:29:10.062672685+02:00"}],"observedAt":"2026-10-24T21:29:10.062900894+02:00","endpoints":[{"name":"n1","host":"dbcm-e4db-n1","port":3306},{"name":"n2","host":"dbcm-e4db-n2","port":3306},{"name":"n3","host":"dbcm-e4db-n3","port":3306}],"automationPolicy":"manual"}
+(exit 0)
+```
+
+
+## Phase e8prep (gate A): accounts, binaries, two proxy containers on m2 and m3
+
+host uptime: 21:29  up 6 days,  5:28, 5 users, load averages: 31.45 58.14 38.65
+
+19:29:15Z host load: { 31.45 58.14 38.65 }
+### install proxy and e5client in /root/dbcm-e8 on dbcm-lab-m1
+
+```
+$ vm_root dbcm-lab-m1 
+			set -e
+			install -d -m 0700 "$1" "$1/out"
+			install -m 0755 /tmp/proxy /tmp/e5client "$1/"
+			rm -f /tmp/proxy /tmp/e5client /root/dbcm-e8
+(exit 0)
+```
+
+### install proxy and e5client in /root/dbcm-e8 on dbcm-lab-m2
+
+```
+$ vm_root dbcm-lab-m2 
+			set -e
+			install -d -m 0700 "$1" "$1/out"
+			install -m 0755 /tmp/proxy /tmp/e5client "$1/"
+			rm -f /tmp/proxy /tmp/e5client /root/dbcm-e8
+(exit 0)
+```
+
+### install proxy and e5client in /root/dbcm-e8 on dbcm-lab-m3
+
+```
+$ vm_root dbcm-lab-m3 
+			set -e
+			install -d -m 0700 "$1" "$1/out"
+			install -m 0755 /tmp/proxy /tmp/e5client "$1/"
+			rm -f /tmp/proxy /tmp/e5client /root/dbcm-e8
+(exit 0)
+```
+
+### generate passwords on m1 (values never logged)
+
+```
+$ vm_root dbcm-lab-m1 
+		for n in monitor app; do [ -f "$1/$n.pw" ] || head -c 18 /dev/urandom | base64 | tr -d "/+\n" >"$1/$n.pw"; done
+		chmod 0600 "$1"/*.pw; ls -l "$1"/*.pw /root/dbcm-e8
+-rw------- 1 root root 22 Oct 24 21:29 /root/dbcm-e8/app.pw
+-rw------- 1 root root 24 Oct 24 21:29 /root/dbcm-e8/monitor.pw
+(exit 0)
+```
+
+### proxy accounts exist (grants, n2)
+
+```
+$ rsql 2 SHOW GRANTS FOR 'dbcm_e5mon'@'%'; SHOW GRANTS FOR 'e5app'@'%'
+GRANT USAGE ON *.* TO `dbcm_e5mon`@`%` IDENTIFIED BY PASSWORD '<hash redacted>'
+GRANT USAGE ON *.* TO `e5app`@`%` IDENTIFIED BY PASSWORD '<hash redacted>'
+GRANT ALL PRIVILEGES ON `e5`.* TO `e5app`@`%`
+(exit 0)
+```
+
+### start dbcm-e8-proxy on dbcm-lab-m2 (published on host port 3306, overlay network dbcm-e4-net)
+
+```
+$ vm_args dbcm-lab-m2 
+			sudo docker rm -f "$1" >/dev/null 2>&1 || true
+			sudo docker run -d --name "$1" --hostname "$1" --network "$2" -p 3306:3306 --restart unless-stopped --label dbcm.e8=lab \
+				-v "$3:/e8:ro" --entrypoint /e8/proxy "$4" -config /e8/proxy.json dbcm-e8-proxy dbcm-e4-net /root/dbcm-e8 mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+6a9da69472414a08caa8d32544c2d692ca2bcf311da7fa8894ec0119d5565dcc
+(exit 0)
+```
+
+### start dbcm-e8-proxy on dbcm-lab-m3 (published on host port 3306, overlay network dbcm-e4-net)
+
+```
+$ vm_args dbcm-lab-m3 
+			sudo docker rm -f "$1" >/dev/null 2>&1 || true
+			sudo docker run -d --name "$1" --hostname "$1" --network "$2" -p 3306:3306 --restart unless-stopped --label dbcm.e8=lab \
+				-v "$3:/e8:ro" --entrypoint /e8/proxy "$4" -config /e8/proxy.json dbcm-e8-proxy dbcm-e4-net /root/dbcm-e8 mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+f4d97c5822d6e41aa64f1e572df67da746085b6769b8d211d917f971126d1927
+(exit 0)
+```
+
+19:29:18Z wait ok after 0s: proxy on dbcm-lab-m2 has a writer
+### proxy status on dbcm-lab-m2
+
+```
+$ e8_status dbcm-lab-m2
+{
+  "now": "2026-10-24T19:29:18.670793217Z",
+  "writer": "n1",
+  "has_writer": true,
+  "writer_address": "dbcm-e4db-n1:3306",
+  "readers": [
+    "n2",
+    "n3"
+  ],
+  "decided_at": "2026-10-24T19:29:17.764037748Z",
+  "reasons": [
+    "no current writer: immediate choice of lowest latency node n1"
+  ],
+  "writer_changes": 1,
+  "policy": {
+    "mode": "single-writer-stable",
+    "stale_after": "5s",
+    "drain_deadline": "10s",
+    "probe_interval": "1s",
+    "sync_source": "galera",
+    "tls": false
+  },
+  "nodes": [
+    {
+      "id": "n1",
+      "address": "dbcm-e4db-n1:3306",
+      "role": "writer-eligible",
+      "health": "healthy",
+      "sync": "synced",
+      "latency_ewma": "1.161579ms",
+      "samples": 1,
+      "last_seen": "2026-10-24T19:29:17.757189493Z",
+      "age": "914ms",
+      "detail": "server 11.4.13-MariaDB-ubu2404; wsrep synced",
+      "connections": 0,
+      "draining": 0
+    },
+    {
+      "id": "n2",
+      "address": "dbcm-e4db-n2:3306",
+      "role": "writer-eligible",
+      "health": "healthy",
+      "sync": "synced",
+      "latency_ewma": "2.742269ms",
+      "samples": 1,
+      "last_seen": "2026-10-24T19:29:17.763606844Z",
+      "age": "907ms",
+      "detail": "server 11.4.13-MariaDB-ubu2404; wsrep synced",
+      "connections": 0,
+      "draining": 0
+    },
+    {
+      "id": "n3",
+      "address": "dbcm-e4db-n3:3306",
+      "role": "writer-eligible",
+      "health": "healthy",
+      "sync": "synced",
+      "latency_ewma": "3.461442ms",
+      "samples": 1,
+      "last_seen": "2026-10-24T19:29:17.764030456Z",
+      "age": "907ms",
+      "detail": "server 11.4.13-MariaDB-ubu2404; wsrep synced",
+      "connections": 0,
+      "draining": 0
+    }
+  ],
+  "connections": {
+    "write": 0,
+    "read": 0
+  }
+}
+(exit 0)
+```
+
+19:29:18Z wait ok after 0s: proxy on dbcm-lab-m3 has a writer
+### proxy status on dbcm-lab-m3
+
+```
+$ e8_status dbcm-lab-m3
+{
+  "now": "2026-10-24T19:29:18.860811318Z",
+  "writer": "n2",
+  "has_writer": true,
+  "writer_address": "dbcm-e4db-n2:3306",
+  "readers": [
+    "n3",
+    "n1"
+  ],
+  "decided_at": "2026-10-24T19:29:18.45166836Z",
+  "reasons": [
+    "no current writer: immediate choice of lowest latency node n2"
+  ],
+  "writer_changes": 1,
+  "policy": {
+    "mode": "single-writer-stable",
+    "stale_after": "5s",
+    "drain_deadline": "10s",
+    "probe_interval": "1s",
+    "sync_source": "galera",
+    "tls": false
+  },
+  "nodes": [
+    {
+      "id": "n1",
+      "address": "dbcm-e4db-n1:3306",
+      "role": "writer-eligible",
+      "health": "healthy",
+      "sync": "synced",
+      "latency_ewma": "2.337507ms",
+      "samples": 1,
+      "last_seen": "2026-10-24T19:29:18.451666068Z",
+      "age": "409ms",
+      "detail": "server 11.4.13-MariaDB-ubu2404; wsrep synced",
+      "connections": 0,
+      "draining": 0
+    },
+    {
+      "id": "n2",
+      "address": "dbcm-e4db-n2:3306",
+      "role": "writer-eligible",
+      "health": "healthy",
+      "sync": "synced",
+      "latency_ewma": "1.083129ms",
+      "samples": 1,
+      "last_seen": "2026-10-24T19:29:18.450491357Z",
+      "age": "410ms",
+      "detail": "server 11.4.13-MariaDB-ubu2404; wsrep synced",
+      "connections": 0,
+      "draining": 0
+    },
+    {
+      "id": "n3",
+      "address": "dbcm-e4db-n3:3306",
+      "role": "writer-eligible",
+      "health": "healthy",
+      "sync": "synced",
+      "latency_ewma": "1.296546ms",
+      "samples": 1,
+      "last_seen": "2026-10-24T19:29:18.451098025Z",
+      "age": "410ms",
+      "detail": "server 11.4.13-MariaDB-ubu2404; wsrep synced",
+      "connections": 0,
+      "draining": 0
+    }
+  ],
+  "connections": {
+    "write": 0,
+    "read": 0
+  }
+}
+(exit 0)
+```
+
+### published ports on the proxy VMs
+
+```
+$ vm_sh dbcm-lab-m2 sudo ss -ltn | grep -E ':3306|:3307' || true
+LISTEN 0      4096         0.0.0.0:3306      0.0.0.0:*   
+LISTEN 0      4096            [::]:3306         [::]:*   
+(exit 0)
+```
+
+
+## Phase e8vip (gate A): keepalived (VRRP unicast) VIP 192.168.104.250 over both proxy VMs
+
+host uptime: 21:29  up 6 days,  5:28, 5 users, load averages: 31.45 58.14 38.65
+
+19:29:18Z host load: { 31.45 58.14 38.65 }
+19:29:19Z dbcm-lab-m2: interface eth0, address 192.168.104.3, peer 192.168.104.4, priority 150
+### install keepalived on dbcm-lab-m2
+
+```
+$ vm_sh dbcm-lab-m2 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq keepalived >/dev/null 2>&1; keepalived --version 2>&1 | head -1
+Keepalived v2.3.4 (06/10,2025)
+(exit 0)
+```
+
+### keepalived check script and configuration on dbcm-lab-m2
+
+```
+$ vm_root dbcm-lab-m2 
+			set -e
+			cat >/usr/local/bin/dbcm-e8-proxycheck <<EOF
+#!/bin/sh
+# healthy = the local proxy container reports a writer
+docker exec $6 /e8/e5client status | grep -Eq "has_writer\"?: *true"
+EOF
+			chmod 0755 /usr/local/bin/dbcm-e8-proxycheck
+			cat >/etc/keepalived/keepalived.conf <<EOF
+global_defs {
+  script_user root
+  router_id $(hostname)
+}
+vrrp_script chk_proxy {
+  script "/usr/local/bin/dbcm-e8-proxycheck"
+  interval 1
+  timeout 2
+  fall 2
+  rise 2
+}
+vrrp_instance DBCM_E8 {
+  state BACKUP
+  interface $1
+  virtual_router_id 61
+  priority $4
+  nopreempt
+  advert_int 1
+  unicast_src_ip $2
+  unicast_peer {
+    $3
+  }
+  virtual_ipaddress {
+    $5/24 dev $1
+  }
+  track_script {
+    chk_proxy
+  }
+}
+EOF
+			cat /etc/keepalived/keepalived.conf
+			systemctl enable --now keepalived >/dev/null 2>&1
+			systemctl restart keepalived
+			sleep 1; systemctl is-active keepalived eth0 192.168.104.3 192.168.104.4 150 192.168.104.250 dbcm-e8-proxy
+global_defs {
+  script_user root
+  router_id lima-dbcm-lab-m2
+}
+vrrp_script chk_proxy {
+  script "/usr/local/bin/dbcm-e8-proxycheck"
+  interval 1
+  timeout 2
+  fall 2
+  rise 2
+}
+vrrp_instance DBCM_E8 {
+  state BACKUP
+  interface eth0
+  virtual_router_id 61
+  priority 150
+  nopreempt
+  advert_int 1
+  unicast_src_ip 192.168.104.3
+  unicast_peer {
+    192.168.104.4
+  }
+  virtual_ipaddress {
+    192.168.104.250/24 dev eth0
+  }
+  track_script {
+    chk_proxy
+  }
+}
+active
+(exit 0)
+```
+
+19:29:28Z dbcm-lab-m3: interface eth0, address 192.168.104.4, peer 192.168.104.3, priority 100
+### install keepalived on dbcm-lab-m3
+
+```
+$ vm_sh dbcm-lab-m3 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq keepalived >/dev/null 2>&1; keepalived --version 2>&1 | head -1
+Keepalived v2.3.4 (06/10,2025)
+(exit 0)
+```
+
+### keepalived check script and configuration on dbcm-lab-m3
+
+```
+$ vm_root dbcm-lab-m3 
+			set -e
+			cat >/usr/local/bin/dbcm-e8-proxycheck <<EOF
+#!/bin/sh
+# healthy = the local proxy container reports a writer
+docker exec $6 /e8/e5client status | grep -Eq "has_writer\"?: *true"
+EOF
+			chmod 0755 /usr/local/bin/dbcm-e8-proxycheck
+			cat >/etc/keepalived/keepalived.conf <<EOF
+global_defs {
+  script_user root
+  router_id $(hostname)
+}
+vrrp_script chk_proxy {
+  script "/usr/local/bin/dbcm-e8-proxycheck"
+  interval 1
+  timeout 2
+  fall 2
+  rise 2
+}
+vrrp_instance DBCM_E8 {
+  state BACKUP
+  interface $1
+  virtual_router_id 61
+  priority $4
+  nopreempt
+  advert_int 1
+  unicast_src_ip $2
+  unicast_peer {
+    $3
+  }
+  virtual_ipaddress {
+    $5/24 dev $1
+  }
+  track_script {
+    chk_proxy
+  }
+}
+EOF
+			cat /etc/keepalived/keepalived.conf
+			systemctl enable --now keepalived >/dev/null 2>&1
+			systemctl restart keepalived
+			sleep 1; systemctl is-active keepalived eth0 192.168.104.4 192.168.104.3 100 192.168.104.250 dbcm-e8-proxy
+global_defs {
+  script_user root
+  router_id lima-dbcm-lab-m3
+}
+vrrp_script chk_proxy {
+  script "/usr/local/bin/dbcm-e8-proxycheck"
+  interval 1
+  timeout 2
+  fall 2
+  rise 2
+}
+vrrp_instance DBCM_E8 {
+  state BACKUP
+  interface eth0
+  virtual_router_id 61
+  priority 100
+  nopreempt
+  advert_int 1
+  unicast_src_ip 192.168.104.4
+  unicast_peer {
+    192.168.104.3
+  }
+  virtual_ipaddress {
+    192.168.104.250/24 dev eth0
+  }
+  track_script {
+    chk_proxy
+  }
+}
+active
+(exit 0)
+```
+
+19:29:46Z wait ok after 0s: exactly one VM holds the VIP
+19:29:46Z VIP holder: dbcm-lab-m2
+### keepalived journal on dbcm-lab-m2
+
+```
+$ vm_sh dbcm-lab-m2 sudo journalctl -u keepalived --no-pager | tail -12 | cut -c1-200
+Oct 24 21:29:27 lima-dbcm-lab-m2 Keepalived[39578]: Starting Keepalived v2.3.4 (06/10,2025)
+Oct 24 21:29:27 lima-dbcm-lab-m2 Keepalived[39578]: Running on Linux 7.0.0-28-generic #28-Ubuntu SMP PREEMPT_DYNAMIC Sun Jun 21 00:50:10 UTC 2026 (built for Linux 6.17.1)
+Oct 24 21:29:27 lima-dbcm-lab-m2 Keepalived[39578]: Command line: '/usr/sbin/keepalived' '--dont-fork'
+Oct 24 21:29:27 lima-dbcm-lab-m2 Keepalived[39578]: Configuration file /etc/keepalived/keepalived.conf
+Oct 24 21:29:27 lima-dbcm-lab-m2 Keepalived[39578]: NOTICE: setting config option max_auto_priority should result in better keepalived performance
+Oct 24 21:29:27 lima-dbcm-lab-m2 Keepalived[39578]: Starting VRRP child process, pid=39579
+Oct 24 21:29:27 lima-dbcm-lab-m2 Keepalived_vrrp[39579]: SECURITY VIOLATION - scripts are being executed but script_security not enabled.
+Oct 24 21:29:27 lima-dbcm-lab-m2 systemd[1]: Started keepalived.service - Keepalive Daemon (LVS and VRRP).
+Oct 24 21:29:27 lima-dbcm-lab-m2 Keepalived[39578]: Startup complete
+Oct 24 21:29:27 lima-dbcm-lab-m2 Keepalived_vrrp[39579]: VRRP_Script(chk_proxy) succeeded
+Oct 24 21:29:27 lima-dbcm-lab-m2 Keepalived_vrrp[39579]: (DBCM_E8) Entering BACKUP STATE
+Oct 24 21:29:31 lima-dbcm-lab-m2 Keepalived_vrrp[39579]: (DBCM_E8) Entering MASTER STATE
+(exit 0)
+```
+
+### keepalived journal on dbcm-lab-m3
+
+```
+$ vm_sh dbcm-lab-m3 sudo journalctl -u keepalived --no-pager | tail -12 | cut -c1-200
+Oct 24 21:29:45 lima-dbcm-lab-m3 systemd[1]: Starting keepalived.service - Keepalive Daemon (LVS and VRRP)...
+Oct 24 21:29:45 lima-dbcm-lab-m3 Keepalived[39251]: Starting Keepalived v2.3.4 (06/10,2025)
+Oct 24 21:29:45 lima-dbcm-lab-m3 Keepalived[39251]: Running on Linux 7.0.0-28-generic #28-Ubuntu SMP PREEMPT_DYNAMIC Sun Jun 21 00:50:10 UTC 2026 (built for Linux 6.17.1)
+Oct 24 21:29:45 lima-dbcm-lab-m3 Keepalived[39251]: Command line: '/usr/sbin/keepalived' '--dont-fork'
+Oct 24 21:29:45 lima-dbcm-lab-m3 Keepalived[39251]: Configuration file /etc/keepalived/keepalived.conf
+Oct 24 21:29:45 lima-dbcm-lab-m3 Keepalived[39251]: NOTICE: setting config option max_auto_priority should result in better keepalived performance
+Oct 24 21:29:45 lima-dbcm-lab-m3 Keepalived[39251]: Starting VRRP child process, pid=39252
+Oct 24 21:29:45 lima-dbcm-lab-m3 Keepalived_vrrp[39252]: SECURITY VIOLATION - scripts are being executed but script_security not enabled.
+Oct 24 21:29:45 lima-dbcm-lab-m3 systemd[1]: Started keepalived.service - Keepalive Daemon (LVS and VRRP).
+Oct 24 21:29:45 lima-dbcm-lab-m3 Keepalived[39251]: Startup complete
+Oct 24 21:29:45 lima-dbcm-lab-m3 Keepalived_vrrp[39252]: VRRP_Script(chk_proxy) succeeded
+Oct 24 21:29:45 lima-dbcm-lab-m3 Keepalived_vrrp[39252]: (DBCM_E8) Entering BACKUP STATE
+(exit 0)
+```
+
+### client on m1 through the VIP (192.168.104.250:3306)
+
+```
+$ e8c query -addr 192.168.104.250:3306 -user e5app -password-file /root/dbcm-e8/app.pw SELECT @@hostname, CURRENT_USER()
+dbcm-e4db-n1	e5app@%
+(exit 0)
+```
+
+### ARP entry for the VIP on m1
+
+```
+$ vm_sh dbcm-lab-m1 ip neigh show 192.168.104.250
+192.168.104.250 dev eth0 lladdr 52:55:55:5f:48:b9 REACHABLE 
+(exit 0)
+```
+
+### round trips through the VIP vs direct proxy
+
+```
+$ sh -c limactl shell --workdir / dbcm-lab-m1 -- sudo /root/dbcm-e8/e5client bench -addr 192.168.104.250:3306 -user e5app -password-file /root/dbcm-e8/app.pw -n 300
+addr 192.168.104.250:3306 connect+auth 1.3ms, 300 x SELECT 1: p50 165µs p90 185µs p99 274µs max 323µs
+(exit 0)
+```
+
+
+## Phase e8baseline (gate A): writer agreement of two independent proxies, resources at rest
+
+host uptime: 21:29  up 6 days,  5:28, 5 users, load averages: 30.56 55.32 38.30
+
+19:29:47Z host load: { 30.56 55.32 38.30 }
+19:29:47Z resources: gate A baseline: cluster idle, two proxies, VIP
+### resources: gate A baseline: cluster idle, two proxies, VIP
+
+```
+2026-10-24T19:29:47Z
+host: { 30.56 55.32 38.30 }
+CPU usage: 23.79% user, 12.22% sys, 63.97% idle 
+host free disk (/System/Volumes/Data): 33Gi of 926Gi
+VM allocation: dbcm-lab-m1 Running cpus=2 mem=4294967296;dbcm-lab-m2 Running cpus=2 mem=4294967296;dbcm-lab-m3 Running cpus=2 mem=4294967296;
+VM disk files (du, MiB): dbcm-lab-m1=4297 dbcm-lab-m2=3744 dbcm-lab-m3=3724 
+== lima-dbcm-lab-m1: loadavg 0.39 0.49 0.24, mem used 759 MiB of 3896 MiB
+dbcm-e4db-n3.1.417agfl3bdm17hfv27xouavri cpu=0.25% mem=122.1MiB / 1GiB
+dbcm-agent-e4lab.zp8ih08ej9gz60wukvc6czba6.nnqrcv0us15hz8pnpgbp6po5f cpu=0.00% mem=7.266MiB / 3.806GiB
+== lima-dbcm-lab-m2: loadavg 0.43 0.61 0.35, mem used 727 MiB of 3896 MiB
+dbcm-e8-proxy cpu=1.12% mem=7.758MiB / 3.806GiB
+dbcm-e4db-n1.1.ti2ge4e379203n4l5yq917d7r cpu=0.22% mem=96.92MiB / 1GiB
+dbcm-agent-e4lab.j99zpnm3gt803ekn2m3taan37.m57e7v0lcawbmt746o8k9nl1f cpu=0.00% mem=7.133MiB / 3.806GiB
+== lima-dbcm-lab-m3: loadavg 0.50 0.38 0.19, mem used 752 MiB of 3896 MiB
+dbcm-e8-proxy cpu=0.99% mem=7.977MiB / 3.806GiB
+dbcm-e4db-n2.1.xpdz37vavf15zixbax5zqrbw3 cpu=0.29% mem=122.2MiB / 1GiB
+dbcm-agent-e4lab.uk776geuoew2o4xqn0xi9gnu8.ew93ewom9xhaulx7ggxpnzogg cpu=0.00% mem=6.668MiB / 3.806GiB
+```
+
+### proxy status on dbcm-lab-m2 (single-writer-stable)
+
+```
+$ e8_brief dbcm-lab-m2
+{"writer":"n1","has_writer":true,"writer_changes":1,"nodes":["n1 healthy/synced conns=0","n2 healthy/synced conns=0","n3 healthy/synced conns=0"]}
+(exit 0)
+```
+
+### proxy status on dbcm-lab-m3 (single-writer-stable)
+
+```
+$ e8_brief dbcm-lab-m3
+{"writer":"n2","has_writer":true,"writer_changes":1,"nodes":["n1 healthy/synced conns=0","n2 healthy/synced conns=0","n3 healthy/synced conns=0"]}
+(exit 0)
+```
+
+### 20 s concurrent writes straight into each proxy (stable policy; do they agree on one writer?)
+
+```
+$ sh -c limactl shell --workdir / dbcm-lab-m1 -- sudo sh -c '/root/dbcm-e8/e5client load -addr 192.168.104.3:3306 -user e5app -password-file /root/dbcm-e8/app.pw -mode per-connection -duration 20s -interval 100ms -label e8-base-p2 | tail -1 & /root/dbcm-e8/e5client load -addr 192.168.104.4:3306 -user e5app -password-file /root/dbcm-e8/app.pw -mode per-connection -duration 20s -interval 100ms -label e8-base-p3 | tail -1 & wait'
+SUMMARY {"label":"e8-base-p2","mode":"per-connection","duration":"20s","attempts":196,"ok":196,"errors":0,"per_node":{"dbcm-e4db-n1":196},"max_gap_without_success":"202ms","max_gap_from":"19:30:05.524","reconnects":0,"node_changes":0,"transitions":[{"at":"19:29:55.522","event":"first success on dbcm-e4db-n1"}]}
+SUMMARY {"label":"e8-base-p3","mode":"per-connection","duration":"20s","attempts":196,"ok":196,"errors":0,"per_node":{"dbcm-e4db-n2":196},"max_gap_without_success":"199ms","max_gap_from":"19:30:05.525","reconnects":0,"node_changes":0,"transitions":[{"at":"19:29:55.519","event":"first success on dbcm-e4db-n2"}]}
+(exit 0)
+```
+
+### writer nodes per label (stable policy)
+
+```
+$ rsql 1 SELECT label, node, COUNT(*) FROM e5.load WHERE label LIKE 'e8-base-%' GROUP BY label, node ORDER BY label, node
+e8-base-p2	dbcm-e4db-n1	196
+e8-base-p3	dbcm-e4db-n2	196
+(exit 0)
+```
+
+19:30:16Z Galera node on m1 (never stopped in gate A): n3; pinning both proxies to it (prefer-node)
+19:30:18Z wait ok after 2s: both proxies report writer n3
+### proxy status on dbcm-lab-m2 (prefer-node n3)
+
+```
+$ e8_brief dbcm-lab-m2
+{"writer":"n3","has_writer":true,"writer_changes":2,"nodes":["n1 healthy/synced conns=0","n2 healthy/synced conns=0","n3 healthy/synced conns=0"]}
+(exit 0)
+```
+
+### proxy status on dbcm-lab-m3 (prefer-node n3)
+
+```
+$ e8_brief dbcm-lab-m3
+{"writer":"n3","has_writer":true,"writer_changes":2,"nodes":["n1 healthy/synced conns=0","n2 healthy/synced conns=0","n3 healthy/synced conns=0"]}
+(exit 0)
+```
+
+### 20 s concurrent writes into each proxy (prefer-node n3)
+
+```
+$ sh -c limactl shell --workdir / dbcm-lab-m1 -- sudo sh -c '/root/dbcm-e8/e5client load -addr 192.168.104.3:3306 -user e5app -password-file /root/dbcm-e8/app.pw -mode per-connection -duration 20s -interval 100ms -label e8-pin-p2 | tail -1 & /root/dbcm-e8/e5client load -addr 192.168.104.4:3306 -user e5app -password-file /root/dbcm-e8/app.pw -mode per-connection -duration 20s -interval 100ms -label e8-pin-p3 | tail -1 & wait'
+SUMMARY {"label":"e8-pin-p3","mode":"per-connection","duration":"20s","attempts":197,"ok":197,"errors":0,"per_node":{"dbcm-e4db-n3":197},"max_gap_without_success":"110ms","max_gap_from":"19:30:22.353","reconnects":0,"node_changes":0,"transitions":[{"at":"19:30:18.790","event":"first success on dbcm-e4db-n3"}]}
+SUMMARY {"label":"e8-pin-p2","mode":"per-connection","duration":"20s","attempts":197,"ok":197,"errors":0,"per_node":{"dbcm-e4db-n3":197},"max_gap_without_success":"110ms","max_gap_from":"19:30:22.353","reconnects":0,"node_changes":0,"transitions":[{"at":"19:30:18.790","event":"first success on dbcm-e4db-n3"}]}
+(exit 0)
+```
+
+### writer nodes per label (prefer-node)
+
+```
+$ rsql 1 SELECT label, node, COUNT(*) FROM e5.load WHERE label LIKE 'e8-pin-%' GROUP BY label, node ORDER BY label, node
+e8-pin-p2	dbcm-e4db-n3	197
+e8-pin-p3	dbcm-e4db-n3	197
+(exit 0)
+```
+
+
+## Phase e8proxyloss (gate A1): the VIP holder's proxy container is killed under load
+
+host uptime: 21:30  up 6 days,  5:29, 5 users, load averages: 26.45 50.96 37.69
+
+19:30:39Z host load: { 26.45 50.96 37.69 }
+19:30:39Z A1a: VIP holder dbcm-lab-m2; proxy container killed there (restart policy kept: yes); other proxy VM dbcm-lab-m3
+19:30:39Z clients started (A1a, 45s): vip-pc vip-ps cs-pc cs-ps; failover list 192.168.104.3:3306,192.168.104.4:3306
+19:30:44Z resources: gate A1a: under load (4 clients, 40 writes/s), before the kill
+### resources: gate A1a: under load (4 clients, 40 writes/s), before the kill
+
+```
+2026-10-24T19:30:44Z
+host: { 43.06 53.67 38.80 }
+CPU usage: 79.86% user, 20.13% sys, 0.0% idle 
+host free disk (/System/Volumes/Data): 33Gi of 926Gi
+VM allocation: dbcm-lab-m1 Running cpus=2 mem=4294967296;dbcm-lab-m2 Running cpus=2 mem=4294967296;dbcm-lab-m3 Running cpus=2 mem=4294967296;
+VM disk files (du, MiB): dbcm-lab-m1=4318 dbcm-lab-m2=3742 dbcm-lab-m3=3777 
+== lima-dbcm-lab-m1: loadavg 0.30 0.43 0.23, mem used 731 MiB of 3896 MiB
+dbcm-e4db-n3.1.417agfl3bdm17hfv27xouavri cpu=4.59% mem=126.9MiB / 1GiB
+dbcm-agent-e4lab.zp8ih08ej9gz60wukvc6czba6.nnqrcv0us15hz8pnpgbp6po5f cpu=0.00% mem=7.289MiB / 3.806GiB
+== lima-dbcm-lab-m2: loadavg 0.24 0.54 0.35, mem used 720 MiB of 3896 MiB
+dbcm-e8-proxy cpu=7.22% mem=8.441MiB / 3.806GiB
+dbcm-e4db-n1.1.ti2ge4e379203n4l5yq917d7r cpu=2.98% mem=97.91MiB / 1GiB
+dbcm-agent-e4lab.j99zpnm3gt803ekn2m3taan37.m57e7v0lcawbmt746o8k9nl1f cpu=0.00% mem=7.203MiB / 3.806GiB
+== lima-dbcm-lab-m3: loadavg 0.41 0.37 0.20, mem used 735 MiB of 3896 MiB
+dbcm-e8-proxy cpu=1.69% mem=8.34MiB / 3.806GiB
+dbcm-e4db-n2.1.xpdz37vavf15zixbax5zqrbw3 cpu=3.33% mem=123.4MiB / 1GiB
+dbcm-agent-e4lab.uk776geuoew2o4xqn0xi9gnu8.ew93ewom9xhaulx7ggxpnzogg cpu=0.00% mem=6.723MiB / 3.806GiB
+```
+
+### kill the proxy container on dbcm-lab-m2 at 19:31:03.361223267
+
+```
+$ vm_docker dbcm-lab-m2 kill dbcm-e8-proxy
+dbcm-e8-proxy
+(exit 0)
+```
+
+19:31:03Z container kill returned at 19:31:03.837912686 (sent at 19:31:03.361223267)
+19:31:06Z t+2s VIP holders: dbcm-lab-m3 
+19:31:08Z t+4s VIP holders: dbcm-lab-m3 
+19:31:10Z t+6s VIP holders: dbcm-lab-m3 
+19:31:12Z t+8s VIP holders: dbcm-lab-m3 
+19:31:14Z t+10s VIP holders: dbcm-lab-m3 
+19:31:17Z t+12s VIP holders: dbcm-lab-m3 
+19:31:25Z wait ok after 8s: clients finished
+### client e8-A1a-vip-pc: transitions and summary
+
+```
+$ vm_root dbcm-lab-m1 cut -c1-420 "$1/out/e8-$2-$3.out" | grep -v "^SUMMARY" ; grep "^SUMMARY" "$1/out/e8-$2-$3.out" | sed "s/^SUMMARY //" | jq -c "{label, ok, errors, max_gap_without_success, max_gap_from, reconnects, per_node, error_examples}" /root/dbcm-e8 A1a vip-pc
+19:30:39.566 first success on dbcm-e4db-n3
+19:31:03.534 error: dial tcp 192.168.104.250:3306: connect: connection refused
+19:31:05.934 recovered on dbcm-e4db-n3
+{"label":"e8-A1a-vip-pc","ok":417,"errors":13,"max_gap_without_success":"2.492s","max_gap_from":"19:31:03.442","reconnects":0,"per_node":{"dbcm-e4db-n3":417},"error_examples":["dial tcp 192.168.104.250:3306: connect: connection refused"]}
+(exit 0)
+```
+
+### client e8-A1a-vip-ps: transitions and summary
+
+```
+$ vm_root dbcm-lab-m1 cut -c1-420 "$1/out/e8-$2-$3.out" | grep -v "^SUMMARY" ; grep "^SUMMARY" "$1/out/e8-$2-$3.out" | sed "s/^SUMMARY //" | jq -c "{label, ok, errors, max_gap_without_success, max_gap_from, reconnects, per_node, error_examples}" /root/dbcm-e8 A1a vip-ps
+19:30:39.621 first success on dbcm-e4db-n3
+[mysql] 2026/10/24 21:31:03 packets.go:58 unexpected EOF
+19:31:03.515 error: invalid connection
+19:31:05.935 recovered on dbcm-e4db-n3
+{"label":"e8-A1a-vip-ps","ok":418,"errors":13,"max_gap_without_success":"2.515s","max_gap_from":"19:31:03.420","reconnects":1,"per_node":{"dbcm-e4db-n3":418},"error_examples":["invalid connection","dial tcp 192.168.104.250:3306: connect: connection refused"]}
+(exit 0)
+```
+
+### client e8-A1a-cs-pc: transitions and summary
+
+```
+$ vm_root dbcm-lab-m1 cut -c1-420 "$1/out/e8-$2-$3.out" | grep -v "^SUMMARY" ; grep "^SUMMARY" "$1/out/e8-$2-$3.out" | sed "s/^SUMMARY //" | jq -c "{label, ok, errors, max_gap_without_success, max_gap_from, reconnects, per_node, error_examples}" /root/dbcm-e8 A1a cs-pc
+19:30:39.681 first success on dbcm-e4db-n3
+{"label":"e8-A1a-cs-pc","ok":440,"errors":0,"max_gap_without_success":"247ms","max_gap_from":"19:30:54.187","reconnects":0,"per_node":{"dbcm-e4db-n3":440},"error_examples":null}
+(exit 0)
+```
+
+### client e8-A1a-cs-ps: transitions and summary
+
+```
+$ vm_root dbcm-lab-m1 cut -c1-420 "$1/out/e8-$2-$3.out" | grep -v "^SUMMARY" ; grep "^SUMMARY" "$1/out/e8-$2-$3.out" | sed "s/^SUMMARY //" | jq -c "{label, ok, errors, max_gap_without_success, max_gap_from, reconnects, per_node, error_examples}" /root/dbcm-e8 A1a cs-ps
+19:30:39.741 first success on dbcm-e4db-n3
+[mysql] 2026/10/24 21:31:03 packets.go:58 unexpected EOF
+19:31:03.515 error: invalid connection
+19:31:03.627 recovered on dbcm-e4db-n3
+{"label":"e8-A1a-cs-ps","ok":440,"errors":1,"max_gap_without_success":"238ms","max_gap_from":"19:30:54.183","reconnects":1,"per_node":{"dbcm-e4db-n3":440},"error_examples":["invalid connection"]}
+(exit 0)
+```
+
+### keepalived journal on dbcm-lab-m2 (kill at 19:31:03.361223267)
+
+```
+$ e8_keepalived_journal dbcm-lab-m2 2026-10-24 21:30:39
+Oct 24 21:31:03 lima-dbcm-lab-m2 Keepalived_vrrp[39579]: Script `chk_proxy` now returning 1
+Oct 24 21:31:04 lima-dbcm-lab-m2 Keepalived_vrrp[39579]: VRRP_Script(chk_proxy) failed (exited with status 1)
+Oct 24 21:31:04 lima-dbcm-lab-m2 Keepalived_vrrp[39579]: (DBCM_E8) Entering FAULT STATE
+(exit 0)
+```
+
+### keepalived journal on dbcm-lab-m3
+
+```
+$ e8_keepalived_journal dbcm-lab-m3 2026-10-24 21:30:39
+Oct 24 21:31:05 lima-dbcm-lab-m3 Keepalived_vrrp[39252]: (DBCM_E8) Entering MASTER STATE
+(exit 0)
+```
+
+### VIP holder(s) after the kill
+
+```
+$ e8_vip_holder
+dbcm-lab-m3
+(exit 0)
+```
+
+### proxy on dbcm-lab-m3
+
+```
+$ e8_brief dbcm-lab-m3
+{"writer":"n3","has_writer":true,"writer_changes":2,"nodes":["n1 healthy/synced conns=0","n2 healthy/synced conns=0","n3 healthy/synced conns=0"]}
+(exit 0)
+```
+
+### container state after the kill (does the restart policy bring a docker-killed container back?)
+
+```
+$ vm_docker dbcm-lab-m2 ps -a --filter name=dbcm-e8-proxy --format {{.Names}} {{.Status}}
+dbcm-e8-proxy Exited (137) 22 seconds ago
+(exit 0)
+```
+
+### restore the restart policy and start the container on dbcm-lab-m2
+
+```
+$ sh -c limactl shell --workdir / dbcm-lab-m2 -- sudo sh -c 'docker update --restart=unless-stopped dbcm-e8-proxy && (docker start dbcm-e8-proxy || true)'
+dbcm-e8-proxy
+dbcm-e8-proxy
+(exit 0)
+```
+
+19:31:28Z wait ok after 2s: proxy on dbcm-lab-m2 has a writer
+### VIP holder(s) after the proxy came back (nopreempt: no second move; exactly one holder)
+
+```
+$ e8_vip_holder
+dbcm-lab-m3
+(exit 0)
+```
+
+### proxy status on dbcm-lab-m2
+
+```
+$ e8_brief dbcm-lab-m2
+{"writer":"n3","has_writer":true,"writer_changes":2,"nodes":["n1 healthy/synced conns=0","n2 healthy/synced conns=0","n3 healthy/synced conns=0"]}
+(exit 0)
+```
+
+19:31:39Z A1b: VIP holder dbcm-lab-m3; proxy container killed there (restart policy kept: no); other proxy VM dbcm-lab-m2
+### disable the restart policy of dbcm-e8-proxy on dbcm-lab-m3 for this test
+
+```
+$ vm_docker dbcm-lab-m3 update --restart=no dbcm-e8-proxy
+dbcm-e8-proxy
+(exit 0)
+```
+
+19:31:39Z clients started (A1b, 60s): vip-pc vip-ps cs-pc cs-ps; failover list 192.168.104.4:3306,192.168.104.3:3306
+19:31:44Z resources: gate A1b: under load (4 clients, 40 writes/s), before the kill
+### resources: gate A1b: under load (4 clients, 40 writes/s), before the kill
+
+```
+2026-10-24T19:31:44Z
+host: { 71.40 62.06 43.09 }
+CPU usage: 18.34% user, 15.5% sys, 66.60% idle 
+host free disk (/System/Volumes/Data): 32Gi of 926Gi
+VM allocation: dbcm-lab-m1 Running cpus=2 mem=4294967296;dbcm-lab-m2 Running cpus=2 mem=4294967296;dbcm-lab-m3 Running cpus=2 mem=4294967296;
+VM disk files (du, MiB): dbcm-lab-m1=4320 dbcm-lab-m2=3743 dbcm-lab-m3=3779 
+== lima-dbcm-lab-m1: loadavg 0.19 0.38 0.22, mem used 746 MiB of 3896 MiB
+dbcm-e4db-n3.1.417agfl3bdm17hfv27xouavri cpu=5.08% mem=128.3MiB / 1GiB
+dbcm-agent-e4lab.zp8ih08ej9gz60wukvc6czba6.nnqrcv0us15hz8pnpgbp6po5f cpu=0.00% mem=6.922MiB / 3.806GiB
+== lima-dbcm-lab-m2: loadavg 0.18 0.47 0.33, mem used 728 MiB of 3896 MiB
+dbcm-e8-proxy cpu=1.23% mem=8.336MiB / 3.806GiB
+dbcm-e4db-n1.1.ti2ge4e379203n4l5yq917d7r cpu=2.10% mem=98.32MiB / 1GiB
+dbcm-agent-e4lab.j99zpnm3gt803ekn2m3taan37.m57e7v0lcawbmt746o8k9nl1f cpu=0.00% mem=6.801MiB / 3.806GiB
+== lima-dbcm-lab-m3: loadavg 0.23 0.33 0.19, mem used 744 MiB of 3896 MiB
+dbcm-e8-proxy cpu=5.69% mem=8.496MiB / 3.806GiB
+dbcm-e4db-n2.1.xpdz37vavf15zixbax5zqrbw3 cpu=3.13% mem=123.9MiB / 1GiB
+dbcm-agent-e4lab.uk776geuoew2o4xqn0xi9gnu8.ew93ewom9xhaulx7ggxpnzogg cpu=0.00% mem=6.617MiB / 3.806GiB
+```
+
+### kill the proxy container on dbcm-lab-m3 at 19:32:02.816328021
+
+```
+$ vm_docker dbcm-lab-m3 kill dbcm-e8-proxy
+dbcm-e8-proxy
+(exit 0)
+```
+
+19:32:03Z container kill returned at 19:32:03.63956967 (sent at 19:32:02.816328021)
+19:32:05Z t+2s VIP holders: 
+19:32:07Z t+4s VIP holders: dbcm-lab-m2 
+19:32:09Z t+6s VIP holders: dbcm-lab-m2 
+19:32:11Z t+8s VIP holders: dbcm-lab-m2 
+19:32:14Z t+10s VIP holders: dbcm-lab-m2 
+19:32:16Z t+12s VIP holders: dbcm-lab-m2 
+19:32:41Z wait ok after 25s: clients finished
+### client e8-A1b-vip-pc: transitions and summary
+
+```
+$ vm_root dbcm-lab-m1 cut -c1-420 "$1/out/e8-$2-$3.out" | grep -v "^SUMMARY" ; grep "^SUMMARY" "$1/out/e8-$2-$3.out" | sed "s/^SUMMARY //" | jq -c "{label, ok, errors, max_gap_without_success, max_gap_from, reconnects, per_node, error_examples}" /root/dbcm-e8 A1b vip-pc
+19:31:39.524 first success on dbcm-e4db-n3
+19:32:02.930 error: dial tcp 192.168.104.250:3306: connect: connection refused
+19:32:05.986 recovered on dbcm-e4db-n3
+{"label":"e8-A1b-vip-pc","ok":563,"errors":20,"max_gap_without_success":"3.151s","max_gap_from":"19:32:02.835","reconnects":0,"per_node":{"dbcm-e4db-n3":563},"error_examples":["dial tcp 192.168.104.250:3306: connect: connection refused"]}
+(exit 0)
+```
+
+### client e8-A1b-vip-ps: transitions and summary
+
+```
+$ vm_root dbcm-lab-m1 cut -c1-420 "$1/out/e8-$2-$3.out" | grep -v "^SUMMARY" ; grep "^SUMMARY" "$1/out/e8-$2-$3.out" | sed "s/^SUMMARY //" | jq -c "{label, ok, errors, max_gap_without_success, max_gap_from, reconnects, per_node, error_examples}" /root/dbcm-e8 A1b vip-ps
+19:31:39.576 first success on dbcm-e4db-n3
+[mysql] 2026/10/24 21:32:02 packets.go:58 unexpected EOF
+19:32:02.979 error: invalid connection
+19:32:05.927 recovered on dbcm-e4db-n3
+{"label":"e8-A1b-vip-ps","ok":564,"errors":19,"max_gap_without_success":"3.048s","max_gap_from":"19:32:02.880","reconnects":1,"per_node":{"dbcm-e4db-n3":564},"error_examples":["invalid connection","dial tcp 192.168.104.250:3306: connect: connection refused"]}
+(exit 0)
+```
+
+### client e8-A1b-cs-pc: transitions and summary
+
+```
+$ vm_root dbcm-lab-m1 cut -c1-420 "$1/out/e8-$2-$3.out" | grep -v "^SUMMARY" ; grep "^SUMMARY" "$1/out/e8-$2-$3.out" | sed "s/^SUMMARY //" | jq -c "{label, ok, errors, max_gap_without_success, max_gap_from, reconnects, per_node, error_examples}" /root/dbcm-e8 A1b cs-pc
+19:31:39.637 first success on dbcm-e4db-n3
+{"label":"e8-A1b-cs-pc","ok":593,"errors":0,"max_gap_without_success":"124ms","max_gap_from":"19:32:25.660","reconnects":0,"per_node":{"dbcm-e4db-n3":593},"error_examples":null}
+(exit 0)
+```
+
+### client e8-A1b-cs-ps: transitions and summary
+
+```
+$ vm_root dbcm-lab-m1 cut -c1-420 "$1/out/e8-$2-$3.out" | grep -v "^SUMMARY" ; grep "^SUMMARY" "$1/out/e8-$2-$3.out" | sed "s/^SUMMARY //" | jq -c "{label, ok, errors, max_gap_without_success, max_gap_from, reconnects, per_node, error_examples}" /root/dbcm-e8 A1b cs-ps
+19:31:39.699 first success on dbcm-e4db-n3
+[mysql] 2026/10/24 21:32:02 packets.go:58 unexpected EOF
+19:32:02.931 error: invalid connection
+19:32:03.035 recovered on dbcm-e4db-n3
+{"label":"e8-A1b-cs-ps","ok":591,"errors":1,"max_gap_without_success":"201ms","max_gap_from":"19:32:02.834","reconnects":1,"per_node":{"dbcm-e4db-n3":591},"error_examples":["invalid connection"]}
+(exit 0)
+```
+
+### keepalived journal on dbcm-lab-m3 (kill at 19:32:02.816328021)
+
+```
+$ e8_keepalived_journal dbcm-lab-m3 2026-10-24 21:31:39
+Oct 24 21:32:03 lima-dbcm-lab-m3 Keepalived_vrrp[39252]: Script `chk_proxy` now returning 1
+Oct 24 21:32:04 lima-dbcm-lab-m3 Keepalived_vrrp[39252]: VRRP_Script(chk_proxy) failed (exited with status 1)
+Oct 24 21:32:04 lima-dbcm-lab-m3 Keepalived_vrrp[39252]: (DBCM_E8) Entering FAULT STATE
+(exit 0)
+```
+
+### keepalived journal on dbcm-lab-m2
+
+```
+$ e8_keepalived_journal dbcm-lab-m2 2026-10-24 21:31:39
+Oct 24 21:32:05 lima-dbcm-lab-m2 Keepalived_vrrp[39579]: (DBCM_E8) Entering MASTER STATE
+(exit 0)
+```
+
+### VIP holder(s) after the kill
+
+```
+$ e8_vip_holder
+dbcm-lab-m2
+(exit 0)
+```
+
+### proxy on dbcm-lab-m2
+
+```
+$ e8_brief dbcm-lab-m2
+{"writer":"n3","has_writer":true,"writer_changes":2,"nodes":["n1 healthy/synced conns=0","n2 healthy/synced conns=0","n3 healthy/synced conns=0"]}
+(exit 0)
+```
+
+### container state after the kill (does the restart policy bring a docker-killed container back?)
+
+```
+$ vm_docker dbcm-lab-m3 ps -a --filter name=dbcm-e8-proxy --format {{.Names}} {{.Status}}
+dbcm-e8-proxy Exited (137) 38 seconds ago
+(exit 0)
+```
+
+### restore the restart policy and start the container on dbcm-lab-m3
+
+```
+$ sh -c limactl shell --workdir / dbcm-lab-m3 -- sudo sh -c 'docker update --restart=unless-stopped dbcm-e8-proxy && (docker start dbcm-e8-proxy || true)'
+dbcm-e8-proxy
+dbcm-e8-proxy
+(exit 0)
+```
+
+19:32:42Z wait ok after 0s: proxy on dbcm-lab-m3 has a writer
+### VIP holder(s) after the proxy came back (nopreempt: no second move; exactly one holder)
+
+```
+$ e8_vip_holder
+dbcm-lab-m2
+(exit 0)
+```
+
+### proxy status on dbcm-lab-m3
+
+```
+$ e8_brief dbcm-lab-m3
+{"writer":"n3","has_writer":true,"writer_changes":1,"nodes":["n1 healthy/synced conns=0","n2 healthy/synced conns=0","n3 healthy/synced conns=0"]}
+(exit 0)
+```
+
+
+## Phase e8vmloss (gate A2): the VIP holder's whole VM is hard-stopped under load
+
+host uptime: 21:32  up 6 days,  5:31, 5 users, load averages: 46.27 55.87 42.12
+
+19:32:52Z host load: { 46.27 55.87 42.12 }
+19:32:53Z VIP holder: dbcm-lab-m2 (also hosts Galera node n1); other proxy VM: dbcm-lab-m3
+19:32:53Z clients started (A2, 100s): vip-pc vip-ps cs-pc cs-ps; failover list 192.168.104.3:3306,192.168.104.4:3306
+19:33:08Z resources: gate A2: under load, before the VM power loss
+### resources: gate A2: under load, before the VM power loss
+
+```
+2026-10-24T19:33:08Z
+host: { 43.00 54.75 41.96 }
+CPU usage: 23.29% user, 12.58% sys, 64.12% idle 
+host free disk (/System/Volumes/Data): 32Gi of 926Gi
+VM allocation: dbcm-lab-m1 Running cpus=2 mem=4294967296;dbcm-lab-m2 Running cpus=2 mem=4294967296;dbcm-lab-m3 Running cpus=2 mem=4294967296;
+VM disk files (du, MiB): dbcm-lab-m1=4322 dbcm-lab-m2=3745 dbcm-lab-m3=3781 
+== lima-dbcm-lab-m1: loadavg 0.13 0.31 0.21, mem used 741 MiB of 3896 MiB
+dbcm-e4db-n3.1.417agfl3bdm17hfv27xouavri cpu=6.45% mem=129.1MiB / 1GiB
+dbcm-agent-e4lab.zp8ih08ej9gz60wukvc6czba6.nnqrcv0us15hz8pnpgbp6po5f cpu=0.01% mem=6.832MiB / 3.806GiB
+== lima-dbcm-lab-m2: loadavg 0.09 0.36 0.31, mem used 731 MiB of 3896 MiB
+dbcm-e8-proxy cpu=5.13% mem=8.754MiB / 3.806GiB
+dbcm-e4db-n1.1.ti2ge4e379203n4l5yq917d7r cpu=2.56% mem=98.6MiB / 1GiB
+dbcm-agent-e4lab.j99zpnm3gt803ekn2m3taan37.m57e7v0lcawbmt746o8k9nl1f cpu=0.00% mem=7.305MiB / 3.806GiB
+== lima-dbcm-lab-m3: loadavg 0.13 0.28 0.18, mem used 747 MiB of 3896 MiB
+dbcm-e8-proxy cpu=2.13% mem=8.176MiB / 3.806GiB
+dbcm-e4db-n2.1.xpdz37vavf15zixbax5zqrbw3 cpu=2.12% mem=124.2MiB / 1GiB
+dbcm-agent-e4lab.uk776geuoew2o4xqn0xi9gnu8.ew93ewom9xhaulx7ggxpnzogg cpu=0.00% mem=6.652MiB / 3.806GiB
+```
+
+### limactl stop --force dbcm-lab-m2 (power loss)
+
+```
+$ limactl stop --force dbcm-lab-m2
+time="2026-10-24T21:33:16+02:00" level=info msg="Sending SIGKILL to the vz driver process 78331"
+time="2026-10-24T21:33:16+02:00" level=info msg="Sending SIGKILL to the host agent process 78331"
+time="2026-10-24T21:33:16+02:00" level=info msg="Removing *.pid *.sock *.tmp under `~/.lima/dbcm-lab-m2`"
+time="2026-10-24T21:33:16+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m2/ha.pid`"
+time="2026-10-24T21:33:16+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m2/ha.sock`"
+time="2026-10-24T21:33:16+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m2/ssh.sock`"
+time="2026-10-24T21:33:16+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m2/vz.pid`"
+(exit 0)
+```
+
+19:33:16Z limactl stop --force returned; sent at 19:33:16.673777948 (m1 clock), now 19:33:16.821426876
+19:33:19Z t+3s VIP holders: 
+19:33:23Z t+6s VIP holders: dbcm-lab-m3 
+19:33:26Z t+9s VIP holders: dbcm-lab-m3 
+19:33:29Z t+12s VIP holders: dbcm-lab-m3 
+19:33:32Z t+15s VIP holders: dbcm-lab-m3 
+19:33:35Z t+18s VIP holders: dbcm-lab-m3 
+19:33:35Z resources: gate A2: holder VM down, surviving VMs under load
+### resources: gate A2: holder VM down, surviving VMs under load
+
+```
+2026-10-24T19:33:35Z
+host: { 41.79 53.53 41.97 }
+CPU usage: 25.63% user, 14.40% sys, 59.96% idle 
+host free disk (/System/Volumes/Data): 31Gi of 926Gi
+VM allocation: dbcm-lab-m1 Running cpus=2 mem=4294967296;dbcm-lab-m2 Stopped cpus=2 mem=4294967296;dbcm-lab-m3 Running cpus=2 mem=4294967296;
+VM disk files (du, MiB): dbcm-lab-m1=4323 dbcm-lab-m2=3745 dbcm-lab-m3=3781 
+== lima-dbcm-lab-m1: loadavg 0.08 0.29 0.20, mem used 757 MiB of 3896 MiB
+dbcm-e4db-n3.1.417agfl3bdm17hfv27xouavri cpu=1.56% mem=132.1MiB / 1GiB
+dbcm-agent-e4lab.zp8ih08ej9gz60wukvc6czba6.nnqrcv0us15hz8pnpgbp6po5f cpu=0.00% mem=6.832MiB / 3.806GiB
+== dbcm-lab-m2: not running
+== lima-dbcm-lab-m3: loadavg 0.09 0.25 0.17, mem used 730 MiB of 3896 MiB
+dbcm-e8-proxy cpu=2.61% mem=8.484MiB / 3.806GiB
+dbcm-e4db-n2.1.xpdz37vavf15zixbax5zqrbw3 cpu=0.76% mem=124.3MiB / 1GiB
+dbcm-agent-e4lab.uk776geuoew2o4xqn0xi9gnu8.ew93ewom9xhaulx7ggxpnzogg cpu=0.07% mem=6.707MiB / 3.806GiB
+```
+
+19:34:35Z wait ok after 54s: clients finished
+### client e8-A2-vip-pc: transitions and summary
+
+```
+$ vm_root dbcm-lab-m1 cut -c1-420 "$1/out/e8-$2-$3.out" | grep -v "^SUMMARY" ; grep "^SUMMARY" "$1/out/e8-$2-$3.out" | sed "s/^SUMMARY //" | jq -c "{label, ok, errors, max_gap_without_success, max_gap_from, reconnects, per_node, error_examples}" /root/dbcm-e8 A2 vip-pc
+19:32:53.292 first success on dbcm-e4db-n3
+19:33:19.804 error: dial tcp 192.168.104.250:3306: i/o timeout
+19:33:22.821 recovered on dbcm-e4db-n3
+{"label":"e8-A2-vip-pc","ok":923,"errors":2,"max_gap_without_success":"6.101s","max_gap_from":"19:33:16.720","reconnects":0,"per_node":{"dbcm-e4db-n3":923},"error_examples":["dial tcp 192.168.104.250:3306: i/o timeout","context deadline exceeded"]}
+(exit 0)
+```
+
+### client e8-A2-vip-ps: transitions and summary
+
+```
+$ vm_root dbcm-lab-m1 cut -c1-420 "$1/out/e8-$2-$3.out" | grep -v "^SUMMARY" ; grep "^SUMMARY" "$1/out/e8-$2-$3.out" | sed "s/^SUMMARY //" | jq -c "{label, ok, errors, max_gap_without_success, max_gap_from, reconnects, per_node, error_examples}" /root/dbcm-e8 A2 vip-ps
+19:32:53.349 first success on dbcm-e4db-n3
+19:33:19.804 error: context deadline exceeded
+19:33:22.821 recovered on dbcm-e4db-n3
+{"label":"e8-A2-vip-ps","ok":923,"errors":2,"max_gap_without_success":"6.105s","max_gap_from":"19:33:16.716","reconnects":2,"per_node":{"dbcm-e4db-n3":923},"error_examples":["context deadline exceeded"]}
+(exit 0)
+```
+
+### client e8-A2-cs-pc: transitions and summary
+
+```
+$ vm_root dbcm-lab-m1 cut -c1-420 "$1/out/e8-$2-$3.out" | grep -v "^SUMMARY" ; grep "^SUMMARY" "$1/out/e8-$2-$3.out" | sed "s/^SUMMARY //" | jq -c "{label, ok, errors, max_gap_without_success, max_gap_from, reconnects, per_node, error_examples}" /root/dbcm-e8 A2 cs-pc
+19:32:53.413 first success on dbcm-e4db-n3
+19:33:19.804 error: context deadline exceeded
+19:33:23.811 recovered on dbcm-e4db-n3
+{"label":"e8-A2-cs-pc","ok":305,"errors":2,"max_gap_without_success":"7.091s","max_gap_from":"19:33:16.720","reconnects":0,"per_node":{"dbcm-e4db-n3":305},"error_examples":["context deadline exceeded"]}
+(exit 0)
+```
+
+### client e8-A2-cs-ps: transitions and summary
+
+```
+$ vm_root dbcm-lab-m1 cut -c1-420 "$1/out/e8-$2-$3.out" | grep -v "^SUMMARY" ; grep "^SUMMARY" "$1/out/e8-$2-$3.out" | sed "s/^SUMMARY //" | jq -c "{label, ok, errors, max_gap_without_success, max_gap_from, reconnects, per_node, error_examples}" /root/dbcm-e8 A2 cs-ps
+19:32:53.486 first success on dbcm-e4db-n3
+[mysql] 2026/10/24 21:33:19 packets.go:58 read tcp 192.168.104.1:35032->192.168.104.3:3306: i/o timeout
+19:33:19.804 error: invalid connection
+19:33:23.811 recovered on dbcm-e4db-n3
+{"label":"e8-A2-cs-ps","ok":914,"errors":2,"max_gap_without_success":"7.094s","max_gap_from":"19:33:16.717","reconnects":2,"per_node":{"dbcm-e4db-n3":914},"error_examples":["invalid connection","context deadline exceeded"]}
+(exit 0)
+```
+
+### keepalived journal on dbcm-lab-m3 (power loss at 19:33:16.673777948)
+
+```
+$ e8_keepalived_journal dbcm-lab-m3 2026-10-24 21:32:53
+Oct 24 21:33:20 lima-dbcm-lab-m3 Keepalived_vrrp[39252]: (DBCM_E8) Entering MASTER STATE
+(exit 0)
+```
+
+### VIP holder(s) while dbcm-lab-m2 is down
+
+```
+$ e8_vip_holder
+dbcm-lab-m3
+(exit 0)
+```
+
+### proxy on dbcm-lab-m3
+
+```
+$ e8_brief dbcm-lab-m3
+{"writer":"n3","has_writer":true,"writer_changes":1,"nodes":["n1 unhealthy/unknown conns=0","n2 healthy/synced conns=0","n3 healthy/synced conns=0"]}
+(exit 0)
+```
+
+### Galera cluster while dbcm-lab-m2 is down
+
+```
+$ e8_status3
+19:34:36Z FATAL: refusing to address non-lab VM ''
+n1: time="2026-10-24T21:34:36+02:00" level=fatal msg="instance name `` is not a valid identifier: identifier must not be empty" 
+n2: wsrep_last_committed 7904 wsrep_local_state_comment Synced wsrep_cluster_size 2 wsrep_cluster_status Primary 
+n3: wsrep_last_committed 7904 wsrep_local_state_comment Synced wsrep_cluster_size 2 wsrep_cluster_status Primary 
+(exit 0)
+```
+
+### manager's view of the cluster
+
+```
+$ api GET /api/v1/clusters/clu-20ed55397be71892
+HTTP 200
+{"id":"clu-20ed55397be71892","swarm":"swarm-65a4e88803ff6a56","name":"e4db","engine":"mariadb-galera","state":"degraded","nodes":[{"id":"n1","host":"j99zpnm3gt803ekn2m3taan37","state":"unknown","role":"unknown","observedAt":"2026-10-24T21:34:25.567651686+02:00"},{"id":"n2","host":"uk776geuoew2o4xqn0xi9gnu8","state":"healthy","role":"synced","observedAt":"2026-10-24T21:34:25.063000646+02:00"},{"id":"n3","host":"zp8ih08ej9gz60wukvc6czba6","state":"healthy","role":"synced","observedAt":"2026-10-24T21:34:25.062790505+02:00"}],"observedAt":"2026-10-24T21:34:25.567651686+02:00","endpoints":[{"name":"n1","host":"dbcm-e4db-n1","port":3306},{"name":"n2","host":"dbcm-e4db-n2","port":3306},{"name":"n3","host":"dbcm-e4db-n3","port":3306}],"automationPolicy":"manual"}
+(exit 0)
+```
+
+### limactl start dbcm-lab-m2
+
+```
+$ limactl start dbcm-lab-m2
+time="2026-10-24T21:34:36+02:00" level=info msg="Using the existing instance `dbcm-lab-m2`"
+time="2026-10-24T21:34:36+02:00" level=info msg="Starting the instance `dbcm-lab-m2` with internal VM driver `vz`"
+time="2026-10-24T21:34:37+02:00" level=info msg="[hostagent] hostagent socket created at ~/.lima/dbcm-lab-m2/ha.sock"
+time="2026-10-24T21:34:37+02:00" level=info msg="[hostagent] Starting VZ (hint: to watch the boot progress, see `~/.lima/dbcm-lab-m2/serial*.log`)"
+time="2026-10-24T21:34:37+02:00" level=info msg="[hostagent] [VZ] - vm state change: running"
+time="2026-10-24T21:34:41+02:00" level=info msg="[hostagent] Started vsock forwarder: 127.0.0.1:50625 -> vsock:22 on VM"
+time="2026-10-24T21:34:41+02:00" level=info msg="[hostagent] Detected SSH server is listening on the vsock port; changed 127.0.0.1:50625 to proxy for the vsock port"
+time="2026-10-24T21:34:42+02:00" level=info msg="SSH Local Port: 50625"
+time="2026-10-24T21:34:42+02:00" level=info msg="[hostagent] Waiting for the essential requirement 1 of 3: `ssh`"
+time="2026-10-24T21:34:42+02:00" level=info msg="[hostagent] The essential requirement 1 of 3 is satisfied"
+time="2026-10-24T21:34:42+02:00" level=info msg="[hostagent] Waiting for the essential requirement 2 of 3: `user session is ready for ssh`"
+time="2026-10-24T21:34:43+02:00" level=info msg="[hostagent] The essential requirement 2 of 3 is satisfied"
+time="2026-10-24T21:34:43+02:00" level=info msg="[hostagent] Waiting for the essential requirement 3 of 3: `Explicitly start ssh ControlMaster`"
+time="2026-10-24T21:34:43+02:00" level=info msg="[hostagent] The essential requirement 3 of 3 is satisfied"
+time="2026-10-24T21:34:43+02:00" level=info msg="[hostagent] Waiting for the optional requirement 1 of 1: `user probe 1/1`"
+time="2026-10-24T21:34:43+02:00" level=info msg="[hostagent] Forwarding `/run/user/501/docker.sock` (guest) to `~/.lima/dbcm-lab-m2/sock/docker.sock` (host)"
+time="2026-10-24T21:34:43+02:00" level=info msg="[hostagent] Guest agent is running"
+time="2026-10-24T21:34:43+02:00" level=info msg="[hostagent] Time sync: guest agent is alive, starting time synchronization"
+time="2026-10-24T21:34:43+02:00" level=info msg="[hostagent] Not forwarding TCP 127.0.0.54:53"
+time="2026-10-24T21:34:43+02:00" level=info msg="[hostagent] Not forwarding TCP 0.0.0.0:22"
+time="2026-10-24T21:34:43+02:00" level=info msg="[hostagent] Forwarding TCP from 0.0.0.0:3306 to 127.0.0.1:3306"
+time="2026-10-24T21:34:43+02:00" level=info msg="[hostagent] Not forwarding TCP 127.0.0.53:53"
+time="2026-10-24T21:34:43+02:00" level=info msg="[hostagent] Not forwarding TCP [::]:22"
+time="2026-10-24T21:34:43+02:00" level=info msg="[hostagent] Forwarding TCP from [::]:7946 to 127.0.0.1:7946"
+time="2026-10-24T21:34:43+02:00" level=info msg="[hostagent] Forwarding TCP from [::]:3306 to 127.0.0.1:3306"
+time="2026-10-24T21:34:43+02:00" level=warning msg="[hostagent] failed to listen tcp: 127.0.0.1:7946" error="listen tcp 127.0.0.1:7946: bind: address already in use"
+time="2026-10-24T21:34:43+02:00" level=warning msg="[hostagent] failed to listen tcp: 127.0.0.1:7946" error="listen tcp 127.0.0.1:7946: bind: address already in use"
+time="2026-10-24T21:34:43+02:00" level=info msg="[hostagent] Forwarding TCP from [::]:7443 to 127.0.0.1:7443"
+time="2026-10-24T21:34:43+02:00" level=warning msg="[hostagent] failed to listen tcp: 127.0.0.1:3306" error="listen tcp 127.0.0.1:3306: bind: address already in use"
+time="2026-10-24T21:34:43+02:00" level=warning msg="[hostagent] failed to listen tcp: 127.0.0.1:3306" error="listen tcp 127.0.0.1:3306: bind: address already in use"
+time="2026-10-24T21:34:43+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.54:53"
+time="2026-10-24T21:34:43+02:00" level=warning msg="[hostagent] failed to listen tcp: 127.0.0.1:7443" error="listen tcp 127.0.0.1:7443: bind: address already in use"
+time="2026-10-24T21:34:43+02:00" level=warning msg="[hostagent] failed to listen tcp: 127.0.0.1:7443" error="listen tcp 127.0.0.1:7443: bind: address already in use"
+time="2026-10-24T21:34:43+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.53:53"
+time="2026-10-24T21:34:43+02:00" level=info msg="[hostagent] Not forwarding UDP 192.168.104.3:68"
+time="2026-10-24T21:34:43+02:00" level=info msg="[hostagent] Forwarding UDP from 127.0.0.1:323 to 127.0.0.1:323"
+time="2026-10-24T21:34:43+02:00" level=info msg="[hostagent] Forwarding UDP from 0.0.0.0:4789 to 127.0.0.1:4789"
+time="2026-10-24T21:34:43+02:00" level=info msg="[hostagent] Not forwarding UDP 0.0.0.0:323"
+time="2026-10-24T21:34:43+02:00" level=info msg="[hostagent] Forwarding UDP from 0.0.0.0:5353 to 127.0.0.1:5353"
+time="2026-10-24T21:34:43+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:323"
+time="2026-10-24T21:34:43+02:00" level=info msg="[hostagent] Forwarding UDP from [::]:7946 to 127.0.0.1:7946"
+time="2026-10-24T21:34:43+02:00" level=info msg="[hostagent] Forwarding UDP from [::1]:323 to 127.0.0.1:323"
+time="2026-10-24T21:34:43+02:00" level=warning msg="[hostagent] failed to listen udp: 127.0.0.1:4789" error="listen udp 127.0.0.1:4789: bind: address already in use"
+time="2026-10-24T21:34:43+02:00" level=warning msg="[hostagent] failed to listen udp: 127.0.0.1:4789" error="listen udp 127.0.0.1:4789: bind: address already in use"
+time="2026-10-24T21:34:43+02:00" level=info msg="[hostagent] Forwarding UDP from [::]:5353 to 127.0.0.1:5353"
+time="2026-10-24T21:34:43+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-24T21:34:43+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-24T21:34:43+02:00" level=warning msg="[hostagent] failed to listen udp: 127.0.0.1:7946" error="listen udp 127.0.0.1:7946: bind: address already in use"
+time="2026-10-24T21:34:43+02:00" level=warning msg="[hostagent] failed to listen udp: 127.0.0.1:7946" error="listen udp 127.0.0.1:7946: bind: address already in use"
+time="2026-10-24T21:34:43+02:00" level=info msg="[hostagent] Not forwarding UDP 0.0.0.0:323"
+time="2026-10-24T21:34:43+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:323"
+time="2026-10-24T21:34:43+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-24T21:34:43+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-24T21:34:46+02:00" level=info msg="[hostagent] The optional requirement 1 of 1 is satisfied"
+time="2026-10-24T21:34:46+02:00" level=info msg="[hostagent] Waiting for the guest agent to be running"
+time="2026-10-24T21:34:46+02:00" level=info msg="[hostagent] Waiting for the final requirement 1 of 1: `boot scripts must have finished`"
+time="2026-10-24T21:34:48+02:00" level=info msg="[hostagent] Time sync: guest clock adjusted (was 429ms off)"
+time="2026-10-24T21:34:49+02:00" level=info msg="[hostagent] The final requirement 1 of 1 is satisfied"
+time="2026-10-24T21:34:49+02:00" level=info msg="READY. Run `limactl shell dbcm-lab-m2` to open the shell."
+time="2026-10-24T21:34:49+02:00" level=info msg="Message from the instance `dbcm-lab-m2`:"
+To run `docker` on the host (assumes docker-cli is installed), run the following commands:
+------
+docker context create lima-dbcm-lab-m2 --docker "host=unix://~/.lima/dbcm-lab-m2/sock/docker.sock"
+docker context use lima-dbcm-lab-m2
+docker run hello-world
+------
+(exit 0)
+```
+
+19:34:49Z dbcm-lab-m2 started after 13 s
+19:34:49Z wait ok after 0s: dbcm-lab-m2 reachable over ssh
+19:34:50Z wait ok after 1s: dbcm-lab-m2 is a Ready Swarm node
+19:34:57Z wait ok after 7s: Galera cluster back to 3 synced nodes
+19:34:57Z Galera n1 rejoined 7 s after the Swarm node was ready
+### Galera cluster after the VM returned
+
+```
+$ e8_status3
+n1: wsrep_last_committed 7905 wsrep_local_state_comment Synced wsrep_cluster_size 3 wsrep_cluster_status Primary 
+n2: wsrep_last_committed 7905 wsrep_local_state_comment Synced wsrep_cluster_size 3 wsrep_cluster_status Primary 
+n3: wsrep_last_committed 7905 wsrep_local_state_comment Synced wsrep_cluster_size 3 wsrep_cluster_status Primary 
+(exit 0)
+```
+
+19:34:58Z wait ok after 0s: keepalived on dbcm-lab-m2 running
+19:34:58Z wait ok after 0s: proxy on dbcm-lab-m2 has a writer
+### VIP holder(s) after the VM returned (exactly one)
+
+```
+$ e8_vip_holder
+dbcm-lab-m3
+(exit 0)
+```
+
+### keepalived journal on dbcm-lab-m2 after the restart
+
+```
+$ e8_keepalived_journal dbcm-lab-m2 2026-10-24 21:32:53
+Oct 24 21:34:41 lima-dbcm-lab-m2 Keepalived_vrrp[1362]: SECURITY VIOLATION - scripts are being executed but script_security not enabled.
+Oct 24 21:34:42 lima-dbcm-lab-m2 Keepalived_vrrp[1362]: Track script chk_proxy is already running, expect idle - skipping run
+Oct 24 21:34:43 lima-dbcm-lab-m2 Keepalived_vrrp[1362]: VRRP_Script(chk_proxy) succeeded
+Oct 24 21:34:43 lima-dbcm-lab-m2 Keepalived_vrrp[1362]: (DBCM_E8) Entering BACKUP STATE
+(exit 0)
+```
+
+### proxy status on dbcm-lab-m2
+
+```
+$ e8_brief dbcm-lab-m2
+{"writer":"n3","has_writer":true,"writer_changes":3,"nodes":["n1 healthy/synced conns=0","n2 healthy/synced conns=0","n3 healthy/synced conns=0"]}
+(exit 0)
+```
+
+19:35:08Z resources: gate A after the proxy VM returned
+### resources: gate A after the proxy VM returned
+
+```
+2026-10-24T19:35:08Z
+host: { 34.72 48.53 41.22 }
+CPU usage: 25.81% user, 14.26% sys, 59.92% idle 
+host free disk (/System/Volumes/Data): 30Gi of 926Gi
+VM allocation: dbcm-lab-m1 Running cpus=2 mem=4294967296;dbcm-lab-m2 Running cpus=2 mem=4294967296;dbcm-lab-m3 Running cpus=2 mem=4294967296;
+VM disk files (du, MiB): dbcm-lab-m1=4324 dbcm-lab-m2=3782 dbcm-lab-m3=3783 
+== lima-dbcm-lab-m1: loadavg 0.12 0.23 0.19, mem used 762 MiB of 3896 MiB
+dbcm-e4db-n3.1.417agfl3bdm17hfv27xouavri cpu=0.32% mem=140.9MiB / 1GiB
+dbcm-agent-e4lab.zp8ih08ej9gz60wukvc6czba6.nnqrcv0us15hz8pnpgbp6po5f cpu=0.00% mem=7.332MiB / 3.806GiB
+== lima-dbcm-lab-m2: loadavg 0.16 0.04 0.01, mem used 846 MiB of 3896 MiB
+dbcm-agent-e4lab.j99zpnm3gt803ekn2m3taan37.rglxa9ygqayutcdjonbezyy9s cpu=0.00% mem=18.46MiB / 3.806GiB
+dbcm-e4db-n1.1.mkbi653x9j1s2c75f2eloyws4 cpu=0.24% mem=336.7MiB / 1GiB
+dbcm-e8-proxy cpu=1.10% mem=29.98MiB / 3.806GiB
+== lima-dbcm-lab-m3: loadavg 0.02 0.18 0.16, mem used 732 MiB of 3896 MiB
+dbcm-e8-proxy cpu=1.13% mem=8.332MiB / 3.806GiB
+dbcm-e4db-n2.1.xpdz37vavf15zixbax5zqrbw3 cpu=0.34% mem=124.7MiB / 1GiB
+dbcm-agent-e4lab.uk776geuoew2o4xqn0xi9gnu8.ew93ewom9xhaulx7ggxpnzogg cpu=0.00% mem=6.707MiB / 3.806GiB
+```
+
+
+## Phase e8integrity (gate A): acknowledged writes, writer nodes and node consistency
+
+host uptime: 21:35  up 6 days,  5:34, 5 users, load averages: 30.60 47.19 40.83
+
+19:35:16Z host load: { 30.60 47.19 40.83 }
+### rows per label and node (all gate A labels)
+
+```
+$ rsql 1 SELECT label, node, COUNT(*), MIN(at), MAX(at) FROM e5.load WHERE label LIKE 'e8-%' GROUP BY label, node ORDER BY label, node
+e8-A1a-cs-pc	dbcm-e4db-n3	440	2026-10-24 19:30:39.680	2026-10-24 19:31:24.685
+e8-A1a-cs-ps	dbcm-e4db-n3	440	2026-10-24 19:30:39.739	2026-10-24 19:31:24.679
+e8-A1a-vip-pc	dbcm-e4db-n3	417	2026-10-24 19:30:39.564	2026-10-24 19:31:24.486
+e8-A1a-vip-ps	dbcm-e4db-n3	418	2026-10-24 19:30:39.619	2026-10-24 19:31:24.578
+e8-A1b-cs-pc	dbcm-e4db-n3	593	2026-10-24 19:31:39.636	2026-10-24 19:32:39.632
+e8-A1b-cs-ps	dbcm-e4db-n3	591	2026-10-24 19:31:39.698	2026-10-24 19:32:39.630
+e8-A1b-vip-pc	dbcm-e4db-n3	563	2026-10-24 19:31:39.522	2026-10-24 19:32:39.426
+e8-A1b-vip-ps	dbcm-e4db-n3	564	2026-10-24 19:31:39.575	2026-10-24 19:32:39.482
+e8-A2-cs-pc	dbcm-e4db-n3	307	2026-10-24 19:32:53.411	2026-10-24 19:34:33.817
+e8-A2-cs-ps	dbcm-e4db-n3	915	2026-10-24 19:32:53.485	2026-10-24 19:34:33.443
+e8-A2-vip-pc	dbcm-e4db-n3	924	2026-10-24 19:32:53.289	2026-10-24 19:34:33.243
+e8-A2-vip-ps	dbcm-e4db-n3	924	2026-10-24 19:32:53.347	2026-10-24 19:34:33.344
+e8-base-p2	dbcm-e4db-n1	196	2026-10-24 19:29:55.539	2026-10-24 19:30:15.461
+e8-base-p3	dbcm-e4db-n2	196	2026-10-24 19:29:55.533	2026-10-24 19:30:15.454
+e8-pin-p2	dbcm-e4db-n3	197	2026-10-24 19:30:18.788	2026-10-24 19:30:38.765
+e8-pin-p3	dbcm-e4db-n3	197	2026-10-24 19:30:18.788	2026-10-24 19:30:38.766
+(exit 0)
+```
+
+### distinct writer nodes per phase (split-brain check: pinned phases must show one node)
+
+```
+$ rsql 1 SELECT SUBSTRING_INDEX(SUBSTRING_INDEX(label,'-',2),'-',-1) AS phase, COUNT(DISTINCT node) AS writer_nodes, GROUP_CONCAT(DISTINCT node) FROM e5.load WHERE label LIKE 'e8-%' GROUP BY phase
+A1a	1	dbcm-e4db-n3
+A1b	1	dbcm-e4db-n3
+A2	1	dbcm-e4db-n3
+base	2	dbcm-e4db-n1,dbcm-e4db-n2
+pin	1	dbcm-e4db-n3
+(exit 0)
+```
+
+19:35:17Z e8-A1a-vip-pc: acknowledged 417, rows in the database 417  (unacknowledged but committed: 0)
+e8-A1a-vip-pc: acknowledged 417, rows in the database 417  (unacknowledged but committed: 0)
+19:35:17Z e8-A1a-vip-ps: acknowledged 418, rows in the database 418  (unacknowledged but committed: 0)
+e8-A1a-vip-ps: acknowledged 418, rows in the database 418  (unacknowledged but committed: 0)
+19:35:18Z e8-A1a-cs-pc: acknowledged 440, rows in the database 440  (unacknowledged but committed: 0)
+e8-A1a-cs-pc: acknowledged 440, rows in the database 440  (unacknowledged but committed: 0)
+19:35:18Z e8-A1a-cs-ps: acknowledged 440, rows in the database 440  (unacknowledged but committed: 0)
+e8-A1a-cs-ps: acknowledged 440, rows in the database 440  (unacknowledged but committed: 0)
+19:35:18Z e8-A1b-vip-pc: acknowledged 563, rows in the database 563  (unacknowledged but committed: 0)
+e8-A1b-vip-pc: acknowledged 563, rows in the database 563  (unacknowledged but committed: 0)
+19:35:19Z e8-A1b-vip-ps: acknowledged 564, rows in the database 564  (unacknowledged but committed: 0)
+e8-A1b-vip-ps: acknowledged 564, rows in the database 564  (unacknowledged but committed: 0)
+19:35:19Z e8-A1b-cs-pc: acknowledged 593, rows in the database 593  (unacknowledged but committed: 0)
+e8-A1b-cs-pc: acknowledged 593, rows in the database 593  (unacknowledged but committed: 0)
+19:35:19Z e8-A1b-cs-ps: acknowledged 591, rows in the database 591  (unacknowledged but committed: 0)
+e8-A1b-cs-ps: acknowledged 591, rows in the database 591  (unacknowledged but committed: 0)
+19:35:20Z e8-A2-vip-pc: acknowledged 923, rows in the database 924  (unacknowledged but committed: 1)
+e8-A2-vip-pc: acknowledged 923, rows in the database 924  (unacknowledged but committed: 1)
+19:35:20Z e8-A2-vip-ps: acknowledged 923, rows in the database 924  (unacknowledged but committed: 1)
+e8-A2-vip-ps: acknowledged 923, rows in the database 924  (unacknowledged but committed: 1)
+19:35:20Z e8-A2-cs-pc: acknowledged 305, rows in the database 307  (unacknowledged but committed: 2)
+e8-A2-cs-pc: acknowledged 305, rows in the database 307  (unacknowledged but committed: 2)
+19:35:20Z e8-A2-cs-ps: acknowledged 914, rows in the database 915  (unacknowledged but committed: 1)
+e8-A2-cs-ps: acknowledged 914, rows in the database 915  (unacknowledged but committed: 1)
+**Result:** no acknowledged write was lost in gate A
+
+19:35:20Z RESULT: no acknowledged write was lost in gate A
+### n1 row count and checksum of e5.load
+
+```
+$ rsql 1 SELECT COUNT(*), MAX(id), SUM(CRC32(CONCAT(id,label,node))) FROM e5.load
+7882	20929	16867309491236
+(exit 0)
+```
+
+### n2 row count and checksum of e5.load
+
+```
+$ rsql 2 SELECT COUNT(*), MAX(id), SUM(CRC32(CONCAT(id,label,node))) FROM e5.load
+7882	20929	16867309491236
+(exit 0)
+```
+
+### n3 row count and checksum of e5.load
+
+```
+$ rsql 3 SELECT COUNT(*), MAX(id), SUM(CRC32(CONCAT(id,label,node))) FROM e5.load
+7882	20929	16867309491236
+(exit 0)
+```
+
+
+## Phase e8teardown (gate A to B): proxies and keepalived removed on the lab VMs
+
+host uptime: 21:35  up 6 days,  5:34, 5 users, load averages: 28.71 46.53 40.63
+
+19:35:21Z host load: { 28.71 46.53 40.63 }
+### remove proxy container and stop keepalived on dbcm-lab-m2
+
+```
+$ vm_sh dbcm-lab-m2 sudo systemctl disable --now keepalived >/dev/null 2>&1; sudo docker rm -f dbcm-e8-proxy >/dev/null 2>&1; echo "keepalived: $(systemctl is-active keepalived || true); containers: $(sudo docker ps -q --filter label=dbcm.e8=lab | wc -l)"
+keepalived: inactive; containers: 0
+(exit 0)
+```
+
+### remove proxy container and stop keepalived on dbcm-lab-m3
+
+```
+$ vm_sh dbcm-lab-m3 sudo systemctl disable --now keepalived >/dev/null 2>&1; sudo docker rm -f dbcm-e8-proxy >/dev/null 2>&1; echo "keepalived: $(systemctl is-active keepalived || true); containers: $(sudo docker ps -q --filter label=dbcm.e8=lab | wc -l)"
+keepalived: inactive; containers: 0
+(exit 0)
+```
+
+### VIP held anywhere (must be none)
+
+```
+$ e8_vip_holder
+(exit 0)
+```
+
+19:35:25Z wait ok after 0s: Galera cluster at 3 synced nodes
+
+## Phase e8node (gate B1): hard power loss of one Galera node VM, restart, rejoin
+
+host uptime: 21:35  up 6 days,  5:34, 5 users, load averages: 26.89 45.85 40.43
+
+19:35:25Z host load: { 26.89 45.85 40.43 }
+### sentinel table and first sentinel
+
+```
+$ rsql 1 CREATE DATABASE IF NOT EXISTS e8; CREATE TABLE IF NOT EXISTS e8.sentinel (id INT PRIMARY KEY, note VARCHAR(64), node VARCHAR(64), at TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP(3)); REPLACE INTO e8.sentinel (id, note, node) VALUES (1, 'before node power loss', @@hostname)
+(exit 0)
+```
+
+### wsrep status before
+
+```
+$ e8_status3
+n1: wsrep_last_committed 7908 wsrep_local_state_comment Synced wsrep_cluster_size 3 wsrep_cluster_status Primary 
+n2: wsrep_last_committed 7908 wsrep_local_state_comment Synced wsrep_cluster_size 3 wsrep_cluster_status Primary 
+n3: wsrep_last_committed 7908 wsrep_local_state_comment Synced wsrep_cluster_size 3 wsrep_cluster_status Primary 
+(exit 0)
+```
+
+19:35:26Z resources: gate B1 before: cluster idle
+### resources: gate B1 before: cluster idle
+
+```
+2026-10-24T19:35:26Z
+host: { 26.89 45.85 40.43 }
+CPU usage: 15.94% user, 13.9% sys, 70.96% idle 
+host free disk (/System/Volumes/Data): 30Gi of 926Gi
+VM allocation: dbcm-lab-m1 Running cpus=2 mem=4294967296;dbcm-lab-m2 Running cpus=2 mem=4294967296;dbcm-lab-m3 Running cpus=2 mem=4294967296;
+VM disk files (du, MiB): dbcm-lab-m1=4324 dbcm-lab-m2=3787 dbcm-lab-m3=3783 
+== lima-dbcm-lab-m1: loadavg 0.09 0.22 0.18, mem used 777 MiB of 3896 MiB
+dbcm-e4db-n3.1.417agfl3bdm17hfv27xouavri cpu=0.08% mem=140.7MiB / 1GiB
+dbcm-agent-e4lab.zp8ih08ej9gz60wukvc6czba6.nnqrcv0us15hz8pnpgbp6po5f cpu=0.00% mem=7.137MiB / 3.806GiB
+== lima-dbcm-lab-m2: loadavg 0.19 0.06 0.02, mem used 837 MiB of 3896 MiB
+dbcm-agent-e4lab.j99zpnm3gt803ekn2m3taan37.rglxa9ygqayutcdjonbezyy9s cpu=0.00% mem=18.51MiB / 3.806GiB
+dbcm-e4db-n1.1.mkbi653x9j1s2c75f2eloyws4 cpu=0.09% mem=338.5MiB / 1GiB
+== lima-dbcm-lab-m3: loadavg 0.01 0.17 0.15, mem used 698 MiB of 3896 MiB
+dbcm-e4db-n2.1.xpdz37vavf15zixbax5zqrbw3 cpu=0.06% mem=124.6MiB / 1GiB
+dbcm-agent-e4lab.uk776geuoew2o4xqn0xi9gnu8.ew93ewom9xhaulx7ggxpnzogg cpu=0.00% mem=6.707MiB / 3.806GiB
+```
+
+19:35:35Z victim VM: dbcm-lab-m3 (Galera node n2); survivor used for writes: n1; cluster state UUID f1ae8092-cfe0-11f1-a0ce-577372ecbe89
+### service specs before
+
+```
+$ e6_specs
+dbcm-e4db-n1 replicas=1 version=79 bootstrap=
+dbcm-e4db-n2 replicas=1 version=52 bootstrap=
+dbcm-e4db-n3 replicas=1 version=60 bootstrap=
+(exit 0)
+```
+
+### limactl stop --force dbcm-lab-m3 (power loss)
+
+```
+$ limactl stop --force dbcm-lab-m3
+time="2026-10-24T21:35:35+02:00" level=info msg="Sending SIGKILL to the vz driver process 91844"
+time="2026-10-24T21:35:35+02:00" level=info msg="Sending SIGKILL to the host agent process 91844"
+time="2026-10-24T21:35:35+02:00" level=info msg="Removing *.pid *.sock *.tmp under `~/.lima/dbcm-lab-m3`"
+time="2026-10-24T21:35:35+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m3/ha.pid`"
+time="2026-10-24T21:35:35+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m3/ha.sock`"
+time="2026-10-24T21:35:35+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m3/ssh.sock`"
+time="2026-10-24T21:35:35+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m3/vz.pid`"
+(exit 0)
+```
+
+19:35:35Z power loss sent at 19:35:35.274253978
+### wsrep status of the survivors
+
+```
+$ e8_status3
+n1: wsrep_last_committed 7909 wsrep_local_state_comment Synced wsrep_cluster_size 2 wsrep_cluster_status Primary 
+19:36:00Z FATAL: refusing to address non-lab VM ''
+n2: time="2026-10-24T21:36:00+02:00" level=fatal msg="instance name `` is not a valid identifier: identifier must not be empty" 
+n3: wsrep_last_committed 7909 wsrep_local_state_comment Synced wsrep_cluster_size 2 wsrep_cluster_status Primary 
+(exit 0)
+```
+
+### sentinel 2 written on n1 during the outage
+
+```
+$ e8_sentinel 1 2 during node power loss
+(exit 0)
+```
+
+19:36:01Z resources: gate B1 during: one VM down
+### resources: gate B1 during: one VM down
+
+```
+2026-10-24T19:36:01Z
+host: { 21.00 42.34 39.37 }
+CPU usage: 20.12% user, 13.70% sys, 66.16% idle 
+host free disk (/System/Volumes/Data): 30Gi of 926Gi
+VM allocation: dbcm-lab-m1 Running cpus=2 mem=4294967296;dbcm-lab-m2 Running cpus=2 mem=4294967296;dbcm-lab-m3 Stopped cpus=2 mem=4294967296;
+VM disk files (du, MiB): dbcm-lab-m1=4325 dbcm-lab-m2=3787 dbcm-lab-m3=3783 
+== lima-dbcm-lab-m1: loadavg 0.05 0.20 0.18, mem used 770 MiB of 3896 MiB
+dbcm-e4db-n3.1.417agfl3bdm17hfv27xouavri cpu=0.14% mem=140.7MiB / 1GiB
+dbcm-agent-e4lab.zp8ih08ej9gz60wukvc6czba6.nnqrcv0us15hz8pnpgbp6po5f cpu=0.00% mem=6.895MiB / 3.806GiB
+== lima-dbcm-lab-m2: loadavg 0.11 0.05 0.01, mem used 797 MiB of 3896 MiB
+dbcm-agent-e4lab.j99zpnm3gt803ekn2m3taan37.rglxa9ygqayutcdjonbezyy9s cpu=0.00% mem=18.63MiB / 3.806GiB
+dbcm-e4db-n1.1.mkbi653x9j1s2c75f2eloyws4 cpu=0.15% mem=339MiB / 1GiB
+== dbcm-lab-m3: not running
+```
+
+### manager view of the cluster after 55 s
+
+```
+$ api GET /api/v1/clusters/clu-20ed55397be71892
+HTTP 200
+{"id":"clu-20ed55397be71892","swarm":"swarm-65a4e88803ff6a56","name":"e4db","engine":"mariadb-galera","state":"degraded","nodes":[{"id":"n1","host":"j99zpnm3gt803ekn2m3taan37","state":"healthy","role":"synced","observedAt":"2026-10-24T21:36:25.064139873+02:00"},{"id":"n2","host":"uk776geuoew2o4xqn0xi9gnu8","state":"unknown","role":"unknown","observedAt":"2026-10-24T21:36:28.128059946+02:00"},{"id":"n3","host":"zp8ih08ej9gz60wukvc6czba6","state":"healthy","role":"synced","observedAt":"2026-10-24T21:36:25.063850965+02:00"}],"observedAt":"2026-10-24T21:36:25.064139873+02:00","endpoints":[{"name":"n1","host":"dbcm-e4db-n1","port":3306},{"name":"n2","host":"dbcm-e4db-n2","port":3306},{"name":"n3","host":"dbcm-e4db-n3","port":3306}],"automationPolicy":"manual"}
+(exit 0)
+```
+
+### manager events
+
+```
+$ e6_events
+{"severity":"info","message":"cluster e4db matches its Swarm services again"}
+{"severity":"info","message":"operation op-ce307475bb4c470c (galera/create-cluster) succeeded"}
+{"severity":"info","message":"node n1 of cluster e4db is healthy again"}
+{"severity":"info","message":"node n3 of cluster e4db is healthy again"}
+{"severity":"warning","message":"node n1 of cluster e4db became unknown: no answer from agent: agent answered refused/invalid-path: lstat /var/lib/dbcm/volumes/dbcm-e4db-n1-5badfc33/run/mysqld.sock: no such file or directory"}
+{"severity":"info","message":"node n2 of cluster e4db is healthy again"}
+{"severity":"info","message":"node n1 of cluster e4db is healthy again"}
+{"severity":"info","message":"admin requested cluster e4db (3 nodes), operation op-ce307475bb4c470c"}
+{"severity":"info","message":"admin deployed agents: service xgkzgn77irbsatamvd2oh1hk4, 3 enrolled, 0 revoked, 0 failed"}
+{"severity":"info","message":"manager manager-1 leads term 2; 0 unfinished operation(s) taken over"}
+(exit 0)
+```
+
+### operations (no recovery operation may exist)
+
+```
+$ e6_ops
+{"id":"op-ce307475bb4c470c","kind":"galera/create-cluster","state":"succeeded","reason":"all steps succeeded"}
+(exit 0)
+```
+
+### service specs during the outage (no bootstrap flag)
+
+```
+$ e6_specs
+dbcm-e4db-n1 replicas=1 version=79 bootstrap=
+dbcm-e4db-n2 replicas=1 version=52 bootstrap=
+dbcm-e4db-n3 replicas=1 version=60 bootstrap=
+(exit 0)
+```
+
+### limactl start dbcm-lab-m3
+
+```
+$ limactl start dbcm-lab-m3
+time="2026-10-24T21:36:37+02:00" level=info msg="Using the existing instance `dbcm-lab-m3`"
+time="2026-10-24T21:36:37+02:00" level=info msg="Starting the instance `dbcm-lab-m3` with internal VM driver `vz`"
+time="2026-10-24T21:36:37+02:00" level=info msg="[hostagent] hostagent socket created at ~/.lima/dbcm-lab-m3/ha.sock"
+time="2026-10-24T21:36:37+02:00" level=info msg="[hostagent] Starting VZ (hint: to watch the boot progress, see `~/.lima/dbcm-lab-m3/serial*.log`)"
+time="2026-10-24T21:36:37+02:00" level=info msg="[hostagent] [VZ] - vm state change: running"
+time="2026-10-24T21:36:42+02:00" level=info msg="[hostagent] Started vsock forwarder: 127.0.0.1:50842 -> vsock:22 on VM"
+time="2026-10-24T21:36:42+02:00" level=info msg="[hostagent] Detected SSH server is listening on the vsock port; changed 127.0.0.1:50842 to proxy for the vsock port"
+time="2026-10-24T21:36:42+02:00" level=info msg="SSH Local Port: 50842"
+time="2026-10-24T21:36:42+02:00" level=info msg="[hostagent] Waiting for the essential requirement 1 of 3: `ssh`"
+time="2026-10-24T21:36:43+02:00" level=info msg="[hostagent] The essential requirement 1 of 3 is satisfied"
+time="2026-10-24T21:36:43+02:00" level=info msg="[hostagent] Waiting for the essential requirement 2 of 3: `user session is ready for ssh`"
+time="2026-10-24T21:36:43+02:00" level=info msg="[hostagent] The essential requirement 2 of 3 is satisfied"
+time="2026-10-24T21:36:43+02:00" level=info msg="[hostagent] Waiting for the essential requirement 3 of 3: `Explicitly start ssh ControlMaster`"
+time="2026-10-24T21:36:43+02:00" level=info msg="[hostagent] The essential requirement 3 of 3 is satisfied"
+time="2026-10-24T21:36:43+02:00" level=info msg="[hostagent] Waiting for the optional requirement 1 of 1: `user probe 1/1`"
+time="2026-10-24T21:36:43+02:00" level=info msg="[hostagent] Forwarding `/run/user/501/docker.sock` (guest) to `~/.lima/dbcm-lab-m3/sock/docker.sock` (host)"
+time="2026-10-24T21:36:43+02:00" level=info msg="[hostagent] Guest agent is running"
+time="2026-10-24T21:36:43+02:00" level=info msg="[hostagent] Time sync: guest agent is alive, starting time synchronization"
+time="2026-10-24T21:36:43+02:00" level=info msg="[hostagent] Not forwarding TCP 0.0.0.0:22"
+time="2026-10-24T21:36:43+02:00" level=info msg="[hostagent] Not forwarding TCP 127.0.0.54:53"
+time="2026-10-24T21:36:43+02:00" level=info msg="[hostagent] Not forwarding TCP 127.0.0.53:53"
+time="2026-10-24T21:36:43+02:00" level=info msg="[hostagent] Not forwarding TCP [::]:22"
+time="2026-10-24T21:36:43+02:00" level=info msg="[hostagent] Forwarding TCP from [::]:7443 to 127.0.0.1:7443"
+time="2026-10-24T21:36:43+02:00" level=info msg="[hostagent] Forwarding TCP from [::]:7946 to 127.0.0.1:7946"
+time="2026-10-24T21:36:43+02:00" level=warning msg="[hostagent] failed to listen tcp: 127.0.0.1:7443" error="listen tcp 127.0.0.1:7443: bind: address already in use"
+time="2026-10-24T21:36:43+02:00" level=warning msg="[hostagent] failed to listen tcp: 127.0.0.1:7443" error="listen tcp 127.0.0.1:7443: bind: address already in use"
+time="2026-10-24T21:36:43+02:00" level=info msg="[hostagent] Forwarding UDP from 0.0.0.0:5353 to 127.0.0.1:5353"
+time="2026-10-24T21:36:43+02:00" level=warning msg="[hostagent] failed to listen tcp: 127.0.0.1:7946" error="listen tcp 127.0.0.1:7946: bind: address already in use"
+time="2026-10-24T21:36:43+02:00" level=warning msg="[hostagent] failed to listen tcp: 127.0.0.1:7946" error="listen tcp 127.0.0.1:7946: bind: address already in use"
+time="2026-10-24T21:36:43+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.54:53"
+time="2026-10-24T21:36:43+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-24T21:36:43+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.53:53"
+time="2026-10-24T21:36:43+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-24T21:36:43+02:00" level=info msg="[hostagent] Not forwarding UDP 192.168.104.4:68"
+time="2026-10-24T21:36:43+02:00" level=info msg="[hostagent] Forwarding UDP from 127.0.0.1:323 to 127.0.0.1:323"
+time="2026-10-24T21:36:43+02:00" level=info msg="[hostagent] Forwarding UDP from 0.0.0.0:4789 to 127.0.0.1:4789"
+time="2026-10-24T21:36:43+02:00" level=info msg="[hostagent] Not forwarding UDP 0.0.0.0:323"
+time="2026-10-24T21:36:43+02:00" level=info msg="[hostagent] Forwarding UDP from [::]:5353 to 127.0.0.1:5353"
+time="2026-10-24T21:36:44+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:323"
+time="2026-10-24T21:36:43+02:00" level=info msg="[hostagent] Forwarding UDP from [::]:7946 to 127.0.0.1:7946"
+time="2026-10-24T21:36:44+02:00" level=info msg="[hostagent] Forwarding UDP from [::1]:323 to 127.0.0.1:323"
+time="2026-10-24T21:36:44+02:00" level=warning msg="[hostagent] failed to listen udp: 127.0.0.1:4789" error="listen udp 127.0.0.1:4789: bind: address already in use"
+time="2026-10-24T21:36:44+02:00" level=info msg="[hostagent] The optional requirement 1 of 1 is satisfied"
+time="2026-10-24T21:36:44+02:00" level=warning msg="[hostagent] failed to listen udp: 127.0.0.1:4789" error="listen udp 127.0.0.1:4789: bind: address already in use"
+time="2026-10-24T21:36:44+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-24T21:36:44+02:00" level=info msg="[hostagent] Waiting for the guest agent to be running"
+time="2026-10-24T21:36:44+02:00" level=info msg="[hostagent] Waiting for the final requirement 1 of 1: `boot scripts must have finished`"
+time="2026-10-24T21:36:44+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-24T21:36:44+02:00" level=warning msg="[hostagent] failed to listen udp: 127.0.0.1:7946" error="listen udp 127.0.0.1:7946: bind: address already in use"
+time="2026-10-24T21:36:44+02:00" level=warning msg="[hostagent] failed to listen udp: 127.0.0.1:7946" error="listen udp 127.0.0.1:7946: bind: address already in use"
+time="2026-10-24T21:36:44+02:00" level=info msg="[hostagent] Not forwarding UDP 0.0.0.0:323"
+time="2026-10-24T21:36:44+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:323"
+time="2026-10-24T21:36:48+02:00" level=info msg="[hostagent] Time sync: guest clock adjusted (was -184ms off)"
+time="2026-10-24T21:36:50+02:00" level=info msg="[hostagent] The final requirement 1 of 1 is satisfied"
+time="2026-10-24T21:36:50+02:00" level=info msg="READY. Run `limactl shell dbcm-lab-m3` to open the shell."
+time="2026-10-24T21:36:50+02:00" level=info msg="Message from the instance `dbcm-lab-m3`:"
+To run `docker` on the host (assumes docker-cli is installed), run the following commands:
+------
+docker context create lima-dbcm-lab-m3 --docker "host=unix://~/.lima/dbcm-lab-m3/sock/docker.sock"
+docker context use lima-dbcm-lab-m3
+docker run hello-world
+------
+(exit 0)
+```
+
+19:36:50Z dbcm-lab-m3 started after 13 s
+19:36:50Z wait ok after 0s: dbcm-lab-m3 reachable over ssh
+19:36:50Z ssh reachable 13 s after limactl start began
+19:36:50Z wait ok after 0s: dbcm-lab-m3 is a Ready Swarm node
+19:36:58Z wait ok after 8s: Galera cluster back to 3 synced nodes
+19:36:58Z all three Synced 21 s after limactl start began
+### wsrep status after
+
+```
+$ e8_status3
+n1: wsrep_last_committed 7911 wsrep_local_state_comment Synced wsrep_cluster_size 3 wsrep_cluster_status Primary 
+n2: wsrep_last_committed 7911 wsrep_local_state_comment Synced wsrep_cluster_size 3 wsrep_cluster_status Primary 
+n3: wsrep_last_committed 7911 wsrep_local_state_comment Synced wsrep_cluster_size 3 wsrep_cluster_status Primary 
+(exit 0)
+```
+
+19:36:59Z resources: gate B1 after: cluster rejoined
+### resources: gate B1 after: cluster rejoined
+
+```
+2026-10-24T19:36:59Z
+host: { 20.35 38.40 38.08 }
+CPU usage: 18.14% user, 12.34% sys, 69.50% idle 
+host free disk (/System/Volumes/Data): 30Gi of 926Gi
+VM allocation: dbcm-lab-m1 Running cpus=2 mem=4294967296;dbcm-lab-m2 Running cpus=2 mem=4294967296;dbcm-lab-m3 Running cpus=2 mem=4294967296;
+VM disk files (du, MiB): dbcm-lab-m1=4325 dbcm-lab-m2=3787 dbcm-lab-m3=3782 
+== lima-dbcm-lab-m1: loadavg 0.02 0.16 0.16, mem used 776 MiB of 3896 MiB
+dbcm-e4db-n3.1.417agfl3bdm17hfv27xouavri cpu=0.18% mem=149.7MiB / 1GiB
+dbcm-agent-e4lab.zp8ih08ej9gz60wukvc6czba6.nnqrcv0us15hz8pnpgbp6po5f cpu=0.00% mem=6.891MiB / 3.806GiB
+== lima-dbcm-lab-m2: loadavg 0.12 0.07 0.02, mem used 810 MiB of 3896 MiB
+dbcm-agent-e4lab.j99zpnm3gt803ekn2m3taan37.rglxa9ygqayutcdjonbezyy9s cpu=0.00% mem=19.27MiB / 3.806GiB
+dbcm-e4db-n1.1.mkbi653x9j1s2c75f2eloyws4 cpu=0.15% mem=338.8MiB / 1GiB
+== lima-dbcm-lab-m3: loadavg 0.57 0.15 0.05, mem used 791 MiB of 3896 MiB
+dbcm-agent-e4lab.uk776geuoew2o4xqn0xi9gnu8.plfb5z8iajerwfraunyyd9qve cpu=0.00% mem=18.54MiB / 3.806GiB
+dbcm-e4db-n2.1.l1kkmx8a454esh3fwcazbramh cpu=0.14% mem=335.5MiB / 1GiB
+```
+
+### n2 join lines (IST or SST?)
+
+```
+$ sh -c limactl shell --workdir / dbcm-lab-m3 -- sudo docker logs --since 10m $(limactl shell --workdir / dbcm-lab-m3 -- sudo docker ps -q -f label=com.docker.swarm.service.name=dbcm-e4db-n2 | head -1) 2>&1 | grep -E 'IST received|SST|State transfer|Synchronized|Quorum results|safe_to_bootstrap|Recovered position|crash recovery|InnoDB.*recover' | cut -c1-190 | head -14
+2026-10-24 19:36:43 0 [Note] WSREP: Found saved state: f1ae8092-cfe0-11f1-a0ce-577372ecbe89:-1, safe_to_bootstrap: 0
+2026-10-24 19:36:44 0 [Note] WSREP: Quorum results:
+2026-10-24 19:36:44 2 [Note] WSREP: State transfer required: 
+WSREP_SST: [INFO] mariabackup SST started on joiner (20261024 19:36:44.496)
+WSREP_SST: [INFO] SSL configuration: CA='', CAPATH='', CERT='', KEY='', MODE='DISABLED', encrypt='0' (20261024 19:36:44.511)
+WSREP_SST: [INFO] Progress reporting tool pv not found in path: /usr//bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bin:/usr/local/sbin:/bin:/sbin:/usr/bin:/usr
+WSREP_SST: [INFO] Disabling all progress/rate-limiting (20261024 19:36:44.555)
+WSREP_SST: [INFO] Streaming with mbstream (20261024 19:36:44.574)
+WSREP_SST: [INFO] Using socat as streamer (20261024 19:36:44.575)
+WSREP_SST: [INFO] 'ss' is selected as a socket information utility. (20261024 19:36:44.596)
+WSREP_SST: [INFO] Evaluating timeout -k 310 300 socat -u TCP-LISTEN:4444,reuseaddr stdio | '/usr//bin/mbstream' -x; RC=( ${PIPESTATUS[@]} ) (20261024 19:36:44.600)
+WSREP_SST: [INFO] Evaluating socat -u TCP-LISTEN:4444,reuseaddr stdio | '/usr//bin/mbstream' -x; RC=( ${PIPESTATUS[@]} ) (20261024 19:36:44.934)
+WSREP_SST: [INFO] Proceeding with SST (20261024 19:36:44.934)
+WSREP_SST: [INFO] Cleaning the existing datadir and innodb-data/log directories (20261024 19:36:44.943)
+(exit 0)
+```
+
+### sentinels on every node (1 and 2 expected)
+
+```
+$ e8_sentinels_all 1,2
+n1 sentinel ids: 1,2 (expected 1,2)
+n2 sentinel ids: 1,2 (expected 1,2)
+n3 sentinel ids: 1,2 (expected 1,2)
+(exit 0)
+```
+
+**Result:** B1: node power loss kept the cluster state UUID, rejoined without any bootstrap
+
+19:37:08Z RESULT: B1: node power loss kept the cluster state UUID, rejoined without any bootstrap
+### service specs after (no bootstrap flag)
+
+```
+$ e6_specs
+dbcm-e4db-n1 replicas=1 version=79 bootstrap=
+dbcm-e4db-n2 replicas=1 version=52 bootstrap=
+dbcm-e4db-n3 replicas=1 version=60 bootstrap=
+(exit 0)
+```
+
+### operations after (still no recovery operation)
+
+```
+$ e6_ops
+{"id":"op-ce307475bb4c470c","kind":"galera/create-cluster","state":"succeeded","reason":"all steps succeeded"}
+(exit 0)
+```
+
+### manager view after
+
+```
+$ api GET /api/v1/clusters/clu-20ed55397be71892
+HTTP 200
+{"id":"clu-20ed55397be71892","swarm":"swarm-65a4e88803ff6a56","name":"e4db","engine":"mariadb-galera","state":"degraded","nodes":[{"id":"n1","host":"j99zpnm3gt803ekn2m3taan37","state":"healthy","role":"synced","observedAt":"2026-10-24T21:36:55.075409462+02:00"},{"id":"n2","host":"uk776geuoew2o4xqn0xi9gnu8","state":"unavailable","role":"unknown","observedAt":"2026-10-24T21:36:55.075323504+02:00"},{"id":"n3","host":"zp8ih08ej9gz60wukvc6czba6","state":"degraded","role":"donor","observedAt":"2026-10-24T21:36:55.068922142+02:00"}],"observedAt":"2026-10-24T21:36:55.075409462+02:00","endpoints":[{"name":"n1","host":"dbcm-e4db-n1","port":3306},{"name":"n2","host":"dbcm-e4db-n2","port":3306},{"name":"n3","host":"dbcm-e4db-n3","port":3306}],"automationPolicy":"manual"}
+(exit 0)
+```
+
+### events after
+
+```
+$ e6_events
+{"severity":"info","message":"cluster e4db matches its Swarm services again"}
+{"severity":"info","message":"operation op-ce307475bb4c470c (galera/create-cluster) succeeded"}
+{"severity":"info","message":"node n1 of cluster e4db is healthy again"}
+{"severity":"info","message":"node n3 of cluster e4db is healthy again"}
+{"severity":"warning","message":"node n1 of cluster e4db became unknown: no answer from agent: agent answered refused/invalid-path: lstat /var/lib/dbcm/volumes/dbcm-e4db-n1-5badfc33/run/mysqld.sock: no such file or directory"}
+{"severity":"info","message":"node n2 of cluster e4db is healthy again"}
+{"severity":"info","message":"node n1 of cluster e4db is healthy again"}
+{"severity":"info","message":"admin requested cluster e4db (3 nodes), operation op-ce307475bb4c470c"}
+{"severity":"info","message":"admin deployed agents: service xgkzgn77irbsatamvd2oh1hk4, 3 enrolled, 0 revoked, 0 failed"}
+{"severity":"info","message":"manager manager-1 leads term 2; 0 unfinished operation(s) taken over"}
+(exit 0)
+```
+
+### agents enrolled again
+
+```
+$ api GET /api/v1/hosts
+HTTP 200
+{"items":[{"swarm":"swarm-65a4e88803ff6a56","nodeId":"j99zpnm3gt803ekn2m3taan37","hostname":"lima-dbcm-lab-m2","role":"worker","availability":"active","state":"ready","engineVersion":"29.9.2","enrollment":"enrolled","nanoCpus":2000000000,"memoryBytes":4086284288,"observedAt":"2026-10-24T21:36:40.069521938+02:00","agentIdentity":true,"agentVersion":"0.0.0-dev","agentSeenAt":"2026-10-24T21:36:55.070046313+02:00"},{"swarm":"swarm-65a4e88803ff6a56","nodeId":"uk776geuoew2o4xqn0xi9gnu8","hostname":"lima-dbcm-lab-m3","role":"worker","availability":"active","state":"down","engineVersion":"29.9.2","enrollment":"enrolled","nanoCpus":2000000000,"memoryBytes":4086222848,"observedAt":"2026-10-24T21:36:40.069521938+02:00","agentIdentity":true,"agentVersion":"0.0.0-dev","agentSeenAt":"2026-10-24T21:36:55.071770363+02:00"},{"swarm":"swarm-65a4e88803ff6a56","nodeId":"zp8ih08ej9gz60wukvc6czba6","hostname":"lima-dbcm-lab-m1","role":"manager","availability":"active","state":"ready","engineVersion":"29.9.2","enrollment":"enrolled","nanoCpus":2000000000,"memoryBytes":4086218752,"observedAt":"2026-10-24T21:36:40.069521938+02:00","agentIdentity":true,"agentVersion":"0.0.0-dev","agentSeenAt":"2026-10-24T21:36:41.507740407+02:00"}]}
+(exit 0)
+```
+
+
+## Phase e8allloss (gate B2): hard power loss of all three VMs at once, restart
+
+host uptime: 21:37  up 6 days,  5:36, 5 users, load averages: 19.61 37.65 37.81
+
+19:37:08Z host load: { 19.61 37.65 37.81 }
+19:37:09Z slot hosts: 1:dbcm-lab-m2 2:dbcm-lab-m3 3:dbcm-lab-m1
+### sentinel 3 before the full power loss
+
+```
+$ e8_sentinel 1 3 before full power loss
+(exit 0)
+```
+
+### sentinels on every node (1,2,3)
+
+```
+$ e8_sentinels_all 1,2,3
+n1 sentinel ids: 1,2,3 (expected 1,2,3)
+n2 sentinel ids: 1,2,3 (expected 1,2,3)
+n3 sentinel ids: 1,2,3 (expected 1,2,3)
+(exit 0)
+```
+
+### wsrep positions before
+
+```
+$ e6_positions
+n1: wsrep_last_committed 7912 wsrep_cluster_size 3 
+n2: wsrep_last_committed 7912 wsrep_cluster_size 3 
+n3: wsrep_last_committed 7912 wsrep_cluster_size 3 
+(exit 0)
+```
+
+19:37:10Z resources: gate B2 before: cluster idle
+### resources: gate B2 before: cluster idle
+
+```
+2026-10-24T19:37:10Z
+host: { 23.72 38.20 38.01 }
+CPU usage: 21.24% user, 12.54% sys, 66.21% idle 
+host free disk (/System/Volumes/Data): 30Gi of 926Gi
+VM allocation: dbcm-lab-m1 Running cpus=2 mem=4294967296;dbcm-lab-m2 Running cpus=2 mem=4294967296;dbcm-lab-m3 Running cpus=2 mem=4294967296;
+VM disk files (du, MiB): dbcm-lab-m1=4325 dbcm-lab-m2=3787 dbcm-lab-m3=3782 
+== lima-dbcm-lab-m1: loadavg 0.01 0.15 0.16, mem used 790 MiB of 3896 MiB
+dbcm-e4db-n3.1.417agfl3bdm17hfv27xouavri cpu=0.32% mem=149.9MiB / 1GiB
+dbcm-agent-e4lab.zp8ih08ej9gz60wukvc6czba6.nnqrcv0us15hz8pnpgbp6po5f cpu=0.00% mem=7MiB / 3.806GiB
+== lima-dbcm-lab-m2: loadavg 0.09 0.07 0.02, mem used 817 MiB of 3896 MiB
+dbcm-agent-e4lab.j99zpnm3gt803ekn2m3taan37.rglxa9ygqayutcdjonbezyy9s cpu=0.00% mem=19.28MiB / 3.806GiB
+dbcm-e4db-n1.1.mkbi653x9j1s2c75f2eloyws4 cpu=0.29% mem=338.6MiB / 1GiB
+== lima-dbcm-lab-m3: loadavg 0.48 0.15 0.05, mem used 767 MiB of 3896 MiB
+dbcm-agent-e4lab.uk776geuoew2o4xqn0xi9gnu8.plfb5z8iajerwfraunyyd9qve cpu=0.00% mem=18.66MiB / 3.806GiB
+dbcm-e4db-n2.1.l1kkmx8a454esh3fwcazbramh cpu=0.29% mem=335.8MiB / 1GiB
+```
+
+time="2026-10-24T21:37:18+02:00" level=info msg="Sending SIGKILL to the vz driver process 72468"
+time="2026-10-24T21:37:18+02:00" level=info msg="Sending SIGKILL to the vz driver process 10342"
+time="2026-10-24T21:37:18+02:00" level=info msg="Sending SIGKILL to the host agent process 72468"
+time="2026-10-24T21:37:18+02:00" level=info msg="Removing *.pid *.sock *.tmp under `~/.lima/dbcm-lab-m1`"
+time="2026-10-24T21:37:18+02:00" level=info msg="Sending SIGKILL to the host agent process 10342"
+time="2026-10-24T21:37:18+02:00" level=info msg="Removing *.pid *.sock *.tmp under `~/.lima/dbcm-lab-m2`"
+time="2026-10-24T21:37:18+02:00" level=info msg="Sending SIGKILL to the vz driver process 13737"
+time="2026-10-24T21:37:18+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m1/ha.pid`"
+time="2026-10-24T21:37:18+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m2/ha.pid`"
+time="2026-10-24T21:37:18+02:00" level=info msg="Sending SIGKILL to the host agent process 13737"
+time="2026-10-24T21:37:18+02:00" level=info msg="Removing *.pid *.sock *.tmp under `~/.lima/dbcm-lab-m3`"
+time="2026-10-24T21:37:18+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m1/ha.sock`"
+time="2026-10-24T21:37:18+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m2/ha.sock`"
+time="2026-10-24T21:37:18+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m3/ha.pid`"
+time="2026-10-24T21:37:18+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m1/ssh.sock`"
+time="2026-10-24T21:37:18+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m3/ha.sock`"
+time="2026-10-24T21:37:18+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m2/ssh.sock`"
+time="2026-10-24T21:37:18+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m3/ssh.sock`"
+time="2026-10-24T21:37:18+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m1/vz.pid`"
+time="2026-10-24T21:37:18+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m2/vz.pid`"
+time="2026-10-24T21:37:18+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m3/vz.pid`"
+19:37:19Z all three VMs force-stopped in 1 s: dbcm-lab-m1=Stopped dbcm-lab-m2=Stopped dbcm-lab-m3=Stopped 
+### limactl start dbcm-lab-m1
+
+```
+$ limactl start dbcm-lab-m1
+time="2026-10-24T21:37:39+02:00" level=info msg="Using the existing instance `dbcm-lab-m1`"
+time="2026-10-24T21:37:39+02:00" level=info msg="Starting the instance `dbcm-lab-m1` with internal VM driver `vz`"
+time="2026-10-24T21:37:40+02:00" level=info msg="[hostagent] hostagent socket created at ~/.lima/dbcm-lab-m1/ha.sock"
+time="2026-10-24T21:37:40+02:00" level=info msg="[hostagent] Starting VZ (hint: to watch the boot progress, see `~/.lima/dbcm-lab-m1/serial*.log`)"
+time="2026-10-24T21:37:40+02:00" level=info msg="[hostagent] [VZ] - vm state change: running"
+time="2026-10-24T21:37:44+02:00" level=info msg="[hostagent] Started vsock forwarder: 127.0.0.1:50914 -> vsock:22 on VM"
+time="2026-10-24T21:37:44+02:00" level=info msg="[hostagent] Detected SSH server is listening on the vsock port; changed 127.0.0.1:50914 to proxy for the vsock port"
+time="2026-10-24T21:37:45+02:00" level=info msg="SSH Local Port: 50914"
+time="2026-10-24T21:37:45+02:00" level=info msg="[hostagent] Waiting for the essential requirement 1 of 3: `ssh`"
+time="2026-10-24T21:37:45+02:00" level=info msg="[hostagent] The essential requirement 1 of 3 is satisfied"
+time="2026-10-24T21:37:45+02:00" level=info msg="[hostagent] Waiting for the essential requirement 2 of 3: `user session is ready for ssh`"
+time="2026-10-24T21:37:46+02:00" level=info msg="[hostagent] The essential requirement 2 of 3 is satisfied"
+time="2026-10-24T21:37:46+02:00" level=info msg="[hostagent] Waiting for the essential requirement 3 of 3: `Explicitly start ssh ControlMaster`"
+time="2026-10-24T21:37:46+02:00" level=info msg="[hostagent] The essential requirement 3 of 3 is satisfied"
+time="2026-10-24T21:37:46+02:00" level=info msg="[hostagent] Waiting for the optional requirement 1 of 1: `user probe 1/1`"
+time="2026-10-24T21:37:46+02:00" level=info msg="[hostagent] Forwarding `/run/user/501/docker.sock` (guest) to `~/.lima/dbcm-lab-m1/sock/docker.sock` (host)"
+time="2026-10-24T21:37:46+02:00" level=info msg="[hostagent] Guest agent is running"
+time="2026-10-24T21:37:46+02:00" level=info msg="[hostagent] Time sync: guest agent is alive, starting time synchronization"
+time="2026-10-24T21:37:46+02:00" level=info msg="[hostagent] Not forwarding TCP 127.0.0.53:53"
+time="2026-10-24T21:37:46+02:00" level=info msg="[hostagent] Not forwarding TCP 0.0.0.0:22"
+time="2026-10-24T21:37:46+02:00" level=info msg="[hostagent] Not forwarding TCP 127.0.0.54:53"
+time="2026-10-24T21:37:46+02:00" level=info msg="[hostagent] Forwarding TCP from [::]:2377 to 127.0.0.1:2377"
+time="2026-10-24T21:37:46+02:00" level=info msg="[hostagent] Not forwarding TCP [::]:22"
+time="2026-10-24T21:37:46+02:00" level=info msg="[hostagent] Forwarding TCP from [::]:7946 to 127.0.0.1:7946"
+time="2026-10-24T21:37:46+02:00" level=info msg="[hostagent] Forwarding UDP from 0.0.0.0:5353 to 127.0.0.1:5353"
+time="2026-10-24T21:37:46+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.54:53"
+time="2026-10-24T21:37:46+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.53:53"
+time="2026-10-24T21:37:46+02:00" level=info msg="[hostagent] Not forwarding UDP 192.168.104.1:68"
+time="2026-10-24T21:37:46+02:00" level=info msg="[hostagent] Forwarding UDP from 127.0.0.1:323 to 127.0.0.1:323"
+time="2026-10-24T21:37:46+02:00" level=info msg="[hostagent] Forwarding UDP from 0.0.0.0:4789 to 127.0.0.1:4789"
+time="2026-10-24T21:37:46+02:00" level=info msg="[hostagent] Forwarding UDP from [::]:5353 to 127.0.0.1:5353"
+time="2026-10-24T21:37:46+02:00" level=info msg="[hostagent] Forwarding UDP from [::]:7946 to 127.0.0.1:7946"
+time="2026-10-24T21:37:46+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-24T21:37:46+02:00" level=info msg="[hostagent] Forwarding UDP from [::1]:323 to 127.0.0.1:323"
+time="2026-10-24T21:37:46+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-24T21:37:46+02:00" level=info msg="[hostagent] Not forwarding UDP 0.0.0.0:323"
+time="2026-10-24T21:37:46+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:323"
+time="2026-10-24T21:37:49+02:00" level=info msg="[hostagent] The optional requirement 1 of 1 is satisfied"
+time="2026-10-24T21:37:49+02:00" level=info msg="[hostagent] Waiting for the guest agent to be running"
+time="2026-10-24T21:37:49+02:00" level=info msg="[hostagent] Waiting for the final requirement 1 of 1: `boot scripts must have finished`"
+time="2026-10-24T21:37:50+02:00" level=info msg="[hostagent] Forwarding TCP from [::]:7443 to 127.0.0.1:7443"
+time="2026-10-24T21:37:51+02:00" level=info msg="[hostagent] Time sync: guest clock adjusted (was 179ms off)"
+time="2026-10-24T21:37:52+02:00" level=info msg="[hostagent] The final requirement 1 of 1 is satisfied"
+time="2026-10-24T21:37:52+02:00" level=info msg="READY. Run `limactl shell dbcm-lab-m1` to open the shell."
+time="2026-10-24T21:37:52+02:00" level=info msg="Message from the instance `dbcm-lab-m1`:"
+To run `docker` on the host (assumes docker-cli is installed), run the following commands:
+------
+docker context create lima-dbcm-lab-m1 --docker "host=unix://~/.lima/dbcm-lab-m1/sock/docker.sock"
+docker context use lima-dbcm-lab-m1
+docker run hello-world
+------
+(exit 0)
+```
+
+19:37:52Z dbcm-lab-m1 started after 13 s
+19:37:52Z wait ok after 0s: dbcm-lab-m1 reachable over ssh
+### limactl start dbcm-lab-m2
+
+```
+$ limactl start dbcm-lab-m2
+time="2026-10-24T21:37:52+02:00" level=info msg="Using the existing instance `dbcm-lab-m2`"
+time="2026-10-24T21:37:52+02:00" level=info msg="Starting the instance `dbcm-lab-m2` with internal VM driver `vz`"
+time="2026-10-24T21:37:52+02:00" level=info msg="[hostagent] hostagent socket created at ~/.lima/dbcm-lab-m2/ha.sock"
+time="2026-10-24T21:37:52+02:00" level=info msg="[hostagent] Starting VZ (hint: to watch the boot progress, see `~/.lima/dbcm-lab-m2/serial*.log`)"
+time="2026-10-24T21:37:53+02:00" level=info msg="[hostagent] [VZ] - vm state change: running"
+time="2026-10-24T21:37:57+02:00" level=info msg="[hostagent] Started vsock forwarder: 127.0.0.1:50965 -> vsock:22 on VM"
+time="2026-10-24T21:37:57+02:00" level=info msg="[hostagent] Detected SSH server is listening on the vsock port; changed 127.0.0.1:50965 to proxy for the vsock port"
+time="2026-10-24T21:37:58+02:00" level=info msg="SSH Local Port: 50965"
+time="2026-10-24T21:37:58+02:00" level=info msg="[hostagent] Waiting for the essential requirement 1 of 3: `ssh`"
+time="2026-10-24T21:37:58+02:00" level=info msg="[hostagent] The essential requirement 1 of 3 is satisfied"
+time="2026-10-24T21:37:58+02:00" level=info msg="[hostagent] Waiting for the essential requirement 2 of 3: `user session is ready for ssh`"
+time="2026-10-24T21:37:58+02:00" level=info msg="[hostagent] The essential requirement 2 of 3 is satisfied"
+time="2026-10-24T21:37:58+02:00" level=info msg="[hostagent] Waiting for the essential requirement 3 of 3: `Explicitly start ssh ControlMaster`"
+time="2026-10-24T21:37:58+02:00" level=info msg="[hostagent] The essential requirement 3 of 3 is satisfied"
+time="2026-10-24T21:37:58+02:00" level=info msg="[hostagent] Waiting for the optional requirement 1 of 1: `user probe 1/1`"
+time="2026-10-24T21:37:58+02:00" level=info msg="[hostagent] Forwarding `/run/user/501/docker.sock` (guest) to `~/.lima/dbcm-lab-m2/sock/docker.sock` (host)"
+time="2026-10-24T21:37:58+02:00" level=info msg="[hostagent] Guest agent is running"
+time="2026-10-24T21:37:58+02:00" level=info msg="[hostagent] Time sync: guest agent is alive, starting time synchronization"
+time="2026-10-24T21:37:58+02:00" level=info msg="[hostagent] Not forwarding TCP 0.0.0.0:22"
+time="2026-10-24T21:37:58+02:00" level=info msg="[hostagent] Not forwarding TCP 127.0.0.53:53"
+time="2026-10-24T21:37:58+02:00" level=info msg="[hostagent] Not forwarding TCP 127.0.0.54:53"
+time="2026-10-24T21:37:58+02:00" level=info msg="[hostagent] Not forwarding TCP [::]:22"
+time="2026-10-24T21:37:58+02:00" level=info msg="[hostagent] Forwarding TCP from [::]:7946 to 127.0.0.1:7946"
+time="2026-10-24T21:37:58+02:00" level=info msg="[hostagent] Forwarding UDP from 127.0.0.1:323 to 127.0.0.1:323"
+time="2026-10-24T21:37:58+02:00" level=warning msg="[hostagent] failed to listen tcp: 127.0.0.1:7946" error="listen tcp 127.0.0.1:7946: bind: address already in use"
+time="2026-10-24T21:37:58+02:00" level=warning msg="[hostagent] failed to listen tcp: 127.0.0.1:7946" error="listen tcp 127.0.0.1:7946: bind: address already in use"
+time="2026-10-24T21:37:58+02:00" level=info msg="[hostagent] Not forwarding UDP 0.0.0.0:323"
+time="2026-10-24T21:37:58+02:00" level=info msg="[hostagent] Forwarding UDP from 0.0.0.0:4789 to 127.0.0.1:4789"
+time="2026-10-24T21:37:59+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:323"
+time="2026-10-24T21:37:59+02:00" level=info msg="[hostagent] Forwarding UDP from 0.0.0.0:5353 to 127.0.0.1:5353"
+time="2026-10-24T21:37:59+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.54:53"
+time="2026-10-24T21:37:59+02:00" level=warning msg="[hostagent] failed to listen udp: 127.0.0.1:4789" error="listen udp 127.0.0.1:4789: bind: address already in use"
+time="2026-10-24T21:37:59+02:00" level=warning msg="[hostagent] failed to listen udp: 127.0.0.1:4789" error="listen udp 127.0.0.1:4789: bind: address already in use"
+time="2026-10-24T21:37:59+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.53:53"
+time="2026-10-24T21:37:59+02:00" level=info msg="[hostagent] Not forwarding UDP 192.168.104.3:68"
+time="2026-10-24T21:37:59+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-24T21:37:59+02:00" level=info msg="[hostagent] Forwarding UDP from [::1]:323 to 127.0.0.1:323"
+time="2026-10-24T21:37:59+02:00" level=info msg="[hostagent] Forwarding UDP from [::]:5353 to 127.0.0.1:5353"
+time="2026-10-24T21:37:59+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-24T21:37:59+02:00" level=info msg="[hostagent] Forwarding UDP from [::]:7946 to 127.0.0.1:7946"
+time="2026-10-24T21:37:59+02:00" level=info msg="[hostagent] Not forwarding UDP 0.0.0.0:323"
+time="2026-10-24T21:37:59+02:00" level=info msg="[hostagent] The optional requirement 1 of 1 is satisfied"
+time="2026-10-24T21:37:59+02:00" level=info msg="[hostagent] Waiting for the guest agent to be running"
+time="2026-10-24T21:37:59+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:323"
+time="2026-10-24T21:37:59+02:00" level=info msg="[hostagent] Waiting for the final requirement 1 of 1: `boot scripts must have finished`"
+time="2026-10-24T21:37:59+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-24T21:37:59+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-24T21:37:59+02:00" level=warning msg="[hostagent] failed to listen udp: 127.0.0.1:7946" error="listen udp 127.0.0.1:7946: bind: address already in use"
+time="2026-10-24T21:37:59+02:00" level=info msg="[hostagent] The final requirement 1 of 1 is satisfied"
+time="2026-10-24T21:37:59+02:00" level=warning msg="[hostagent] failed to listen udp: 127.0.0.1:7946" error="listen udp 127.0.0.1:7946: bind: address already in use"
+time="2026-10-24T21:37:59+02:00" level=info msg="READY. Run `limactl shell dbcm-lab-m2` to open the shell."
+time="2026-10-24T21:37:59+02:00" level=info msg="Message from the instance `dbcm-lab-m2`:"
+To run `docker` on the host (assumes docker-cli is installed), run the following commands:
+------
+docker context create lima-dbcm-lab-m2 --docker "host=unix://~/.lima/dbcm-lab-m2/sock/docker.sock"
+docker context use lima-dbcm-lab-m2
+docker run hello-world
+------
+(exit 0)
+```
+
+19:37:59Z dbcm-lab-m2 started after 7 s
+19:37:59Z wait ok after 0s: dbcm-lab-m2 reachable over ssh
+### limactl start dbcm-lab-m3
+
+```
+$ limactl start dbcm-lab-m3
+time="2026-10-24T21:37:59+02:00" level=info msg="Using the existing instance `dbcm-lab-m3`"
+time="2026-10-24T21:37:59+02:00" level=info msg="Starting the instance `dbcm-lab-m3` with internal VM driver `vz`"
+time="2026-10-24T21:37:59+02:00" level=info msg="[hostagent] hostagent socket created at ~/.lima/dbcm-lab-m3/ha.sock"
+time="2026-10-24T21:37:59+02:00" level=info msg="[hostagent] Starting VZ (hint: to watch the boot progress, see `~/.lima/dbcm-lab-m3/serial*.log`)"
+time="2026-10-24T21:37:59+02:00" level=info msg="[hostagent] [VZ] - vm state change: running"
+time="2026-10-24T21:38:04+02:00" level=info msg="[hostagent] Started vsock forwarder: 127.0.0.1:51001 -> vsock:22 on VM"
+time="2026-10-24T21:38:04+02:00" level=info msg="[hostagent] Detected SSH server is listening on the vsock port; changed 127.0.0.1:51001 to proxy for the vsock port"
+time="2026-10-24T21:38:04+02:00" level=info msg="SSH Local Port: 51001"
+time="2026-10-24T21:38:04+02:00" level=info msg="[hostagent] Waiting for the essential requirement 1 of 3: `ssh`"
+time="2026-10-24T21:38:05+02:00" level=info msg="[hostagent] The essential requirement 1 of 3 is satisfied"
+time="2026-10-24T21:38:05+02:00" level=info msg="[hostagent] Waiting for the essential requirement 2 of 3: `user session is ready for ssh`"
+time="2026-10-24T21:38:05+02:00" level=info msg="[hostagent] The essential requirement 2 of 3 is satisfied"
+time="2026-10-24T21:38:05+02:00" level=info msg="[hostagent] Waiting for the essential requirement 3 of 3: `Explicitly start ssh ControlMaster`"
+time="2026-10-24T21:38:05+02:00" level=info msg="[hostagent] The essential requirement 3 of 3 is satisfied"
+time="2026-10-24T21:38:05+02:00" level=info msg="[hostagent] Waiting for the optional requirement 1 of 1: `user probe 1/1`"
+time="2026-10-24T21:38:05+02:00" level=info msg="[hostagent] Forwarding `/run/user/501/docker.sock` (guest) to `~/.lima/dbcm-lab-m3/sock/docker.sock` (host)"
+time="2026-10-24T21:38:05+02:00" level=info msg="[hostagent] Guest agent is running"
+time="2026-10-24T21:38:05+02:00" level=info msg="[hostagent] Time sync: guest agent is alive, starting time synchronization"
+time="2026-10-24T21:38:05+02:00" level=info msg="[hostagent] Not forwarding TCP 0.0.0.0:22"
+time="2026-10-24T21:38:05+02:00" level=info msg="[hostagent] Not forwarding TCP 127.0.0.54:53"
+time="2026-10-24T21:38:05+02:00" level=info msg="[hostagent] Not forwarding TCP 127.0.0.53:53"
+time="2026-10-24T21:38:05+02:00" level=info msg="[hostagent] Forwarding TCP from [::]:7946 to 127.0.0.1:7946"
+time="2026-10-24T21:38:05+02:00" level=info msg="[hostagent] Not forwarding TCP [::]:22"
+time="2026-10-24T21:38:05+02:00" level=warning msg="[hostagent] failed to listen tcp: 127.0.0.1:7946" error="listen tcp 127.0.0.1:7946: bind: address already in use"
+time="2026-10-24T21:38:05+02:00" level=warning msg="[hostagent] failed to listen tcp: 127.0.0.1:7946" error="listen tcp 127.0.0.1:7946: bind: address already in use"
+time="2026-10-24T21:38:05+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.54:53"
+time="2026-10-24T21:38:05+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.53:53"
+time="2026-10-24T21:38:05+02:00" level=info msg="[hostagent] Not forwarding UDP 192.168.104.4:68"
+time="2026-10-24T21:38:05+02:00" level=info msg="[hostagent] Forwarding UDP from 127.0.0.1:323 to 127.0.0.1:323"
+time="2026-10-24T21:38:05+02:00" level=info msg="[hostagent] Forwarding UDP from 0.0.0.0:4789 to 127.0.0.1:4789"
+time="2026-10-24T21:38:05+02:00" level=info msg="[hostagent] Not forwarding UDP 0.0.0.0:323"
+time="2026-10-24T21:38:05+02:00" level=info msg="[hostagent] Forwarding UDP from 0.0.0.0:5353 to 127.0.0.1:5353"
+time="2026-10-24T21:38:05+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:323"
+time="2026-10-24T21:38:05+02:00" level=warning msg="[hostagent] failed to listen udp: 127.0.0.1:4789" error="listen udp 127.0.0.1:4789: bind: address already in use"
+time="2026-10-24T21:38:05+02:00" level=warning msg="[hostagent] failed to listen udp: 127.0.0.1:4789" error="listen udp 127.0.0.1:4789: bind: address already in use"
+time="2026-10-24T21:38:05+02:00" level=info msg="[hostagent] Forwarding UDP from [::]:7946 to 127.0.0.1:7946"
+time="2026-10-24T21:38:05+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-24T21:38:05+02:00" level=info msg="[hostagent] Forwarding UDP from [::1]:323 to 127.0.0.1:323"
+time="2026-10-24T21:38:05+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-24T21:38:05+02:00" level=info msg="[hostagent] Forwarding UDP from [::]:5353 to 127.0.0.1:5353"
+time="2026-10-24T21:38:05+02:00" level=warning msg="[hostagent] failed to listen udp: 127.0.0.1:7946" error="listen udp 127.0.0.1:7946: bind: address already in use"
+time="2026-10-24T21:38:05+02:00" level=warning msg="[hostagent] failed to listen udp: 127.0.0.1:7946" error="listen udp 127.0.0.1:7946: bind: address already in use"
+time="2026-10-24T21:38:05+02:00" level=info msg="[hostagent] The optional requirement 1 of 1 is satisfied"
+time="2026-10-24T21:38:05+02:00" level=info msg="[hostagent] Not forwarding UDP 0.0.0.0:323"
+time="2026-10-24T21:38:05+02:00" level=info msg="[hostagent] Waiting for the guest agent to be running"
+time="2026-10-24T21:38:05+02:00" level=info msg="[hostagent] Waiting for the final requirement 1 of 1: `boot scripts must have finished`"
+time="2026-10-24T21:38:05+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:323"
+time="2026-10-24T21:38:05+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-24T21:38:05+02:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-24T21:38:06+02:00" level=info msg="[hostagent] The final requirement 1 of 1 is satisfied"
+time="2026-10-24T21:38:06+02:00" level=info msg="READY. Run `limactl shell dbcm-lab-m3` to open the shell."
+time="2026-10-24T21:38:06+02:00" level=info msg="Message from the instance `dbcm-lab-m3`:"
+To run `docker` on the host (assumes docker-cli is installed), run the following commands:
+------
+docker context create lima-dbcm-lab-m3 --docker "host=unix://~/.lima/dbcm-lab-m3/sock/docker.sock"
+docker context use lima-dbcm-lab-m3
+docker run hello-world
+------
+(exit 0)
+```
+
+19:38:06Z dbcm-lab-m3 started after 7 s
+19:38:06Z wait ok after 0s: dbcm-lab-m3 reachable over ssh
+19:38:06Z all three VMs reachable 27 s after the first limactl start
+19:38:06Z resources: gate B2: VMs booted, Swarm and database services starting
+### resources: gate B2: VMs booted, Swarm and database services starting
+
+```
+2026-10-24T19:38:06Z
+host: { 43.65 41.85 39.40 }
+CPU usage: 31.55% user, 14.9% sys, 54.35% idle 
+host free disk (/System/Volumes/Data): 30Gi of 926Gi
+VM allocation: dbcm-lab-m1 Running cpus=2 mem=4294967296;dbcm-lab-m2 Running cpus=2 mem=4294967296;dbcm-lab-m3 Running cpus=2 mem=4294967296;
+VM disk files (du, MiB): dbcm-lab-m1=4326 dbcm-lab-m2=3793 dbcm-lab-m3=3788 
+== lima-dbcm-lab-m1: loadavg 0.23 0.06 0.02, mem used 674 MiB of 3896 MiB
+dbcm-agent-e4lab.zp8ih08ej9gz60wukvc6czba6.nwa8ezxu0w06df8r9aonuxkv9 cpu=0.00% mem=18.2MiB / 3.806GiB
+dbcm-e4db-n3.1.z18pi61fzmz9xw3dm2kj51vm7 cpu=0.06% mem=209MiB / 1GiB
+== lima-dbcm-lab-m2: loadavg 0.75 0.18 0.06, mem used 722 MiB of 3896 MiB
+dbcm-agent-e4lab.j99zpnm3gt803ekn2m3taan37.gexg82gfzbdpsyuomtasizb1n cpu=0.00% mem=18.29MiB / 3.806GiB
+dbcm-e4db-n1.1.h0319injk2t3o47v96xza5uwv cpu=0.25% mem=88.59MiB / 1GiB
+== lima-dbcm-lab-m3: loadavg 0.22 0.05 0.02, mem used 738 MiB of 3896 MiB
+dbcm-agent-e4lab.uk776geuoew2o4xqn0xi9gnu8.qpqqibfh0t2p2dqnevipotcrl cpu=0.00% mem=18.31MiB / 3.806GiB
+```
+
+### ground truth after the power loss: grastate.dat per node
+
+```
+$ e6_grastate
+== n1 on dbcm-lab-m2
+# GALERA saved state
+version: 2.1
+uuid:    00000000-0000-0000-0000-000000000000
+seqno:   -1
+safe_to_bootstrap: 0
+-rw-rw---- 1 999 systemd-journal 265 Oct 24 21:38 /var/lib/dbcm/volumes/dbcm-e4db-n1-5badfc33/data/gvwstate.dat
+== n2 on dbcm-lab-m3
+# GALERA saved state
+version: 2.1
+uuid:    00000000-0000-0000-0000-000000000000
+seqno:   -1
+safe_to_bootstrap: 0
+-rw-rw---- 1 999 systemd-journal 265 Oct 24 21:38 /var/lib/dbcm/volumes/dbcm-e4db-n2-b9a31fbb/data/gvwstate.dat
+== n3 on dbcm-lab-m1
+# GALERA saved state
+version: 2.1
+uuid:    00000000-0000-0000-0000-000000000000
+seqno:   -1
+safe_to_bootstrap: 0
+-rw-rw---- 1 999 systemd-journal 265 Oct 24 21:38 /var/lib/dbcm/volumes/dbcm-e4db-n3-2c9af2e4/data/gvwstate.dat
+(exit 0)
+```
+
+### Swarm after the boot
+
+```
+$ vm_docker dbcm-lab-m1 node ls
+ID                            HOSTNAME           STATUS    AVAILABILITY   MANAGER STATUS   ENGINE VERSION
+zp8ih08ej9gz60wukvc6czba6 *   lima-dbcm-lab-m1   Ready     Active         Leader           29.9.2
+j99zpnm3gt803ekn2m3taan37     lima-dbcm-lab-m2   Ready     Active                          29.9.2
+uk776geuoew2o4xqn0xi9gnu8     lima-dbcm-lab-m3   Ready     Active                          29.9.2
+(exit 0)
+```
+
+### manager unit after the boot (lab: transient systemd unit, not a product service)
+
+```
+$ vm_sh dbcm-lab-m1 systemctl is-active dbcm-e4-manager || true
+inactive
+(exit 0)
+```
+
+### restart the lab manager unit (same config and data directory)
+
+```
+$ vm_args dbcm-lab-m1 sudo systemd-run --unit "$1" -p Restart=no --collect /usr/local/bin/dbcm-e4-manager -listen "127.0.0.1:$2" -config /etc/dbcm-e4/manager.json dbcm-e4-manager 18480
+Running as unit: dbcm-e4-manager.service; invocation ID: ee9bbcd3b8404624a6a0859551a730b7
+(exit 0)
+```
+
+19:38:15Z wait ok after 2s: manager health
+19:38:15Z wait ok after 0s: manager leads (API not 503)
+19:38:31Z t+15s running db tasks: 3; cluster: {"state":"degraded","nodes":["n1 healthy","n2 unavailable","n3 degraded"]}
+19:38:46Z t+30s running db tasks: 3; cluster: {"state":"degraded","nodes":["n1 healthy","n2 unavailable","n3 degraded"]}
+19:39:01Z t+45s running db tasks: 2; cluster: {"state":"degraded","nodes":["n1 healthy","n2 unavailable","n3 healthy"]}
+19:39:16Z t+60s running db tasks: 3; cluster: {"state":"degraded","nodes":["n1 healthy","n2 unavailable","n3 degraded"]}
+19:39:32Z t+75s running db tasks: 3; cluster: {"state":"degraded","nodes":["n1 healthy","n2 unavailable","n3 healthy"]}
+19:39:48Z t+90s running db tasks: 3; cluster: {"state":"degraded","nodes":["n1 healthy","n2 unavailable","n3 healthy"]}
+19:40:03Z t+105s running db tasks: 3; cluster: {"state":"degraded","nodes":["n1 healthy","n2 unavailable","n3 healthy"]}
+19:40:18Z t+120s running db tasks: 2; cluster: {"state":"degraded","nodes":["n1 healthy","n2 unavailable","n3 healthy"]}
+19:40:33Z t+135s running db tasks: 3; cluster: {"state":"degraded","nodes":["n1 healthy","n2 unavailable","n3 degraded"]}
+19:40:49Z t+150s running db tasks: 2; cluster: {"state":"degraded","nodes":["n1 healthy","n2 unavailable","n3 healthy"]}
+### any node Primary after 150 s?
+
+```
+$ e8_primary_any
+n1: wsrep_cluster_size 2 wsrep_cluster_status Primary 
+19:40:49Z FATAL: refusing to address non-lab VM ''
+n3: wsrep_cluster_size 2 wsrep_cluster_status Primary 
+(exit 0)
+```
+
+### service specs before the observation window
+
+```
+$ printf %s\n dbcm-e4db-n1 replicas=1 version=79 bootstrap=
+dbcm-e4db-n2 replicas=1 version=52 bootstrap=
+dbcm-e4db-n3 replicas=1 version=60 bootstrap=
+dbcm-e4db-n1 replicas=1 version=79 bootstrap=
+dbcm-e4db-n2 replicas=1 version=52 bootstrap=
+dbcm-e4db-n3 replicas=1 version=60 bootstrap=
+(exit 0)
+```
+
+### service specs after the observation window
+
+```
+$ printf %s\n dbcm-e4db-n1 replicas=1 version=79 bootstrap=
+dbcm-e4db-n2 replicas=1 version=52 bootstrap=
+dbcm-e4db-n3 replicas=1 version=60 bootstrap=
+dbcm-e4db-n1 replicas=1 version=79 bootstrap=
+dbcm-e4db-n2 replicas=1 version=52 bootstrap=
+dbcm-e4db-n3 replicas=1 version=60 bootstrap=
+(exit 0)
+```
+
+**Result:** B2 hands off: no service spec changed and no bootstrap flag appeared in 150 s after the power loss
+
+19:40:50Z RESULT: B2 hands off: no service spec changed and no bootstrap flag appeared in 150 s after the power loss
+### database task history (restart loop?)
+
+```
+$ vm_docker dbcm-lab-m1 service ps --format {{.Name}} {{.Node}} {{.DesiredState}} {{.CurrentState}} {{.Error}} dbcm-e4db-n1 dbcm-e4db-n2 dbcm-e4db-n3
+dbcm-e4db-n1.1 lima-dbcm-lab-m2 Running Running 2 minutes ago 
+dbcm-e4db-n1.1 lima-dbcm-lab-m2 Shutdown Failed 2 minutes ago "task: non-zero exit (255)"
+dbcm-e4db-n1.1 lima-dbcm-lab-m2 Shutdown Failed 6 minutes ago "task: non-zero exit (255)"
+dbcm-e4db-n1.1 lima-dbcm-lab-m2 Shutdown Shutdown 12 minutes ago 
+dbcm-e4db-n2.1 lima-dbcm-lab-m3 Running Starting less than a second ago 
+dbcm-e4db-n2.1 lima-dbcm-lab-m3 Shutdown Failed 5 seconds ago "task: non-zero exit (1)"
+dbcm-e4db-n2.1 lima-dbcm-lab-m3 Shutdown Failed 32 seconds ago "task: non-zero exit (1)"
+dbcm-e4db-n2.1 lima-dbcm-lab-m3 Shutdown Failed 55 seconds ago "task: non-zero exit (1)"
+dbcm-e4db-n2.1 lima-dbcm-lab-m3 Shutdown Failed about a minute ago "task: non-zero exit (1)"
+dbcm-e4db-n3.1 lima-dbcm-lab-m1 Running Running 2 minutes ago 
+dbcm-e4db-n3.1 lima-dbcm-lab-m1 Shutdown Failed 3 minutes ago "task: non-zero exit (255)"
+(exit 0)
+```
+
+### ground truth again: grastate.dat per node
+
+```
+$ e6_grastate
+== n1 on dbcm-lab-m2
+# GALERA saved state
+version: 2.1
+uuid:    00000000-0000-0000-0000-000000000000
+seqno:   -1
+safe_to_bootstrap: 0
+-rw-rw---- 1 999 systemd-journal 218 Oct 24 21:40 /var/lib/dbcm/volumes/dbcm-e4db-n1-5badfc33/data/gvwstate.dat
+== n2 on dbcm-lab-m3
+# GALERA saved state
+version: 2.1
+uuid:    00000000-0000-0000-0000-000000000000
+seqno:   -1
+safe_to_bootstrap: 0
+no gvwstate.dat
+== n3 on dbcm-lab-m1
+# GALERA saved state
+version: 2.1
+uuid:    00000000-0000-0000-0000-000000000000
+seqno:   -1
+safe_to_bootstrap: 0
+-rw-rw---- 1 999 systemd-journal 218 Oct 24 21:40 /var/lib/dbcm/volumes/dbcm-e4db-n3-2c9af2e4/data/gvwstate.dat
+(exit 0)
+```
+
+### cluster via API
+
+```
+$ api GET /api/v1/clusters/clu-20ed55397be71892
+HTTP 200
+{"id":"clu-20ed55397be71892","swarm":"swarm-65a4e88803ff6a56","name":"e4db","engine":"mariadb-galera","state":"degraded","nodes":[{"id":"n1","host":"j99zpnm3gt803ekn2m3taan37","state":"healthy","role":"synced","observedAt":"2026-10-24T21:40:45.630481708+02:00"},{"id":"n2","host":"uk776geuoew2o4xqn0xi9gnu8","state":"unavailable","role":"unknown","observedAt":"2026-10-24T21:40:45.629285625+02:00"},{"id":"n3","host":"zp8ih08ej9gz60wukvc6czba6","state":"healthy","role":"synced","observedAt":"2026-10-24T21:40:45.6299275+02:00"}],"observedAt":"2026-10-24T21:40:45.630481708+02:00","endpoints":[{"name":"n1","host":"dbcm-e4db-n1","port":3306},{"name":"n2","host":"dbcm-e4db-n2","port":3306},{"name":"n3","host":"dbcm-e4db-n3","port":3306}],"automationPolicy":"manual"}
+(exit 0)
+```
+
+### events
+
+```
+$ e6_events
+{"severity":"info","message":"cluster e4db matches its Swarm services again"}
+{"severity":"info","message":"operation op-ce307475bb4c470c (galera/create-cluster) succeeded"}
+{"severity":"info","message":"node n1 of cluster e4db is healthy again"}
+{"severity":"info","message":"node n3 of cluster e4db is healthy again"}
+{"severity":"warning","message":"node n1 of cluster e4db became unknown: no answer from agent: agent answered refused/invalid-path: lstat /var/lib/dbcm/volumes/dbcm-e4db-n1-5badfc33/run/mysqld.sock: no such file or directory"}
+{"severity":"info","message":"node n2 of cluster e4db is healthy again"}
+{"severity":"info","message":"node n1 of cluster e4db is healthy again"}
+{"severity":"info","message":"admin requested cluster e4db (3 nodes), operation op-ce307475bb4c470c"}
+{"severity":"info","message":"admin deployed agents: service xgkzgn77irbsatamvd2oh1hk4, 3 enrolled, 0 revoked, 0 failed"}
+{"severity":"info","message":"manager manager-1 leads term 2; 0 unfinished operation(s) taken over"}
+(exit 0)
+```
+
+### operations (no recovery operation may exist)
+
+```
+$ e6_ops
+{"id":"op-ce307475bb4c470c","kind":"galera/create-cluster","state":"succeeded","reason":"all steps succeeded"}
+(exit 0)
+```
+
+### outage diagnosis (GET, read-only; 409 is the expected refusal while a node is Primary)
+
+```
+$ api GET /api/v1/clusters/clu-20ed55397be71892/outage-diagnosis
+HTTP 409
+{"error":"conflict"}
+(exit 3)
+```
+
+### diagnosis with position recovery (POST)
+
+```
+$ api POST /api/v1/clusters/clu-20ed55397be71892/outage-diagnosis {}
+HTTP 409
+{"error":"conflict"}
+(exit 3)
+```
+
+19:40:52Z no candidate yet; operator step: scale the crash-looping services to 0 (the manager has no stop command), then retry the position recovery
+### operator: scale all three to 0
+
+```
+$ vm_docker dbcm-lab-m1 service scale -d dbcm-e4db-n1=0 dbcm-e4db-n2=0 dbcm-e4db-n3=0
+dbcm-e4db-n1 scaled to 0
+dbcm-e4db-n2 scaled to 0
+dbcm-e4db-n3 scaled to 0
+(exit 0)
+```
+
+19:41:57Z wait ok after 65s: no database task running
+### diagnosis with position recovery (POST) after the operator stopped the services
+
+```
+$ api POST /api/v1/clusters/clu-20ed55397be71892/outage-diagnosis {}
+HTTP 200
+{"positions":[{"slot":"n1","uuid":"00000000-0000-0000-0000-000000000000","seqno":-1,"source":"unknown","safe_to_bootstrap":false,"empty":true},{"slot":"n2","uuid":"00000000-0000-0000-0000-000000000000","seqno":-1,"source":"unknown","safe_to_bootstrap":false,"empty":true},{"slot":"n3","uuid":"00000000-0000-0000-0000-000000000000","seqno":-1,"source":"unknown","safe_to_bootstrap":false,"empty":true}],"reasons":["no candidate: positions known for 0 of 3 nodes, need 2; collect grastate.dat and wsrep-recover results first"],"risks":[{"kind":"no-data","slot":"n1","detail":"zero cluster UUID: the node holds no Galera state"},{"kind":"no-data","slot":"n2","detail":"zero cluster UUID: the node holds no Galera state"},{"kind":"no-data","slot":"n3","detail":"zero cluster UUID: the node holds no Galera state"}],"requires_approval":true}
+(exit 0)
+```
+
+19:41:57Z diagnosis candidate: none
+**Result:** B2: no candidate after the power loss even with recovered positions
+
+19:41:57Z RESULT: B2: no candidate after the power loss even with recovered positions
+19:41:57Z phase e8allloss returned non-zero
+
+## Phase e8staggered (gate B3): staggered power loss, stale node must not win
+
+host uptime: 21:41  up 6 days,  5:40, 5 users, load averages: 60.37 43.86 40.59
+
+19:41:57Z host load: { 60.37 43.86 40.59 }
+### restore the three services (scale to 1)
+
+```
+$ vm_docker dbcm-lab-m1 service scale -d dbcm-e4db-n1=1 dbcm-e4db-n2=1 dbcm-e4db-n3=1
+dbcm-e4db-n1 scaled to 1
+dbcm-e4db-n2 scaled to 1
+dbcm-e4db-n3 scaled to 1
+(exit 0)
+```
+
+19:42:31Z FATAL: refusing to address non-lab VM ''
+19:42:33Z FATAL: refusing to address non-lab VM ''
+19:43:08Z FATAL: refusing to address non-lab VM ''
+19:43:11Z FATAL: refusing to address non-lab VM ''
+19:43:44Z FATAL: refusing to address non-lab VM ''
+19:43:46Z FATAL: refusing to address non-lab VM ''
+19:43:48Z FATAL: refusing to address non-lab VM ''
+19:44:21Z FATAL: refusing to address non-lab VM ''
+19:44:24Z FATAL: refusing to address non-lab VM ''
+19:44:26Z FATAL: refusing to address non-lab VM ''
+19:44:59Z FATAL: refusing to address non-lab VM ''
+19:45:01Z FATAL: refusing to address non-lab VM ''
+19:45:37Z FATAL: refusing to address non-lab VM ''
+19:45:39Z FATAL: refusing to address non-lab VM ''
+19:46:14Z FATAL: refusing to address non-lab VM ''
+19:46:17Z FATAL: refusing to address non-lab VM ''
+19:46:50Z FATAL: refusing to address non-lab VM ''
+19:46:52Z FATAL: refusing to address non-lab VM ''
+19:46:54Z FATAL: refusing to address non-lab VM ''
+19:47:28Z FATAL: refusing to address non-lab VM ''
+19:47:31Z FATAL: refusing to address non-lab VM ''
+19:48:07Z FATAL: refusing to address non-lab VM ''
+19:48:09Z FATAL: refusing to address non-lab VM ''
+19:48:44Z FATAL: refusing to address non-lab VM ''
+19:48:46Z FATAL: refusing to address non-lab VM ''
+19:48:48Z FATAL: refusing to address non-lab VM ''
+19:49:24Z FATAL: refusing to address non-lab VM ''
+19:49:26Z FATAL: refusing to address non-lab VM ''
+19:50:00Z FATAL: refusing to address non-lab VM ''
+19:50:02Z FATAL: refusing to address non-lab VM ''
+19:50:40Z FATAL: refusing to address non-lab VM ''
+19:50:43Z FATAL: refusing to address non-lab VM ''
+19:51:16Z FATAL: refusing to address non-lab VM ''
+19:51:18Z FATAL: refusing to address non-lab VM ''
+19:51:20Z FATAL: refusing to address non-lab VM ''
+19:51:55Z FATAL: refusing to address non-lab VM ''
+19:51:57Z FATAL: refusing to address non-lab VM ''
+19:51:57Z wait TIMEOUT after 600s: Galera cluster back to 3 synced nodes
+19:51:58Z FATAL: refusing to address non-lab VM ''
+19:51:58Z slot hosts: 1:dbcm-lab-m2 2:dbcm-lab-m3 3:dbcm-lab-m1
+### sentinel 5 before
+
+```
+$ e8_sentinel 1 5 before staggered loss
+(exit 1)
+```
+
+### sentinels on every node
+
+```
+$ e8_sentinels_all 1,2,3,5
+n1 sentinel ids: unreachable (expected 1,2,3,5)
+19:52:02Z FATAL: refusing to address non-lab VM ''
+n2 sentinel ids: unreachable (expected 1,2,3,5)
+n3 sentinel ids: unreachable (expected 1,2,3,5)
+(exit 1)
+```
+
+19:52:03Z resources: gate B3 before: cluster idle
+### resources: gate B3 before: cluster idle
+
+```
+2026-10-24T19:52:03Z
+host: { 185.15 133.54 86.07 }
+CPU usage: 62.25% user, 35.96% sys, 1.78% idle 
+host free disk (/System/Volumes/Data): 22Gi of 926Gi
+VM allocation: dbcm-lab-m1 Running cpus=2 mem=4294967296;dbcm-lab-m2 Running cpus=2 mem=4294967296;dbcm-lab-m3 Running cpus=2 mem=4294967296;
+VM disk files (du, MiB): dbcm-lab-m1=4334 dbcm-lab-m2=3796 dbcm-lab-m3=3752 
+== lima-dbcm-lab-m1: loadavg 0.16 0.33 0.18, mem used 764 MiB of 3896 MiB
+dbcm-e4db-n3.1.nmw0lv7xew2d2xdnmfg0amhm5 cpu=0.06% mem=18.62MiB / 1GiB
+dbcm-agent-e4lab.zp8ih08ej9gz60wukvc6czba6.nwa8ezxu0w06df8r9aonuxkv9 cpu=0.00% mem=18.22MiB / 3.806GiB
+== lima-dbcm-lab-m2: loadavg 0.91 0.49 0.22, mem used 788 MiB of 3896 MiB
+dbcm-e4db-n1.1.rjxjxox7svig57vvcyzkeqd5y cpu=0.07% mem=18.37MiB / 1GiB
+dbcm-agent-e4lab.j99zpnm3gt803ekn2m3taan37.gexg82gfzbdpsyuomtasizb1n cpu=0.00% mem=18.46MiB / 3.806GiB
+== lima-dbcm-lab-m3: loadavg 1.04 0.71 0.38, mem used 750 MiB of 3896 MiB
+dbcm-agent-e4lab.uk776geuoew2o4xqn0xi9gnu8.qpqqibfh0t2p2dqnevipotcrl cpu=0.00% mem=18.27MiB / 3.806GiB
+```
+
+### limactl stop --force dbcm-lab-m3 (power loss)
+
+```
+$ limactl stop --force dbcm-lab-m3
+time="2026-10-24T21:52:10+02:00" level=info msg="Sending SIGKILL to the vz driver process 15811"
+time="2026-10-24T21:52:10+02:00" level=info msg="Sending SIGKILL to the host agent process 15811"
+time="2026-10-24T21:52:10+02:00" level=info msg="Removing *.pid *.sock *.tmp under `~/.lima/dbcm-lab-m3`"
+time="2026-10-24T21:52:10+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m3/ha.pid`"
+time="2026-10-24T21:52:10+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m3/ha.sock`"
+time="2026-10-24T21:52:10+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m3/ssh.sock`"
+time="2026-10-24T21:52:10+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m3/vz.pid`"
+(exit 0)
+```
+
+### sentinel 6 written on n1 while n2 is already dead
+
+```
+$ e8_sentinel 1 6 only on the survivors
+ERROR 2002 (HY000): Can't connect to local server through socket '/dbcm/run/mysqld.sock' (2)
+(exit 1)
+```
+
+time="2026-10-24T21:52:30+02:00" level=info msg="Sending SIGKILL to the vz driver process 15447"
+time="2026-10-24T21:52:30+02:00" level=info msg="Sending SIGKILL to the host agent process 15447"
+time="2026-10-24T21:52:30+02:00" level=info msg="Removing *.pid *.sock *.tmp under `~/.lima/dbcm-lab-m1`"
+time="2026-10-24T21:52:30+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m1/ha.pid`"
+time="2026-10-24T21:52:30+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m1/ha.sock`"
+time="2026-10-24T21:52:30+02:00" level=info msg="Sending SIGKILL to the vz driver process 15622"
+time="2026-10-24T21:52:30+02:00" level=info msg="Sending SIGKILL to the host agent process 15622"
+time="2026-10-24T21:52:30+02:00" level=info msg="Removing *.pid *.sock *.tmp under `~/.lima/dbcm-lab-m2`"
+time="2026-10-24T21:52:30+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m2/ha.pid`"
+time="2026-10-24T21:52:30+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m2/ha.sock`"
+time="2026-10-24T21:52:30+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m1/ssh.sock`"
+time="2026-10-24T21:52:30+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m1/vz.pid`"
+time="2026-10-24T21:52:30+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m2/ssh.sock`"
+time="2026-10-24T21:52:30+02:00" level=info msg="Removing `~/.lima/dbcm-lab-m2/vz.pid`"
+19:52:31Z remaining VMs force-stopped: dbcm-lab-m1=Stopped dbcm-lab-m2=Stopped dbcm-lab-m3=Stopped 
+
+## Scoped cleanup
+
+### bin/lab cleanup -apply
+
+```
+$ <repo>/bin/lab cleanup -apply
+pre-snapshot:
+  colima:default
+  lima:dbcm-lab-m1
+  lima:dbcm-lab-m2
+  lima:dbcm-lab-m3
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+unrelated (must survive):
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+executing actions:
+  # stop Lima VM dbcm-lab-m1
+  limactl stop --force dbcm-lab-m1
+  # delete Lima VM dbcm-lab-m1
+  limactl delete --force dbcm-lab-m1
+  # stop Lima VM dbcm-lab-m2
+  limactl stop --force dbcm-lab-m2
+  # delete Lima VM dbcm-lab-m2
+  limactl delete --force dbcm-lab-m2
+  # stop Lima VM dbcm-lab-m3
+  limactl stop --force dbcm-lab-m3
+  # delete Lima VM dbcm-lab-m3
+  limactl delete --force dbcm-lab-m3
+post-snapshot diff:
+  added: (none)
+  removed: lima:dbcm-lab-m1, lima:dbcm-lab-m2, lima:dbcm-lab-m3
+unrelated resources intact (3)
+(exit 0)
+```
+
+### bin/lab status after cleanup
+
+```
+$ <repo>/bin/lab status
+host:
+  logical CPUs: 14
+  RAM: 48.0 GiB
+budget:
+  lab CPU limit: 7
+  lab RAM limit: 16.0 GiB
+  lab disk limit: 100.0 GiB
+manifest .lab/manifest.json:
+  (empty)
+inventory:
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+unrelated (never touched):
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+(exit 0)
+```
+
+### limactl list after cleanup
+
+```
+$ limactl list
+NAME                         STATUS     SSH                VMTYPE    ARCH       CPUS    MEMORY    DISK     DIR
+thermoctl-e2e-basestation    Stopped    127.0.0.1:55325    vz        aarch64    2       3GiB      8GiB     ~/.lima/thermoctl-e2e-basestation
+thermoctl-test-vm            Stopped    127.0.0.1:50429    vz        aarch64    4       4GiB      20GiB    ~/.lima/thermoctl-test-vm
+(exit 0)
+```
+
+### host free disk after cleanup
+
+```
+$ host_free_disk
+host free disk (/System/Volumes/Data): 25Gi of 926Gi
+(exit 0)
+```
+
+19:52:58Z E8 finished with exit 130
