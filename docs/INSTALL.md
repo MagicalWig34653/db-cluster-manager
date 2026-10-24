@@ -23,9 +23,9 @@ Without a configuration the image serves only the web UI, `GET /api/v1/health` a
 
 `cmd/metad` and `cmd/lab` are test harnesses and are not shipped. `cmd/proxy` exists and ran as a lab container in E5; the manager does not deploy it and no release artifact contains it.
 
-## Managed mode as a Swarm stack (single instance) [not run on a real Swarm]
+## Managed mode as a Swarm stack (single instance) [ran on a lab Swarm, E7]
 
-Steps for the first Swarm trial. Per project rules, use a dedicated test Swarm and an explicit Docker context until then; never a production daemon.
+Lab E7 ([results](../tests/p0/results/e7-stack-deploy.md)) ran exactly these steps on three arm64 lab VMs (Docker 29.9.2): image built from `deploy/Dockerfile`, `manager init` from the image, `docker stack deploy`, administrator setup, agent enrollment, Galera create through the API, container kill, forced update and drain of the pinned node. Steps for the first Swarm trial. Per project rules, use a dedicated test Swarm and an explicit Docker context until then; never a production daemon.
 
 1. **Images.** Build or pull the manager image and the job image and make both available on every node (registry, or `docker save | docker load` as in E4):
    `docker buildx build -f deploy/Dockerfile -t db-cluster-manager:local --build-arg VERSION=0.0.0-dev --load .`
@@ -60,7 +60,9 @@ What `deploy/stack.yaml` sets: one replica constrained to `node.role == manager`
 
 **Data volume.** The volume exists only on the pinned node. A task on another node would find an empty volume and start a **new, empty installation**; that is why the service is pinned. The image ships `/var/lib/dbcm` owned by uid 65532 so that a new volume is writable (Docker copies that ownership into a new named volume; not verified on the trial engine).
 
-**Untested stack options.** Whether the trial engine's `docker stack deploy` honours `cap_drop`, the interpolated `user` group, the external `host` network and the config `uid`/`gid`/`mode` has not been checked.
+**Stack options.** On Docker 29.9.2 (E7) `docker stack deploy` honoured `cap_drop`, the interpolated `user` group, the external `host` network and the config `uid`/`gid`/`mode`, and a new named volume was writable by uid 65532 (ownership copied from the image). Other engine versions are untested.
+
+**Behaviour observed in E7.** A killed manager container is replaced by Swarm in about 6 s and leads again about 8 s after the kill; sessions and clusters survive (data volume). `docker service update --force` is stop-first (about 14 s). Draining the pinned node leaves the manager `Pending` (no other node satisfies the constraint) and the API down until the node is `active` again; the agent and any database slots on that node leave too, so drain only a node whose clusters keep a majority, and expect about a minute until the manager leads again after reactivation. Replicas above 1 are not supported by this file.
 
 ### Single host with Docker Compose [not run]
 
