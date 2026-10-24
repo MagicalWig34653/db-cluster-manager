@@ -174,9 +174,13 @@ type OperationProgress struct {
 	// Waiting is the latest unmet precondition or retry reason of Step;
 	// Polls counts its precondition polls and retries; Since is the time of
 	// its latest timeline entry.
-	Waiting string    `json:"waiting,omitempty"`
-	Polls   int       `json:"polls,omitempty"`
-	Since   time.Time `json:"since,omitzero"`
+	Waiting string `json:"waiting,omitempty"`
+	// LastError is the latest failed or unanswered attempt of Step as the
+	// agent or the transport reported it, redacted (lab E4: a failing
+	// exec-sql showed only "idempotent step failed").
+	LastError string    `json:"lastError,omitempty"`
+	Polls     int       `json:"polls,omitempty"`
+	Since     time.Time `json:"since,omitzero"`
 	// UpdatedAt is when the leader stored this view.
 	UpdatedAt time.Time `json:"updatedAt,omitzero"`
 }

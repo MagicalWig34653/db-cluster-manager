@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/MagicalWig34653/db-cluster-manager/internal/agent"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/api"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/galera"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/opjournal"
@@ -261,6 +262,10 @@ func operationProgress(v runner.View, updated time.Time) *api.OperationProgress 
 			}
 		case runner.EventStart:
 			p.Waiting = ""
+		case runner.EventResult:
+			if !strings.HasPrefix(e.Detail, string(agent.StatusSucceeded)) {
+				p.LastError = runner.Redact(e.Detail)
+			}
 		}
 	}
 	return p

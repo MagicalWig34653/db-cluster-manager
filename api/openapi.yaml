@@ -1846,6 +1846,7 @@ components:
         state: { type: string, description: "Journal state of the step (pending, running, failed, unknown)" }
         attempts: { type: integer, minimum: 0 }
         waiting: { type: string, description: Latest unmet precondition or retry reason of the step }
+        lastError: { type: string, description: "Latest failed or unanswered attempt of the step as the agent or transport reported it (redacted)" }
         polls: { type: integer, minimum: 0, description: Precondition polls and retries of the step }
         since: { type: string, format: date-time, description: Time of the step's latest timeline entry }
         updatedAt: { type: string, format: date-time }

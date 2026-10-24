@@ -134,6 +134,30 @@ func TestOperationProgressFromView(t *testing.T) {
 	}
 }
 
+// TestOperationProgressShowsLastStepError: lab E4 failcreate showed only
+// "idempotent step failed; retry N" for a failing exec-sql. The progress
+// carries the latest failed answer of the current step, redacted.
+func TestOperationProgressShowsLastStepError(t *testing.T) {
+	at := time.Date(2026, 10, 24, 1, 0, 0, 0, time.UTC)
+	v := runner.View{Steps: []runner.StepView{
+		{ID: "05-exec-sql-n1", Target: "w1", Command: "exec-sql", State: opjournal.Failed, Attempts: 3},
+	}, Timeline: []runner.Event{
+		{At: at, Type: runner.EventStart, StepID: "05-exec-sql-n1"},
+		{At: at, Type: runner.EventResult, StepID: "05-exec-sql-n1", Detail: "failed (db-unavailable): connect password=hunter2 refused"},
+		{At: at, Type: runner.EventStart, StepID: "05-exec-sql-n1"},
+		{At: at, Type: runner.EventResult, StepID: "05-exec-sql-n1", Detail: "failed (db-not-running): database socket /v/run/mysqld.sock does not exist"},
+		{At: at, Type: runner.EventRetry, StepID: "05-exec-sql-n1", Detail: "dependency not running: ...; retry 2 after 2s"},
+	}}
+	p := operationProgress(v, at)
+	if p.LastError != "failed (db-not-running): database socket /v/run/mysqld.sock does not exist" {
+		t.Fatalf("last error %q", p.LastError)
+	}
+	v.Timeline = v.Timeline[:2]
+	if p := operationProgress(v, at); strings.Contains(p.LastError, "hunter2") || !strings.Contains(p.LastError, "db-unavailable") {
+		t.Fatalf("not redacted: %q", p.LastError)
+	}
+}
+
 func TestEventsNewestFirstAndBounded(t *testing.T) {
 	c := newCluster(t, 1, nil)
 	s := c.leader()

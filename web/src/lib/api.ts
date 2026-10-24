@@ -107,6 +107,8 @@ export interface OperationProgress {
 	attempts?: number;
 	/** Latest unmet precondition or retry reason of the step. */
 	waiting?: string;
+	/** Latest failed or unanswered attempt of the step (redacted). */
+	lastError?: string;
 	polls?: number;
 	since?: string;
 	updatedAt?: string;
@@ -286,6 +288,7 @@ export const isProgress = (v: unknown): v is OperationProgress =>
 	optStr(v.state) &&
 	(v.attempts === undefined || nonNegInt(v.attempts)) &&
 	optStr(v.waiting) &&
+	optStr(v.lastError) &&
 	(v.polls === undefined || nonNegInt(v.polls)) &&
 	optDate(v.since) &&
 	optDate(v.updatedAt);
