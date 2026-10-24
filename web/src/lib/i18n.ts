@@ -2,6 +2,7 @@ export const locales = ['en', 'de'] as const;
 export type Locale = (typeof locales)[number];
 
 const en = {
+ vulnAuditNoMatches: 'No matching audit records.',
  auditActor: 'Actor', auditEvent: 'Event', auditResult: 'Result',
  kubeTitle: "Kubernetes registrations",
  kubeIntro: "Experimental metadata only. Registration does not connect to or validate a cluster. Deployment, provisioning and recovery are unavailable.",
@@ -1143,6 +1144,7 @@ const en = {
 export type MessageKey = keyof typeof en;
 
 const de: Record<MessageKey, string> = {
+ vulnAuditNoMatches: 'Keine passenden Protokolleinträge.',
  auditActor: 'Akteur', auditEvent: 'Ereignis', auditResult: 'Ergebnis',
  kubeTitle: "Kubernetes-Registrierungen",
  kubeIntro: "Experimentelle Metadatenverwaltung. Die Registrierung verbindet sich nicht mit einem Cluster und validiert ihn nicht. Deployment, Provisionierung und Wiederherstellung sind nicht verfügbar.",

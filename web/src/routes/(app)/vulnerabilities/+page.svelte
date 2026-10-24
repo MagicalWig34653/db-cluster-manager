@@ -59,6 +59,7 @@
 
 <PageHeader title={t('vulnTitle')} intro={t('vulnIntro')}>
 	{#snippet actions()}
+		<Button variant="outline" href="/vulnerabilities/audit">{t('vulnAudit')}</Button>
 		<Button variant="outline" href="/vulnerabilities/settings">{t('vulnSettingsLink')}</Button>
 		<Button onclick={poll} disabled={polling}>{polling ? t('vulnPolling') : t('vulnPollNow')}</Button>
 	{/snippet}

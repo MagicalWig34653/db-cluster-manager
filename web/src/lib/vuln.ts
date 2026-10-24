@@ -363,3 +363,10 @@ export const toneText: Record<Tone, string> = {
 	ok: 'text-emerald-700 dark:text-emerald-400',
 	unknown: 'text-muted-foreground'
 };
+
+/** Newest committed audit sequence first; never mutate the loaded response. */
+export function auditRecords(records: import('./api').VulnAuditRecord[], query: string) {
+ const q = query.trim().toLowerCase();
+ return records.filter(r => [r.actor, r.event, r.result, r.detail, r.findingId, r.proposalId, r.provider, r.model, r.planDigest].some(v => v?.toLowerCase().includes(q)))
+  .sort((a, b) => b.seq - a.seq || b.id.localeCompare(a.id));
+}
