@@ -180,6 +180,7 @@ func (s *Service) becomeLeader(parent context.Context) error {
 
 	s.log.Info("manager: leadership started", "term", term, "adopted", len(adopted))
 	s.recordEvent("", "", api.SeverityInfo, fmt.Sprintf("manager %s leads term %d; %d unfinished operation(s) taken over", s.cfg.NodeID, term, len(adopted)))
+	s.reconcileGaleraSuccesses()
 	for _, id := range adopted {
 		if v, err := r.Snapshot(id); err == nil {
 			s.saveView(v)
@@ -265,6 +266,11 @@ func terminal(st runner.Status) bool {
 func (s *Service) saveView(v runner.View) error {
 	if v.ID == "" {
 		return nil
+	}
+	if v.Status == runner.StatusSucceeded {
+		if handled, err := s.saveGaleraSuccess(v); handled || err != nil {
+			return err
+		}
 	}
 	var ended bool
 	rec, _, err := Update(s.store, CollOperations, v.ID, func(cur OperationRecord, exists bool) (OperationRecord, error) {

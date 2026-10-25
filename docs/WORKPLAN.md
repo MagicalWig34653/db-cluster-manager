@@ -42,3 +42,30 @@ Next concrete action: import the local commits into a writable checkout, rerun t
 ## cx-configs handover (2026-10-24)
 
 Implemented the scoped W07/W09 config delivery step; contracts, safety rules, actual checks and limitations are recorded in [STATUS](STATUS.md#w07w09-config-delivery-2026-10-24-fakes-only). No infrastructure was created. Targeted race tests pass (including encoding and Galera/service drift contracts); full race suite fails on sandbox-denied listeners plus one manager abort timeout (isolated race rerun passed). Formatting, vet, documentation and static deployment checks pass; deployment checks lack PyYAML. Implementation and guides committed as `5521645` and `2ace890`; no push. Next concrete action: rerun the full race suite with local listeners available, investigate any recurring abort timeout, then test config lifecycle in the owned lab. This does not replace the W05 priorities above.
+
+## Galera operations handover (2026-10-24, cx-galera-ops)
+
+W05/W06 follow-up implemented with fakes only: approvable scale-out/in,
+rolling restart/maintenance and same-series patch upgrades, live quorum/Synced
+and identity gates, retained removed volumes, replicated digest approval and
+atomic desired-state completion across leader changes. Cluster operation-plan
+API, operate authorization/approval mapping, OpenAPI and route/schema contracts,
+refusal tests, actual agent executor with fake Docker, in-process Raft takeover
+and completed-journal reconciliation, ADR 0011 and DE/EN guides are included.
+Major/series upgrades remain refused pending product-level approval and a curated
+path; no frontend was changed. This supersedes earlier statements that no Galera
+scale/update planner exists; real rollout evidence remains missing.
+
+Actual checks: gofmt empty, vet passed, focused race tests in four packages
+passed, docs passed (71 Markdown files / 69 requirements), static deploy check
+passed. Full `go test -race -count=1 -p 4 ./...` **failed**: 24 packages passed,
+18 failed on sandbox-denied local listeners, 5 without tests. An earlier
+full-run abort timeout passed on focused rerun; new HA test timing was raised
+from the shared 50 ms prototype default to 300 ms after election churn, without
+changing production settings. See [full results and limitations](STATUS.md#galera-operation-plans-2026-10-24-cx-galera-ops-fakes-only).
+
+Git staging failed because the shared worktree Git metadata is not writable;
+no commits and no push. Next: small commits with metadata write access and a
+full race rerun with local listeners permitted. New feature lab evidence remains
+pending, requires the owned lab, and does not replace current W05/R1 release
+gates. This task used no real infrastructure.

@@ -62,3 +62,32 @@ Guided full-outage recovery became a command ([E5/E6 results](../../tests/p0/res
 | The approved plan runs to a healthy cluster | **Confirmed**: clean outage 40 s, crash 61 s from approval to `succeeded`; size 3, Synced, same state UUID, data present. |
 
 Limits: approving uses the restore permission of `POST /operations/{id}/approve`; the operation view shows `running` without a reason while it waits, and no step progress.
+
+## Galera operation plans (2026-10-24, fakes only)
+
+Scale-out/in, rolling restart and patch upgrade use the existing replicated
+operation and approval mechanism. `POST /clusters/{id}/operation-plan` persists
+both the executor definition and resulting Galera state, returns the runner
+SHA-256 digest and expert steps, and starts waiting for approval. Planning and
+approval require cluster `operate`; full-outage `recover` stays separate.
+Every command, including referenced-resource allow-list steps, waits for the
+same approval. Every stop and subsequent start has live component/quorum gates.
+Identity checks precede explicit starts; spec updates preserve zero replicas
+while stopped, respecting the agent's immutable replica-count check.
+
+Alternative: change a live service spec to force a restart. Rejected for this
+flow because the explicit stop/await-stopped path makes the surviving component
+and volume identity checks reviewable. Topology changes roll surviving seed
+addresses only after the component has converged. Removed volumes are retained.
+The result and terminal operation view commit in one CAS transaction. Startup
+also reconciles a fully successful journal left before that transaction; missing
+create-service outputs are re-queried with their original agent step ID under
+the current fencing term. In-process Raft tests cover adoption and resumption.
+
+Version policy is deliberately bounded: explicit immutable `x.y.z` images,
+increasing patch within one MariaDB series and repository. Major and series
+changes are refused with a product-approval message; approval of an ordinary
+operation is insufficient. This is not a curated cross-series compatibility
+matrix. Alternatives (arbitrary same-major rolling updates, automatic rollback)
+remain unsupported without release-path and on-disk compatibility evidence.
+No real MariaDB, Swarm or upgrade was used for this increment.

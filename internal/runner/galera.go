@@ -54,8 +54,8 @@ type GaleraBindings struct {
 	// network. Empty keeps each step on its node's host (a Swarm whose
 	// hosts are all managers).
 	ServiceHost string
-	// ApprovalID is the approval that full-outage recovery waits for
-	// (CondApproved); required for that plan kind, ignored otherwise.
+	// ApprovalID binds explicit recovery and cluster operation plans to
+	// CondApproved. Required whenever the plan contains an approval gate.
 	ApprovalID string
 }
 
@@ -67,15 +67,22 @@ const (
 	CondNoNodeRunning = string(galera.PreNoNodeRunning)
 )
 
-// FromGaleraPlan converts a create or replacement plan into an Operation.
+// FromGaleraPlan converts a Galera plan into a fenced Operation.
 // It is pure data conversion: wait-synced and verify-donor become gates
 // whose node-synced condition a Checker evaluates, retain-volume becomes a
 // gate without conditions (the old volume is deliberately left alone), and
 // the remaining steps become agent commands targeted at the step's host.
-// Full-outage recovery plans are refused: they need explicit approval and a
-// separate guided flow.
+// Recovery, scaling and rolling plans need an explicit approval binding and
+// must begin with an approval gate; recovery remains a separate guided flow.
 func FromGaleraPlan(p galera.Plan, b GaleraBindings) (Operation, error) {
 	switch p.Kind {
+	case galera.PlanScaleOut, galera.PlanScaleIn, galera.PlanRollingRestart, galera.PlanMinorUpgrade:
+		if b.ApprovalID == "" || !p.RequiresApproval {
+			return Operation{}, fmt.Errorf("%w: Galera operation needs approval", ErrInvalidOperation)
+		}
+		if len(p.Steps) == 0 || !slices.ContainsFunc(p.Steps[0].Preconditions, func(c galera.Precondition) bool { return c.Kind == galera.PreApproved }) {
+			return Operation{}, fmt.Errorf("%w: missing first approval gate", ErrInvalidOperation)
+		}
 	case galera.PlanCreateCluster, galera.PlanReplaceNode, galera.PlanHostMaintenance, galera.PlanHostMaintenanceEnd:
 	case galera.PlanFullOutageRecovery:
 		// Guided recovery (A06): only with an approval to wait for, and the

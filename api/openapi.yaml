@@ -921,6 +921,37 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
+  /clusters/{id}/operation-plan:
+    post:
+      operationId: planClusterOperation
+      summary: Store an approval-gated Galera scale, rolling restart or patch upgrade plan
+      description: >-
+        Needs cluster operate permission (also for approval), audited. Persists
+        the plan and digest; no agent command runs before digest approval via
+        POST /operations/{id}/approve. Abort before requesting another plan.
+        Fresh Synced evidence in one Primary component is required. Live gates
+        recheck every stop. Major or series upgrades return
+        major_upgrade_requires_product_approval; product approval and a curated
+        upgrade path are required. Host maintenance remains a separate flow.
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ClusterOperationInput' }
+      responses:
+        '202':
+          description: Stored plan waiting for approval
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClusterOperationPlan' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
   /clusters/{id}/nodes/{slot}/replace:
     post:
       summary: Replace a failed node
@@ -2202,6 +2233,38 @@ components:
             properties:
               pendingPasskeyEnrollment: { type: boolean, enum: [true] }
   schemas:
+    ClusterOperationInput:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          enum: [scale-out, scale-in, rolling-restart, minor-upgrade]
+        slot:
+          type: string
+          description: New unique slot for scale-out, existing slot for scale-in; forbidden for rolling operations
+        image:
+          type: string
+          description: Required for minor-upgrade only; immutable repository:x.y.z@sha256 digest, increasing patch within the same MariaDB series
+    ClusterOperationPlan:
+      type: object
+      required: [id, kind, approval, plan, agentSteps]
+      properties:
+        id: { type: string }
+        kind: { type: string }
+        approval:
+          $ref: '#/components/schemas/OperationApproval'
+        plan:
+          type: object
+          description: Ordered Galera steps, resulting cluster, nodes, desired specs and warnings
+          additionalProperties: true
+        agentSteps:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+
     KubernetesRegistration:
       type: object
       additionalProperties: false

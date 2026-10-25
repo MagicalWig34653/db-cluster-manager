@@ -283,6 +283,10 @@ func (s *server) coreEndpoints() []endpoint {
 			action: authz.ActionDelete, resolve: s.resolveCluster, hideUnreadable: true, handle: s.handleClusterDelete,
 		},
 		{
+			method: "POST", path: "/clusters/{id}/operation-plan", access: accessPermission,
+			action: authz.ActionOperate, resolve: s.resolveCluster, handle: s.handleClusterOperationPlan,
+		},
+		{
 			method: "POST", path: "/clusters/{id}/nodes/{slot}/replace", access: accessPermission,
 			action: authz.ActionOperate, resolve: s.resolveCluster, hideUnreadable: true, handle: s.handleNodeReplace,
 		},

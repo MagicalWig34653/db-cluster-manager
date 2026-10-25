@@ -391,3 +391,69 @@ and documentation as small commits in a session with Git metadata write access;
 rerun the complete race suite where local listeners are permitted. Any real
 Kubernetes work still needs the timing/distribution decision, durable ownership
 inventory, fencing/RBAC/credential review and a scoped, budgeted lab plan.
+
+## Galera operation plans (2026-10-24, cx-galera-ops, fakes only)
+
+Implemented approval-gated single-node scale-out/in, rolling restart/maintenance
+and same-series MariaDB patch upgrades in `internal/galera/operations.go`, using
+the existing runner, orchestrate conversion and agent commands. Planning refuses
+stale/unknown/degraded or inconsistent Primary evidence, maintenance hosts,
+missing capacity, duplicate identities/slots and removal below three nodes.
+Every stop checks the component live; stops await zero running tasks, preserve
+volume identity, update specs at zero replicas and start explicitly. Each node
+must rejoin Synced before the next stop. Scale changes converge survivor seed
+addresses; removed volumes are retained. No bootstrap, quorum override, automatic
+downgrade, host reboot or infrastructure contact was added.
+
+`POST /api/v1/clusters/{id}/operation-plan` persists a reviewable plan, exact
+runner definition digest and expert agent steps. Cluster `operate` is required
+both for planning and existing `/operations/{id}/approve`; all commands wait for
+approval, including referenced-resource allow-list steps. Concurrent plan requests
+use the cluster document CAS. Resulting state and completion commit atomically;
+takeover re-queries missing create results with their original agent step IDs.
+Startup also finalizes fully successful journals left before the state commit.
+OpenAPI, route/schema/authz contracts, ADR 0011 and DE/EN runbooks/limits updated.
+
+Version scope: source and target require explicit immutable `x.y.z` images;
+only increasing patch releases in the same MariaDB series/repository are
+implemented. Major **and series** changes are refused with
+`major_upgrade_requires_product_approval`; a curated cross-series upgrade path
+remains unimplemented. Ordinary operation approval cannot override this. No UI
+was changed and no frontend checks/build were required.
+
+Actual verification (Go commands used writable temporary `GOCACHE` and
+`GOMAXPROCS=4`, without changing production defaults):
+
+- `gofmt -l .`: exit 0, no output.
+- `go vet ./...`: exit 0, no output.
+- `go test -race -count=1 -p 4 ./...`: exit 1; **24 packages passed, 18 failed,
+  5 had no tests**. The final run's failures are denied sandbox TCP/Unix
+  listeners (`bind: operation not permitted`, including `httptest` panics).
+  It is not a passing full suite. An earlier full run also timed out in the
+  existing `TestAbortCreateWithExecSQLInFlight`; that test passed in the final
+  focused rerun. No unrelated production fix was made for that timeout.
+- Focused race run across `internal/galera`, `internal/runner`,
+  `internal/manager`, `internal/api`, selecting `TestOperationsSequence`,
+  `TestOperationsRefuse*`, `TestUpgradeRefusals`, `TestGaleraOperations*`,
+  `TestClusterOperation*`, route/schema contracts and the abort test: exit 0,
+  all four packages passed (1.150 s / 21.346 s / 13.001 s / 1.339 s).
+  This includes the actual agent executor with an in-memory Docker, all four
+  operation kinds resuming after in-process Raft leader changes, digest mismatch,
+  no-command-before-approval and completed-journal reconciliation. A new HA test
+  initially encountered election churn with the shared 50 ms prototype test
+  timeout; its own Raft timing was raised to 300 ms (production unchanged).
+- `python3 scripts/check_docs.py`: `Checked 71 Markdown files and 69 requirements; 0 errors.`
+- `python3 scripts/check_deploy.py`: `deploy checks passed (static only; no image was built)`.
+- `git diff --check`: exit 0. `git add` failed creating the shared worktree
+  `index.lock` (`Operation not permitted`); no commits or push were made.
+
+Limits: all new evidence is from fakes and local files. No real MariaDB,
+Swarm, image registry, upgrade/SST, proxy-drain timing or infrastructure was
+contacted. Failed/aborted operations can leave partial changes and retained
+volumes; abort is not rollback. These planners do not settle the product's
+supported-version/channel matrix or satisfy the R1 lab gates.
+
+Next action: commit the reviewed changes in small commits when shared Git
+metadata is writable, rerun the complete race suite with local listeners
+permitted, then obtain owned-lab evidence for these operation paths within the
+existing W05/R1 priorities. Do not run real infrastructure from this work package.
