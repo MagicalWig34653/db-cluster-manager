@@ -117,7 +117,15 @@ On the E4 lab (real manager, mTLS agents, 3-node MariaDB 11.4 Galera), final run
 - **E6, full outage:** clean shutdown (all `safe_to_bootstrap: 0`, equal seqno) and crash (all seqno -1). The read-only diagnosis was correct in both cases (tie at equal seqno; no candidate after the crash with "run --wsrep-recover"), and the manager changed nothing for 120 s. New: `POST /clusters/{id}/outage-diagnosis` recovers positions with `mariadbd --wsrep-recover` in one-off agent containers, and `POST /clusters/{id}/outage-recovery` runs the guided plan only after a digest-bound approval. Both recoveries succeeded (40 s and 61 s after approval) with data and cluster state UUID kept.
 - Fixed with tests: no executable recovery (F-E6-1), no position recovery (F-E6-2), the `--wsrep-recover` command line (F-E6-3), a crash recovery that silently started a new cluster history from `seqno: -1` (F-E6-4), explicit `skip_name_resolve` (F-E5-2).
 
-Still open after E5/E6 (the first two closed with fakes on 2026-10-23, see below): no event/notification for a full outage; recovery approval uses the restore permission; joiners always take SST; redundant proxies, VIP, proxy deployment by the manager, node TLS and proxy-to-node TLS; probe log noise; a VM power loss; amd64.
+Still open after E5/E6 (the first two closed with fakes on 2026-10-23, see below): no event/notification for a full outage; recovery approval uses the restore permission; joiners always take SST; proxy deployment by the manager, node TLS and proxy-to-node TLS; probe log noise; amd64. Redundant proxies/VIP and VM power loss: see E8 below.
+
+### E8 result (2026-10-24/25, lab VMs, arm64): redundant proxies with a VIP, VM power loss
+
+Run with `tests/p0/e8-proxy-redundancy-powerloss.sh` ([results](../tests/p0/results/e8-proxy-redundancy-powerloss.md)). Run 1 completed every phase; run 2 (B1-B3 only) hung after the B2 observation and was killed, so it is partial evidence.
+
+- **Gate A (two proxies on m2/m3, keepalived VIP, client-side failover list):** the VIP moved in 2-3 s; clients lost writes for 2.4-3.9 s when a proxy container was killed and 6.4-7.2 s when the holder VM was hard-stopped (dominated by Galera failure detection, same for VIP and failover-list clients). No acknowledged write was lost; a few writes were committed although the client saw a timeout. **Finding:** with `single-writer-stable` two independent proxies chose different writers (n2 and n3); only a common `prefer-node` gave one writer. Redundant proxies therefore need a coordinated writer choice, not yet implemented. `docker kill` does not trigger the Docker restart policy.
+- **Gate B (`limactl stop --force`):** one node VM: rejoined 21-60 s after the VM start, sentinels intact, no manager action. All three VMs (also staggered): the manager did nothing in 150 s (no bootstrap, no spec change, no operation); Galera restored the primary component by itself from `gvwstate.dat`, so the guided recovery was **not exercised** after a VM power loss (it is covered for container SIGKILL in E6). Open: in run 1 the third node did not rejoin within 600 s in B2 and B3 (repeated exit-1 task failures, cause not diagnosed), and the later diagnosis answered "no Galera state".
+- Resource measurements per gate are in the log and the results file. Limits: arm64 only, coarse VIP sampling (2-3 s), one environment (Lima user-v2).
 
 ### R1 backend gaps closed (2026-10-23, fakes and unit tests only)
 
@@ -373,7 +381,7 @@ CA provisioning, and a real closed-binlog/event parser before lab PITR work.
 
 ## Next action
 
-E4 re-run A4 and B2 passed (see above). Continue W05: redundant proxies/VIP evaluation, the three-replica manager as Swarm services (deny-list distribution still to exercise), a VM power-loss outage, and native amd64 evidence; re-run E4/E6 with the gap work (deletion, worker-host jobs, verification, outage notification, recover permission, maintenance, drift, logical backups and retention). The first working version must be validated locally before the user's Swarm trial; `deploy/stack.yaml` with a `manager init` configuration has now run on lab VMs (E7). Most R1 scope (cluster creation through the manager, backups, TLS, passkeys, UI flows, notifications, restore, packaging) is not started.
+E4 re-run A4 and B2 passed (see above). Continue W05: coordinated writer choice for redundant proxies, a re-run of the B2/B3 stuck-node case with slot logs, the three-replica manager as Swarm services (deny-list distribution still to exercise), and native amd64 evidence; re-run E4/E6 with the gap work (deletion, worker-host jobs, verification, outage notification, recover permission, maintenance, drift, logical backups and retention). The first working version must be validated locally before the user's Swarm trial; `deploy/stack.yaml` with a `manager init` configuration has now run on lab VMs (E7). Most R1 scope (cluster creation through the manager, backups, TLS, passkeys, UI flows, notifications, restore, packaging) is not started.
 
 ## Verification and limits
 

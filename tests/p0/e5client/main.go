@@ -11,6 +11,9 @@
 //	                [-mode persistent|per-connection] [-label L]
 //	e5client bench  -addr H:P -user U -password-file F [-n 300]
 //
+// -addr accepts a comma-separated list; with several addresses the client
+// tries them in order for every new connection (client-side failover, E8).
+//
 // load writes one row per tick into e5.load (node = @@hostname of the
 // serving node) and prints one line per state change (first success, error,
 // recovery, node change) plus a JSON summary: successes, errors, writes per
@@ -96,6 +99,12 @@ func (d *dbFlags) open() (*sql.DB, error) {
 	}
 	c := mysql.NewConfig()
 	c.User, c.Passwd, c.Net, c.Addr = d.user, strings.TrimSpace(string(pw)), "tcp", d.addr
+	if addrs := splitAddrs(d.addr); len(addrs) > 1 {
+		// Client-side failover (experiment E8): try the addresses in the
+		// order given, per connection attempt, like a multi-host client.
+		mysql.RegisterDialContext("failover", failoverDial(addrs, time.Second))
+		c.Net, c.Addr = "failover", addrs[0]
+	}
 	c.Timeout, c.ReadTimeout, c.WriteTimeout = d.timeout, d.timeout, d.timeout
 	if d.tlsMode != "off" {
 		pemBytes, err := os.ReadFile(d.tlsMode)
@@ -117,6 +126,34 @@ func (d *dbFlags) open() (*sql.DB, error) {
 		return nil, err
 	}
 	return sql.OpenDB(conn), nil
+}
+
+// splitAddrs splits a comma-separated address list.
+func splitAddrs(s string) []string {
+	var out []string
+	for _, a := range strings.Split(s, ",") {
+		if a = strings.TrimSpace(a); a != "" {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// failoverDial returns a dial function that tries the addresses in order
+// with a per-address timeout and returns the first connection that works.
+func failoverDial(addrs []string, per time.Duration) func(context.Context, string) (net.Conn, error) {
+	return func(ctx context.Context, _ string) (net.Conn, error) {
+		var errs []error
+		for _, a := range addrs {
+			d := net.Dialer{Timeout: per}
+			c, err := d.DialContext(ctx, "tcp", a)
+			if err == nil {
+				return c, nil
+			}
+			errs = append(errs, err)
+		}
+		return nil, errors.Join(errs...)
+	}
 }
 
 func gencert(args []string) error {
