@@ -725,7 +725,8 @@ Eight review findings have regression tests and local fixes. Generic container
 specs refuse credential-looking values in ordinary environment variables and
 command arguments before a plan or stored service record is built. CLI-login AI
 providers require explicit `manager.vuln.allowCLIProviders: true` (default false)
-at configuration validation, registration and runtime selection; guide 15 and
+at configuration validation, registration, runtime selection and direct provider
+opening; guide 15 and
 ADR 0015 warn about manager process rights and the stock stack's Docker socket.
 Concurrent registry attempts use separate random sealed-secret references, so a
 losing attempt removes only its own credential. Vulnerability approval writes a
@@ -745,14 +746,14 @@ recipient metadata before the keyring CAS. Only the externally held private
 recovery key can verify decryption; a fake-key regression test does so.
 
 Actual verification on this worktree (Go used a writable `GOCACHE` under
-`/private/tmp`): the nine focused regression tests passed both normally and
-with `go test -race -count=1 -p 4` across seven packages. `go vet ./...`
+`/private/tmp`): the 13 focused regression/configuration tests passed under
+`go test -race -count=1 -p 4` across eight packages. `go vet ./...`
 passed. `gofmt -l .` passed with no output after formatting two container files.
 `python3 scripts/check_docs.py` reported 73 Markdown files and 69
 requirements, 0 errors. `python3 scripts/check_deploy.py` passed its static
 checks; no image was built. The first formatting check listed two container
 files; they were formatted and the final check is clean. The full
-`go test -race -count=1 -p 4 ./...` **failed on both runs, including the final tree**: 18 packages failed on sandbox
+`go test -race -count=1 -p 4 ./...` **failed on three runs, including the final tree**: 18 packages failed on sandbox
 denial of TCP/Unix listeners, including existing `httptest` tests; 25 packages
 passed and five had no tests. This is not a passing full suite.
 

@@ -161,7 +161,7 @@ claim, config creation adoption after a crash, conservative validated AI usage
 with store-error handling, complete prompt string screening, and recovery-envelope
 verification before data-key rotation. [Actual behavior and check results](STATUS.md#review-fixes-2026-10-25-cx-review-fixes-fakes-only)
 are recorded in STATUS. No infrastructure was used. Focused new tests pass under
-`-race`; the required full race suite was run twice, including the final tree,
+`-race`; the required full race suite was run three times, including the final tree,
 and failed because the sandbox
 denies existing local listener tests (18 packages failed, 25 passed, five without
 tests). Vet, formatting, documentation and static deployment checks passed; the
