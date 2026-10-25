@@ -1,0 +1,160 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Three pinned manager services, one identity and local volume per Swarm
+# manager node. Static checks only: this layout has never run on Swarm.
+# ADR 0014: the local Docker socket is root-equivalent. Keep the exact
+# node pins, uid/socket group, read-only root and dropped capabilities.
+version: "3.9"
+x-manager-base: &manager-base
+  image: ${DBCM_IMAGE:-db-cluster-manager:local}
+  command: ["-listen", "127.0.0.1:${DBCM_PORT:-8080}"]
+  environment:
+    DCM_CONFIG: /etc/dbcm/manager.json
+  networks: [hostnet]
+  secrets:
+    - source: peer-ca
+      target: dbcm-peer-ca.pem
+      uid: "65532"
+      gid: "65532"
+      mode: 0400
+    - source: peer-ca-sealed
+      target: dbcm-peer-ca-sealed
+      uid: "65532"
+      gid: "65532"
+      mode: 0400
+    - source: peer-ca-unlock
+      target: dbcm-peer-ca-passphrase
+      uid: "65532"
+      gid: "65532"
+      mode: 0400
+  # For manager.backup, add a fourth secret here: source backend,
+  # target dbcm-backend.json, uid/gid 65532, mode 0400. Add its external
+  # declaration below. The shared list applies to all three services.
+  read_only: true
+  user: "65532:${DBCM_DOCKER_GID:?set DBCM_DOCKER_GID to the Docker socket group shared by all three nodes}"
+  cap_drop: [ALL]
+  healthcheck:
+    test: ["CMD", "/usr/local/bin/manager", "-healthcheck", "-listen", "127.0.0.1:${DBCM_PORT:-8080}"]
+    interval: 15s
+    timeout: 5s
+    start_period: 30s
+    retries: 3
+  stop_grace_period: 30s
+x-deploy-base: &deploy-base
+  mode: replicated
+  replicas: 1
+  update_config:
+    parallelism: 1
+    order: stop-first
+    failure_action: rollback
+    delay: 15s
+  rollback_config:
+    parallelism: 1
+    order: stop-first
+  restart_policy:
+    condition: any
+    delay: 5s
+    window: 60s
+  resources:
+    limits:
+      cpus: "1.0"
+      memory: 512M
+    reservations:
+      cpus: "0.1"
+      memory: 128M
+services:
+  manager-1:
+    <<: *manager-base
+    configs:
+      - source: manager-config-1
+        target: /etc/dbcm/manager.json
+        uid: "65532"
+        gid: "65532"
+        mode: 0440
+    volumes:
+      - manager-data-1:/var/lib/dbcm
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+      - type: tmpfs
+        target: /tmp
+    deploy:
+      <<: *deploy-base
+      placement:
+        constraints:
+          - node.role == manager
+          - node.hostname == ${DBCM_MANAGER_NODE_1:?set first manager hostname}
+  manager-2:
+    <<: *manager-base
+    configs:
+      - source: manager-config-2
+        target: /etc/dbcm/manager.json
+        uid: "65532"
+        gid: "65532"
+        mode: 0440
+    volumes:
+      - manager-data-2:/var/lib/dbcm
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+      - type: tmpfs
+        target: /tmp
+    deploy:
+      <<: *deploy-base
+      placement:
+        constraints:
+          - node.role == manager
+          - node.hostname == ${DBCM_MANAGER_NODE_2:?set second manager hostname}
+  manager-3:
+    <<: *manager-base
+    configs:
+      - source: manager-config-3
+        target: /etc/dbcm/manager.json
+        uid: "65532"
+        gid: "65532"
+        mode: 0440
+    volumes:
+      - manager-data-3:/var/lib/dbcm
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+      - type: tmpfs
+        target: /tmp
+    deploy:
+      <<: *deploy-base
+      placement:
+        constraints:
+          - node.role == manager
+          - node.hostname == ${DBCM_MANAGER_NODE_3:?set third manager hostname}
+networks:
+  hostnet:
+    external: true
+    name: host
+configs:
+  manager-config-1:
+    external: true
+    name: ${DBCM_CONFIG_NAME_1:?set first manager config name}
+  manager-config-2:
+    external: true
+    name: ${DBCM_CONFIG_NAME_2:?set second manager config name}
+  manager-config-3:
+    external: true
+    name: ${DBCM_CONFIG_NAME_3:?set third manager config name}
+secrets:
+  peer-ca:
+    external: true
+    name: ${DBCM_PEER_CA_NAME:?set peer CA secret name}
+  peer-ca-sealed:
+    external: true
+    name: ${DBCM_PEER_CA_SEALED_NAME:?set sealed peer CA secret name}
+  peer-ca-unlock:
+    external: true
+    name: ${DBCM_PEER_CA_PASSPHRASE_NAME:?set peer CA passphrase secret name}
+# Optional for manager.backup: add `backend` to the secrets map above as
+# external: true, name: ${DBCM_BACKEND_SECRET:?set backend secret name}.
+volumes:
+  manager-data-1:
+    driver: local
+  manager-data-2:
+    driver: local
+  manager-data-3:
+    driver: local

@@ -154,7 +154,7 @@ def text_structure(path: Path) -> str:
             err(f"{path.name}:{n}: odd indentation")
     if re.search(r":latest\b", text):
         err(f"{path.name}: ':latest' tag")
-    if re.search(r"(?mi)^\s*(password|secret|token|passphrase)\w*\s*:\s*\S+", text):
+    if re.search(r"(?mi)^[ \t]*(password|secret|token|passphrase)\w*[ \t]*:[ \t]*\S+", text):
         err(f"{path.name}: possible inline secret")
     if re.search(r"BEGIN [A-Z ]*PRIVATE KEY|dbcmrk1:", text):
         err(f"{path.name}: contains key material")
@@ -310,6 +310,56 @@ def check_stack(path: Path, cfg) -> None:
     check_manager_service(path, text, svc, cfg)
 
 
+def check_stack_ha(path: Path) -> None:
+    """Guard the three distinct pinned identities even without PyYAML."""
+    text = text_structure(path)
+    body = uncommented(text)
+    if "ADR 0014" not in text or "never run" not in text.lower():
+        err(f"{path.name}: missing socket warning and test status")
+    for required in ("replicas: 1", "order: stop-first", "name: host", "read_only: true",
+                     "cap_drop: [ALL]", "65532:${DBCM_DOCKER_GID:?", "/var/run/docker.sock",
+                     "dbcm-peer-ca-sealed", "dbcm-peer-ca-passphrase"):
+        if required not in body:
+            err(f"{path.name}: missing {required!r}")
+    if re.search(r"(?m)^\s*ports:", body):
+        err(f"{path.name}: no published ports")
+    for i in (1, 2, 3):
+        name = f"manager-{i}"
+        match = re.search(rf"(?ms)^  {name}:\n(.*?)(?=^  manager-[123]:|^networks:)", body)
+        if not match:
+            err(f"{path.name}: missing service {name}")
+            continue
+        svc = match.group(1)
+        for required in (f"source: manager-config-{i}", f"manager-data-{i}:/var/lib/dbcm",
+                         f"node.hostname == ${{DBCM_MANAGER_NODE_{i}:?", "node.role == manager",
+                         "<<: *manager-base", "<<: *deploy-base"):
+            if required not in svc:
+                err(f"{path.name}: {name} missing {required!r}")
+        if re.search(r"manager-data-[123]:/var/lib/dbcm", svc):
+            mounts = re.findall(r"manager-data-([123]):/var/lib/dbcm", svc)
+            if mounts != [str(i)]:
+                err(f"{path.name}: {name} shares another replica's volume")
+        if f"manager-config-{i}:\n    external: true" not in body:
+            err(f"{path.name}: config {i} is not external")
+    data = load_yaml(path)
+    if data is not None:
+        svcs = data.get("services", {})
+        if set(svcs) != {"manager-1", "manager-2", "manager-3"}:
+            err(f"{path.name}: expected exactly three manager services")
+        for i in (1, 2, 3):
+            s = svcs.get(f"manager-{i}", {})
+            dep = s.get("deploy", {})
+            if dep.get("replicas") != 1 or dep.get("update_config", {}).get("order") != "stop-first":
+                err(f"{path.name}: manager-{i} must be a stop-first single replica")
+            if s.get("networks") != ["hostnet"] or s.get("read_only") is not True or s.get("cap_drop") != ["ALL"]:
+                err(f"{path.name}: manager-{i} lost host-network or socket guard")
+        if data.get("networks", {}).get("hostnet", {}).get("name") != "host":
+            err(f"{path.name}: host network is required")
+        for name, cfg in (data.get("secrets") or {}).items():
+            if not cfg.get("external"):
+                err(f"{path.name}: secret {name} must be external")
+
+
 def check_workflow(path: Path) -> None:
     text = path.read_text()
     if "permissions:" not in text:
@@ -409,6 +459,7 @@ check_jobs_dockerfile(ROOT / "deploy/Dockerfile.jobs")
 example = check_example_config(ROOT / "deploy/manager.example.json")
 check_compose(ROOT / "deploy/compose.yaml", example)
 check_stack(ROOT / "deploy/stack.yaml", example)
+check_stack_ha(ROOT / "deploy/stack-ha.yaml")
 check_build_workflow(ROOT / ".github/workflows/build.yml")
 check_release_workflow(ROOT / ".github/workflows/release.yml")
 check_sh(ROOT / "scripts/make-offline-bundle.sh")

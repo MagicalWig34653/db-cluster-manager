@@ -60,5 +60,19 @@ class WorkflowGuards(unittest.TestCase):
         self.check_mutation("build", "actions/checkout@11d5960a326750d5838078e36cf38b85af677262", "actions/checkout@v4")
 
 
+class HAStackGuards(unittest.TestCase):
+    def test_unique_replica_identity_and_stop_first(self):
+        src = (ROOT / "deploy/stack-ha.yaml").read_text()
+        for old, new in (("manager-data-2:/var/lib/dbcm", "manager-data-1:/var/lib/dbcm"),
+                         ("source: manager-config-3", "source: manager-config-2"),
+                         ("order: stop-first", "order: start-first")):
+            with tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "stack-ha.yaml"
+                path.write_text(src.replace(old, new))
+                checker["errors"].clear()
+                checker["check_stack_ha"](path)
+                self.assertTrue(checker["errors"], f"accepted mutation: {old} -> {new}")
+
+
 if __name__ == "__main__":
     unittest.main()
