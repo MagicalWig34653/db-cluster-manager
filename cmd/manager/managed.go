@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -415,10 +416,15 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 		NodeID: nodeID, DataDir: filepath.Join(mc.DataDir, "metastore"), BindAddr: mc.Bind, AdvertiseAddr: mc.Advertise,
 		Bootstrap: mc.Bootstrap, AutoResume: mc.AutoResume, Logger: log, Keyring: keyring,
 	}
+	var peerStore atomic.Pointer[manager.Store]
 	if mc.PeerTLS != nil {
 		if scfg.PeerTLS, err = mc.PeerTLS.load(); err != nil {
 			return nil, err
 		}
+	}
+	if scfg.PeerTLS != nil {
+		scfg.PeerTLS.Revoked = func(c *x509.Certificate) bool { st := peerStore.Load(); return st == nil || manager.PeerRevoked(st, c) }
+		scfg.PeerTLS.PeerAllowed = func(id string) bool { st := peerStore.Load(); return st != nil && manager.PeerAllowed(st, id) }
 	}
 	for _, p := range mc.Peers {
 		scfg.Peers = append(scfg.Peers, metastore.Peer{ID: p.ID, Address: p.Address})
@@ -493,6 +499,7 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 	if err != nil {
 		return nil, err
 	}
+	peerStore.Store(svc.Store())
 	probe.Svc = svc
 	// Swarms lets the checker observe services for the update health gate.
 	checker.Store, checker.Ops = svc.Store(), &manager.Operations{Svc: svc, Swarms: swarms}

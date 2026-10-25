@@ -26,7 +26,8 @@ type ReplicaKeyStatus struct {
 
 // KeyringStatus is the non-secret view of the data keyring.
 type KeyringStatus struct {
-	CurrentKey string `json:"currentKey"`
+	CurrentKey string             `json:"currentKey"`
+	Rotation   *KeyRotationStatus `json:"rotation,omitempty"`
 	// Recoverable reports whether the current data key has an envelope
 	// for the externally retained backup recovery key.
 	Recoverable bool               `json:"recoverable"`
@@ -130,4 +131,45 @@ func (s *server) handleReplicaKey(w http.ResponseWriter, r *http.Request, c *cal
 	}
 	s.log.Info("api: replica data-key recipient registered", "replica", id, "by", c.subject.ID, "key", out.PublicKeyID)
 	writeJSON(w, http.StatusOK, out)
+}
+
+// KeyRotationPlan is a non-secret, revision-bound approval preview. Submit its
+// digest to the same route to start rotation; an empty digest only previews.
+type KeyRotationPlan struct {
+	Digest     string `json:"digest"`
+	CurrentKey string `json:"currentKey"`
+	Started    bool   `json:"started"`
+}
+
+// DataKeyRotator is optional when the replicated keyring is enabled.
+type DataKeyRotator interface {
+	RotateDataKey(context.Context, authz.Subject, string) (KeyRotationPlan, error)
+}
+
+func (s *server) handleKeyRotation(w http.ResponseWriter, r *http.Request, c *caller) {
+	var in struct {
+		Digest string `json:"digest"`
+	}
+	if !decodeJSON(w, r, &in, false) {
+		return
+	}
+	svc, ok := s.cfg.Replicas.(DataKeyRotator)
+	if !ok {
+		s.writeServiceError(w, r, ErrUnavailable)
+		return
+	}
+	out, err := svc.RotateDataKey(r.Context(), c.subject, in.Digest)
+	if err != nil {
+		s.writeServiceError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// KeyRotationStatus reports durable progress without exposing envelopes.
+type KeyRotationStatus struct {
+	From      string `json:"from"`
+	To        string `json:"to"`
+	Processed uint64 `json:"processed"`
+	Complete  bool   `json:"complete"`
 }

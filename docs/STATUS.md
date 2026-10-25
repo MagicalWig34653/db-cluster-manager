@@ -74,6 +74,8 @@ Dependencies added overall: hashicorp/raft and raft-boltdb (MPL-2.0), bbolt (MIT
 
 ### What R1 still lacks (so no Swarm trial yet)
 
+Update 2026-10-24: data-key rotation, binlog/PITR planning and membership changes now have fake-only groundwork; see "Key rotation, PITR and membership groundwork" below. This does not provide continuous archiving, real PITR or default-runtime membership administration.
+
 - No end-to-end run of the manager creating a Galera cluster on a real Swarm through its own API; the agent is not authenticated and not reachable across hosts; no health collection; no TLS/mTLS between manager, agents and metastore peers.
 - Manager-config backup is a library; nothing schedules it, no cluster data backup/restore (physical/logical), no PITR, no verified full restore.
 - No ACME, client-facing database TLS is only a proxy feature without certificate issuance wiring; no email/webhook wiring of `internal/notify` into the manager; no metrics collection; no drift handling, maintenance mode, spare-host workflow, update workflow, migration, or phpMyAdmin deployment beyond data structures.
@@ -284,6 +286,70 @@ Limits of the groundwork batch (several closed by the wiring batch above: invent
 Branch `w09-storage`. New service types in `internal/service`: `sftp`, `ftp` (FTPS explicit/implicit or plain with `allowPlaintext`, passive range published one to one, at most 100 ports, passive address required), `s3` (single-drive, MinIO conventions as a proposal, root credentials as Swarm secrets, typed Traefik routes as `traefik.*` labels plus a file-provider snippet) and `nfs` (always blocked: needs CAP_SYS_ADMIN and nfsd, the agent has no capability field). Each has typed strict validation, a pinned image rule (`requireDigest` or a tag-only warning), a managed local data volume pinned to a host with one replica, secrets by name only, a published-ports artifact, warnings and blockers, delete plans and health. Agent side: `create-service` and `update-service` accept `ports` and `configs` (new omitempty fields; `TestServiceSpecEncodingStable` unchanged and passing), referenced configs go through the ownership guard and are pinned to the checked ID; `dockerclient` maps them to `EndpointSpec.Ports` and `ContainerSpec.Configs`; the port refusal in `orchestrate` is gone. Traefik plans carry `traefik-management.json`. OpenAPI type enum and DE/EN guide 13 updated.
 
 Limits: fakes and unit tests only; no storage image, Swarm or Traefik was run, so every R8 exit gate is open. The agent cannot create or remove Swarm configs, so Traefik dynamic configuration still blocks its plan and the SFTP users file needs a hand-made config (`usersConfig`). No UI form, CLI or storage backup. Image names are proposals.
+
+## Key rotation, PITR and membership groundwork (2026-10-24, fakes only)
+
+Branch `codex-keys-pitr`, based on `integration`. The worktree Git directory was
+outside the sandbox write roots, so the requested initial checkout failed with
+`index.lock: Operation not permitted`; commits were created in an isolated local
+clone. No push or real Docker/Lima/Colima/MariaDB/S3/SFTP action occurred.
+
+- **Rotation:** administrator-only `POST /settings/data-key/rotate` previews and
+  accepts a revision-bound approval digest. Versioned random data keys, replica
+  and configured recovery envelopes, old-key retention, atomic per-document
+  reseal/progress, guarded stale-key writes, status and start/completion events.
+  The existing leader reconciler resumes bounded batches after failover. Scans
+  cover every top-level sealed document, including registry/AI/backup credentials,
+  PKI, sessions and passkeys. Corruption leaves progress incomplete and old keys
+  available. Historical backups keep their old envelopes after completion.
+- **PITR:** `binlog` manifest kind with encrypted streams and HMAC summaries;
+  authenticated metadata binds the full-backup position/time, file range, source
+  history and sequence. Physical jobs optionally parse binlog_info. Archive
+  retention follows the physical base, including pin protection and dependent
+  deletion order. Time/position planning refuses gaps and reuses the isolated
+  inspection plan with an explicit agent `check-restore-target` step. Only the
+  fake executor can replay, after exact digest approval and stream verification;
+  there is no promotion step.
+- **Membership:** injected CSR peer-certificate and membership services, API
+  routes/OpenAPI, strict administrator checks and audit. Leader-only serialized
+  `AddNonvoter` -> caught-up readiness -> `AddVoter`, or quorum-checked
+  `RemoveServer`, use a nonzero durable configuration index. The pinned Raft
+  library returns zero from GetConfiguration.Index, so the wrapper reads the
+  matching log/snapshot configuration. Durable approved intents survive leader
+  loss; removal denies recorded certificates, tombstones the identity and removes
+  key envelopes. Managed peer TLS consults replicated deny state on new handshakes.
+  The default runtime returns 503 for membership administration: peer-CA access
+  and authenticated remote readiness still need implementation.
+
+Verification actually executed: `gofmt -l .` returned no files; `go vet ./...`
+returned exit 0; full `go test -race -count=1 -p 4 ./...` **failed** because the
+sandbox denies socket binding (`bind: operation not permitted`, including
+loopback and Unix sockets in existing tests). No tests were skipped or rewritten
+to hide that restriction. Full `internal/dbbackup` and `internal/authz` race suites
+passed; focused race tests passed for rotation/leader loss, keyring, four-replica
+admission/removal/leader loss, quorum and stale-index refusal, snapshot index
+fallback, TLS tombstone verification, HTTP authorization and OpenAPI routes.
+`python3 scripts/check_docs.py` and `python3 scripts/check_deploy.py` passed;
+initial clone deploy checks were text-level because PyYAML was absent; the
+synchronized workspace check also passed with PyYAML 6.0.3 available. No image was
+built. Go uses a
+writable temporary build cache; detected host capacity was 14 logical CPUs, and
+the full race command used GOMAXPROCS=1 with four package workers.
+
+Limits: no real rotation or membership change, disk fault/restart during rotation,
+continuous archiver, event parser or transaction/event-boundary/time-stop
+validation, GTID/source failover, HTTP/UI PITR integration or real replay.
+Retention coupling is library-only until the manager discovers binlog sets. No
+key retirement/log erasure, peer renewal/cancellation or automatic closure of
+existing TLS streams. A removed replica cannot be made to forget cached data/CA
+keys. Explicit joint-consensus log entries are not exposed by this Raft library;
+we use its single-server configuration transitions and quorum checks. See the
+amendments to [ADR 0009](decisions/0009-cluster-backup-method.md) and
+[ADR 0013](decisions/0013-replica-keys-peer-tls-and-revocation.md).
+
+Next action for this package: run the complete unchanged verification loop where
+local sockets are permitted; then design authenticated peer readiness and offline
+CA provisioning, and a real closed-binlog/event parser before lab PITR work.
 
 ## Next action
 

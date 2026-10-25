@@ -52,6 +52,9 @@ type PeerTLS struct {
 	// Revoked reports whether a certificate serial is denied; nil denies
 	// none.
 	Revoked func(c *x509.Certificate) bool
+	// PeerAllowed can tombstone a removed replica identity, including certificates
+	// issued offline whose serial was never recorded by the manager.
+	PeerAllowed func(id string) bool
 	// Now is the verification clock; time.Now when nil.
 	Now func() time.Time
 }
@@ -129,7 +132,7 @@ func (p *PeerTLS) verify(cs tls.ConnectionState, usage x509.ExtKeyUsage) (string
 		}
 	}
 	id, ok := PeerIDOf(leaf, p.Installation)
-	if !ok {
+	if !ok || (p.PeerAllowed != nil && !p.PeerAllowed(id)) {
 		return "", ErrPeerIdentity
 	}
 	return id, nil

@@ -110,3 +110,74 @@ func TestReplicaKeyRoutes(t *testing.T) {
 		t.Fatalf("calls %v", fr.calls)
 	}
 }
+
+func (f *fakeReplicas) RotateDataKey(_ context.Context, actor authz.Subject, digest string) (KeyRotationPlan, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, "rotate:"+actor.ID+":"+digest)
+	return KeyRotationPlan{Digest: "preview", CurrentKey: "dk-2", Started: digest != ""}, f.err
+}
+
+func TestDataKeyRotationRoute(t *testing.T) {
+	cf := newControlFixture(t)
+	fr := &fakeReplicas{}
+	cf.srv.cfg.Replicas = fr
+	op := cf.loggedIn("op", authz.RoleOperator, authz.Global)
+	wantError(t, op.do("POST", "/api/v1/settings/data-key/rotate", map[string]string{}), http.StatusForbidden, errForbidden)
+	admin, _, _ := cf.setupAdmin("admin")
+	var plan KeyRotationPlan
+	r := admin.do("POST", "/api/v1/settings/data-key/rotate", map[string]string{})
+	wantStatus(t, r, http.StatusOK)
+	r.decode(t, &plan)
+	if plan.Started || plan.Digest != "preview" {
+		t.Fatalf("preview: %+v", plan)
+	}
+	r = admin.do("POST", "/api/v1/settings/data-key/rotate", map[string]string{"digest": plan.Digest})
+	wantStatus(t, r, http.StatusOK)
+	r.decode(t, &plan)
+	if !plan.Started {
+		t.Fatal("approval not forwarded")
+	}
+	fr.err = ErrApprovalMismatch
+	wantError(t, admin.do("POST", "/api/v1/settings/data-key/rotate", map[string]string{"digest": "stale"}), http.StatusConflict, errApprovalMismatch)
+}
+
+type fakeMembership struct{ calls int }
+
+func (f *fakeMembership) IssuePeerCertificate(context.Context, authz.Subject, string, PeerCertificateInput) (PeerCertificateResult, error) {
+	f.calls++
+	return PeerCertificateResult{Serial: "fake"}, nil
+}
+func (f *fakeMembership) ChangeMembership(context.Context, authz.Subject, string, MembershipInput) (MembershipResult, error) {
+	f.calls++
+	return MembershipResult{Digest: "preview"}, nil
+}
+func TestMembershipRoutes(t *testing.T) {
+	cf := newControlFixture(t)
+	admin, _, _ := cf.setupAdmin("admin")
+	op := cf.loggedIn("op", authz.RoleOperator, authz.Global)
+	for _, route := range []string{"/api/v1/settings/replicas/m4/peer-certificate", "/api/v1/settings/replicas/m4/membership"} {
+		wantError(t, op.do("POST", route, map[string]string{}), http.StatusForbidden, errForbidden)
+		wantError(t, admin.do("POST", route, map[string]string{}), http.StatusServiceUnavailable, errUnavailable)
+	}
+	f := &fakeMembership{}
+	cf.srv.cfg.Membership = f
+	wantStatus(t, admin.do("POST", "/api/v1/settings/replicas/m4/peer-certificate", map[string]string{"address": "m4:7445", "csr": "fake", "publicKey": "fake"}), http.StatusOK)
+	wantStatus(t, admin.do("POST", "/api/v1/settings/replicas/m4/membership", map[string]any{"remove": true}), http.StatusOK)
+	if f.calls != 2 {
+		t.Fatalf("calls %d", f.calls)
+	}
+}
+
+func TestAdministrationRoutesRejectCustomWildcard(t *testing.T) {
+	cf := newControlFixture(t)
+	cf.srv.cfg.Replicas = &fakeReplicas{}
+	cf.srv.cfg.Membership = &fakeMembership{}
+	if err := cf.srv.cfg.Authorizer.Policy().AddRole(authz.Role{Name: "all-custom", Permissions: []authz.Permission{{Type: authz.ResourceAny, Action: authz.ActionAny}}}); err != nil {
+		t.Fatal(err)
+	}
+	custom := cf.loggedIn("custom", "all-custom", authz.Global)
+	for _, path := range []string{"/api/v1/settings/data-key/rotate", "/api/v1/settings/replicas/m4/peer-certificate", "/api/v1/settings/replicas/m4/membership"} {
+		wantError(t, custom.do("POST", path, map[string]string{}), http.StatusForbidden, errForbidden)
+	}
+}

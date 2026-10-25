@@ -259,3 +259,15 @@ func (n *Node) Docs(collection string) []Document { return n.fsm.docList(collect
 // Revision returns the local document revision (the version of the latest
 // applied document transaction).
 func (n *Node) Revision() uint64 { return n.fsm.revision() }
+
+// AllDocs returns a coherent local copy of every document, sorted by collection
+// and key. Call Barrier first for leader-consistent maintenance scans.
+func (n *Node) AllDocs() []Document {
+	n.fsm.mu.Lock()
+	defer n.fsm.mu.Unlock()
+	_, docs := n.fsm.docs.export()
+	for i := range docs {
+		docs[i].Value = bytes.Clone(docs[i].Value)
+	}
+	return docs
+}

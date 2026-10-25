@@ -70,6 +70,8 @@ type StreamMeta struct {
 	ClusterID      string `json:"cluster_id,omitempty"`
 	SourceNodeUUID string `json:"source_node_uuid,omitempty"`
 	Database       string `json:"database,omitempty"`
+	// Binding authenticates a digest of kind-specific manifest metadata.
+	Binding string `json:"binding,omitempty"`
 }
 
 type streamWrap struct {

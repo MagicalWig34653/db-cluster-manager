@@ -1539,6 +1539,110 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
+  /settings/data-key/rotate:
+    post:
+      operationId: rotateDataKey
+      summary: Preview or approve replicated data-key rotation (global administrator only)
+      description: Empty digest previews; resubmit the returned revision-bound digest for explicit approval. Old envelopes remain for historical recovery. Re-encryption resumes on the leader.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                digest: {type: string}
+      responses:
+        '200':
+          description: Rotation preview or started rotation
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [digest, currentKey, started]
+                properties:
+                  digest: {type: string}
+                  currentKey: {type: string}
+                  started: {type: boolean}
+        '403': {$ref: '#/components/responses/Error'}
+        '409':
+          description: Active rotation or stale approval digest
+        '503':
+          description: Keyring unavailable or not leader
+
+  /settings/replicas/{id}/peer-certificate:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string}
+    post:
+      operationId: issueMetastorePeerCertificate
+      summary: Provision a peer certificate from a CSR (global administrator only)
+      description: Fakes-only opt-in backend; the default manager returns 503. The private peer key never enters the manager. Does not add a voter.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [address, csr, publicKey]
+              properties:
+                address: {type: string}
+                csr: {type: string}
+                publicKey: {type: string}
+      responses:
+        '200':
+          description: Public certificate chain, serial and expiry
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [certificate, serial, notAfter]
+                properties:
+                  certificate: {type: string}
+                  serial: {type: string}
+                  notAfter: {type: string, format: date-time}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+  /settings/replicas/{id}/membership:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string}
+    post:
+      operationId: changeMetastoreMembership
+      summary: Preview or approve one Raft member change (global administrator only)
+      description: Empty digest previews. Fakes-only opt-in backend; the default manager returns 503. Serializes changes, stages a nonvoter, requires authenticated catchup evidence, and refuses quorum loss or removal of the current leader. Removal tombstones the peer and revokes recorded certificates.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                remove: {type: boolean, default: false}
+                digest: {type: string}
+      responses:
+        '200':
+          description: Revision-bound preview or completed membership change
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [digest, complete]
+                properties:
+                  digest: {type: string}
+                  complete: {type: boolean}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+
   /settings/replicas:
     get:
       summary: Manager replicas and the data keyring
@@ -2187,6 +2291,13 @@ components:
       required: [currentKey, recoverable, replicas]
       properties:
         currentKey: { type: string, description: ID of the current data key (not the key) }
+        rotation:
+          type: object
+          properties:
+            from: {type: string}
+            to: {type: string}
+            processed: {type: integer}
+            complete: {type: boolean}
         recoverable: { type: boolean, description: The current key has a backup recovery key envelope }
         replicas:
           type: array
