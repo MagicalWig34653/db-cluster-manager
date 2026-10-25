@@ -77,6 +77,7 @@ var (
 
 // KeyringRecord is the replicated keyring. It holds no plaintext key.
 type KeyringRecord struct {
+	Rotation *KeyRotation                   `json:"rotation,omitempty"`
 	Current  string                         `json:"current"`
 	Keys     []WrappedDataKey               `json:"keys"`
 	Replicas map[string]ReplicaRegistration `json:"replicas"`
@@ -533,6 +534,9 @@ func (k *ReplicaService) Status(actor authz.Subject) (KeyringStatus, error) {
 	}
 	leader, _ := k.Svc.node.Leader()
 	out := KeyringStatus{CurrentKey: rec.Value.Current}
+	if r := rec.Value.Rotation; r != nil {
+		out.Rotation = &api.KeyRotationStatus{From: r.From, To: r.To, Processed: r.Processed, Complete: r.Complete}
+	}
 	cur := rec.Value.key(rec.Value.Current)
 	out.Recoverable = cur != nil && len(cur.Recovery) > 0
 	for _, m := range members {
@@ -620,6 +624,9 @@ func (r KeyringReconciler) Run(ctx context.Context, l *Leadership) error {
 		case <-ctx.Done():
 			return nil
 		case <-t.C:
+		}
+		if err := r.Keyring.ResumeRotation(ctx, l.svc, 64); err != nil && ctx.Err() == nil {
+			l.svc.log.Warn("manager: key rotation paused; will retry", "err", err)
 		}
 		if err := r.Keyring.updateDistributed(l.svc); err != nil && ctx.Err() == nil {
 			l.svc.log.Warn("manager: keyring refresh failed", "err", err)

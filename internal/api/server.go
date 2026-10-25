@@ -60,7 +60,8 @@ type Config struct {
 	Backups  Backups
 	Settings Settings
 	// Replicas backs the data keyring endpoints; nil answers 503.
-	Replicas Replicas
+	Replicas   Replicas
+	Membership Membership
 	// Maintenance backs host maintenance and drift checks; nil answers 503.
 	Maintenance Maintenance
 	// ImageBuilds and Registries back the image build endpoints (proposal,
@@ -136,6 +137,7 @@ const (
 type endpoint struct {
 	method, path string
 	access       access
+	adminOnly    bool
 	// prototype endpoints are also served by NewHandler.
 	prototype bool
 	// action and resolve declare the permission of accessPermission
@@ -373,6 +375,20 @@ func (s *server) coreEndpoints() []endpoint {
 			action: authz.ActionOperate, resolve: s.resolveSettings, handle: s.handleNotificationTest,
 		},
 		{
+			method: "POST", path: "/settings/data-key/rotate", access: accessPermission, adminOnly: true,
+			action: authz.ActionUpdate, resolve: s.resolveSettings, handle: s.handleKeyRotation,
+		},
+
+		{
+			method: "POST", path: "/settings/replicas/{id}/peer-certificate", access: accessPermission, adminOnly: true,
+			action: authz.ActionUpdate, resolve: s.resolveSettings, handle: s.handlePeerCertificate,
+		},
+		{
+			method: "POST", path: "/settings/replicas/{id}/membership", access: accessPermission, adminOnly: true,
+			action: authz.ActionUpdate, resolve: s.resolveSettings, handle: s.handleMembership,
+		},
+
+		{
 			method: "GET", path: "/settings/replicas", access: accessPermission,
 			action: authz.ActionRead, resolve: s.resolveSettings, handle: s.handleReplicas,
 		},
@@ -485,6 +501,12 @@ func (s *server) wrap(ep endpoint) http.Handler {
 		if c.restricted && ep.access != accessReenrol {
 			writeError(w, http.StatusForbidden, errEnrollmentNeeded)
 			return
+		}
+		if ep.adminOnly {
+			if err := s.cfg.Authorizer.AuthorizeAdministrator(c.subject); err != nil {
+				s.writeServiceError(w, r, err)
+				return
+			}
 		}
 		if ep.access == accessPermission {
 			res, target, err := ep.resolve(r)
@@ -608,7 +630,12 @@ func handleVersion(w http.ResponseWriter, _ *http.Request, _ *caller) {
 // details.
 func (s *server) writeServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	var re *requestError
+	var denied *authz.DeniedError
 	switch {
+	case errors.As(err, &denied) && denied.Decision.Reason == authz.ReasonAuditUnavailable:
+		writeError(w, http.StatusServiceUnavailable, errUnavailable)
+	case errors.Is(err, authz.ErrDenied):
+		writeError(w, http.StatusForbidden, errForbidden)
 	case errors.As(err, &re):
 		writeError(w, re.status, re.code)
 	case errors.Is(err, ErrNotFound):

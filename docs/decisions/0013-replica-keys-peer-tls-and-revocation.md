@@ -31,8 +31,98 @@ Three gaps blocked replicated managers (STATUS "What R1 still lacks", E4): every
 
 ## Not done / limits
 
-- No key rotation (the format and the key provider support several key IDs; nothing creates a second one) and no re-encryption; revoking a replica's registration does not take back keys it already unwrapped.
-- No membership changes (add/remove voter) through the product; peers remain the static bootstrap list.
+- Rotation and membership groundwork now exist with fakes; see the amendment below. Revoking a replica's registration does not take back keys it already unwrapped.
+- Default runtime membership administration remains unavailable; an injected fake backend exercises add/remove safely.
 - Peer certificates are not renewed by the product (reissue with the sealed peer CA by hand); no peer deny-list distribution beyond the revocation hook.
 - The agent's enrollment renewal client does not consult the deny list for the enrollment server certificate.
 - Deny-list entries are never pruned (expired certificates stay listed).
+
+## Amendment (2026-10-24): resumable key rotation and membership groundwork
+
+All evidence below is from in-process fakes; no VM or infrastructure was touched.
+The earlier "no rotation" and "no membership changes" limitations are superseded
+at library/API-contract level only.
+
+### Data-key rotation
+
+`POST /api/v1/settings/data-key/rotate` with `{}` returns a digest tied to the
+current keyring revision. Submitting that digest explicitly approves starting a
+new random, versioned key. Both the HTTP layer and backend require the global
+administrator preset (a custom wildcard role does not suffice); audit failure
+prevents authorization. An active rotation refuses a second start.
+
+The leader creates all replica envelopes and the configured external recovery
+envelope **before** committing the new current key and rotation record in one
+CAS write. New seals use that key. Every sealed document write carries an atomic
+keyring-version guard, so an old seal prepared before activation cannot commit
+later. `KeyringReconciler` resumes bounded batches (64 documents per interval,
+default 30 seconds). It scans all collections for top-level sealed envelopes,
+including registry/AI credentials, sessions, passkeys, PKI and future sealed
+collections; it does not use a fragile list of secret collection names. Each
+reseal and progress increment commit atomically with document/keyring CAS. A
+successor can continue after a crash without a process-local cursor. Corruption
+halts progress and leaves old envelopes intact. Status exposes `rotation` with
+from/to IDs, count and completion; start/completion events record the result.
+
+Old keys remain wrapped **after** completion as well: historical Raft snapshots
+and exported configuration backups may still need them. Automatic key retirement,
+log erasure, revoking keys already cached by removed replicas, and rotation of
+external database passwords or the backup recovery key are not implied. A new
+configured recovery public key receives envelopes through the existing refresher.
+
+Alternative rejected: rewriting everything in one huge transaction would increase
+log/latency pressure and need a full restart on conflict. A cursor without write
+fencing could miss a late old-key write. Small atomic batches plus a keyring CAS
+guard preserve resumability and close that race.
+
+### Membership changes
+
+Optional `api.Config.Membership` exposes CSR provisioning and digest-approved
+single-replica changes under `/settings/replicas/{id}/peer-certificate` and
+`/settings/replicas/{id}/membership`. Global administrator and audit are required.
+The **default manager returns 503**: production peer-CA access and authenticated
+readiness/catchup RPCs have not been designed or enabled. The offline peer CA
+policy remains; tests inject a temporary CA. The joining replica keeps its CSR
+private key. Certificate SANs come from the installation and approved replica ID,
+never from CSR requests. Provisioning alone gives neither voting membership nor
+data-key envelopes. Admission explicitly approves the data-key recipient as part
+of membership, before it can lead. Existing voter-key registration stays valid.
+
+An approved intent and a global change lock are replicated before effects.
+Changes run only on the leader. Add: `AddNonvoter`, commit/barrier, authenticated
+readiness observation at least at the leader's applied index, then `AddVoter`
+and barrier. Remove: check old and proposed reachable majorities, refuse removal
+of the leader (transfer separately) or last voter, then `RemoveServer` and barrier.
+After removal, atomically tombstone the peer, deny its recorded peer/manager
+certificate serials and remove its key recipient/envelopes. A successor retries
+the persisted intent against actual membership, including a crash after Raft
+committed and before metadata cleanup. Another change cannot interleave while an
+intent is unfinished. Removed IDs cannot be silently reused.
+
+The pinned hashicorp/raft v1.8.0 source (`api.go:GetConfiguration`,
+`configuration.go:nextConfiguration`) exposes **single-server overlapping
+configurations**, not a joint-configuration API. This amendment uses that library
+safety mechanism with serialized steps and old/new quorum checks; it does not
+claim an implementation of explicit joint-consensus log entries. Its
+`GetConfiguration().Index()` is always zero because `latestIndex` is omitted in
+that future. Passing zero would disable `prevIndex` checking. The wrapper instead
+finds the matching configuration's nonzero index in its durable Raft log or
+snapshot, and refuses ambiguity. Editing bootstrap peers or FSM documents to
+change voting membership was rejected.
+
+Managed peer TLS now reads replicated serial revocations and peer tombstones on
+new handshakes (including offline-issued certificates identified by replica URI).
+It fails closed before the store is attached. Already-established transport
+streams are not forcibly closed; deny-list observation follows local replication,
+and active-connection revocation still needs a runtime design/test. A replica
+that already learned data keys or a replicated CA key cannot be made to forget
+those keys by removal; further key/CA compromise handling is outside this work.
+
+Evidence: race-tested in-memory Raft removal/re-addition, old/new quorum refusal,
+stale configuration refusal, four-replica CSR/admission, envelopes, approved
+removal across leader loss, serial/identity denial and idempotent retry. HTTP
+contract/authorization tests run without sockets, as does the TLS verifier test.
+Not verified: real peer readiness, mTLS membership change, certificate delivery or
+renewal, membership restart from a disk snapshot, partitions during transition,
+and production peer-CA provisioning. A failed/expired staged candidate may need
+operator repair; no cancellation or peer-renewal endpoint is provided yet.

@@ -25,7 +25,7 @@ Agents enroll with a one-time token (delivered as a Swarm secret), pin the CA fi
 
 ## Secrets and data at rest
 
-Database passwords live in Swarm secrets, never in the API or tracked files. Notification secrets are write-only and stored encrypted (AES-GCM). The manager's data key is created in the data directory on first start. For several replicas set `manager.keyring`: the key is then stored only wrapped for each registered replica's identity (`<dataDir>/replica.key`) and for the backup recovery key; an administrator registers each replica by comparing the public key printed by `manager -print-replica-key` (`PUT /settings/replicas/{id}/data-key-recipient`, voters only, audited), and a replica without the key hands leadership over ([ADR 0013](../../decisions/0013-replica-keys-peer-tls-and-revocation.md)) [Fakes]. Without `keyring` the key file must still be copied to every replica by hand. There is no key rotation or re-encryption, and withdrawing a registration does not take back keys a replica already unwrapped. Backups are encrypted with a recovery key that you must keep outside the cluster; losing it makes backups unreadable.
+Database passwords live in Swarm secrets, never in the API or tracked files. Notification secrets are write-only and stored encrypted (AES-GCM). The manager's data key is created in the data directory on first start. For several replicas set `manager.keyring`: the key is then stored only wrapped for each registered replica's identity (`<dataDir>/replica.key`) and for the backup recovery key; an administrator registers each replica by comparing the public key printed by `manager -print-replica-key` (`PUT /settings/replicas/{id}/data-key-recipient`, voters only, audited), and a replica without the key hands leadership over ([ADR 0013](../../decisions/0013-replica-keys-peer-tls-and-revocation.md)) [Fakes]. Without `keyring` the key file must still be copied to every replica by hand. Data-key rotation and resumable re-encryption are implemented with fakes (see below). Withdrawing a registration does not take back keys a replica already unwrapped. Backups are encrypted with a recovery key that you must keep outside the cluster; losing it makes backups unreadable.
 
 ## Known weaknesses
 
@@ -34,3 +34,26 @@ Database passwords live in Swarm secrets, never in the API or tracked files. Not
 - The UI/API supports native ACME or imported TLS certificates [Fakes]; see [Manager HTTPS](17-manager-tls.md). Plain HTTP beyond numeric loopback requires explicit `manager.tls.allowPlainHttp` for an operator-managed proxy.
 - Lima forwards guest listeners to host loopback: in the lab, the unauthenticated metastore harness and agent ports were reachable on the host. Lab-only, but do not run lab harnesses on shared machines.
 - Client-facing database TLS exists only in the proxy; node-to-node and proxy-to-node TLS do not exist. The manager configures no TLS between Galera nodes; encrypting the operator-provided overlay network (`--opt encrypted`) is your decision and was not tested.
+
+## Data-key rotation and replica membership [Fakes]
+
+With `manager.keyring`, a global administrator calls
+`POST /api/v1/settings/data-key/rotate` with `{}` to preview, then submits
+`{"digest":"<returned digest>"}` to approve that exact keyring revision. A stale
+digest needs a fresh preview; a running rotation refuses another start. Read
+`GET /api/v1/settings/replicas` for `rotation.processed` and `rotation.complete`.
+The leader resumes batches after failover; corrupt ciphertext pauses progress
+without discarding the old key. New seals use the new ID and recovery envelope.
+Old envelopes remain available for historical configuration backups even after
+completion. This does not rotate database passwords or the external recovery key.
+There is no rotation UI and no real multi-host rotation evidence yet.
+
+Replica CSR provisioning and add/remove have an optional backend and HTTP
+contracts, but the default manager returns 503. The fake workflow provisions a
+peer certificate, previews the membership change and submits its digest. Joining
+peers first catch up as nonvoters; removal checks both quorums, requires a separate
+leadership transfer for the current leader, revokes recorded certificates and
+removes data-key envelopes. Removed peer identities are denied on new TLS
+handshakes. Existing streams are not closed automatically. Peer-CA delivery,
+authenticated readiness RPCs and certificate renewal remain unimplemented; do not
+edit the bootstrap peers list as a membership-change procedure.

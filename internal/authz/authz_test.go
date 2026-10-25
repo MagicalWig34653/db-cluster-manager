@@ -530,3 +530,28 @@ func TestKubernetesResourceDeniedByDefault(t *testing.T) {
 		t.Fatal("administrator must hold Kubernetes resource")
 	}
 }
+
+func TestAdministratorGateRejectsCustomWildcardAndAuditFailure(t *testing.T) {
+	p := NewPolicy()
+	sink := &MemorySink{}
+	a := NewAuthorizer(p, sink, nil)
+	if err := p.AddRole(Role{Name: "custom-all", Permissions: []Permission{{Type: ResourceAny, Action: ActionAny}}}); err != nil {
+		t.Fatal(err)
+	}
+	mustBind(t, p, alice, "custom-all", Global)
+	mustBind(t, p, admin, RoleAdministrator, Global)
+	if err := a.AuthorizeAdministrator(alice); !errors.Is(err, ErrDenied) {
+		t.Fatalf("wildcard: %v", err)
+	}
+	if err := a.AuthorizeAdministrator(admin); err != nil {
+		t.Fatal(err)
+	}
+	if records := sink.Records(); len(records) != 2 || records[0].Outcome != OutcomeDenied || records[1].Outcome != OutcomeAllowed {
+		t.Fatalf("audit: %+v", records)
+	}
+	sink.SetErr(errors.New("disk full"))
+	var denied *DeniedError
+	if err := a.AuthorizeAdministrator(admin); !errors.As(err, &denied) || denied.Decision.Reason != ReasonAuditUnavailable {
+		t.Fatalf("audit failure: %v", err)
+	}
+}

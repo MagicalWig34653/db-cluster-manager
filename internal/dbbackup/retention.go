@@ -15,10 +15,12 @@ import (
 // BackupSet is one backup run with all its objects (stream and manifest per
 // object; a logical run has one object per database).
 type BackupSet struct {
-	BackupID  string    `json:"backup_id"`
-	ClusterID string    `json:"cluster_id"`
-	Created   time.Time `json:"created"`
-	Objects   []string  `json:"objects"`
+	// BaseBackupID couples a binlog set's lifetime to a full physical set.
+	BaseBackupID string    `json:"base_backup_id,omitempty"`
+	BackupID     string    `json:"backup_id"`
+	ClusterID    string    `json:"cluster_id"`
+	Created      time.Time `json:"created"`
+	Objects      []string  `json:"objects"`
 	// Verified: a restore verification of this set passed.
 	Verified bool `json:"verified,omitempty"`
 	// Pinned: an inspection session or a running restore uses it.
@@ -29,6 +31,45 @@ type BackupSet struct {
 // pinned sets, the newest verified set (so a verified restore point always
 // remains), and the newest set overall. It is pure.
 func RetentionSelect(sets []BackupSet, p backup.Policy) (keep, remove []BackupSet) {
+	var roots, logs []BackupSet
+	pins := map[string]bool{}
+	for _, s := range sets {
+		if s.BaseBackupID != "" {
+			logs = append(logs, s)
+			if s.Pinned {
+				pins[s.BaseBackupID] = true
+			}
+		} else {
+			roots = append(roots, s)
+		}
+	}
+	for i := range roots {
+		if pins[roots[i].BackupID] {
+			roots[i].Pinned = true
+		}
+	}
+	keep, remove = retentionSelectRoots(roots, p)
+	kept, known := map[string]bool{}, map[string]bool{}
+	for _, s := range keep {
+		kept[s.BackupID] = true
+		known[s.BackupID] = true
+	}
+	for _, s := range remove {
+		known[s.BackupID] = true
+	}
+	for _, s := range logs {
+		if kept[s.BaseBackupID] || !known[s.BaseBackupID] {
+			keep = append(keep, s)
+		} else {
+			remove = append(remove, s)
+		}
+	}
+	// Delete dependents before their base; keep orphan archives for review.
+	sort.SliceStable(remove, func(i, j int) bool { return remove[i].BaseBackupID != "" && remove[j].BaseBackupID == "" })
+	return keep, remove
+}
+
+func retentionSelectRoots(sets []BackupSet, p backup.Policy) (keep, remove []BackupSet) {
 	byID := map[string]BackupSet{}
 	entries := make([]backup.Entry, 0, len(sets))
 	for _, s := range sets {
@@ -75,19 +116,23 @@ func RetentionSelect(sets []BackupSet, p backup.Policy) (keep, remove []BackupSe
 // stream (a stream without manifest is an incomplete backup and is ignored).
 // Missing objects are not errors.
 func ApplyRetention(ctx context.Context, b backup.Backend, remove []BackupSet) error {
-	var errs []error
+	// Recheck pins before any deletion and order children before roots even if
+	// a caller did not obtain its list from RetentionSelect.
 	for _, s := range remove {
 		if s.Pinned {
-			errs = append(errs, fmt.Errorf("dbbackup: set %s is pinned", s.BackupID))
-			continue
+			return fmt.Errorf("dbbackup: set %s is pinned", s.BackupID)
 		}
+	}
+	remove = append([]BackupSet(nil), remove...)
+	sort.SliceStable(remove, func(i, j int) bool { return remove[i].BaseBackupID != "" && remove[j].BaseBackupID == "" })
+	for _, s := range remove {
 		for _, o := range s.Objects {
 			for _, name := range []string{ManifestName(o), o} {
 				if err := b.Delete(ctx, name); err != nil && !errors.Is(err, backup.ErrNotFound) {
-					errs = append(errs, fmt.Errorf("delete %s: %w", name, err))
+					return fmt.Errorf("delete %s: %w", name, err)
 				}
 			}
 		}
 	}
-	return errors.Join(errs...)
+	return nil
 }

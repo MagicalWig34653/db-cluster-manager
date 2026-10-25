@@ -88,3 +88,59 @@ Not verified:
 - The manager-side wiring (approval store, catalog capture, observation of an inspection instance, creation and removal of the key and init secrets, the dedicated session network, session persistence across manager restarts) is not implemented.
 - No measurement of flow control or commit stalls during a backup on a loaded cluster.
 - Galera position (after lab E4, unit tests only): MariaDB 11.4.13 did not write `galera_info` to `--extra-lsndir` (E4 warning). The job now scans the plaintext xbstream on its way to the sealing writer for `mariadb_backup_galera_info`/`xtrabackup_galera_info` (chunk layout and CRC-32 checked; any unexpected chunk ends the scan without failing the backup) and records the position with `source: stream`; `source: extra-lsndir` when the file exists there. Verified only against synthetic xbstreams, not against real mariabackup output; whether 11.4 puts the file into the stream is the assumption to confirm in the next lab run.
+
+## Amendment (2026-10-24): binlog archive and PITR groundwork, fakes only
+
+This supersedes the absence of implementation in the PITR follow-up above, but
+**does not enable continuous archiving or real PITR in R1**. The production
+MariaDB configuration and release gates remain unchanged.
+
+Decision: add manifest method `binlog`, using format 2 and the existing encrypted
+stream with per-stream HMAC chunk/total digests. `ArchiveBinlog` accepts supplied
+closed-file bytes and writes the stream to the supplied backup target, then the
+manifest as the completion marker. Each range records its full-backup ID, base
+file/offset and completion time, source history, file boundaries, sequence and
+coverage times. A canonical digest of this metadata is bound into the stream's
+AEAD-authenticated header (`StreamMeta.Binding`); `VerifyBinlog` decrypts to EOF,
+checks the header identities/binding and compares the HMAC summary. Changing a
+range next to the encrypted object therefore fails verification. Plaintext hashes
+are not reintroduced. Legacy physical/logical manifests and format 1 restores
+remain supported; binlogs require format 2.
+
+Physical jobs optionally parse `mariadb_backup_binlog_info` or
+`xtrabackup_binlog_info` from the extra-LSN directory. A base without a valid
+position remains restorable as a full backup but cannot produce a PITR plan.
+
+`PlanPITR` requires exactly one target (UTC instant or file/byte position), a
+physical base, matching cluster/source/history/base anchors, consecutive file
+numbers and sequence IDs, contiguous coverage and a reachable stop point. It
+calls the existing `InspectionRestorePlan`, preserving resource limits, dedicated
+network/identity, wsrep off, replication off, expiry and approval preconditions.
+The plan includes the exact base offset, encrypted manifests and target in its
+approval digest. `ExecutePITRFake` checks that digest and every selected archive
+before calling a fake target guard, isolated inspection restore and ordered
+replay. There is no agent binlog command, real replay implementation, promotion
+step, production-target path or automatic cross-cluster copy promotion.
+
+Retention: binlog `BackupSet.BaseBackupID` couples every archive to its full
+backup. Keeping/pinning a full set keeps all its archives; pinning an archive
+protects its full set and sibling archives. Unknown bases are kept for review.
+Dependent archives are removed before their base, manifests before streams, and
+any deletion error stops the pass before subsequent objects/base deletion. This
+is a library contract; the manager scheduler does not discover or create binlog
+sets yet.
+
+Alternatives: plain unencrypted binlogs would expose all changes; detached plain
+hashes would reintroduce content guessing; a second signing/HMAC key would add key
+management. Reusing the existing keyed stream with authenticated metadata avoids
+those costs. GTID source failover is deferred: accepting a new source UUID or
+inferred history would hide gaps without evidence.
+
+Evidence: the full `internal/dbbackup` suite passes with `-race`; new tests cover
+closed-file archive verification, time/position selection, fake ordered replay,
+digest changes, target refusal, missing sequence/file/time coverage, wrong
+source/history/base, tampered metadata/ciphertext and retention pin coupling.
+No MariaDB/binlog parser, event-boundary validation, GTID handling, source switch,
+S3/SFTP archive run, transaction-level stop-time semantics, archiver scheduling or
+HTTP/UI PITR integration was executed or implemented. Those remain the next
+work package before any real PITR can be offered.

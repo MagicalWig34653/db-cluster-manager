@@ -226,3 +226,22 @@ func TestPeerIDOf(t *testing.T) {
 		t.Fatal("agent identity accepted as metastore peer")
 	}
 }
+
+// Check the same verifier used by TLS handshakes without opening a socket.
+func TestTLSPeerTombstoneVerifier(t *testing.T) {
+	ca := newPeerCA(t, "fake peer CA")
+	cert := peerCert(t, ca, tlsInstallation, "removed")
+	cfg := PeerTLS{Installation: tlsInstallation, Roots: ca.Pool(), PeerAllowed: func(id string) bool { return id != "removed" }}
+	state := tls.ConnectionState{PeerCertificates: []*x509.Certificate{cert.Leaf}}
+	if _, err := cfg.verify(state, x509.ExtKeyUsageClientAuth); !errors.Is(err, ErrPeerIdentity) {
+		t.Fatalf("tombstone: %v", err)
+	}
+	cfg.PeerAllowed = func(string) bool { return true }
+	if _, err := cfg.verify(state, x509.ExtKeyUsageClientAuth); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Revoked = func(*x509.Certificate) bool { return true }
+	if _, err := cfg.verify(state, x509.ExtKeyUsageClientAuth); err == nil {
+		t.Fatal("revocation ignored")
+	}
+}

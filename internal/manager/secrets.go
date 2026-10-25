@@ -26,8 +26,7 @@ import (
 // which is only adequate for a single-instance installation or replicas
 // given the same file out of band. Keyring (keyring.go) distributes the key
 // across replicas in wrapped form and keeps a recovery envelope for the
-// backup recovery key (B07). Rotation (several key IDs) is prepared by the
-// KeyID in each sealed value but not implemented.
+// backup recovery key (B07). Rotation re-seals documents in bounded, resumable transactions (keyrotation.go).
 
 // ErrNoKey is returned when the KeyProvider does not know a key ID.
 var ErrNoKey = errors.New("manager: data key not available")

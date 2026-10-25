@@ -31,7 +31,7 @@
 // together with the journal.
 //
 // This is a prototype (W03, extended for VM experiments). It is not
-// production hardened: no membership changes after bootstrap, no metrics, no
+// production hardened: membership changes need an injected readiness checker (fakes only), no metrics, no
 // tuned snapshot thresholds, no disk-full or fsync fault testing.
 package metastore
 
@@ -219,6 +219,7 @@ func newTCPTransport(bind, advertise string, logOutput io.Writer) (Transport, er
 
 // Node is one replica of the metadata store.
 type Node struct {
+	membershipMu sync.Mutex
 	id           string
 	raft         *raft.Raft
 	fsm          *fsm

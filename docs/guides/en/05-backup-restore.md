@@ -57,7 +57,8 @@ Mock-server view only [Mock only].
 | Restore verification gate, instance-level report, `lastVerifiedRestoreAt`, teardown with secret removal | [Fakes]; table contents are not compared even in the design |
 | Galera position in the manifest read from the stream | [Fakes]; unconfirmed assumption for MariaDB 11.4 |
 | Backup scheduler, logical backup (manual and scheduled), retention, S3 backend, restore into a **new cluster** | [Fakes] |
-| Selective restore, PITR, key rotation and re-encryption | [Untested] (not implemented) |
+| PITR archive/planning/fake replay, data-key rotation and re-encryption | [Fakes] only; no real binlog replay |
+| Selective restore through the manager API | [Untested] (not integrated) |
 | Full restore of production-size data, restore timing | [Untested] |
 
 A backup is not proven good until a restore has been tested. Until a verified restore exists for your data, treat the backup as unverified. Manifest format 2 ([ADR 0009 amendment](../../decisions/0009-cluster-backup-method.md)) stores chunk and plaintext digests as HMACs keyed from the per-stream data key, so the manifest no longer reveals plaintext hashes [Fakes]; format 1 manifests stay restorable and verified. The lab backups of E4 predate format 2 and are format 1 [Untested on VMs].
@@ -65,3 +66,20 @@ A backup is not proven good until a restore has been tested. Until a verified re
 ## Manager configuration backup
 
 `internal/backup` can create encrypted backups of the manager configuration to local, S3 or SFTP backends and restore them in inspection mode. Nothing schedules it and no UI or API exposes it [Fakes]. See the [operator runbook](11-operator-runbook.md) for what to do instead.
+
+## Point-in-time recovery groundwork [Fakes]
+
+`internal/dbbackup` can encrypt supplied closed binlog files to the backup target
+as manifest kind `binlog`. HMACs protect plaintext digests; authenticated stream
+metadata binds file ranges to a physical backup and source history. Retention
+keeps archives with their full backup; pinning any archive also protects the base
+and sibling archives. Unknown bases are kept for review.
+
+Planning selects a target time or file/byte position, refuses gaps and mismatched
+histories, and reuses the isolated inspection restore. Fake execution requires the
+exact plan digest, verifies all selected streams and invokes the restore-target
+guard before inspection/replay. There is no production promotion. No HTTP/UI PITR
+flow, continuous archiver, binlog event parser or real replay exists. File closure,
+coverage times and event boundaries are supplied by the caller; their MariaDB
+semantics need lab validation before use. See the
+[ADR 0009 amendment](../../decisions/0009-cluster-backup-method.md).

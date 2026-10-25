@@ -170,3 +170,24 @@ func (a *Authorizer) escalation(actor Subject, perms []Permission, scope Scope) 
 	}
 	return Decision{Allowed: true}
 }
+
+// AuthorizeAdministrator restricts key and membership administration to the
+// global administrator preset, including when a custom role has wildcard grants.
+// Both allowed and denied attempts must reach the audit sink.
+func (a *Authorizer) AuthorizeAdministrator(s Subject) error {
+	r := Resource{Type: ResourceSettings, Scope: Global}
+	d := Decision{Reason: ReasonNoGrant, Detail: "global administrator required"}
+	for _, b := range a.policy.Bindings(s) {
+		if s.Kind == SubjectUser && b.Role == RoleAdministrator && b.Scope == Global {
+			d = Decision{Allowed: true, Reason: ReasonGranted, Role: RoleAdministrator, Scope: Global}
+			break
+		}
+	}
+	if err := a.sink.Record(a.record(s, ActionUpdate, r, d)); err != nil {
+		return &DeniedError{Decision: Decision{Reason: ReasonAuditUnavailable}}
+	}
+	if !d.Allowed {
+		return &DeniedError{Decision: d}
+	}
+	return nil
+}

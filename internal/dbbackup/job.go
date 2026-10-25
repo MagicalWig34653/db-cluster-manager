@@ -343,6 +343,13 @@ func runBackupJob(ctx context.Context, s JobSpec, env JobEnv, be backup.Backend)
 			return Manifest{}, err
 		}
 		m.Checkpoints = &cp
+		if raw, err := env.readLSN("binlog_info"); err == nil {
+			pos, err := ParseBinlogInfo(string(raw))
+			if err != nil {
+				return Manifest{}, err
+			}
+			m.BinlogBase = &pos
+		}
 		if raw, err := env.readLSN("galera_info"); err == nil {
 			gp, err := ParseGaleraInfo(string(raw))
 			if err != nil {

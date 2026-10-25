@@ -57,7 +57,8 @@ Nur Ansicht des Mock-Servers [Nur Mock].
 | Verifikationstor, Bericht auf Instanzebene, `lastVerifiedRestoreAt`, Abbau mit Secret-Entfernung | [Fakes]; Tabelleninhalte werden auch im Entwurf nicht verglichen |
 | Galera-Position im Manifest aus dem Stream gelesen | [Fakes]; unbestätigte Annahme für MariaDB 11.4 |
 | Backup-Zeitplaner, logisches Backup (manuell und geplant), Aufbewahrung, S3-Ziel, Wiederherstellung in einen **neuen Cluster** | [Fakes] |
-| Selektive Wiederherstellung, PITR, Schlüsselrotation und Neuverschlüsselung | [Ungetestet] (nicht implementiert) |
+| PITR-Archiv/Planung/Fake-Wiedergabe, Datenschlüsselrotation und Neuverschlüsselung | Nur [Fakes]; keine echte Binlog-Wiedergabe |
+| Selektive Wiederherstellung über die Manager-API | [Ungetestet] (nicht integriert) |
 | Vollständige Wiederherstellung produktionsgroßer Daten, Wiederherstellungsdauer | [Ungetestet] |
 
 Ein Backup gilt erst als gut, wenn eine Wiederherstellung getestet wurde. Bis zu einer geprüften Wiederherstellung Ihrer Daten behandeln Sie das Backup als ungeprüft. Manifestformat 2 ([ADR-0009-Ergänzung](../../decisions/0009-cluster-backup-method.md)) speichert Chunk- und Klartext-Digests als HMACs mit einem aus dem Datenschlüssel des Streams abgeleiteten Schlüssel, sodass das Manifest keine Klartext-Hashes mehr verrät [Fakes]; Manifeste im Format 1 bleiben wiederherstellbar und geprüft. Die Lab-Backups aus E4 sind älter als Format 2 und haben Format 1 [auf VMs ungetestet].
@@ -65,3 +66,22 @@ Ein Backup gilt erst als gut, wenn eine Wiederherstellung getestet wurde. Bis zu
 ## Backup der Manager-Konfiguration
 
 `internal/backup` kann verschlüsselte Backups der Manager-Konfiguration auf lokale, S3- oder SFTP-Ziele schreiben und im Inspektionsmodus wiederherstellen. Nichts plant es ein, und weder UI noch API bieten es an [Fakes]. Was stattdessen zu tun ist, steht im [Betriebshandbuch](11-operator-runbook.md).
+
+## Grundlage für Point-in-Time-Recovery [Fakes]
+
+`internal/dbbackup` kann übergebene geschlossene Binlog-Dateien verschlüsselt auf
+dem Backup-Ziel ablegen, mit Manifestart `binlog`. HMACs schützen die
+Klartext-Digests; authentifizierte Stream-Metadaten binden Dateibereiche an ein
+physisches Backup und eine Quellhistorie. Die Aufbewahrung erhält Archive mit
+ihrem Vollbackup. Das Anheften eines Archivs schützt auch Basis und
+Geschwisterarchive. Unbekannte Basen bleiben zur Prüfung erhalten.
+
+Die Planung wählt einen Zeitpunkt oder eine Datei-/Byteposition, verweigert
+Lücken und fremde Historien und verwendet die isolierte Inspektionswiederherstellung.
+Die Fake-Ausführung verlangt den exakten Plan-Digest, prüft alle gewählten Streams
+und ruft die Restore-Zielprüfung vor Inspektion und Wiedergabe auf. Es gibt keine
+Promotion in die Produktion. HTTP/UI-Ablauf, kontinuierlicher Archivierer,
+Binlog-Ereignisparser und echte Wiedergabe fehlen. Dateischluss, Abdeckungszeiten
+und Ereignisgrenzen liefert der Aufrufer; ihre MariaDB-Semantik muss vor der
+Nutzung im Lab geprüft werden. Siehe
+[ADR-0009-Ergänzung](../../decisions/0009-cluster-backup-method.md).

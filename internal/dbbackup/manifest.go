@@ -23,6 +23,7 @@ type Method string
 const (
 	// MethodPhysical is a full physical backup (mariabackup, xbstream).
 	MethodPhysical Method = "physical"
+	MethodBinlog   Method = "binlog"
 	// MethodLogical is a logical export of one database (mariadb-dump).
 	MethodLogical Method = "logical"
 )
@@ -99,6 +100,8 @@ type Manifest struct {
 	Tool           ToolInfo             `json:"tool"`
 	Stream         backup.StreamSummary `json:"stream"`
 	Stored         backup.PutResult     `json:"stored"`
+	BinlogBase     *BinlogPosition      `json:"binlog_base,omitempty"`
+	Binlog         *BinlogRange         `json:"binlog,omitempty"`
 	Checkpoints    *Checkpoints         `json:"checkpoints,omitempty"`
 	Galera         *GaleraPosition      `json:"galera,omitempty"`
 	// Marker is the marker value written into dbcm_meta.backup_marker before
@@ -136,6 +139,12 @@ func (m Manifest) Validate() error {
 	case m.Finished.Before(m.Started):
 		return bad("finished before started")
 	}
+	if m.Method != MethodBinlog && m.Binlog != nil {
+		return bad("binlog range on non-binlog manifest")
+	}
+	if m.BinlogBase != nil && (m.Method != MethodPhysical || !m.BinlogBase.Valid()) {
+		return bad("invalid physical binlog position")
+	}
 	switch m.Method {
 	case MethodPhysical:
 		if m.Database != "" {
@@ -143,6 +152,10 @@ func (m Manifest) Validate() error {
 		}
 		if m.Checkpoints == nil {
 			return bad("physical backup without checkpoints")
+		}
+	case MethodBinlog:
+		if m.Format != ManifestFormat || m.Binlog == nil || m.Binlog.Validate() != nil || m.Stream.PlainSize < 0 || uint64(m.Stream.PlainSize) != m.Binlog.End.Offset || m.Checkpoints != nil || m.Database != "" || m.BinlogBase != nil {
+			return bad("invalid binlog manifest")
 		}
 	case MethodLogical:
 		if m.Database == "" {
@@ -265,6 +278,9 @@ func NewBackupID(now time.Time) (string, error) {
 
 // ObjectName is the backend object of a backup stream.
 func ObjectName(clusterID, backupID string, m Method, database string) string {
+	if m == MethodBinlog {
+		return clusterID + "-" + backupID + ".binlog.dbcms"
+	}
 	if m == MethodLogical {
 		return clusterID + "-" + backupID + "-db-" + database + ".sql.dbcms"
 	}

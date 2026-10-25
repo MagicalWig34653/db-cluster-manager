@@ -80,6 +80,39 @@ func (s *Store) RawList(coll string, opts ...ReadOption) ([]metastore.Document, 
 
 // Txn applies ops atomically (see metastore.DocOp for IfVersion).
 func (s *Store) Txn(ops ...metastore.DocOp) ([]metastore.Document, error) {
+	// Fence seals prepared before a rotation against the current keyring revision.
+	// The no-op keyring write is a CAS guard in the same Raft transaction.
+	rec, exists, err := Get[KeyringRecord](s, CollKeys, KeyringKey)
+	if err != nil {
+		return nil, err
+	}
+	if exists {
+		hasRing, hasSeal := false, false
+		for _, op := range ops {
+			if op.Collection == CollKeys && op.Key == KeyringKey {
+				hasRing = true
+			}
+		}
+		for _, op := range ops {
+			if op.Delete {
+				continue
+			}
+			var sv sealed
+			if json.Unmarshal(op.Value, &sv) == nil && sv.KeyID != "" {
+				hasSeal = true
+				if sv.KeyID != rec.Value.Current {
+					return nil, fmt.Errorf("%w: stale sealing key", ErrConflict)
+				}
+			}
+		}
+		if hasSeal && !hasRing {
+			guard, err := PutOp(CollKeys, KeyringKey, rec.Value, IfVersion(rec.Version))
+			if err != nil {
+				return nil, err
+			}
+			ops = append(ops, guard)
+		}
+	}
 	return s.node.ApplyDocs(ops...)
 }
 
