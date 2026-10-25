@@ -51,8 +51,12 @@ func TestContainerValidateRefusals(t *testing.T) {
 		{"latest tag", func(c *ContainerSpec) { c.Image = "nginx:latest" }, "latest"},
 		{"registry port is not a tag", func(c *ContainerSpec) { c.Image = "registry.example:5000/nginx" }, "pinned"},
 		{"secret env literal", func(c *ContainerSpec) { c.Env = []EnvVar{{Name: "DB_PASSWORD", Value: "x"}} }, "looks like a secret"},
-		{"url password in ordinary env", func(c *ContainerSpec) { c.Env = []EnvVar{{Name: "DATABASE_URL", Value: "mysql://user:password@example.test/db"}} }, "secret reference"},
-		{"token in ordinary env", func(c *ContainerSpec) { c.Env = []EnvVar{{Name: "APP_OPTION", Value: "Bearer abcdefghijklmnopqrstuvwxyz"}} }, "secret reference"},
+		{"url password in ordinary env", func(c *ContainerSpec) {
+			c.Env = []EnvVar{{Name: "DATABASE_URL", Value: "mysql://user:password@example.test/db"}}
+		}, "secret reference"},
+		{"token in ordinary env", func(c *ContainerSpec) {
+			c.Env = []EnvVar{{Name: "APP_OPTION", Value: "Bearer abcdefghijklmnopqrstuvwxyz"}}
+		}, "secret reference"},
 		{"token in args", func(c *ContainerSpec) { c.Args = []string{"--token=ghp_abcdefghijklmnopqrstuvwxyz123456"} }, "secret reference"},
 		{"password in command", func(c *ContainerSpec) { c.Command = []string{"--password=hunter2"} }, "secret reference"},
 		{"duplicate env", func(c *ContainerSpec) { c.Env = []EnvVar{{Name: "A", Value: "1"}, {Name: "A", Value: "2"}} }, "twice"},
@@ -80,6 +84,17 @@ func TestContainerValidateRefusals(t *testing.T) {
 	}
 	if err := (Container{}).Validate(raw(t, goodContainer())); err != nil {
 		t.Fatalf("good spec: %v", err)
+	}
+}
+
+func TestContainerCredentialIsAbsentFromErrorsAndPlans(t *testing.T) {
+	secret := "mysql://alice:veryprivatepassword@example.test/db"
+	c := goodContainer()
+	c.Env = []EnvVar{{Name: "DATABASE_URL", Value: secret}}
+	in := PlanInput{Context: ctx(), Spec: raw(t, c)}
+	_, err := (Container{}).Plan(in)
+	if !errors.Is(err, ErrInvalidSpec) || strings.Contains(err.Error(), secret) {
+		t.Fatalf("secret reached plan or error: %v", err)
 	}
 }
 

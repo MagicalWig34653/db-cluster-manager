@@ -24,7 +24,7 @@ var (
 	// Their value must come from a Swarm secret through the "_FILE"
 	// convention; a literal value would be stored in the spec, shown in the
 	// preview and sent in commands.
-	secretEnvRe = regexp.MustCompile(`(?i)(PASSWORD|PASSWD|SECRET|TOKEN|API_?KEY|PRIVATE_?KEY|CREDENTIAL)S?$`)
+	secretEnvRe       = regexp.MustCompile(`(?i)(PASSWORD|PASSWD|SECRET|TOKEN|API_?KEY|PRIVATE_?KEY|CREDENTIAL)S?$`)
 	credentialValueRe = regexp.MustCompile(`(?i)([a-z][a-z0-9+.-]*://[^\s/:'"<>]+:[^\s/@'"<>]+@|\bBearer\s+\S+|\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-(?:proj-)?[A-Za-z0-9_-]{20,}|xox[abprs]-[A-Za-z0-9-]{10,})\b|(?:^|[\s-])(?:password|passwd|secret|token|api[_-]?key|private[_-]?key|credential)[A-Za-z0-9_-]*\s*[:=]\s*\S+)`)
 )
 
