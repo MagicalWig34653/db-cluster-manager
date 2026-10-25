@@ -90,7 +90,7 @@ func runInit(args []string, stdout, stderr io.Writer) error {
 	var o initOptions
 	fs.StringVar(&o.RPID, "rp-id", "", "WebAuthn relying party ID: the host name users open the UI on (required)")
 	fs.StringVar(&o.Origin, "origin", "", "UI origin (default https://<rp-id>)")
-	fs.StringVar(&o.DisplayName, "display-name", "DB Cluster Manager", "relying party display name")
+	fs.StringVar(&o.DisplayName, "display-name", "cluster-manager", "relying party display name")
 	fs.StringVar(&o.Installation, "installation", "", "installation ID, [a-z0-9-], at most 31 characters (default: random)")
 	fs.StringVar(&o.ManagerAddr, "manager-addr", "", "address (IP or DNS name) of this manager's Swarm node that agents reach (required)")
 	fs.StringVar(&o.NodeID, "node-id", "manager-1", "metastore replica ID of this manager")

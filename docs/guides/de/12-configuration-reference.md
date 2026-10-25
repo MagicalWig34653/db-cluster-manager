@@ -42,7 +42,7 @@ Prüfstufe: Parsen und Validierung sind unit-getestet [Fakes]. Die Abschnitte `a
 | `origins` | Liste | | ja, wenn aktiviert | Erlaubte Origins: `https://`-URLs, deren Host `rpId` oder eine Subdomain ist; `http://localhost[:port]` nur für die Entwicklung. |
 
 ```json
-{ "auth": { "enabled": true, "rpId": "db.example.com", "rpDisplayName": "DB Cluster Manager", "origins": ["https://db.example.com"] } }
+{ "auth": { "enabled": true, "rpId": "db.example.com", "rpDisplayName": "cluster-manager", "origins": ["https://db.example.com"] } }
 ```
 
 ## `manager`
@@ -208,7 +208,7 @@ Feeds werden in `manager.vuln.feeds` konfiguriert (oben); keiner hat eine Standa
 
 ```json
 {
-  "auth": { "enabled": true, "rpId": "db.example.com", "rpDisplayName": "DB Cluster Manager", "origins": ["https://db.example.com"] },
+  "auth": { "enabled": true, "rpId": "db.example.com", "rpDisplayName": "cluster-manager", "origins": ["https://db.example.com"] },
   "manager": {
     "nodeId": "manager-1",
     "dataDir": "/var/lib/dbcm-manager",

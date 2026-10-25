@@ -42,7 +42,7 @@ Verification: parsing and validation are unit-tested [Fakes]. The sections `auth
 | `origins` | string list | | yes if enabled | Allowed origins: `https://` URLs whose host is `rpId` or a subdomain; `http://localhost[:port]` only for development. |
 
 ```json
-{ "auth": { "enabled": true, "rpId": "db.example.com", "rpDisplayName": "DB Cluster Manager", "origins": ["https://db.example.com"] } }
+{ "auth": { "enabled": true, "rpId": "db.example.com", "rpDisplayName": "cluster-manager", "origins": ["https://db.example.com"] } }
 ```
 
 ## `manager`
@@ -208,7 +208,7 @@ Feeds are configured in `manager.vuln.feeds` (above); none has a default URL.
 
 ```json
 {
-  "auth": { "enabled": true, "rpId": "db.example.com", "rpDisplayName": "DB Cluster Manager", "origins": ["https://db.example.com"] },
+  "auth": { "enabled": true, "rpId": "db.example.com", "rpDisplayName": "cluster-manager", "origins": ["https://db.example.com"] },
   "manager": {
     "nodeId": "manager-1",
     "dataDir": "/var/lib/dbcm-manager",

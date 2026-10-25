@@ -2,7 +2,7 @@
   "auth": {
     "enabled": true,
     "rpId": "dbcm.example.com",
-    "rpDisplayName": "DB Cluster Manager",
+    "rpDisplayName": "cluster-manager",
     "origins": [
       "https://dbcm.example.com"
     ]

@@ -16,7 +16,7 @@ const arr = (b: ArrayBuffer | BufferSource) => Array.from(new Uint8Array(b as Ar
 
 // Shaped like go-webauthn's marshalled creation.Response (the publicKey member).
 const creation: PublicKeyCredentialCreationOptionsJSON = {
-	rp: { name: 'DB Cluster Manager', id: 'localhost' },
+	rp: { name: 'cluster-manager', id: 'localhost' },
 	user: { name: 'admin', displayName: 'Admin', id: 'AQID' },
 	challenge: 'q83vEjRWeJA',
 	pubKeyCredParams: [
@@ -60,7 +60,7 @@ describe('options from JSON (fallback)', () => {
 		expect(arr(o.user.id)).toEqual([1, 2, 3]);
 		expect(arr(o.excludeCredentials![0].id)).toEqual([0xfb, 0xff]);
 		expect(o.user.name).toBe('admin');
-		expect(o.rp).toEqual({ name: 'DB Cluster Manager', id: 'localhost' });
+		expect(o.rp).toEqual({ name: 'cluster-manager', id: 'localhost' });
 		expect(o.authenticatorSelection?.residentKey).toBe('required');
 		expect(o.pubKeyCredParams).toHaveLength(2);
 		// The input is not mutated.

@@ -1,5 +1,5 @@
 ---
-title: Galera Cluster Manager
+title: cluster-manager
 layout: landing
 ---
 
@@ -7,7 +7,7 @@ layout: landing
 
 ![Application icon: three database nodes connected as a cluster](assets/icon/logo-256.png){: .logo}
 
-# Galera Cluster Manager
+# cluster-manager
 
 <p class="lead">A self-hosted, AGPLv3 manager for MariaDB Galera clusters on existing Docker Swarm clusters, with every risky action shown as a plan that waits for your approval. Working title; the product name is still open.</p>
 

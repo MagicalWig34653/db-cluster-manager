@@ -17,7 +17,7 @@ Automatic single-node replacement is allowed by policy/capacity. Full-cluster re
 ## Remaining product decisions
 
 - Final project name/GitHub owner, release naming and Pages setup. Public visibility and Git initialization/public push by Claude are explicitly authorized.
-- Copyright identity (the license is decided: `AGPL-3.0-only`).
+- Copyright identity (the license is decided: `AGPL-3.0-only`, confirmed again by the owner on 2026-10-25; the copyright holder name for file headers is still open, SPDX identifiers are used meanwhile).
 - Choose initial supported database/Docker versions and LTS/Rolling mapping. Go and the monorepo are confirmed; see ADR 0002.
 - Numerical recovery objectives (RPO/RTO), failure detection/replacement delays, retention/storage defaults beyond metrics.
 - Initial DNS provider integrations; email delivery setup and webhook authentication.
@@ -31,7 +31,7 @@ Automatic single-node replacement is allowed by policy/capacity. Full-cluster re
 None of these is decided. Ask the owner one focused question at a time when the dependent work becomes current; R1 work does not depend on them.
 
 - **Docker engine update boundaries (X09, supersedes A09 in part).** Who restarts hosts (always the user, or the manager after opt-in)? Which steps may run automatically (for example in maintenance windows) and which always need approval? Are OS package updates beyond the Docker engine in scope? Which installation methods are supported (distribution packages, Docker's repository, others)? Until confirmed, the manager performs no host restarts and no unattended engine updates.
-- **Product name.** "DB Cluster Manager"/"Galera Cluster Manager" no longer fits. Options, without a choice: keep the name as a legacy repository name and pick a new product name; a neutral platform name (for example "Swarmhold", "Clusterwerk", "Fleetkeeper" — availability and trademark not checked); a descriptive name ("Self-hosted Cluster Manager"). Also decide whether the GitHub repository is renamed (redirects) and when.
+- **Product name (decided 2026-10-25, provisional).** The product is called **cluster-manager** for now; the repository and folder name stay `db-cluster-manager` and the Go module path is unchanged. A final brand name and a repository rename can still follow later.
 - **Kubernetes timing.** [ADR 0016](decisions/0016-kubernetes-groundwork.md) records opt-in W10 groundwork and open implementation alternatives; it does not settle timing or distribution support. Whether Kubernetes (X02) stays after the service-type, build and storage phases (proposed R9) or moves earlier; which distributions to support first (for example k3s, kubeadm, existing managed clusters).
 - **Managed registry implementation.** For example CNCF Distribution (`registry`), Harbor, Zot or another; criteria: resource use within the lab budget, multi-architecture, garbage collection, authentication, replication to external registries, license.
 - **Build tool.** BuildKit (proposed) vs alternatives such as Buildah/Podman, Kaniko or ko-style builders; rootless operation, build host placement, cache limits, multi-architecture (emulation vs native builders).

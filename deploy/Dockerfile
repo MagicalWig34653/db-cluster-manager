@@ -49,7 +49,7 @@ FROM ${RUNTIME_IMAGE}
 ARG VERSION=0.0.0-dev
 ARG COMMIT=unknown
 LABEL org.opencontainers.image.title="db-cluster-manager" \
-      org.opencontainers.image.description="Galera Cluster Manager (manager, agent, cli)" \
+      org.opencontainers.image.description="cluster-manager (manager, agent, cli)" \
       org.opencontainers.image.source="https://github.com/MagicalWig34653/db-cluster-manager" \
       org.opencontainers.image.licenses="AGPL-3.0-only" \
       org.opencontainers.image.version="${VERSION}" \

@@ -189,7 +189,7 @@ func (m ManagedSpec) Descriptor() (ServiceDescriptor, error) {
 	switch m.Auth {
 	case AuthHtpasswd:
 		env["REGISTRY_AUTH"] = "htpasswd"
-		env["REGISTRY_AUTH_HTPASSWD_REALM"] = "DB Cluster Manager registry"
+		env["REGISTRY_AUTH_HTPASSWD_REALM"] = "cluster-manager registry"
 		env["REGISTRY_AUTH_HTPASSWD_PATH"] = "/run/secrets/registry_htpasswd"
 		secrets = append(secrets, SecretMount{Secret: m.HtpasswdSecret, Target: "registry_htpasswd"})
 	case AuthToken:

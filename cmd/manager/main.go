@@ -24,7 +24,7 @@
 //	  "auth": {
 //	    "enabled": true,
 //	    "rpId": "db.example.com",
-//	    "rpDisplayName": "DB Cluster Manager",
+//	    "rpDisplayName": "cluster-manager",
 //	    "origins": ["https://db.example.com"]
 //	  }
 //	}

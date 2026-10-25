@@ -2,9 +2,9 @@
   <img src="docs/assets/icon/logo-256.png" alt="Application icon: three database nodes connected as a cluster" width="128" height="128">
 </p>
 
-# Galera Cluster Manager
+# cluster-manager
 
-An AGPLv3, self-hosted manager for clusters and services, starting with MariaDB Galera on existing Docker Swarm clusters. Working title; the name no longer fits the broadened scope and is under review. **Early implementation; no release exists.**
+An AGPLv3, self-hosted manager for clusters and services, starting with MariaDB Galera on existing Docker Swarm clusters. The name is **cluster-manager** for now (owner decision 2026-10-25); the repository and folder stay `db-cluster-manager`. **Early implementation; no release exists.**
 
 [![Build](https://github.com/MagicalWig34653/db-cluster-manager/actions/workflows/build.yml/badge.svg)](https://github.com/MagicalWig34653/db-cluster-manager/actions/workflows/build.yml)
 [![Docs](https://github.com/MagicalWig34653/db-cluster-manager/actions/workflows/docs-check.yml/badge.svg)](https://github.com/MagicalWig34653/db-cluster-manager/actions/workflows/docs-check.yml)
