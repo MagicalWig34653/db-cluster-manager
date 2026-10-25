@@ -4,6 +4,8 @@ package registry
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"regexp"
@@ -152,7 +154,11 @@ func (s *Service) AddExternal(ctx context.Context, actor string, in ExternalInpu
 	cfg := Config{ID: in.ID, Name: in.Name, Kind: in.Kind, Endpoint: ep, Username: in.Username,
 		CreatedAt: s.now().UTC(), CreatedBy: actor}
 	if !in.Password.IsZero() {
-		cfg.CredentialRef = "registry/" + in.ID + "/credential"
+		var nonce [16]byte
+		if _, err := rand.Read(nonce[:]); err != nil {
+			return Config{}, err
+		}
+		cfg.CredentialRef = "registry/" + in.ID + "/credential/" + hex.EncodeToString(nonce[:])
 		if err := s.Secrets.Put(ctx, cfg.CredentialRef, in.Password); err != nil {
 			return Config{}, err
 		}
