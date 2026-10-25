@@ -25,6 +25,7 @@ var (
 	// convention; a literal value would be stored in the spec, shown in the
 	// preview and sent in commands.
 	secretEnvRe = regexp.MustCompile(`(?i)(PASSWORD|PASSWD|SECRET|TOKEN|API_?KEY|PRIVATE_?KEY|CREDENTIAL)S?$`)
+	credentialValueRe = regexp.MustCompile(`(?i)([a-z][a-z0-9+.-]*://[^\s/:'"<>]+:[^\s/@'"<>]+@|\bBearer\s+\S+|\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-(?:proj-)?[A-Za-z0-9_-]{20,}|xox[abprs]-[A-Za-z0-9-]{10,})\b|(?:^|[\s-])(?:password|passwd|secret|token|api[_-]?key|private[_-]?key|credential)[A-Za-z0-9_-]*\s*[:=]\s*\S+)`)
 )
 
 func validName(s string) bool { return nameRe.MatchString(s) }
@@ -140,6 +141,8 @@ func (c ContainerSpec) validate() error {
 			p.addf("env %s set twice", e.Name)
 		case secretEnvRe.MatchString(e.Name):
 			p.addf("env %s looks like a secret: use a Swarm secret and %s_FILE instead of a literal value", e.Name, e.Name)
+		case credentialValueRe.MatchString(e.Value):
+			p.addf("env %s contains credential-looking data: use a Swarm secret reference", e.Name)
 		case strings.ContainsAny(e.Value, "\x00\r\n"):
 			p.addf("env %s value contains a control character", e.Name)
 		}
@@ -148,6 +151,10 @@ func (c ContainerSpec) validate() error {
 	for _, s := range slices.Concat(c.Command, c.Args) {
 		if strings.ContainsRune(s, 0) {
 			p.addf("command or argument contains a NUL byte")
+			break
+		}
+		if credentialValueRe.MatchString(s) || secretEnvRe.MatchString(strings.TrimLeft(s, "-")) {
+			p.addf("command or argument contains credential-looking data: use a Swarm secret reference")
 			break
 		}
 	}
