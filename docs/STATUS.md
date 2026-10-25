@@ -817,8 +817,10 @@ The full `go test -race -count=1 -p 4 ./...` exited 1: 25 packages passed,
 4 had no tests and 19 failed because this sandbox denies local TCP/Unix
 listeners (`bind: operation not permitted`), including pre-existing test
 harnesses. No non-listener failure was seen in the captured output. A web
-check was attempted for documentation/Pages consistency, but `npm run check`
-exited 127 (`svelte-kit: command not found`); `npm test` and `npm run build`
-therefore did not run. `internal/webui/assets/.gitkeep` was touched. These
+check was attempted for documentation/Pages consistency, but all three
+commands exited 127: `npm run check` (`svelte-kit: command not found`),
+`npm test` (`vitest: command not found`) and `npm run build`
+(`vite: command not found`). `web/node_modules` is absent;
+`internal/webui/assets/.gitkeep` was touched. These
 results do not replace the full suite or a Swarm run in an environment that
 permits local listeners and has frontend dependencies installed.
