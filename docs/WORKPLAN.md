@@ -96,3 +96,28 @@ separately. The first combined-shell commit failed on `index.lock`, but the
 standalone retry succeeded. No push made. Next concrete action: rerun the full
 suite and socket-backed fake-CA tests where loopback listeners are allowed.
 Any real CA, DNS or deployment work needs a separately authorized scope.
+
+## amd64 CI handover (2026-10-24)
+
+Build/CI configuration for W05/P10 is implemented on `cx-amd64`: native Ubuntu
+amd64/arm64 Go/web checks and both native image builds without push; version-tag
+release waits for those checks and builds/publishes both multi-platform images
+with SBOM/provenance. Existing action SHA pins are retained. Deployment workflow
+guards and 12 mutation tests cover publication permissions, trigger/dependency,
+platforms and attestations. Deployment notes and the native amd64 P0 evidence
+plan are current; choosing an owner amd64 host versus cloud VM remains open.
+
+[Actual verification and limits](STATUS.md#amd64-build-and-ci-support-2026-10-24):
+format/vet/docs/deploy checks and 12 checker tests passed (also without PyYAML);
+web check, 185 tests and production build passed after offline dependency
+installation, and `.gitkeep` was restored. Full Go race suite failed (24 packages
+passed, 18 failed, 5 without tests) on sandbox listener restrictions plus one
+manager abort timeout; that test passed on an isolated race rerun. No image,
+Actions run or native amd64 P0 evidence exists for this change. No infrastructure
+contact or push occurred. Git staging/commits are blocked by the shared metadata
+`index.lock` permission; all changes remain in this worktree.
+
+Next: create small reviewed commits when metadata is writable, execute native
+CI, inspect version-tag image manifests/attestations after an explicit release
+trigger, then obtain the owner host/VM decision and a scoped lab plan before
+P0. W05 stays IN PROGRESS and its release gates are unchanged.

@@ -1,0 +1,9 @@
+# Deployment architecture coverage
+
+Both `Dockerfile` (manager, agent, CLI and embedded UI) and `Dockerfile.jobs` (backup/restore helper and MariaDB tools) target `linux/amd64` and `linux/arm64`. Buildx supplies `TARGETOS`/`TARGETARCH`; Go cross-compiles with CGO disabled while the web output is architecture independent. The jobs image runs its tool/UID checks on the target platform. Base indexes are digest pinned; availability for each architecture is verified only by successful builds.
+
+The [native CI matrix](../.github/workflows/build.yml) builds and tests Go and web on Ubuntu amd64 and arm64 and builds both native images into temporary OCI archives, with SBOM and provenance and no push. The [version-tag release](../.github/workflows/release.yml) waits for that matrix, then publishes both multi-platform images to GHCR. Only that image job has registry write permission. QEMU in the tag build is not native runtime evidence. Existing action SHA pins are retained; no new action version was resolved.
+
+No changes to service placement or architecture constraints are needed in `compose.yaml` or `stack.yaml`: image indexes select the node architecture. Operators must make the matching manager/agent, job and database images available on every eligible node; the job image MariaDB version must match the database server. Mixed-architecture scheduling, native amd64 deployment and the updated workflows have not been validated in this task. Existing E7 evidence covers arm64 only.
+
+See [installation](../docs/INSTALL.md) and the [native amd64 P0 plan](../docs/TESTING.md#native-amd64-p0-evidence-plan). An owner-provided amd64 host versus cloud VM remains an open owner decision; no infrastructure was contacted or provisioned here.

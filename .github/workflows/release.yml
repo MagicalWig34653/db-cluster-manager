@@ -8,7 +8,13 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 jobs:
+  verify:
+    uses: ./.github/workflows/build.yml
+    permissions:
+      contents: read
+
   web:
+    needs: verify
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -114,6 +120,16 @@ jobs:
             ./*.tar.gz SHA256SUMS
 
   image:
+    needs: verify
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - dockerfile: deploy/Dockerfile
+            suffix: ""
+          - dockerfile: deploy/Dockerfile.jobs
+            suffix: "-jobs"
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -132,7 +148,7 @@ jobs:
       - id: meta
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
-          images: ghcr.io/${{ github.repository }}
+          images: ghcr.io/${{ github.repository }}${{ matrix.suffix }}
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -146,9 +162,11 @@ jobs:
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
-          file: deploy/Dockerfile
+          file: ${{ matrix.dockerfile }}
           platforms: linux/amd64,linux/arm64
           push: true
+          sbom: true
+          provenance: mode=max
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |

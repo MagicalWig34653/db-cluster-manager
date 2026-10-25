@@ -1,7 +1,7 @@
 """Static checks for deployment files (stdlib only; no Docker daemon needed).
 
 Checks deploy/Dockerfile, deploy/Dockerfile.jobs, deploy/compose.yaml,
-deploy/stack.yaml, deploy/manager.example.json and the release workflow. It is NOT a replacement for hadolint, `docker compose
+deploy/stack.yaml, deploy/manager.example.json and the build/release workflows. It is NOT a replacement for hadolint, `docker compose
 config` or a real image build, and it does not prove the image builds.
 PyYAML is used for a real parse only if importable; otherwise a simple
 text-level structural check runs and says so.
@@ -333,6 +333,71 @@ def check_workflow(path: Path) -> None:
         err(f"{path.name}: not a mapping")
 
 
+def require_text(path: Path, text: str, needles) -> None:
+    for needle in needles:
+        if needle not in text:
+            err(f"{path.name}: missing CI contract {needle!r}")
+
+
+def check_build_workflow(path: Path) -> None:
+    """Fail closed on changes to the read-only native build contract.
+
+    These text checks also run without PyYAML; they deliberately require the
+    reviewed job layout. They are static guards, not an Actions interpreter.
+    """
+    check_workflow(path)
+    text = uncommented(path.read_text())
+    require_text(path, text, (
+        "  workflow_call:", "    runs-on: ${{ matrix.runner }}",
+        "- runner: ubuntu-24.04\n            arch: amd64",
+        "- runner: ubuntu-24.04-arm\n            arch: arm64",
+        'test "$(go env GOHOSTARCH)" = "$EXPECTED_ARCH"',
+        "persist-credentials: false", "make build", "make check",
+        "python3 scripts/check_deploy.py", "go test -race -count=1 -p 4 ./...",
+        "working-directory: web\n        run: npm test",
+    ))
+    if re.search(r"(?m)^\s*[\w-]+:\s*write|write-all|secrets\.", text):
+        err(f"{path.name}: native build must not have write permissions or secrets")
+    builds = re.findall(r"(?ms)^      - name: Build [^\n]+image\n(.*?)(?=^      - |\Z)", text)
+    if len(builds) != 2:
+        err(f"{path.name}: expected exactly two container builds")
+    for build, dockerfile in zip(builds, ("deploy/Dockerfile", "deploy/Dockerfile.jobs")):
+        require_text(path, build, (f"file: {dockerfile}", "platforms: linux/${{ matrix.arch }}",
+                                  "push: false", "outputs: type=oci,dest=", "sbom: true",
+                                  "provenance: mode=max"))
+    if re.search(r"(?m)^\s*push: true|docker/login-action|--push", text):
+        err(f"{path.name}: native build may not log in or push")
+
+
+def check_release_workflow(path: Path) -> None:
+    check_workflow(path)
+    text = uncommented(path.read_text())
+    require_text(path, text, (
+        '    tags: ["v*"]', "permissions: {}",
+        "  verify:\n    uses: ./.github/workflows/build.yml",
+        "  web:\n    needs: verify",
+        "  image:\n    needs: verify",
+        "    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')",
+        '- dockerfile: deploy/Dockerfile\n            suffix: ""',
+        '- dockerfile: deploy/Dockerfile.jobs\n            suffix: "-jobs"',
+        "images: ghcr.io/${{ github.repository }}${{ matrix.suffix }}",
+        "registry: ghcr.io", "file: ${{ matrix.dockerfile }}",
+        "platforms: linux/amd64,linux/arm64", "push: true",
+        "sbom: true", "provenance: mode=max",
+    ))
+    if not re.search(r'(?m)^on:\n  push:\n    tags: \["v\*"\]\npermissions: \{\}', text):
+        err(f"{path.name}: expected only the version-tag push trigger")
+    # Only the image job needs registry writes; release creation needs contents.
+    jobs = re.split(r"(?m)^  ([\w-]+):\n", text.split("jobs:\n", 1)[-1])
+    for name, body in zip(jobs[1::2], jobs[2::2]):
+        writes = re.findall(r"(?m)^\s+([\w-]+): write\s*$", body)
+        expected = {"image": ["packages"], "release": ["contents"]}.get(name, [])
+        if writes != expected:
+            err(f"{path.name}: unexpected write permissions in {name}: {writes}")
+    if re.search(r"(?m)^  (?:pull_request|pull_request_target|workflow_dispatch|workflow_call|schedule):", text):
+        err(f"{path.name}: publication must only run on version tag pushes")
+
+
 def check_sh(path: Path) -> None:
     r = subprocess.run(["sh", "-n", str(path)], capture_output=True, text=True)
     if r.returncode:
@@ -344,7 +409,8 @@ check_jobs_dockerfile(ROOT / "deploy/Dockerfile.jobs")
 example = check_example_config(ROOT / "deploy/manager.example.json")
 check_compose(ROOT / "deploy/compose.yaml", example)
 check_stack(ROOT / "deploy/stack.yaml", example)
-check_workflow(ROOT / ".github/workflows/release.yml")
+check_build_workflow(ROOT / ".github/workflows/build.yml")
+check_release_workflow(ROOT / ".github/workflows/release.yml")
 check_sh(ROOT / "scripts/make-offline-bundle.sh")
 
 for n in notes:
