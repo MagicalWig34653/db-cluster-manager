@@ -453,6 +453,26 @@ func newService(fb *FakeBuilder) *Service {
 	}
 }
 
+func TestExecutionIDPreventsSecondBuild(t *testing.T) {
+	ctx := context.Background()
+	fb := &FakeBuilder{}
+	s := newService(fb)
+	req := Request{Spec: goodSpec(), Target: Target{Registry: "ghcr-main", Repository: "team/shop", Tag: "1"}}
+	plan, err := s.Plan(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.ApprovalDigest, req.ExecutionID = plan.Digest, "vx-test-intent"
+	first, err := s.Start(ctx, "admin", req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := s.Start(ctx, "admin", req)
+	if err != nil || second.ID != first.ID || len(fb.Calls) != 1 {
+		t.Fatalf("duplicate execution: %+v, %+v, calls=%d, err=%v", first, second, len(fb.Calls), err)
+	}
+}
+
 func TestServiceApprovalAndJobRecord(t *testing.T) {
 	ctx := context.Background()
 	fb := &FakeBuilder{LogLines: []string{"pushing with pw-12345-secret", "Authorization: Bearer zzz"}}

@@ -107,6 +107,15 @@ type ImageJobStore struct{ Store *Store }
 
 var _ imagebuild.JobStore = ImageJobStore{}
 
+// Create implements imagebuild.JobStore with a replicated insert-only write.
+func (s ImageJobStore) Create(_ context.Context, j imagebuild.Job) error {
+	_, err := Put(s.Store, collImageJobs, j.ID, j, IfVersion(0))
+	if errors.Is(err, ErrConflict) {
+		return imagebuild.ErrJobExists
+	}
+	return err
+}
+
 // Put implements imagebuild.JobStore.
 func (s ImageJobStore) Put(_ context.Context, j imagebuild.Job) error {
 	_, err := Put(s.Store, collImageJobs, j.ID, j, nil)

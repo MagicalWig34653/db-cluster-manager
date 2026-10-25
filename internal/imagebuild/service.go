@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -26,6 +27,9 @@ type Request struct {
 	Target Target        `json:"target"`
 	// ApprovalDigest must equal Plan.Digest of the plan the user reviewed.
 	ApprovalDigest string `json:"approvalDigest,omitempty"`
+	// ExecutionID is a durable caller-supplied idempotency key. Repeated
+	// starts with this ID return the existing job without running the builder.
+	ExecutionID string `json:"-"`
 }
 
 // DefaultMaxLogBytes caps the retained build log.
@@ -119,12 +123,26 @@ func (s *Service) Start(ctx context.Context, actor string, req Request) (Job, er
 		return Job{}, err
 	}
 	n := req.Spec.Normalize()
+	jobID := s.newID()
+	if req.ExecutionID != "" {
+		jobID = req.ExecutionID
+	}
 	job := Job{
-		ID: s.newID(), Name: n.Name, Status: JobRunning, Spec: n, SpecHash: p.SpecHash, ContextHash: p.ContextHash,
+		ID: jobID, Name: n.Name, Status: JobRunning, Spec: n, SpecHash: p.SpecHash, ContextHash: p.ContextHash,
 		PlanDigest: p.Digest, Reference: p.Reference, Platforms: p.Platforms, SBOM: SBOMNotGenerated,
 		RequestedBy: actor, CreatedAt: s.now(),
 	}
-	if err := s.Jobs.Put(ctx, job); err != nil {
+	if err := s.Jobs.Create(ctx, job); err != nil {
+		if errors.Is(err, ErrJobExists) && req.ExecutionID != "" {
+			old, getErr := s.Jobs.Get(ctx, req.ExecutionID)
+			if getErr != nil {
+				return Job{}, getErr
+			}
+			if old.PlanDigest != p.Digest {
+				return Job{}, ErrJobExists
+			}
+			return old, nil
+		}
 		return Job{}, err
 	}
 	rendered, err := Render(req.Spec, s.Catalog)

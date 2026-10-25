@@ -141,6 +141,8 @@ type Proposal struct {
 	CreatedAt  time.Time      `json:"createdAt"`
 	DecidedBy  string         `json:"decidedBy,omitempty"`
 	DecidedAt  time.Time      `json:"decidedAt,omitzero"`
+	// ExecutionID is the durable idempotency key committed before any build.
+	ExecutionID string `json:"executionId,omitempty"`
 	// Execution references what approval started (an image build job ID)
 	// or explains why nothing was started.
 	Execution string `json:"execution,omitempty"`

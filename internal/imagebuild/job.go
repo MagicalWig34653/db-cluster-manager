@@ -51,12 +51,28 @@ type Job struct {
 
 // ErrJobNotFound is returned for an unknown job ID.
 var ErrJobNotFound = errors.New("imagebuild: job not found")
+var ErrJobExists = errors.New("imagebuild: job already exists")
 
 // JobStore persists job records.
 type JobStore interface {
-	Put(ctx context.Context, j Job) error // insert or replace
+	Create(ctx context.Context, j Job) error // insert only
+	Put(ctx context.Context, j Job) error    // insert or replace
 	Get(ctx context.Context, id string) (Job, error)
 	List(ctx context.Context) ([]Job, error) // newest first
+}
+
+// Create implements JobStore with an atomic insert.
+func (s *MemoryJobStore) Create(_ context.Context, j Job) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.m == nil {
+		s.m = map[string]Job{}
+	}
+	if _, ok := s.m[j.ID]; ok {
+		return ErrJobExists
+	}
+	s.m[j.ID] = j
+	return nil
 }
 
 // MemoryJobStore is an in-memory JobStore for tests (a fake).

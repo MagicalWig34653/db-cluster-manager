@@ -4,6 +4,8 @@ package vuln
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"slices"
@@ -44,6 +46,7 @@ func (x ImageBuildExecutor) Execute(ctx context.Context, actor string, p Proposa
 	}
 	req := *p.Plan.Build
 	req.ApprovalDigest = p.Plan.BuildPlanDigest
+	req.ExecutionID = p.ExecutionID
 	job, err := x.Builds.Start(ctx, actor, req)
 	if err != nil {
 		return "", err
@@ -675,6 +678,12 @@ func (s *Service) approveLocked(ctx context.Context, actor, id, digest string, a
 	if !auto && pol.Mode == ModeNotifyOnly {
 		return Proposal{}, fmt.Errorf("%w: notify_only", ErrPolicyForbids)
 	}
+	if (p.Status == StatusApproved || p.Status == StatusFailed) && p.ExecutionID != "" && digest == p.Plan.Digest {
+		if p.Execution != "" && p.Status == StatusApproved {
+			return p, nil
+		}
+		return s.executeIntent(ctx, actor, p, ver, EventApproved)
+	}
 	if p.Status != StatusAwaitingApproval && p.Status != StatusProposed {
 		return Proposal{}, ErrClosed
 	}
@@ -695,9 +704,27 @@ func (s *Service) approveLocked(ctx context.Context, actor, id, digest string, a
 		ev = EventAutoApproved
 	}
 	p.Status, p.DecidedBy, p.DecidedAt = StatusApproved, actor, s.now()
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return Proposal{}, err
+	}
+	p.ExecutionID = "vx-" + hex.EncodeToString(nonce[:])
 	if err := s.audit(AuditRecord{Actor: actor, Event: ev, FindingID: p.FindingID, ProposalID: p.ID, PlanDigest: p.Plan.Digest}); err != nil {
 		return Proposal{}, err
 	}
+	if err := s.Store.PutProposal(p, ver); err != nil {
+		return Proposal{}, err
+	}
+	_, ver, _, err = s.Store.Proposal(id)
+	if err != nil {
+		return Proposal{}, err
+	}
+	return s.executeIntent(ctx, actor, p, ver, ev)
+}
+
+// executeIntent reconciles the durable execution ID. The build service
+// atomically claims that ID before calling the external builder.
+func (s *Service) executeIntent(ctx context.Context, actor string, p Proposal, ver uint64, ev string) (Proposal, error) {
 	if s.Executor == nil {
 		p.Execution = "no executor is wired: approval recorded, nothing started"
 	} else {

@@ -228,11 +228,11 @@ func TestDeterministicProposalNotifyOnlyThenApproval(t *testing.T) {
 		t.Fatal("nothing may be built before approval")
 	}
 	done, err := f.svc.Approve(ctx, "admin", p2.ID, p2.Plan.Digest)
-	if err != nil || done.Status != StatusApproved || !strings.HasPrefix(done.Execution, "image build ib-") || len(f.builder.Calls) != 1 {
+	if err != nil || done.Status != StatusApproved || !strings.HasPrefix(done.Execution, "image build vx-") || len(f.builder.Calls) != 1 {
 		t.Fatal(done, err)
 	}
-	if _, err := f.svc.Approve(ctx, "admin", p2.ID, p2.Plan.Digest); !errors.Is(err, ErrClosed) {
-		t.Fatal("approve twice", err)
+	if again, err := f.svc.Approve(ctx, "admin", p2.ID, p2.Plan.Digest); err != nil || again.ExecutionID != done.ExecutionID || len(f.builder.Calls) != 1 {
+		t.Fatal("retry must retain one build", again, err)
 	}
 	// No fix known: deterministic no-op with a manual plan.
 	nofix := f.finding("CVE-2026-200", "img-shop")
@@ -251,6 +251,40 @@ func TestDeterministicProposalNotifyOnlyThenApproval(t *testing.T) {
 	}
 	if _, err := f.svc.Approve(ctx, "admin", p3.ID, p3.Plan.Digest); !errors.Is(err, ErrClosed) {
 		t.Fatal(err)
+	}
+}
+
+type intentExecutor struct {
+	store *Store
+	calls []string
+}
+
+func (x *intentExecutor) Execute(_ context.Context, _ string, p Proposal) (string, error) {
+	stored, _, ok, err := x.store.Proposal(p.ID)
+	if err != nil || !ok || stored.ExecutionID == "" || stored.ExecutionID != p.ExecutionID || stored.Status != StatusApproved {
+		return "", fmt.Errorf("execution intent was not persisted before build: %+v %v", stored, err)
+	}
+	x.calls = append(x.calls, p.ExecutionID)
+	return "job-1", nil
+}
+
+func TestApprovalPersistsIntentAndRetryUsesSameID(t *testing.T) {
+	f := newFixture(t)
+	f.poll()
+	f.setPolicy(Policy{Mode: ModeApprovalRequired})
+	p, err := f.svc.Propose(context.Background(), "op", f.finding("CVE-2026-109618", "img-shop").ID, ProposeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	x := &intentExecutor{store: f.svc.Store}
+	f.svc.Executor = x
+	first, err := f.svc.Approve(context.Background(), "admin", p.ID, p.Plan.Digest)
+	if err != nil || first.ExecutionID == "" || len(x.calls) != 1 {
+		t.Fatalf("first: %+v, %v", first, err)
+	}
+	second, err := f.svc.Approve(context.Background(), "admin", p.ID, p.Plan.Digest)
+	if err != nil || second.ExecutionID != first.ExecutionID || len(x.calls) != 1 {
+		t.Fatalf("retry: %+v, %v, calls %v", second, err, x.calls)
 	}
 }
 
