@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -58,6 +59,19 @@ type Config struct {
 	Probe         ProbeConfig  `json:"probe"`
 	Limits        LimitsConfig `json:"limits"`
 	TLS           *TLSConfig   `json:"tls,omitempty"`
+	// Coordination is required for safe writer selection across redundant
+	// proxies. Without it, the existing routing policy is local to this process.
+	Coordination *CoordinationConfig `json:"coordination,omitempty"`
+}
+
+// CoordinationConfig connects this proxy to the manager's replicated writer
+// choice. Every redundant proxy must have a distinct ID and the same cluster.
+type CoordinationConfig struct {
+	ClusterID   string   `json:"cluster_id"`
+	ProxyID     string   `json:"proxy_id"`
+	ManagerURLs []string `json:"manager_urls"`
+	TokenFile   string   `json:"token_file"`
+	Timeout     Duration `json:"timeout,omitempty"`
 }
 
 // NodeConfig is one database node.
@@ -213,6 +227,9 @@ func LoadConfig(path string) (Config, error) {
 			}
 		}
 	}
+	if c.Coordination != nil && c.Coordination.TokenFile != "" && !filepath.IsAbs(c.Coordination.TokenFile) {
+		c.Coordination.TokenFile = filepath.Join(filepath.Dir(path), c.Coordination.TokenFile)
+	}
 	return c, nil
 }
 
@@ -262,6 +279,11 @@ func (c *Config) applyDefaults() {
 	}
 	if l.ShutdownGrace <= 0 {
 		l.ShutdownGrace = Duration(DefaultShutdownGrace)
+	}
+	if c.Coordination != nil {
+		if c.Coordination.Timeout <= 0 {
+			c.Coordination.Timeout = Duration(min(750*time.Millisecond, c.Probe.Interval.D()))
+		}
 	}
 }
 
@@ -360,6 +382,32 @@ func (c Config) Validate() error {
 	}
 	if c.TLS != nil && (c.TLS.CertFile == "" || c.TLS.KeyFile == "") {
 		return errors.New("tls: cert_file and key_file are required")
+	}
+	if x := c.Coordination; x != nil {
+		if x.ClusterID == "" || x.ProxyID == "" || len(x.ManagerURLs) == 0 || x.TokenFile == "" {
+			return errors.New("coordination: cluster_id, proxy_id, manager_urls and token_file are required")
+		}
+		if p.Mode != routing.WriterStable {
+			return errors.New("coordination requires single-writer-stable policy")
+		}
+		if c.Probe.Sync != SyncGalera {
+			return errors.New("coordination requires probe.sync galera")
+		}
+		if p.Read != routing.ReadDisabled || c.ReadListen != "" {
+			return errors.New("coordination requires the read endpoint to be disabled (it cannot enforce read-only SQL)")
+		}
+		if x.Timeout <= 0 || x.Timeout > c.Probe.Interval {
+			return errors.New("coordination: timeout must be positive and no longer than probe.interval")
+		}
+		for _, raw := range x.ManagerURLs {
+			u, err := url.Parse(raw)
+			if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "" {
+				return fmt.Errorf("coordination: invalid manager URL %q", raw)
+			}
+			if u.Scheme != "https" && !(u.Scheme == "http" && (u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost" || u.Hostname() == "::1")) {
+				return fmt.Errorf("coordination: manager URL %q must use HTTPS (HTTP is loopback-only)", raw)
+			}
+		}
 	}
 	return nil
 }

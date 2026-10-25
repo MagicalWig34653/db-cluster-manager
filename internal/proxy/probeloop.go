@@ -46,6 +46,7 @@ func (p *Proxy) interval() time.Duration {
 // updated and becomes stale; at most one probe per node is ever in flight,
 // so goroutines stay bounded by the node count.
 func (p *Proxy) probeRound(ctx context.Context) {
+	p.syncWriterChoice(ctx)
 	p.mu.Lock()
 	prober := p.prober
 	timeout := p.cfg.Probe.Timeout.D()
@@ -93,6 +94,56 @@ collect:
 	p.mu.Unlock()
 }
 
+// syncWriterChoice applies a leader decision before probing. During a freeze
+// it closes every write connection before acknowledging the epoch. If the
+// manager cannot be reached, the last choice remains, subject to local
+// health; a fresh proxy has no writer until it reaches the manager.
+func (p *Proxy) syncWriterChoice(ctx context.Context) {
+	p.mu.Lock()
+	if p.cfg.Coordination == nil {
+		p.mu.Unlock()
+		return
+	}
+	cfg := *p.cfg.Coordination
+	source := p.writerSource
+	p.mu.Unlock()
+	requestCtx, cancel := context.WithTimeout(ctx, cfg.Timeout.D())
+	h, err := source.Fetch(requestCtx, cfg)
+	cancel()
+	if err != nil {
+		p.log.Warn("writer choice unavailable; keeping last safe choice", "err", err)
+		return
+	}
+	p.mu.Lock()
+	if p.cfg.Coordination == nil || p.cfg.Coordination.ClusterID != cfg.ClusterID || p.cfg.Coordination.ProxyID != cfg.ProxyID {
+		p.mu.Unlock()
+		return
+	}
+	// Never regress to an older epoch or from an active choice back into
+	// the freeze of that same epoch.
+	if h.Epoch < p.hint.Epoch || (h.Epoch == p.hint.Epoch && p.hint.Pending == "" && p.hint.Writer != "" && h.Pending != "") {
+		p.mu.Unlock()
+		return
+	}
+	p.hint = h
+	if h.Pending != "" {
+		p.evaluateLocked(time.Now())
+		for c := range p.conns {
+			if c.ep == EndpointWrite {
+				c.close()
+			}
+		}
+	}
+	p.mu.Unlock()
+	if h.Pending != "" {
+		ackCtx, stop := context.WithTimeout(ctx, cfg.Timeout.D())
+		if err := source.Ack(ackCtx, cfg, h.Epoch); err != nil {
+			p.log.Warn("writer freeze acknowledgement failed", "err", err)
+		}
+		stop()
+	}
+}
+
 func (p *Proxy) record(ns *nodeState, r ProbeResult, now time.Time) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -126,6 +177,9 @@ func (p *Proxy) routingNodesLocked() []routing.Node {
 			n.LastSeen = ns.lastSeen
 			n.Sync = ns.sync
 			n.LatencySamples = slices.Clone(ns.samples)
+		}
+		if p.cfg.Coordination != nil && n.Role == routing.RoleWriterEligible && n.ID != p.hint.Writer {
+			n.Role = routing.RoleReader
 		}
 		out = append(out, n)
 	}

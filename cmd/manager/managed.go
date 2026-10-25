@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -90,6 +91,8 @@ type managerConfig struct {
 	// Vuln enables the vulnerability response (X13, ADR 0015); see vuln.go.
 	// It needs auth.enabled and contacts nothing unless feeds are listed.
 	Vuln *vulnConfig `json:"vuln,omitempty"`
+	// ProxyWriters enables the replicated writer-choice protocol.
+	ProxyWriters []proxyWriterConfig `json:"proxyWriters,omitempty"`
 }
 
 // imageBuildConfig is the "manager.imageBuild" section. Presence enables
@@ -300,6 +303,9 @@ func (m *managerConfig) validate() error {
 			return err
 		}
 	}
+	if err := validateProxyWriters(m.ProxyWriters); err != nil {
+		return err
+	}
 	return m.validatePeers()
 }
 
@@ -364,11 +370,12 @@ func (m *managerConfig) scheduleInterval() time.Duration {
 // answered; every other API request gets 503 with the known leader in the
 // X-DCM-Leader header (no request forwarding).
 type managedRuntime struct {
-	acme    *managertls.Manager
-	svc     *manager.Service
-	handler atomic.Pointer[http.Handler]
-	stack   atomic.Pointer[manager.AuthStack]
-	proto   http.Handler
+	acme         *managertls.Manager
+	svc          *manager.Service
+	handler      atomic.Pointer[http.Handler]
+	stack        atomic.Pointer[manager.AuthStack]
+	proto        http.Handler
+	proxyWriters map[string]proxyWriterConfig
 
 	// Command services of the current leadership's API.
 	keys       manager.KeyProvider
@@ -443,7 +450,10 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 	if mc.Vuln != nil && !cfg.Auth.Enabled {
 		return nil, errors.New("manager.vuln needs auth.enabled")
 	}
-	rt := &managedRuntime{proto: api.NewHandler(), keys: keys, backend: backend, imageCfg: mc.ImageBuild, imageRunner: newImageRunner(), vulnCfg: mc.Vuln}
+	rt := &managedRuntime{proto: api.NewHandler(), keys: keys, backend: backend, imageCfg: mc.ImageBuild, imageRunner: newImageRunner(), vulnCfg: mc.Vuln, proxyWriters: map[string]proxyWriterConfig{}}
+	for _, w := range mc.ProxyWriters {
+		rt.proxyWriters[w.ClusterID] = w
+	}
 	rt.setHandler(rt.notLeader())
 	swarms := &manager.Swarms{Matrix: swarm.DefaultMatrix(), Dial: func(h string) (swarm.Connector, error) { return swarm.Dial(h) }}
 	rt.swarms = swarms
@@ -495,6 +505,20 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 			}
 			return rt.monitoring.Notify(ctx, e)
 		}})
+	}
+	var autoWriterRoutes []manager.ProxyWriterRoute
+	for _, w := range mc.ProxyWriters {
+		if !w.AutoFailover {
+			continue
+		}
+		ids := make([]string, 0, len(w.Members))
+		for _, m := range w.Members {
+			ids = append(ids, m.ID)
+		}
+		autoWriterRoutes = append(autoWriterRoutes, manager.ProxyWriterRoute{Cluster: w.ClusterID, InitialWriter: w.InitialWriter, Candidates: slices.Clone(w.Candidates), Members: ids})
+	}
+	if len(autoWriterRoutes) > 0 {
+		scfg.Reconcilers = append(scfg.Reconcilers, manager.ProxyWriterReconciler{Routes: autoWriterRoutes})
 	}
 	var serverIPs []net.IP
 	if at := mc.AgentTransport; at != nil {
@@ -593,6 +617,10 @@ func (rt *managedRuntime) setHandler(h http.Handler) { rt.handler.Store(&h) }
 
 // ServeHTTP implements http.Handler.
 func (rt *managedRuntime) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if strings.HasPrefix(r.URL.Path, "/api/v1/proxy-writers/") {
+		rt.serveProxyWriter(w, r)
+		return
+	}
 	(*rt.handler.Load()).ServeHTTP(w, r)
 }
 

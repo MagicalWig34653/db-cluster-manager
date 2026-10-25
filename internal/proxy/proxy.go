@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"reflect"
 	"slices"
 	"sync"
 	"time"
@@ -48,6 +49,8 @@ type Options struct {
 	Certs CertSource
 	// Logger defaults to a discarding logger.
 	Logger *slog.Logger
+	// WriterSource overrides the manager HTTP source in tests.
+	WriterSource WriterSource
 }
 
 // nodeState is the proxy's view of one configured node. Guarded by Proxy.mu.
@@ -72,6 +75,8 @@ type Proxy struct {
 	log          *slog.Logger
 	customProber bool
 	status       GaleraStatusProber
+	writerSource WriterSource
+	hint         WriterHint
 
 	mu        sync.Mutex
 	cfg       Config
@@ -121,6 +126,7 @@ func New(cfg Config, opts Options) (*Proxy, error) {
 		log:          log,
 		customProber: opts.Prober != nil,
 		status:       opts.Status,
+		writerSource: opts.WriterSource,
 		cfg:          cfg,
 		prober:       opts.Prober,
 		certs:        opts.Certs,
@@ -131,6 +137,9 @@ func New(cfg Config, opts Options) (*Proxy, error) {
 	}
 	if p.prober == nil {
 		p.prober = proberFromConfig(cfg.Probe, p.status)
+	}
+	if cfg.Coordination != nil && p.writerSource == nil {
+		p.writerSource = HTTPWriterSource{}
 	}
 	if cfg.TLS != nil {
 		if p.certs == nil {
@@ -310,6 +319,12 @@ func (p *Proxy) Reload(cfg Config) error {
 	}
 	if (cfg.TLS == nil) != (old.TLS == nil) {
 		return errors.New("enabling or disabling TLS requires a restart")
+	}
+	if (cfg.Coordination == nil) != (old.Coordination == nil) {
+		return errors.New("changing coordination mode requires a restart")
+	}
+	if cfg.Coordination != nil && (cfg.Coordination.ClusterID != old.Coordination.ClusterID || cfg.Coordination.ProxyID != old.Coordination.ProxyID || !reflect.DeepEqual(cfg.Coordination.ManagerURLs, old.Coordination.ManagerURLs)) {
+		return errors.New("changing coordination identity or managers requires a restart")
 	}
 	if fs, ok := p.certs.(*FileCertSource); ok && cfg.TLS != nil {
 		if fs.certFile != cfg.TLS.CertFile || fs.keyFile != cfg.TLS.KeyFile {

@@ -29,6 +29,9 @@
 //     (SSLRequest upgrade, see mysqlTLSUpgrade) with certificates from a
 //     CertSource that is consulted per handshake (hot reload).
 //   - A loopback-only, unauthenticated GET /status JSON endpoint.
+//   - Optional coordination with a replicated manager writer choice. A
+//     freeze closes all existing write connections before acknowledging;
+//     no local fallback writer is selected while coordination is enabled.
 //
 // Not implemented / unverified:
 //
@@ -44,7 +47,8 @@
 //     failover after a killed writer, hysteresis, reload-driven drain,
 //     round-robin reads and TLS termination worked. Other connectors,
 //     authentication plugins other than mysql_native_password, several
-//     proxy instances and VIPs are untested.
+//     proxy instances and VIPs were tested in E8 with the former independent
+//     policy; the coordinated protocol has only fake and in-memory evidence.
 //   - A writer that becomes Donor (it serves IST/SST to a returning node)
 //     is not usable, so one node failure can cause two writer changes
 //     (observed in E5).
