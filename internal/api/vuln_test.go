@@ -101,7 +101,15 @@ func TestVulnRoutesEndToEnd(t *testing.T) {
 	if p.Status != vuln.StatusApproved || !strings.Contains(p.Execution, "no executor") {
 		t.Fatalf("%+v", p)
 	}
-	wantError(t, admin.do("POST", "/api/v1/vuln/proposals/"+p.ID+"/approve", map[string]any{"digest": p.Plan.Digest}), http.StatusConflict, errConflict)
+	// A repeated approval with the same digest reconciles the durable
+	// execution intent and returns the same proposal instead of failing.
+	var again vuln.Proposal
+	r = admin.do("POST", "/api/v1/vuln/proposals/"+p.ID+"/approve", map[string]any{"digest": p.Plan.Digest})
+	wantStatus(t, r, http.StatusOK)
+	r.decode(t, &again)
+	if again.ExecutionID != p.ExecutionID || again.Status != vuln.StatusApproved {
+		t.Fatalf("repeat approval changed the proposal: %+v", again)
+	}
 
 	// AI analysis without a provider in the policy is a bad request.
 	wantError(t, admin.do("POST", "/api/v1/vuln/findings/"+fs[0].ID+"/proposals", map[string]any{"useAi": true}), http.StatusBadRequest, errBadRequest)

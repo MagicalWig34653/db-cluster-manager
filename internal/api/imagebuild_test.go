@@ -88,7 +88,11 @@ func TestImageBuildRoutesEndToEnd(t *testing.T) {
 		t.Fatal("password in response")
 	}
 	wantError(t, admin.do("POST", "/api/v1/registries", reg), http.StatusConflict, errConflict)
-	if sec, _ := f.secrets.Get(context.Background(), "registry/main/credential"); sec.Reveal() != "pw-api-secret" {
+	cfg, err := f.regs.Configs.Get(context.Background(), "main")
+	if err != nil || cfg.CredentialRef == "" {
+		t.Fatalf("registry config: %+v, %v", cfg, err)
+	}
+	if sec, _ := f.secrets.Get(context.Background(), cfg.CredentialRef); sec.Reveal() != "pw-api-secret" {
 		t.Fatal("credential not stored in the secret store")
 	}
 	var list []RegistryView
