@@ -188,6 +188,8 @@ func ApprovalPermission(kind, swarm, cluster string) (authz.Action, authz.Resour
 	switch kind {
 	case OperationKindClusterDelete:
 		return authz.ActionDelete, authz.Resource{Type: authz.ResourceCluster, Scope: authz.ClusterScope(swarm, cluster)}
+	case "galera/scale-out", "galera/scale-in", "galera/rolling-restart", "galera/minor-upgrade":
+		return authz.ActionOperate, authz.Resource{Type: authz.ResourceCluster, Scope: authz.ClusterScope(swarm, cluster)}
 	case OperationKindOutageRecovery:
 		return authz.ActionRecover, authz.Resource{Type: authz.ResourceCluster, Scope: authz.ClusterScope(swarm, cluster)}
 	}

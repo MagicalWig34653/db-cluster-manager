@@ -88,3 +88,18 @@ Mock-server view only [Mock only].
 ## 6. Remove a manager installation
 
 `docker compose -f deploy/compose.yaml down` (add `-v` to delete the `manager-data` volume), or `docker stack rm dbcm` and the volume on each node. The manager does not remove agents, database services or volumes it created. Delete clusters through the API first (approval needed, see [Creating a cluster](03-create-cluster.md)); remove the agent service, host directories under the volume base, and the operator networks and secrets by name. Never prune globally.
+
+## 7. Scale and roll a Galera cluster
+
+[Fakes only] `POST /api/v1/clusters/{id}/operation-plan` stores a plan and returns `id`, `approval.digest`, `plan` (including warnings and resulting nodes) and `agentSteps`. It requires **operate** on that cluster. It reserves the cluster until completion or abort; it sends no agent command before approval. Review the response and approve with `POST /api/v1/operations/{id}/approve`, body `{"digest":"<approval.digest>"}`. The digest covers the stored runner definition. Keep the plan response for review; `GET /api/v1/operations/{id}` supplies its status and approval digest. Abort with `POST /api/v1/operations/{id}/abort` before requesting a different plan.
+
+Request bodies:
+
+- Add one node: `{"kind":"scale-out","slot":"n4"}`. Use a unique slot and an eligible free enrolled host; a fresh identity and volume are allocated. The donor and the whole component must be Synced before the join.
+- Remove one node: `{"kind":"scale-in","slot":"n4"}`. At least three nodes must remain. The service is stopped gracefully and removed after the remaining nodes are Synced; the old volume is retained for inspection. These retained files still need capacity and a separately approved cleanup.
+- Rolling restart/maintenance: `{"kind":"rolling-restart"}`. Each node is stopped, the surviving majority is checked, its volume identity is verified, its spec is updated while stopped, and it is started explicitly. The whole component must be Synced before the next stop. Use section 4 for maintenance that pauses while an operator works on a host.
+- Minor maintenance update: `{"kind":"minor-upgrade","image":"mariadb:11.4.14@sha256:<64 lowercase hex characters>"}`. Replace the placeholder with the digest of your reviewed image; this is syntax, not an approved release recommendation. Both source and target must have explicit `x.y.z` tags and immutable digests. Only increasing patch releases within the same MariaDB series and repository are supported. A series change (such as 11.4 to 11.8), a major change, a downgrade or an ambiguous tag is refused. Major/series changes need product-level approval and a curated path; approving an operation cannot bypass this refusal.
+
+Every node must have fresh Synced/Primary evidence in the same cluster history before planning; unknown, stale, conflicting or degraded evidence blocks the request. Live quorum and synchronization gates run before each stop and each start. Direct connections can be interrupted; proxies exclude stopped nodes through health checks. There is no automatic downgrade or full-cluster bootstrap. If a gate pauses, inspect health and use `POST /api/v1/operations/{id}/resume` after resolving the cause. Leader changes adopt the stored steps under the new fencing term. Interrupted operations keep their state for inspection; aborting is not rollback, so inspect partial changes before planning further work.
+
+Verification is limited to unit tests, the actual agent executor with an in-memory Docker, and in-process Raft leader changes. No real database, image upgrade, SST, Swarm or infrastructure was contacted for this feature. Supported release paths still need real lab evidence before rollout.

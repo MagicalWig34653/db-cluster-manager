@@ -11,6 +11,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/MagicalWig34653/db-cluster-manager/internal/galera"
 )
 
 var httpMethods = map[string]bool{
@@ -147,6 +149,7 @@ func TestServiceSchemasListEveryField(t *testing.T) {
 	}
 	lines := strings.Split(string(raw), "\n")
 	for schema, v := range map[string]any{
+		"ClusterOperationInput": galera.OperationRequest{}, "ClusterOperationPlan": ClusterOperationPlan{},
 		"ServiceInfo": ServiceInfo{}, "ServicePlan": ServicePlan{}, "ServiceStarted": ServiceStarted{},
 		"ServiceHealth": ServiceHealth{}, "ServiceUpdateInput": ServiceUpdateInput{},
 		"ServiceUpdateStrategy": ServiceUpdateStrategy{}, "AgentStep": AgentStep{}, "ServiceInput": ServiceInput{},

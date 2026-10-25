@@ -121,3 +121,30 @@ Next: create small reviewed commits when metadata is writable, execute native
 CI, inspect version-tag image manifests/attestations after an explicit release
 trigger, then obtain the owner host/VM decision and a scoped lab plan before
 P0. W05 stays IN PROGRESS and its release gates are unchanged.
+
+## Galera operations handover (2026-10-24, cx-galera-ops)
+
+W05/W06 follow-up implemented with fakes only: approvable scale-out/in,
+rolling restart/maintenance and same-series patch upgrades, live quorum/Synced
+and identity gates, retained removed volumes, replicated digest approval and
+atomic desired-state completion across leader changes. Cluster operation-plan
+API, operate authorization/approval mapping, OpenAPI and route/schema contracts,
+refusal tests, actual agent executor with fake Docker, in-process Raft takeover
+and completed-journal reconciliation, ADR 0011 and DE/EN guides are included.
+Major/series upgrades remain refused pending product-level approval and a curated
+path; no frontend was changed. This supersedes earlier statements that no Galera
+scale/update planner exists; real rollout evidence remains missing.
+
+Actual checks: gofmt empty, vet passed, focused race tests in four packages
+passed, docs passed (71 Markdown files / 69 requirements), static deploy check
+passed. Full `go test -race -count=1 -p 4 ./...` **failed**: 24 packages passed,
+18 failed on sandbox-denied local listeners, 5 without tests. An earlier
+full-run abort timeout passed on focused rerun; new HA test timing was raised
+from the shared 50 ms prototype default to 300 ms after election churn, without
+changing production settings. See [full results and limitations](STATUS.md#galera-operation-plans-2026-10-24-cx-galera-ops-fakes-only).
+
+Git staging failed because the shared worktree Git metadata is not writable;
+no commits and no push. Next: small commits with metadata write access and a
+full race rerun with local listeners permitted. New feature lab evidence remains
+pending, requires the owned lab, and does not replace current W05/R1 release
+gates. This task used no real infrastructure.

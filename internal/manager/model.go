@@ -218,6 +218,8 @@ type OperationRecord struct {
 	// node of the replaced slot), used to resolve health checks while the
 	// operation runs.
 	Nodes []galera.Node `json:"nodes,omitempty"`
+	// GaleraPlan is the approved resulting state, applied atomically with success.
+	GaleraPlan *galera.Plan `json:"galeraPlan,omitempty"`
 	// ApprovalID and ApprovalDigest are set for operations whose
 	// destructive steps wait for an explicit approval (approvals.go).
 	ApprovalID     string       `json:"approvalId,omitempty"`

@@ -66,8 +66,21 @@ func (d *memDocker) RemoveService(_ context.Context, id string) error {
 	delete(d.specs, id)
 	return nil
 }
-func (d *memDocker) ScaleService(context.Context, string, uint64) error {
-	return agent.ErrObjectNotFound
+func (d *memDocker) ScaleService(_ context.Context, id string, replicas uint64) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	o, ok := d.objects[id]
+	if !ok {
+		return agent.ErrObjectNotFound
+	}
+	o.Replicas = replicas
+	tasks := replicas
+	o.RunningTasks = &tasks
+	d.objects[id] = o
+	sp := d.specs[id]
+	sp.Replicas = replicas
+	d.specs[id] = sp
+	return nil
 }
 func (d *memDocker) RemoveVolume(context.Context, string) error { return agent.ErrObjectNotFound }
 func (d *memDocker) RemoveSecret(context.Context, string) error { return agent.ErrObjectNotFound }
