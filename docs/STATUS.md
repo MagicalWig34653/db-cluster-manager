@@ -752,7 +752,7 @@ passed. `gofmt -l .` passed with no output after formatting two container files.
 requirements, 0 errors. `python3 scripts/check_deploy.py` passed its static
 checks; no image was built. The first formatting check listed two container
 files; they were formatted and the final check is clean. The full
-`go test -race -count=1 -p 4 ./...` **failed**: 18 packages failed on sandbox
+`go test -race -count=1 -p 4 ./...` **failed on both runs, including the final tree**: 18 packages failed on sandbox
 denial of TCP/Unix listeners, including existing `httptest` tests; 25 packages
 passed and five had no tests. This is not a passing full suite.
 
