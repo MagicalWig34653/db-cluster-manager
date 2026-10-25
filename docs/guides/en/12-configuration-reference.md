@@ -14,10 +14,10 @@ Verification: parsing and validation are unit-tested [Fakes]. The sections `auth
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
-| `-listen addr` | `127.0.0.1:8080` | Address of the UI and API. No TLS: put a TLS reverse proxy in front. |
+| `-listen addr` | `127.0.0.1:8080` | Address of the UI and API; native HTTPS with `manager.tls`, otherwise loopback HTTP behind a TLS proxy. |
 | `-config file` | `$DCM_CONFIG` | JSON configuration. Without it the manager runs in prototype mode. |
 | `-version` | | Print the version and exit. |
-| `-healthcheck` | | Probe `http://127.0.0.1:<port of -listen>/api/v1/health` and exit 0 if healthy (container `HEALTHCHECK`). |
+| `-healthcheck` | | Probe the loopback health endpoint at the `-listen` port; HTTPS with TLS config, HTTP otherwise; exit 0 if healthy. |
 | `-print-replica-key` | | Print this replica's public data-key identity (`replica key` file in `manager.dataDir`, created if missing) and exit. Needs `-config` with `manager.dataDir`. |
 | `-issue-peer-certs dir` | | Create a metastore peer CA and one certificate per replica in `dir`, then exit. The CA passphrase comes from the environment variable `DBCM_PEER_CA_PASSPHRASE` (at least 12 characters). Refuses to overwrite an existing CA. |
 | `-installation id` | | Installation ID for `-issue-peer-certs` (required there). |
@@ -259,3 +259,20 @@ For replica `manager-2` of three, after `manager -issue-peer-certs ./peers -inst
 ```
 
 The registration procedure for the keyring is in the [operator runbook](11-operator-runbook.md#5-replicas-key-ring-and-peer-certificates). Every replica also needs a local Swarm manager Docker socket (see [Known limits](10-known-limits.md)).
+
+### `manager.tls` and `manager.tls.acme`
+
+Implemented for the API/UI listener [Fakes]; unrelated to `peerTLS` or `agentTransport`. See [Manager HTTPS and ACME](17-manager-tls.md) for setup and HA requirements. By default plain HTTP is restricted to numeric loopback addresses; exposed HTTP requires an explicit opt-in. The container's prototype default now binds loopback too.
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `tls.certFile`, `tls.keyFile` | absent | Imported PEM certificate chain/private key; both required together; loaded at startup. Excludes ACME. |
+| `tls.allowPlainHttp` | `false` | Explicit exposed-HTTP permission, for a protected listener behind your TLS proxy. Excludes certificate settings. |
+| `tls.acme` | absent | Enable automatic HTTPS and accept this CA's terms; requires managed mode. |
+| `tls.acme.directoryUrl` | `https://acme-staging-v02.api.letsencrypt.org/directory` | HTTPS RFC 8555 directory. Set it explicitly; production requires an explicit production URL. |
+| `tls.acme.email` | required | Plain account contact address. |
+| `tls.acme.domains` | required | Nonempty, unique lowercase ASCII/punycode DNS names; no wildcards or IPs. Identical on all replicas. |
+| `tls.acme.challenge` | `tls-alpn-01` | `tls-alpn-01` (public 443 to the TLS listener) or `http-01` (public 80 to the challenge listener). |
+| `tls.acme.httpListen` | `:80` | Separate challenge-only HTTP bind, used only for HTTP-01. Use an unprivileged port with external forwarding in the shipped container. |
+
+The API/UI port remains `-listen`; configuring ACME does not change its default from 8080. Renewals run on the leader (on election and hourly, within 30 days of expiry; five-minute retry after failure). Certificates, account keys and challenges are sealed in the replicated metastore. All replicas need accessible data keys. `-healthcheck` reads the same config and uses verified HTTPS with the first ACME domain as SNI; static TLS uses `auth.rpId` as SNI (otherwise the loopback address). Staging/private CAs need an installed trust root (`SSL_CERT_FILE` is supported by Go); no verification bypass exists.

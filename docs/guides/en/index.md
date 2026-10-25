@@ -39,3 +39,5 @@ Where one feature has parts at different levels, each part is labelled separatel
 Reading order for a first test: 1, 2, 3, then 10 before trusting anything.
 
 - [16 — Kubernetes groundwork (fakes only)](16-kubernetes.md)
+
+- [17 — Manager HTTPS and ACME](17-manager-tls.md)

@@ -458,3 +458,73 @@ decision changes. Local implementation commits: `0f66e5f` (Kubernetes),
 Next: rerun the complete Go race suite with local listeners permitted; render and
 inspect both locales with synthetic data, then validate these pages against an
 authorized fake-backed manager. Do not infer Kubernetes support from registration.
+
+## Manager listener ACME/TLS (2026-10-24, fakes only)
+
+Implemented the requested W06 manager-listener increment in `cx-acme`:
+
+- `internal/managertls`: RFC 8555 client interface and adapter using the already
+  required `golang.org/x/crypto/acme` (no new dependencies). HTTP-01 and
+  TLS-ALPN-01 proofs, DNS allow-list, TLS 1.2+ listener, isolated/expiring
+  challenges, staging CA default, explicit contact/domains/CA configuration.
+  The lifecycle layer uses the lower-level client rather than `autocert.Manager`
+  because autocert has no public Stop/Close for leadership-scoped renewal timers;
+  rationale and alternatives are in the [ADR 0014 amendment](decisions/0014-manager-container-docker-access.md#amendment-2026-10-24-native-manager-https-fakes-only).
+- `internal/manager/acme.go`: account keys, issued keypairs and active challenges
+  AES-GCM sealed through the existing key provider/keyring, replicated in
+  `manager-acme`. Followers read certificates/challenges; writes and cleanup are
+  fenced to one leadership. Three-node in-memory Raft test covers ciphertext,
+  collection/key binding, follower refusal and reuse after leader loss.
+- `cmd/manager`: `manager.tls.acme`, optional static PEM TLS, verified HTTPS
+  healthcheck, separate challenge-only HTTP listener. Only the leader starts a
+  cancellable worker: immediate/hourly check, renewal within 30 days, five-minute
+  failure retry. Handshakes do not contact the CA. Existing certificates survive
+  failed renewal; first HTTPS fails until initial issuance succeeds.
+- Unconfigured plain HTTP outside numeric loopback is refused before runtime
+  startup. `manager.tls.allowPlainHttp` is the explicit proxy-network opt-in and
+  excludes TLS settings. The Dockerfile prototype default now binds loopback;
+  shipped compose/stack keep their existing loopback/proxy layout. Added
+  [EN](guides/en/17-manager-tls.md)/[DE](guides/de/17-manager-tls.md) guides,
+  configuration/security reference updates and installation notes.
+
+Actual verification (Go commands used `GOCACHE=/tmp/dbcm-cx-acme-cache`,
+`GOMAXPROCS=4` (final vet rerun: `1`), `GOPROXY=off`; no dependency
+downloads). `os.cpu_count()` detected 14 logical CPUs; no VM resources were
+allocated:
+
+- `gofmt -l .`: exit 0, no output.
+- `go vet ./...`: exit 0, no output.
+- `go test -race -count=1 -p 4 ./...`: exit 1; **25 packages passed,
+  18 failed, five had no tests**. Existing network-backed tests fail/panic on
+  sandbox-denied TCP/Unix listeners (`bind: operation not permitted`), including
+  the pre-existing manager health test. No whole-suite pass is claimed.
+- Focused ACME/manager storage/listener tests with the race detector passed.
+  Actual RFC 8555 requests run against a fake CA through
+  `httptest.ResponseRecorder`/an in-memory HTTP transport. Both HTTP key proof
+  and RFC 8737's critical digest are checked. Tests cover renewal, CA rejection
+  preserving the existing certificate, persisted account reuse on a fresh
+  worker, cancellation, SNI/host/path/method scope, ALPN isolation and expiry,
+  plus a verified TLS handshake through `net.Pipe`. Two socket-backed fake-CA
+  subtests were **skipped** on explicit sandbox listener denial.
+- `python3 scripts/check_docs.py`: `Checked 73 Markdown files and 69 requirements; 0 errors.`
+- `python3 scripts/check_deploy.py`: `deploy checks passed (static only; no image was built)`.
+- No web code changed, so frontend checks/build were not run for this increment.
+
+Limits: no public CA, real DNS, infrastructure, VM, container or browser was
+contacted. Native manager TLS and public challenge routing have no deployment
+or HA load-balancer evidence. All replicas need identical ACME settings and
+available data keys; local follower lag may temporarily fail validation. No
+DNS-01 wiring, wildcard/IP issuance, external account binding, revocation,
+account-key rollover, cross-term order resumption or dynamic TLS config reload.
+Ports 80/443, unprivileged local forwarding, CA trust (especially staging) and
+healthcheck startup grace remain operator configuration. The earlier historical
+"No ACME" statements above are superseded for the manager listener only;
+database certificate issuance remains unwired. No R1 release gate is asserted.
+
+Local implementation commits: `2d28eb3` (ACME core and sealed storage),
+`a7791c8` (listener/config/healthcheck/container defaults). An initial commit
+inside a combined shell command was denied on `index.lock`; retrying the same
+commit as a standalone command worked. Documentation is a separate local
+commit. No push was made. Next: rerun the full race suite and socket-backed fake
+CA where local listeners are allowed. A real CA/deployment test requires
+separately authorized work and is outside this fakes-only task.

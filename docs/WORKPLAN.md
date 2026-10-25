@@ -68,3 +68,31 @@ experimental and unwired in the shipping manager. These local UI changes do not
 alter W05/R1 priorities or satisfy W10/W11 release gates. Next action: review
 both locales with synthetic fixtures and rerun the Go suite in a suitable sandbox.
 No push.
+
+## W06 manager listener ACME/TLS handover (2026-10-24)
+
+Implemented the scoped ACME/TLS manager listener increment; contracts,
+verification and limits are in [STATUS](STATUS.md#manager-listener-acmetls-2026-10-24-fakes-only).
+HTTP-01/TLS-ALPN-01, sealed replicated account/keypair/challenge storage,
+leadership-scoped renewal, explicit `manager.tls` exposure policy and verified
+HTTPS healthchecks are wired. The lower-level existing x/crypto ACME client
+permits cancellation instead of autocert's unmanaged renewal timers (ADR 0014
+amendment). EN/DE guide 17, configuration/security references and installation
+notes are current. The prototype container now defaults to loopback.
+
+Actual checks: formatting and vet passed; focused new race tests passed, with
+two socket-backed fake-CA subtests skipped on sandbox bind denial. Full
+`go test -race -count=1 -p 4 ./...` failed: 25 packages passed, 18 failed on
+sandbox-denied TCP/Unix listeners, five had no tests. Documentation checker:
+73 Markdown files / 69 requirements / 0 errors. Deployment checker passed
+statically; no image built. No frontend code changed or frontend checks run.
+No real infrastructure or public CA was contacted. No release gate is met by
+this increment; DNS-01/database issuance and real routing/trust evidence remain
+open. The existing W05/R1 priorities are unchanged.
+
+Local implementation commits: `2d28eb3` (core/storage) and `a7791c8`
+(listener/config/healthcheck/container defaults); documentation is committed
+separately. The first combined-shell commit failed on `index.lock`, but the
+standalone retry succeeded. No push made. Next concrete action: rerun the full
+suite and socket-backed fake-CA tests where loopback listeners are allowed.
+Any real CA, DNS or deployment work needs a separately authorized scope.

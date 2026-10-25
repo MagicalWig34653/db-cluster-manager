@@ -39,3 +39,5 @@ Haben Teile einer Funktion verschiedene Stufen, sind sie einzeln gekennzeichnet.
 Lesereihenfolge für einen ersten Test: 1, 2, 3, danach 10, bevor Sie irgendetwas vertrauen.
 
 - [16 — Kubernetes-Grundlage (nur Fakes)](16-kubernetes.md)
+
+- [17 — Manager-HTTPS und ACME](17-manager-tls.md)

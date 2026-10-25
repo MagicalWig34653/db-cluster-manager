@@ -64,8 +64,8 @@ USER 65532:65532
 EXPOSE 8080
 # The distroless image has no shell or curl; the manager probes itself.
 HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
-  CMD ["/usr/local/bin/manager", "-healthcheck", "-listen", "0.0.0.0:8080"]
-# Listens on all interfaces inside the container; publish the port on loopback
-# (see deploy/compose.yaml) unless a TLS-terminating proxy is in front.
+  CMD ["/usr/local/bin/manager", "-healthcheck", "-listen", "127.0.0.1:8080"]
+# Safe prototype default. For a public bind configure manager.tls (ACME,
+# static certificate, or explicit allowPlainHttp behind a TLS reverse proxy).
 ENTRYPOINT ["/usr/local/bin/manager"]
-CMD ["-listen", "0.0.0.0:8080"]
+CMD ["-listen", "127.0.0.1:8080"]

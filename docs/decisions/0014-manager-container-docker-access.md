@@ -29,3 +29,63 @@ Managed mode needs the Docker API of a Swarm manager node: the Swarm connector r
 - E7 verified that Docker 29.9.2 honours every option used (`cap_drop`, `user` with an interpolated group, external `host` network, config `uid`/`gid`/`mode`); other versions are untested.
 - Draining the pinned node takes the manager down until the node is active again (E7).
 - Only the metastore leader serves the API; with several replicas the reverse proxy has to find the leader (`X-DCM-Leader`), which no shipped component does.
+
+## Amendment 2026-10-24: native manager HTTPS (fakes only)
+
+The manager API/UI may now terminate TLS itself through `manager.tls`, instead
+of requiring an external TLS proxy. The shipped stack/compose retain their
+loopback/proxy layout. The image's prototype command now binds loopback too.
+Plain HTTP on any non-numeric-loopback bind is refused unless explicitly
+configured with `manager.tls.allowPlainHttp`; TLS configurations exclude that
+opt-in. Static PEM certificates are an alternative to ACME.
+
+`manager.tls.acme` selects an explicit RFC 8555 directory, contact email and
+DNS-name allow-list. An omitted directory uses Let's Encrypt staging; production
+is never selected implicitly. HTTP-01 has a separate challenge-only HTTP
+listener, while TLS-ALPN-01 uses `acme-tls/1` on the public TLS listener. Unknown
+SNI names, inactive/expired challenges and mixed application/challenge ALPN
+offers fail closed. No challenge listener serves the API/UI.
+
+The implementation uses the already-required `golang.org/x/crypto/acme` behind
+`managertls.Client`. **Deviation from using `autocert.Manager`:** that wrapper
+starts internal renewal timers and has no exported Stop/Close to end them on
+leadership loss. Rather than leave renewal goroutines on former leaders or
+attach CA requests to untrusted handshakes, a small lifecycle layer uses the
+same library's RFC 8555 client. No custom JWS or RFC 8555 wire implementation,
+new dependency or dependency version was added. Alternatives were autocert with
+a transport fence (timers would still outlive leadership), a new minimal ACME
+implementation (unnecessary protocol/security surface), or external-only TLS
+(no automatic certificate management in the manager).
+
+Account private keys, issued keypairs and active challenges are AES-GCM sealed
+using the existing data-key/keyring path, bound to collection/key, before Raft
+replication. Configuration identity includes CA URL, email, exact domain list
+and challenge so configuration changes cannot silently reuse another CA's
+certificate or account. Replicas must have identical ACME settings and keys.
+Local follower reads permit challenges and TLS handshakes on any replica;
+replication lag may temporarily prevent validation. Only the leader creates a
+worker, bound to its cancellable Leadership context and term-specific storage
+write/cleanup fence. The worker checks immediately on election and hourly,
+renews within 30 days of expiry, and retries errors after five minutes. Old
+certificates survive renewal failures. Client handshakes never issue; initial
+handshakes fail until the first certificate is available. A successor reuses
+the replicated account key but may create a new order. No cross-term order
+resumption or guarantee of exactly one CA order during a failover is claimed.
+
+Evidence: `internal/managertls` exercises the actual library against a local
+fake RFC 8555 handler through `httptest.ResponseRecorder`, validates HTTP proof
+and the critical RFC 8737 digest, tests due renewal, CA failure preservation,
+cancellation, config/host/path scoping and a TLS handshake over `net.Pipe`.
+`internal/manager` tests sealed replication, follower refusal and failover in a
+three-node in-memory Raft group. Additional socket-based `httptest.Server`
+variants skip when listeners are denied. No public CA, real DNS, browser,
+external proxy, VM or container run is evidence for this amendment. See
+[actual checks and limitations](../STATUS.md#manager-listener-acmetls-2026-10-24-fakes-only)
+and the [operator guide](../guides/en/17-manager-tls.md).
+
+External account binding, DNS-01 wiring, account-key rollover, revocation,
+public HTTP redirects, live config reload, CA trust installation and automatic
+port forwarding remain outside this increment. Ports 80/443 must reach the
+appropriate listener; the non-root/capability-free image needs unprivileged
+local ports plus operator-managed forwarding. The healthcheck follows the TLS
+config and verifies trust/SNI; staging/private CAs need an installed root.
