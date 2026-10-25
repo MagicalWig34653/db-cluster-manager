@@ -6,6 +6,9 @@ import (
 	"context"
 	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/hashicorp/raft"
 
 	"github.com/MagicalWig34653/db-cluster-manager/internal/agent"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/runner"
@@ -50,6 +53,28 @@ func TestOnlyOneReplicaLeadsAndReconcilersFollowLeadership(t *testing.T) {
 	}
 	c.leader(l.cfg.NodeID)
 	waitFor(t, "reconciler restarted on the new leader", func() bool { return rec.starts.Load() == 2 && rec.running.Load() == 1 })
+}
+
+func TestWriteBarrierRefusesIsolatedLeaderBeforeLeaseSettles(t *testing.T) {
+	transports := map[string]*raft.InmemTransport{}
+	c := newCluster(t, 3, func(id string, cfg *Config) {
+		transports[id] = cfg.Transport.(*raft.InmemTransport)
+		cfg.BarrierTimeout = 200 * time.Millisecond
+	})
+	leader := c.leader()
+	if err := leader.WriteBarrier(); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range c.ids {
+		if id == leader.cfg.NodeID {
+			continue
+		}
+		transports[leader.cfg.NodeID].Disconnect(raft.ServerAddress(id))
+		transports[id].Disconnect(raft.ServerAddress(leader.cfg.NodeID))
+	}
+	if err := leader.WriteBarrier(); err == nil {
+		t.Fatal("isolated leader passed the write barrier")
+	}
 }
 
 func TestTakeOverWithoutAutoResumeSendsNothing(t *testing.T) {

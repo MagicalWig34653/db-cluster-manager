@@ -300,6 +300,7 @@ func (m *MembershipService) prepareRemoval(cert Versioned[PeerCertificateRecord]
 		return err
 	}
 	serials := []string{cr.Serial}
+	expiries := map[string]time.Time{cr.Serial: cr.NotAfter}
 	managers, err := List[ManagerCertRecord](m.Svc.store, CollManagerCerts, Consistent())
 	if err != nil {
 		return err
@@ -307,11 +308,12 @@ func (m *MembershipService) prepareRemoval(cert Versioned[PeerCertificateRecord]
 	for _, r := range managers {
 		if r.Value.Replica == id {
 			serials = append(serials, r.Key)
+			expiries[r.Key] = r.Value.NotAfter
 		}
 	}
 	ops := []metastore.DocOp{keyOp, certOp}
 	for _, serial := range serials {
-		op, err := PutOp(CollRevocations, serial, certs.Revocation{Serial: serial, RevokedAt: m.Svc.cfg.Now(), Reason: "replica removed: " + id}, nil)
+		op, err := PutOp(CollRevocations, serial, certs.Revocation{Serial: serial, RevokedAt: m.Svc.cfg.Now(), NotAfter: expiries[serial], Reason: "replica removed: " + id}, nil)
 		if err != nil {
 			return err
 		}

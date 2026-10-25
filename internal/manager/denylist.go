@@ -15,7 +15,15 @@ import (
 
 	"github.com/MagicalWig34653/db-cluster-manager/internal/agent"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/certs"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/metastore"
 )
+
+const collDenyState = "deny-state"
+const denyStateKey = "revision"
+
+type denyState struct {
+	Revision int64 `json:"revision"`
+}
 
 // Deny-list distribution to the agents.
 //
@@ -49,10 +57,96 @@ func CurrentDenyList(s *Store) (DenyList, error) {
 			dl.Revision = t
 		}
 	}
+	state, ok, err := Get[denyState](s, collDenyState, denyStateKey)
+	if err != nil {
+		return DenyList{}, err
+	}
+	if ok && state.Value.Revision > dl.Revision {
+		dl.Revision = state.Value.Revision
+	}
 	sort.Strings(dl.Serials)
 	h := sha256.Sum256([]byte(strings.Join(dl.Serials, "\n")))
 	dl.Digest = hex.EncodeToString(h[:])
 	return dl, nil
+}
+
+// DenyListCompactor deletes only revocations whose actual certificate expiry
+// is known and past. A durable revision fence lets agents accept the shorter
+// list even when the newest revoked entry was among those removed.
+type DenyListCompactor struct {
+	Interval time.Duration
+	Now      func() time.Time
+}
+
+func (DenyListCompactor) Name() string { return "deny-list-compaction" }
+
+func (d DenyListCompactor) Run(ctx context.Context, l *Leadership) error {
+	iv := d.Interval
+	if iv <= 0 {
+		iv = time.Hour
+	}
+	t := time.NewTicker(iv)
+	defer t.Stop()
+	for {
+		if _, err := d.CompactOnce(l.svc.store); err != nil && ctx.Err() == nil {
+			l.svc.log.Warn("manager: deny list compaction failed", "err", err)
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-t.C:
+		}
+	}
+}
+
+// CompactOnce removes up to 64 expired entries in one conditional transaction.
+// Unknown expiry is retained, including records written by older versions.
+func (d DenyListCompactor) CompactOnce(s *Store) (int, error) {
+	now := time.Now
+	if d.Now != nil {
+		now = d.Now
+	}
+	revs, err := List[certs.Revocation](s, CollRevocations, Consistent())
+	if err != nil {
+		return 0, err
+	}
+	dl, err := CurrentDenyList(s)
+	if err != nil {
+		return 0, err
+	}
+	state, ok, err := Get[denyState](s, collDenyState, denyStateKey, Consistent())
+	if err != nil {
+		return 0, err
+	}
+	var ops []metastore.DocOp
+	for _, r := range revs {
+		if r.Value.NotAfter.IsZero() || now().Before(r.Value.NotAfter) {
+			continue
+		}
+		ops = append(ops, metastore.DocOp{Collection: CollRevocations, Key: r.Key, Delete: true, IfVersion: IfVersion(r.Version)})
+		if len(ops) == 64 {
+			break
+		}
+	}
+	if len(ops) == 0 {
+		return 0, nil
+	}
+	revision := now().UnixNano()
+	if revision <= dl.Revision {
+		revision = dl.Revision + 1
+	}
+	stateOp, err := PutOp(collDenyState, denyStateKey, denyState{Revision: revision}, IfVersion(state.Version))
+	if err != nil {
+		return 0, err
+	}
+	if !ok {
+		stateOp.IfVersion = IfVersion(0)
+	}
+	ops = append(ops, stateOp)
+	if _, err := s.Txn(ops...); err != nil {
+		return 0, err
+	}
+	return len(ops) - 1, nil
 }
 
 // DenyListDistributor pushes the deny list to the agents while this

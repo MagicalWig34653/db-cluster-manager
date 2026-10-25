@@ -40,6 +40,7 @@ const (
 const (
 	defaultEnrollPort    = 7444
 	defaultMetastorePort = 7445
+	defaultForwardPort   = 7447
 	defaultAgentPort     = 7443
 )
 
@@ -212,7 +213,15 @@ func buildInitConfig(o initOptions) (fileConfig, error) {
 			return fileConfig{}, fmt.Errorf("manager init: -peers does not contain -node-id %q", o.NodeID)
 		}
 		mc.Peers, mc.Bind, mc.Advertise, mc.Keyring = peers, self, self, true
-		mc.PeerTLS = &peerTLSConfig{Installation: o.Installation, CAFile: containerPeerCA, CertFile: containerPeerCert, KeyFile: containerPeerKey}
+		for i := range mc.Peers {
+			host, _, _ := net.SplitHostPort(mc.Peers[i].Address)
+			mc.Peers[i].APIAddress = net.JoinHostPort(host, fmt.Sprint(defaultForwardPort))
+		}
+		selfHost, _, _ := net.SplitHostPort(self)
+		mc.APIForwardBind = net.JoinHostPort(selfHost, fmt.Sprint(defaultForwardPort))
+		mc.PeerTLS = &peerTLSConfig{Installation: o.Installation, CAFile: containerPeerCA,
+			CertFile: filepath.Join(o.DataDir, "peer", "peer-bundle.pem"), KeyFile: filepath.Join(o.DataDir, "peer", "peer-bundle.pem"),
+			Renewal: &peerRenewalConfig{CAFile: "/run/secrets/dbcm-peer-ca-sealed", PassphraseFile: "/run/secrets/dbcm-peer-ca-passphrase"}}
 	}
 	if o.Backup {
 		mc.Backup = &backupConfig{BackendConfigFile: containerBackendFile, ScheduleIntervalSeconds: 60}
@@ -360,27 +369,43 @@ No secret values are printed here. Create each secret from a file or stdin you c
      docker secret create --label dbcm.installation={{.Inst}} {{.N.RecoveryKey}} <recovery key file{{if .RecoveryOut}} {{.RecoveryOut}}{{end}}>
      docker network create --driver overlay --attachable --label dbcm.installation={{.Inst}} {{.N.InspectNet}}
    Keep a copy of the recovery key outside the Swarm; it is the only way to read backups.
-   The manager reads {{.N.Backend}} too: uncomment the "backend" secret in deploy/stack.yaml and set
-   DBCM_BACKEND_SECRET={{.N.Backend}} in step 4.
+   The manager reads {{.N.Backend}} too: mount it at /run/secrets/dbcm-backend.json in every
+   manager service (the single-replica stack has an optional commented block).
 {{- end}}
 3. Store this configuration as a Swarm config (configs are immutable; use a new name per change):
+{{- if .HA}}
+     docker config create dbcm-manager-config-{{.NodeID}} <this file>
+{{- else}}
      docker config create dbcm-manager-config-1 <this file>
+{{- end}}
 {{- if .ImageBuild}}
    Image builds (manager.imageBuild) run "docker buildx build" as the manager process. The shipped manager image
    contains no docker CLI and the stack gives it no BuildKit; provide both before approving a build (untested).
 {{- end}}
 {{- if .HA}}
-   HA (not run on a real Swarm): issue peer certificates once (manager -issue-peer-certs, passphrase in
-   DBCM_PEER_CA_PASSPHRASE), create the secrets of replica {{.NodeID}} from {{.NodeID}}/ca.pem, peer.pem and
-   peer-key.pem, repeat "manager init" with the same -peers for every -node-id, and deploy one pinned
-   service per replica as described in docs/INSTALL.md ("Three-replica variant").
+   HA (not run as Swarm services): issue peer certificates once with manager -issue-peer-certs.
+   Copy only {{.NodeID}}/peer-bundle.pem into this node's local /var/lib/dbcm/peer/ (uid 65532,
+   mode 0600). Create three external Swarm secrets from ca.pem, ca.sealed and a separate
+   passphrase file; keep offline recovery copies. These secrets give every manager node
+   online peer-CA signing authority. Repeat init with the same -peers and installation
+   for each -node-id. See docs/INSTALL.md ("Three-replica HA stack").
 {{- end}}
+{{- if .HA}}
+4. Set DBCM_MANAGER_NODE_1..3, DBCM_CONFIG_NAME_1..3, DBCM_PEER_CA_NAME,
+   DBCM_PEER_CA_SEALED_NAME, DBCM_PEER_CA_PASSPHRASE_NAME, DBCM_DOCKER_GID
+   and DBCM_IMAGE, then deploy: docker stack deploy -c deploy/stack-ha.yaml dbcm
+   Each service needs a different manager node, config and local volume.
+5. Read the first leader's one-time setup token from its manager service log,
+   then open {{.Origin}} through your TLS proxy and create the administrator.
+   Register the other replicas' data-key recipients before relying on failover.
+{{- else}}
 4. Deploy on a Swarm manager node, pinned to the node at {{.Addr}}:
      DBCM_MANAGER_NODE=<hostname of that node> DBCM_DOCKER_GID=$(stat -c %g /var/run/docker.sock) \
        DBCM_CONFIG_NAME=dbcm-manager-config-1 docker stack deploy -c deploy/stack.yaml dbcm
 5. Read the one-time setup token from the service log (printed only while no administrator exists):
      docker service logs dbcm_manager 2>&1 | grep 'setup token'
    Then open {{.Origin}} through your TLS reverse proxy (to 127.0.0.1:8080 on that node) and create the first administrator.
+{{- end}}
 6. Register the Swarm in the UI with Docker endpoint unix:///var/run/docker.sock; agents enroll at {{.ManagerURL}}.
 `))
 

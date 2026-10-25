@@ -152,6 +152,10 @@ func (p *PeerTLS) serverConfig() *tls.Config {
 	}
 }
 
+// ServerConfig authenticates replica connections to a separate manager API
+// forwarding listener with the same peer identities as the Raft transport.
+func (p *PeerTLS) ServerConfig() *tls.Config { return p.serverConfig() }
+
 func (p *PeerTLS) clientConfig(address string) *tls.Config {
 	return &tls.Config{
 		MinVersion: tls.VersionTLS13,
@@ -172,6 +176,12 @@ func (p *PeerTLS) clientConfig(address string) *tls.Config {
 			return nil
 		},
 	}
+}
+
+// ClientConfig authenticates the replica at the configured Raft address.
+// It can be used when dialing that replica's separate API forwarding port.
+func (p *PeerTLS) ClientConfig(raftAddress string) *tls.Config {
+	return p.clientConfig(raftAddress)
 }
 
 // tlsStreamLayer is a raft.StreamLayer over TLS 1.3 with mutual

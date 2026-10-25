@@ -52,7 +52,10 @@ func PoolFromBundle(bundle []byte) (*x509.CertPool, error) {
 type Revocation struct {
 	Serial    string    `json:"serial"` // hex
 	RevokedAt time.Time `json:"revoked_at"`
-	Reason    string    `json:"reason,omitempty"`
+	// NotAfter is the denied certificate's expiry. Zero means its lifetime is
+	// unknown and the entry must be retained until an operator resolves it.
+	NotAfter time.Time `json:"not_after,omitempty"`
+	Reason   string    `json:"reason,omitempty"`
 }
 
 // DenyList is a simple CRL-like list of revoked serial numbers. It is not an

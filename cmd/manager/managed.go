@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -67,6 +69,8 @@ type managerConfig struct {
 	// PeerTLS makes the metastore transport mutual TLS 1.3 between
 	// replicas with certificates of a peer CA (manager -issue-peer-certs).
 	PeerTLS *peerTLSConfig `json:"peerTLS,omitempty"`
+	// APIForwardBind is the mTLS listener used only by other manager replicas.
+	APIForwardBind string `json:"apiForwardBind,omitempty"`
 	// LabAgents routes agent commands to each enrolled host's lab HTTP
 	// endpoint (unauthenticated; lab only). Without it agent commands are
 	// refused.
@@ -265,8 +269,9 @@ func (a *agentTransportConfig) validate() ([]net.IP, error) {
 }
 
 type peerConfig struct {
-	ID      string `json:"id"`
-	Address string `json:"address"`
+	ID         string `json:"id"`
+	Address    string `json:"address"`
+	APIAddress string `json:"apiAddress,omitempty"`
 }
 
 func (m *managerConfig) validate() error {
@@ -300,6 +305,13 @@ func (m *managerConfig) validate() error {
 			return err
 		}
 	}
+	if m.PeerTLS != nil && m.PeerTLS.Renewal != nil {
+		r := m.PeerTLS.Renewal
+		if r.CAFile == "" || r.PassphraseFile == "" || r.BeforeDays < 0 || r.BeforeDays > 365 ||
+			r.ValidityDays < 0 || r.ValidityDays > 3650 || r.IntervalHours < 0 || r.IntervalHours > 168 || r.before() >= r.validity() {
+			return errors.New("manager.peerTLS.renew needs caFile, passphraseFile and a renewal window shorter than validity")
+		}
+	}
 	return m.validatePeers()
 }
 
@@ -308,6 +320,30 @@ func (m *managerConfig) validate() error {
 // peer list, and no replica ever led), IDs and addresses are unique, and the
 // node's own entry is the address it advertises.
 func (m *managerConfig) validatePeers() error {
+	if m.APIForwardBind != "" {
+		if m.PeerTLS == nil || len(m.Peers) < 3 {
+			return errors.New("manager.apiForwardBind needs peerTLS and at least three peers")
+		}
+		if _, _, err := net.SplitHostPort(m.APIForwardBind); err != nil {
+			return fmt.Errorf("manager.apiForwardBind: %w", err)
+		}
+		apiAddrs := map[string]bool{}
+		for _, p := range m.Peers {
+			if _, _, err := net.SplitHostPort(p.APIAddress); err != nil {
+				return fmt.Errorf("manager.peers[%s].apiAddress: %w", p.ID, err)
+			}
+			if apiAddrs[p.APIAddress] {
+				return fmt.Errorf("manager.peers repeat apiAddress %q", p.APIAddress)
+			}
+			apiAddrs[p.APIAddress] = true
+		}
+	} else {
+		for _, p := range m.Peers {
+			if p.APIAddress != "" {
+				return errors.New("manager.peers[].apiAddress needs manager.apiForwardBind")
+			}
+		}
+	}
 	if len(m.Peers) == 0 {
 		return nil
 	}
@@ -338,6 +374,13 @@ func (m *managerConfig) validatePeers() error {
 	}
 	if self.Address != adv {
 		return fmt.Errorf("manager.peers entry of %q has address %q, but this replica advertises %q", nodeID, self.Address, adv)
+	}
+	if m.APIForwardBind != "" {
+		bindHost, bindPort, _ := net.SplitHostPort(m.APIForwardBind)
+		apiHost, apiPort, _ := net.SplitHostPort(self.APIAddress)
+		if bindPort != apiPort || (bindHost != "" && bindHost != "0.0.0.0" && bindHost != "::" && bindHost != apiHost) {
+			return fmt.Errorf("manager.peers entry of %q has apiAddress %q, but this replica binds %q", nodeID, self.APIAddress, m.APIForwardBind)
+		}
 	}
 	return nil
 }
@@ -389,7 +432,13 @@ type managedRuntime struct {
 	vulnCfg *vulnConfig
 	vuln    atomic.Pointer[vuln.Service]
 
-	enroll *http.Server
+	enroll           *http.Server
+	forwardServer    *http.Server
+	forwardTLS       *metastore.PeerTLS
+	forwardPeers     map[string]peerConfig
+	forwardTransport func(peerConfig) http.RoundTripper // tests replace network transport
+	renewStop        context.CancelFunc
+	renewWG          sync.WaitGroup
 
 	mu      sync.Mutex
 	initErr error
@@ -425,6 +474,9 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 	}
 	var peerStore atomic.Pointer[manager.Store]
 	if mc.PeerTLS != nil {
+		if _, err := mc.PeerTLS.renewOnce(context.Background(), time.Now); err != nil {
+			log.Error("manager: initial peer certificate renewal failed", "err", err)
+		}
 		if scfg.PeerTLS, err = mc.PeerTLS.load(); err != nil {
 			return nil, err
 		}
@@ -443,11 +495,16 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 	if mc.Vuln != nil && !cfg.Auth.Enabled {
 		return nil, errors.New("manager.vuln needs auth.enabled")
 	}
-	rt := &managedRuntime{proto: api.NewHandler(), keys: keys, backend: backend, imageCfg: mc.ImageBuild, imageRunner: newImageRunner(), vulnCfg: mc.Vuln}
+	rt := &managedRuntime{proto: api.NewHandler(), keys: keys, backend: backend, imageCfg: mc.ImageBuild, imageRunner: newImageRunner(), vulnCfg: mc.Vuln,
+		forwardTLS: scfg.PeerTLS, forwardPeers: map[string]peerConfig{}}
+	for _, p := range mc.Peers {
+		rt.forwardPeers[p.ID] = p
+	}
 	rt.setHandler(rt.notLeader())
 	swarms := &manager.Swarms{Matrix: swarm.DefaultMatrix(), Dial: func(h string) (swarm.Connector, error) { return swarm.Dial(h) }}
 	rt.swarms = swarms
 	scfg.Reconcilers = []manager.Reconciler{
+		manager.DenyListCompactor{},
 		manager.SyncReconciler{Swarms: swarms},
 		manager.DriftDetector{Swarms: swarms},
 		manager.BackupScheduler{Backups: rt.backups.Load, Interval: mc.scheduleInterval()},
@@ -541,6 +598,9 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 	if mc.TLS != nil && mc.TLS.ACME != nil {
 		rt.acme, err = managertls.New(*mc.TLS.ACME, manager.ACMEStorage{Store: svc.Store(), Keys: keys}, nil)
 		if err != nil {
+			if rt.enroll != nil {
+				_ = rt.enroll.Close()
+			}
 			_ = svc.Close()
 			return nil, err
 		}
@@ -585,7 +645,43 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 		rt.stack.Store(st)
 		rt.setHandler(h)
 	})
+	if mc.APIForwardBind != "" {
+		ln, err := net.Listen("tcp", mc.APIForwardBind)
+		if err != nil {
+			if rt.enroll != nil {
+				_ = rt.enroll.Close()
+			}
+			_ = svc.Close()
+			return nil, fmt.Errorf("manager API forwarding listen: %w", err)
+		}
+		rt.forwardServer = &http.Server{Handler: rt, ReadHeaderTimeout: 10 * time.Second}
+		go func() {
+			if err := rt.forwardServer.Serve(tls.NewListener(ln, rt.forwardTLS.ServerConfig())); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Error("manager API forwarding listener stopped", "err", err)
+			}
+		}()
+	}
 	svc.Start()
+	if mc.PeerTLS != nil && mc.PeerTLS.Renewal != nil {
+		ctx, cancel := context.WithCancel(context.Background())
+		rt.renewStop = cancel
+		rt.renewWG.Add(1)
+		go func() {
+			defer rt.renewWG.Done()
+			t := time.NewTicker(mc.PeerTLS.Renewal.interval())
+			defer t.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-t.C:
+					if _, err := mc.PeerTLS.renewOnce(ctx, time.Now); err != nil {
+						log.Error("manager: peer certificate renewal failed", "err", err)
+					}
+				}
+			}
+		}()
+	}
 	return rt, nil
 }
 
@@ -593,6 +689,18 @@ func (rt *managedRuntime) setHandler(h http.Handler) { rt.handler.Store(&h) }
 
 // ServeHTTP implements http.Handler.
 func (rt *managedRuntime) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if rt.svc != nil && rt.stack.Load() != nil {
+		if !rt.svc.IsLeader() {
+			rt.notLeader().ServeHTTP(w, r)
+			return
+		}
+		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
+			if err := rt.svc.WriteBarrier(); err != nil {
+				rt.notLeader().ServeHTTP(w, r)
+				return
+			}
+		}
+	}
 	(*rt.handler.Load()).ServeHTTP(w, r)
 }
 
@@ -606,12 +714,44 @@ func (rt *managedRuntime) notLeader() http.Handler {
 		if rt.svc != nil {
 			if id, _ := rt.svc.LeaderAddress(); id != "" {
 				w.Header().Set("X-DCM-Leader", id)
+				if r.Header.Get("X-DCM-Forwarded") == "" && rt.forwardTLS != nil {
+					if p, ok := rt.forwardPeers[id]; ok && p.APIAddress != "" && id != rt.svc.Node().ID() {
+						rt.forwardTo(w, r, p)
+						return
+					}
+				}
 			}
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_, _ = io.WriteString(w, `{"error":"not_leader"}`+"\n")
 	})
+}
+
+// forwardTo sends a request once. An uncertain write is never replayed after
+// a transport error; the caller must inspect its outcome on the new leader.
+func (rt *managedRuntime) forwardTo(w http.ResponseWriter, r *http.Request, p peerConfig) {
+	tr := &http.Transport{TLSClientConfig: rt.forwardTLS.ClientConfig(p.Address),
+		DialContext:         (&net.Dialer{Timeout: 5 * time.Second}).DialContext,
+		TLSHandshakeTimeout: 5 * time.Second, ResponseHeaderTimeout: 15 * time.Second, IdleConnTimeout: time.Second}
+	defer tr.CloseIdleConnections()
+	var transport http.RoundTripper = tr
+	if rt.forwardTransport != nil {
+		transport = rt.forwardTransport(p)
+	}
+	proxy := &httputil.ReverseProxy{
+		Transport: transport,
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			pr.SetURL(&url.URL{Scheme: "https", Host: p.APIAddress})
+			pr.Out.Header.Set("X-DCM-Forwarded", "1")
+		},
+		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, _ error) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = io.WriteString(w, `{"error":"leader_unavailable"}`+"\n")
+		},
+	}
+	proxy.ServeHTTP(w, r)
 }
 
 // leaderAPI builds the full API from the replicated state. A setup token is
@@ -747,6 +887,13 @@ func (rt *managedRuntime) prune() {
 }
 
 func (rt *managedRuntime) Close() error {
+	if rt.renewStop != nil {
+		rt.renewStop()
+		rt.renewWG.Wait()
+	}
+	if rt.forwardServer != nil {
+		_ = rt.forwardServer.Close()
+	}
 	if rt.enroll != nil {
 		_ = rt.enroll.Close()
 	}
