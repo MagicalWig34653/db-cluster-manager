@@ -817,6 +817,57 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
+  /hosts/{id}/engine-update-plan:
+    get:
+      summary: Preview a single-host Docker Engine update
+      description: >-
+        Read-only, gated by engine_update read permission. Uses the recorded
+        host version, an injected read-only available-version source, the
+        maintained compatibility matrix, Swarm manager quorum and the existing
+        Galera maintenance plan. Without a configured version source the plan
+        is blocked. No update or drain is executed by this API.
+      operationId: hostEngineUpdatePlan
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+        - { name: targetVersion, in: query, required: false, schema: { type: string } }
+      responses:
+        "200":
+          description: Plan, including blockers and approval digest
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EngineUpdatePlan" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /hosts/{id}/engine-update-runbook:
+    post:
+      summary: Export an operator-only Docker Engine update runbook
+      description: >-
+        Requires engine_update operate permission and a digest matching a
+        freshly recomputed, exportable plan. Manager hosts additionally need
+        explicit confirmation. The script only prints instructions; it never
+        calls Docker, a package manager or an agent. Approval is audited, but
+        it authorizes export only. The operator executes the described commands.
+      operationId: exportHostEngineUpdateRunbook
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EngineRunbookRequest" }
+      responses:
+        "200":
+          description: Printable shell runbook
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EngineRunbook" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
   /hosts/{id}/maintenance:
     post:
       summary: Put a host into guided maintenance
@@ -2833,6 +2884,39 @@ components:
         slot: { type: string }
         note: { type: string }
         conditions: { type: array, items: { type: string } }
+    EngineUpdatePlan:
+      type: object
+      required: [swarm, host, currentVersion, availableVersions, maintenance, steps, warnings, blockers, rollbackNotes, pinnedManager, approvalRequired, exportable, digest]
+      properties:
+        swarm: { type: string }
+        host: { type: string }
+        currentVersion: { type: string }
+        targetVersion: { type: string }
+        availableVersions: { type: array, items: { type: string } }
+        compatibility: { type: string }
+        maintenance: { $ref: "#/components/schemas/MaintenancePreview" }
+        steps: { type: array, items: { type: string } }
+        warnings: { type: array, items: { type: string } }
+        blockers: { type: array, items: { type: string } }
+        rollbackNotes: { type: array, items: { type: string } }
+        pinnedManager: { type: boolean }
+        approvalRequired: { type: boolean }
+        exportable: { type: boolean }
+        digest: { type: string }
+    EngineRunbookRequest:
+      type: object
+      required: [targetVersion, digest]
+      additionalProperties: false
+      properties:
+        targetVersion: { type: string }
+        digest: { type: string }
+        confirmPinnedManager: { type: boolean }
+    EngineRunbook:
+      type: object
+      required: [digest, script]
+      properties:
+        digest: { type: string }
+        script: { type: string, description: Prints operator steps without executing an upgrade }
     MaintenancePreview:
       type: object
       required: [host, end, safe, clusters]

@@ -69,8 +69,10 @@ func (a Action) Destructive() bool {
 type ResourceType string
 
 const (
-	ResourceSwarm        ResourceType = "swarm"
-	ResourceHost         ResourceType = "host"
+	ResourceSwarm ResourceType = "swarm"
+	ResourceHost  ResourceType = "host"
+	// ResourceEngineUpdate guards export of an operator-run engine runbook.
+	ResourceEngineUpdate ResourceType = "engine_update"
 	ResourceCluster      ResourceType = "cluster"
 	ResourceDatabase     ResourceType = "database"
 	ResourceDatabaseUser ResourceType = "database_user"
@@ -99,7 +101,7 @@ const (
 )
 
 var knownResourceTypes = map[ResourceType]bool{
-	ResourceSwarm: true, ResourceHost: true, ResourceCluster: true,
+	ResourceSwarm: true, ResourceHost: true, ResourceEngineUpdate: true, ResourceCluster: true,
 	ResourceDatabase: true, ResourceDatabaseUser: true, ResourceBackup: true,
 	ResourceSettings: true, ResourceDashboard: true, ResourceUserAccount: true,
 	ResourceRole: true, ResourceAuditLog: true, ResourceService: true,

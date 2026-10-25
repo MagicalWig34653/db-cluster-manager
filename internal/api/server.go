@@ -63,7 +63,8 @@ type Config struct {
 	Replicas   Replicas
 	Membership Membership
 	// Maintenance backs host maintenance and drift checks; nil answers 503.
-	Maintenance Maintenance
+	Maintenance   Maintenance
+	EngineUpdates EngineUpdates
 	// ImageBuilds and Registries back the image build endpoints (proposal,
 	// fakes only); nil answers 503.
 	ImageBuilds ImageBuilds
@@ -250,6 +251,14 @@ func (s *server) coreEndpoints() []endpoint {
 		{
 			method: "GET", path: "/hosts/{id}/maintenance-plan", access: accessPermission,
 			action: authz.ActionRead, resolve: s.resolveHost, hideDenied: true, handle: s.handleMaintenancePlan,
+		},
+		{
+			method: "GET", path: "/hosts/{id}/engine-update-plan", access: accessPermission,
+			action: authz.ActionRead, resolve: s.resolveEngineUpdateHost, hideDenied: true, handle: s.handleEngineUpdatePlan,
+		},
+		{
+			method: "POST", path: "/hosts/{id}/engine-update-runbook", access: accessPermission,
+			action: authz.ActionOperate, resolve: s.resolveEngineUpdateHost, hideUnreadable: true, handle: s.handleEngineUpdateRunbook,
 		},
 		{
 			method: "POST", path: "/hosts/{id}/maintenance", access: accessPermission,
