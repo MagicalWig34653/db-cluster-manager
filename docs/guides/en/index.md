@@ -41,3 +41,5 @@ Reading order for a first test: 1, 2, 3, then 10 before trusting anything.
 - [16 — Kubernetes groundwork (fakes only)](16-kubernetes.md)
 
 - [17 — Manager HTTPS and ACME](17-manager-tls.md)
+
+- [18 — Docker Engine update plans (fakes and mock only)](18-docker-engine-updates.md)

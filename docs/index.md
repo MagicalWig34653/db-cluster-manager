@@ -149,6 +149,7 @@ German interface: hosts and agent enrollment.
 
 - [User guides (English)](guides/en/index.md): installation, hosts and agents, clusters, health and alerts, backup and restore, node replacement, full-outage recovery, security model, troubleshooting, known limits, operator runbook, [configuration reference](guides/en/12-configuration-reference.md).
 - [Benutzerhandbuch (Deutsch)](guides/de/index.md): dieselben Themen auf Deutsch, einschließlich der [Konfigurationsreferenz](guides/de/12-configuration-reference.md).
+- Docker Engine update plans: [English guide](guides/en/18-docker-engine-updates.md) · [Deutsche Anleitung](guides/de/18-docker-engine-updates.md) (fakes and mock only; no package source in the shipping manager).
 
 ## Project documentation
 

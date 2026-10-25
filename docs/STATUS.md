@@ -769,3 +769,56 @@ No Swarm, Docker daemon, registry, AI provider or other infrastructure was
 contacted. W05/R1 and later release gates remain open. Next action: repeat the
 full race suite where local listeners work, then review the execution-intent
 reconciliation and recovery-path behavior before any infrastructure trial.
+
+## X09 Docker Engine update plans (2026-10-25, fakes and mock only)
+
+W07/X09 now has a read-only per-host planner in `internal/manager/engine_updates.go`.
+The planner reads Swarm's recorded engine version, checks an injected
+`EngineVersionSource` for the installed and available exact releases, rejects
+inventory/source disagreement, and uses the embedded Docker compatibility
+matrix. Export is restricted to the exact lab-evidenced recommended release;
+unknown/untested and cross-major targets are blocked. It requires a fresh
+active/ready host observation, a manager majority outside a manager target,
+no other host in maintenance in that Swarm and the existing Galera maintenance
+preview. The host must enter guided maintenance and reach `ready` before a
+runbook can be exported. Every Swarm manager is treated as potentially pinned
+until exact manager placement is available.
+
+`GET /hosts/{id}/engine-update-plan` and
+`POST /hosts/{id}/engine-update-runbook` have OpenAPI schemas, route/schema and
+permission/audit tests. The separate `engine_update` resource defaults to the
+administrator preset only. Runbook export checks a freshly recomputed digest
+and requires explicit manager-host confirmation. The downloadable shell script
+prints operator instructions; no manager/agent Docker upgrade, drain, restart
+or package execution path exists. The DE/EN page `/engine-updates`, development
+mock, UI guard/client tests, [ADR 0017](decisions/0017-docker-engine-update-plans.md)
+and [EN](guides/en/18-docker-engine-updates.md)/[DE](guides/de/18-docker-engine-updates.md)
+guides are included; Pages links were updated.
+
+**Actual verification:** `gofmt -l .` returned no output (exit 0), `go vet
+./...` returned no output (exit 0), `python3 scripts/check_docs.py` reported
+76 Markdown files / 69 requirements / 0 errors, and
+`python3 scripts/check_deploy.py` reported `deploy checks passed (static only;
+no image was built)`. Focused `go test -race -count=1 -p 4` for the new planner,
+API route/schema and compatibility checks passed in `internal/manager`,
+`internal/api` and `internal/manager/swarm`. The required full race suite was
+executed on the final Go tree and **failed**: 25 packages passed, 18 failed,
+four have no tests. The sandbox denied existing TCP/Unix listener binds,
+including `httptest` (`bind: operation not permitted`); this is not a passing
+full suite. In `web/`, `npm run check` found 0 errors and 0 warnings;
+`npm test` passed 199 tests in 19 files; `npm run build` succeeded and
+`internal/webui/assets/.gitkeep` was touched afterwards. The first web check
+could not start because `node_modules` was absent; `npm ci --offline` installed
+cached dependencies, then the complete web sequence passed. `git diff --check`
+passed. No real infrastructure, Docker daemon, package source or browser
+session was contacted.
+
+**Limits and next action:** The shipping manager deliberately has no
+`EngineVersionSource`, because supported package methods are an open owner
+decision. It returns blocked plans and cannot export a real runbook. The
+compatibility seed has only one exact lab-evidenced release and no package
+rollback evidence. The UI has mock and unit evidence only. Decide supported
+installation methods and update/restart boundaries, add a read-only version
+source and a reliable manager-placement signal, then rerun the full race suite
+where local listeners are allowed before owned-lab validation. W05/R1 gates
+remain unchanged; no Swarm-trial readiness is claimed.
