@@ -62,6 +62,8 @@ type Service struct {
 	// Secrets holds provider API keys; AIDeps are the provider transports.
 	Secrets ai.SecretStore
 	AIDeps  ai.Deps
+	// AllowCLIProviders is set only by explicit manager configuration.
+	AllowCLIProviders bool
 	// OpenProvider overrides ai.Open (tests inject fakes).
 	OpenProvider func(ctx context.Context, c ai.ProviderConfig) (ai.Provider, error)
 	Budget       *ai.Budget
@@ -543,11 +545,7 @@ func (s *Service) analyse(ctx context.Context, actor string, p *Proposal, pol Po
 	if cfg.Consent == nil {
 		return change{}, ai.ErrNoConsent
 	}
-	if s.OpenProvider != nil {
-		prov, err = s.OpenProvider(ctx, cfg)
-	} else {
-		prov, err = ai.Open(ctx, cfg, s.Secrets, s.AIDeps)
-	}
+	prov, err = s.openProvider(ctx, cfg)
 	if err != nil {
 		return change{}, err
 	}
@@ -590,6 +588,16 @@ func (s *Service) analyse(ctx context.Context, actor string, p *Proposal, pol Po
 		p.Validation.Errors = append([]string{"the AI target version is not a fixed version stated by the advisory"}, validateChange(c, f, adv, e)...)
 	}
 	return c, nil
+}
+
+func (s *Service) openProvider(ctx context.Context, cfg ai.ProviderConfig) (ai.Provider, error) {
+	if cfg.Kind.CLI() && !s.AllowCLIProviders {
+		return nil, fmt.Errorf("%w: CLI provider requires manager.vuln.allowCLIProviders=true", ErrInvalidInput)
+	}
+	if s.OpenProvider != nil {
+		return s.OpenProvider(ctx, cfg)
+	}
+	return ai.Open(ctx, cfg, s.Secrets, s.AIDeps)
 }
 
 func (s *Service) promptInput(f Finding, adv Advisory, e InventoryEntry) ai.PromptInput {
@@ -804,6 +812,9 @@ func (s *Service) AddProvider(ctx context.Context, actor string, c ai.ProviderCo
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if c.Kind.CLI() && !s.AllowCLIProviders {
+		return ProviderView{}, fmt.Errorf("%w: CLI provider requires manager.vuln.allowCLIProviders=true", ErrInvalidInput)
+	}
 	c.Consent, c.CreatedBy, c.CreatedAt, c.CredentialRef = nil, actor, s.now(), ""
 	if !key.IsZero() {
 		if c.Kind.CLI() {

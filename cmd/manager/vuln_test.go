@@ -163,6 +163,13 @@ func TestVulnConfigValidation(t *testing.T) {
 	if err := ok.validate(); err != nil {
 		t.Fatal(err)
 	}
+	cli := vulnProviderConfig{ID: "cc", Name: "Claude Code", Kind: ai.KindClaudeCodeCLI, Binary: "/usr/bin/claude", Experimental: true}
+	if err := (&vulnConfig{Providers: []vulnProviderConfig{cli}}).validate(); err == nil || !strings.Contains(err.Error(), "allowCLIProviders") {
+		t.Fatalf("CLI without explicit opt-in: %v", err)
+	}
+	if err := (&vulnConfig{AllowCLIProviders: true, Providers: []vulnProviderConfig{cli}}).validate(); err != nil {
+		t.Fatalf("CLI with explicit opt-in: %v", err)
+	}
 }
 
 func TestVulnNeedsAuth(t *testing.T) {

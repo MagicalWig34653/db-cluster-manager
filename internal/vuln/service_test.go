@@ -281,6 +281,27 @@ func addLocalProvider(t *testing.T, f *fixture) {
 	}
 }
 
+func TestCLIProviderRequiresManagerOptIn(t *testing.T) {
+	f := newFixture(t)
+	c := ai.ProviderConfig{ID: "cc", Name: "Claude Code", Kind: ai.KindClaudeCodeCLI, Binary: "/usr/bin/claude", Experimental: true}
+	if _, err := f.svc.AddProvider(context.Background(), "admin", c, ai.Secret{}); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("CLI provider without manager opt-in: %v", err)
+	}
+	f.svc.AllowCLIProviders = true
+	if _, err := f.svc.AddProvider(context.Background(), "admin", c, ai.Secret{}); err != nil {
+		t.Fatal(err)
+	}
+	f.svc.AllowCLIProviders = false
+	f.svc.OpenProvider = func(context.Context, ai.ProviderConfig) (ai.Provider, error) {
+		t.Fatal("disabled CLI provider reached runner")
+		return nil, nil
+	}
+	// Existing stored configurations must also be refused after opt-in is removed.
+	if _, err := f.svc.openProvider(context.Background(), c); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("stored CLI provider after opt-out: %v", err)
+	}
+}
+
 func TestAIProposalConsentPromptAndAudit(t *testing.T) {
 	f := newFixture(t)
 	f.poll()
