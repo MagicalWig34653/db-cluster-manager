@@ -276,3 +276,31 @@ Für API und Oberfläche implementiert [Fakes], unabhängig von `peerTLS` und `a
 | `tls.acme.httpListen` | `:80` | Separater HTTP-Listener nur für HTTP-01. Beim ausgelieferten Container hohen Port und externe Weiterleitung nutzen. |
 
 API und Oberfläche nutzen weiter `-listen`; ACME ändert dessen Standardport 8080 nicht. Nur der Leader erneuert (nach Wahl und stündlich, ab 30 Tagen Restlaufzeit; fünf Minuten nach Fehlern). Zertifikate, Kontoschlüssel und Challenges liegen verschlüsselt im replizierten Metastore. Alle Replikate brauchen Zugriff auf die Datenschlüssel. `-healthcheck` liest dieselbe Konfiguration und nutzt geprüftes HTTPS mit der ersten ACME-Domain als SNI; statisches TLS nutzt `auth.rpId` als SNI, sonst die Loopback-Adresse. Staging/private CAs brauchen eine installierte Vertrauenswurzel (`SSL_CERT_FILE` wird von Go unterstützt); die Prüfung lässt sich nicht umgehen.
+
+## Gemeinsame Schreibknoten-Wahl bei redundanten Proxys (E8-Folgearbeit)
+
+**[Nur Fakes, 25.10.2026]** E8 zeigte: Zwei unabhängige Proxys mit `single-writer-stable` können verschiedene Schreibknoten wählen. Für redundante Schreib-Endpunkte muss die gemeinsame, replizierte Wahl eingerichtet werden. Jeder Manager erhält denselben Eintrag im Abschnitt `manager`:
+
+```json
+"proxyWriters": [{
+  "clusterId": "cluster-1", "initialWriter": "n1", "candidates": ["n1", "n2", "n3"], "autoFailover": true,
+  "members": [
+    {"id": "proxy-a", "tokenFile": "/run/secrets/proxy-a-token"},
+    {"id": "proxy-b", "tokenFile": "/run/secrets/proxy-b-token"}
+  ],
+  "adminTokenFile": "/run/secrets/proxy-writer-admin-token"
+}]
+```
+
+Jeder Proxy und die Administration brauchen unterschiedliche, zufällige Geheimnisse. Die Dateien werden außerhalb der Versionsverwaltung auf allen Manager-Replikaten bereitgestellt; die Pfade müssen absolut sein. `candidates` enthält die zugelassenen, als Writer geeigneten Knoten-IDs. Mitglieder- und Kandidatenliste bleiben nach der ersten gespeicherten Wahl fest; eine Abweichung sperrt die Wahl. Jeder Proxy erhält neben `policy` und `probe` einen eigenen `coordination`-Abschnitt. Die Knoten-IDs müssen übereinstimmen:
+
+```json
+"policy": {"mode": "single-writer-stable"},
+"coordination": {
+  "cluster_id": "cluster-1", "proxy_id": "proxy-a",
+  "manager_urls": ["https://manager-1.example.test", "https://manager-2.example.test"],
+  "token_file": "/run/secrets/proxy-a-token", "timeout": "750ms"
+}
+```
+
+Der Proxy fragt pro `probe.interval` beim Manager-Leader an. Alle Manager-API-Adressen werden ohne abschließenden Schrägstrich eingetragen. HTTPS ist Pflicht; nur Tests auf Loopback dürfen HTTP verwenden. Der koordinierte Modus verlangt `probe.sync: galera`; der optionale Lese-Endpunkt ist gesperrt, weil dessen L4-Verbindung SQL-Schreibzugriffe nicht verhindern kann. Ist der Manager nicht erreichbar, behält ein laufender Proxy seine letzte Wahl, solange die lokale Galera-Prüfung den Knoten freigibt. Ein neu gestarteter Proxy hat bis zur Antwort des Leaders keinen Schreibknoten. Fällt der gewählte Knoten aus, gibt es **keinen Schreibknoten**, bis der Manager einen koordinierten Wechsel abgeschlossen hat; eine lokale Ersatzwahl findet nicht statt. Mit `autoFailover: true` prüft der Leader frische Primary/Synced-Daten und sperrt deterministisch den Wechsel zum ersten gesunden Kandidaten. Er startet keinen Cluster neu, und eine fehlende Proxy-Bestätigung blockiert den Abschluss. Beim Standardwert `false` prüft die Administration einen gesunden Galera-Kandidaten und fordert `POST /api/v1/proxy-writers/cluster-1/switch` mit `Authorization: Bearer <admin-token>` und `{"writer":"n2"}` an. In der Sperrphase beenden alle Proxys ihre Schreibverbindungen und bestätigen dies; erst danach gibt der Manager n2 frei. Ein nicht erreichbares Mitglied blockiert den Wechsel und damit Schreibzugriffe. Ein Mitglied darf nicht bloß wegen einer Partition entfernt werden. Prüfen Sie `/status` jedes Proxys (`coordination.epoch`, `coordination.pending`, `writer`) sowie die Wahl am Manager. Siehe [ADR 0017](../../decisions/0017-coordinated-proxy-writer.md).

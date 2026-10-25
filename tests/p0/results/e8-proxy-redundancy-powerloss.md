@@ -48,3 +48,7 @@ Resources (gate A, from the log): at rest in the final layout each proxy used 8 
 ## Cleanup and unrelated resources
 
 Run 1: EXIT trap `bin/lab cleanup -apply`. Run 2 was killed during B2; the VMs were then removed with `bin/lab cleanup --apply` (`removed: lima:dbcm-lab-m1..m3`, `unrelated resources intact (3)`; `colima:default`, `lima:thermoctl-e2e-basestation`, `lima:thermoctl-test-vm` unchanged, both Lima profiles `Stopped` before and after). No foreign process was touched except the script processes of this task.
+
+## Follow-up (2026-10-25, no new lab run)
+
+[ADR 0017](../../../docs/decisions/0017-coordinated-proxy-writer.md) implements a replicated manager writer choice with a freeze and acknowledgement by every configured proxy before a writer change. Fake-only and in-memory Raft tests cover different local latency, proxy/manager partition and health flapping. None of the E8 observations above were rerun with this protocol; its real failover time, VIP interaction and behavior on the E8 VMs remain unverified.

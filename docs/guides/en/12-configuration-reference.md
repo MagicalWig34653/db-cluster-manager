@@ -276,3 +276,31 @@ Implemented for the API/UI listener [Fakes]; unrelated to `peerTLS` or `agentTra
 | `tls.acme.httpListen` | `:80` | Separate challenge-only HTTP bind, used only for HTTP-01. Use an unprivileged port with external forwarding in the shipped container. |
 
 The API/UI port remains `-listen`; configuring ACME does not change its default from 8080. Renewals run on the leader (on election and hourly, within 30 days of expiry; five-minute retry after failure). Certificates, account keys and challenges are sealed in the replicated metastore. All replicas need accessible data keys. `-healthcheck` reads the same config and uses verified HTTPS with the first ACME domain as SNI; static TLS uses `auth.rpId` as SNI (otherwise the loopback address). Staging/private CAs need an installed trust root (`SSL_CERT_FILE` is supported by Go); no verification bypass exists.
+
+## Redundant proxy writer choice (E8 follow-up)
+
+**[Fakes only, 2026-10-25]** E8 showed that two independent `single-writer-stable` proxies can select different writers. Configure a replicated choice before using redundant write endpoints. Add the same `proxyWriters` entry to each manager replica's `manager` section:
+
+```json
+"proxyWriters": [{
+  "clusterId": "cluster-1", "initialWriter": "n1", "candidates": ["n1", "n2", "n3"], "autoFailover": true,
+  "members": [
+    {"id": "proxy-a", "tokenFile": "/run/secrets/proxy-a-token"},
+    {"id": "proxy-b", "tokenFile": "/run/secrets/proxy-b-token"}
+  ],
+  "adminTokenFile": "/run/secrets/proxy-writer-admin-token"
+}]
+```
+
+Use distinct random secrets for every proxy and for the administrator; provision the same files on all manager replicas outside tracked configuration. Paths must be absolute. `candidates` lists the allowed writer-eligible node IDs. The member and candidate lists are fixed after the first choice is stored; a mismatch fails closed. On each proxy, add `coordination` beside `policy` and `probe` (all writer-eligible nodes must have the same IDs on both proxies):
+
+```json
+"policy": {"mode": "single-writer-stable"},
+"coordination": {
+  "cluster_id": "cluster-1", "proxy_id": "proxy-a",
+  "manager_urls": ["https://manager-1.example.test", "https://manager-2.example.test"],
+  "token_file": "/run/secrets/proxy-a-token", "timeout": "750ms"
+}
+```
+
+The proxy polls the manager leader once per `probe.interval`; list all manager API URLs, without a trailing slash. HTTPS is required except loopback HTTP in tests. Coordinated mode requires `probe.sync: galera` and disables the optional read endpoint because its L4 path cannot enforce read-only SQL. An unreachable manager leaves an already running proxy on its last choice while local Galera health still gates traffic. A new proxy starts with no writer until a leader answers. A failed writer gives **no writer** until the manager starts and completes a coordinated switch; local latency never selects a replacement. With `autoFailover: true`, the leader checks fresh Primary/Synced health and deterministically freezes a switch to the first healthy candidate; it never bootstraps a cluster, and a missing proxy ACK blocks completion. With the default `false`, the operator verifies a healthy Galera candidate, then sends `POST /api/v1/proxy-writers/cluster-1/switch` with `Authorization: Bearer <admin-token>` and JSON `{"writer":"n2"}`. During the switch all proxies close write connections and acknowledge the freeze; the manager publishes n2 only after every configured proxy acknowledges. An unreachable member leaves the switch pending and writes unavailable. Never remove a member simply to clear a partition. Check each proxy's loopback `/status` (`coordination.epoch`, `coordination.pending`, `writer`) and the manager choice endpoint. See [ADR 0017](../../decisions/0017-coordinated-proxy-writer.md).

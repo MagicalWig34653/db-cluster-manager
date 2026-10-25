@@ -52,7 +52,7 @@ Command API (ADR 0011, verified with fakes and one in-memory replica only): host
 
 ## Routing and certificates
 
-Multiple proxy instances route according to configured writer policy, health and locally measured latency. Specify latency smoothing, hysteresis, stale health handling and connection draining. Optional read/write splitting must account for transactions and read-after-write behavior.
+Redundant proxy instances use the replicated manager writer choice and an all-member freeze/acknowledgement barrier before a writer change ([ADR 0017](decisions/0017-coordinated-proxy-writer.md)); local latency remains useful for reads and local health can remove a writer but cannot choose a different one. The earlier independent policy selected different writers in E8. Optional read/write splitting must account for transactions and read-after-write behavior.
 
 A domain alone does not solve connection failover. Test proxy loss, DNS caching, VIP ownership and client reconnection. Host address/port preservation during migration depends on actual port bindings and the chosen Swarm publication mode; staying on the same host is not sufficient proof.
 
