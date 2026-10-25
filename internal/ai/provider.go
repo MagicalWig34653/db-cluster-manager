@@ -281,6 +281,8 @@ type Provider interface {
 type Deps struct {
 	HTTP   HTTPDoer
 	Runner CommandRunner
+	// AllowCLIProviders must come from explicit manager.vuln configuration.
+	AllowCLIProviders bool
 }
 
 // Open validates the configuration, requires consent, resolves the
@@ -309,6 +311,9 @@ func Open(ctx context.Context, c ProviderConfig, secrets SecretStore, d Deps) (P
 	case KindOpenAIAPI, KindOpenAICompatible:
 		return &openAIProvider{cfg: c, key: key, http: guardHTTP(d.HTTP)}, nil
 	case KindClaudeCodeCLI, KindCodexCLI:
+		if !d.AllowCLIProviders {
+			return nil, fmt.Errorf("%w: CLI provider requires manager.vuln.allowCLIProviders=true", ErrInvalidConfig)
+		}
 		if d.Runner == nil {
 			return nil, fmt.Errorf("%w: no command runner", ErrInvalidConfig)
 		}

@@ -149,6 +149,25 @@ pending, requires the owned lab, and does not replace current W05/R1 release
 gates. This task used no real infrastructure.
 
 
+## cx-review-fixes handover (2026-10-25)
+
+Eight review findings were fixed in small local commits with test-first
+regressions: generic container credential-value rejection, CLI provider
+configuration opt-in and warning, registry secret isolation under concurrent
+registration, durable vulnerability execution intent and idempotent image-build
+claim, config creation adoption after a crash, conservative validated AI usage
+with store-error handling, complete prompt string screening, and recovery-envelope
+verification before data-key rotation. [Actual behavior and check results](STATUS.md#review-fixes-2026-10-25-cx-review-fixes-fakes-only)
+are recorded in STATUS. No infrastructure was used. Focused new tests pass under
+`-race`; the required full race suite was run three times, including the final tree,
+and failed because the sandbox
+denies existing local listener tests (18 packages failed, 25 passed, five without
+tests). Vet, formatting, documentation and static deployment checks passed; the
+first formatting check listed two files, which were corrected before the final
+clean check. Next: rerun the full
+race suite with local listeners permitted, inspect any remaining failures, then
+resume W05/R1 release work. No Swarm-trial readiness is claimed.
+
 
 ## Keys/PITR/membership handover (2026-10-24)
 

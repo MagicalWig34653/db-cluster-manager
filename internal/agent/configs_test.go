@@ -4,12 +4,36 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
 )
+
+func TestConfigCrashBeforeInventoryResumesOnlyMatchingAttempt(t *testing.T) {
+	f := newFixture(t)
+	a := testConfig()
+	labels := map[string]string{
+		LabelInstallation: testInstallation, LabelCluster: a.Labels[LabelCluster], LabelNode: a.Labels[LabelNode],
+		LabelOpID: "op", LabelStepID: "step", labelConfigDigest: fmt.Sprintf("%x", sha256.Sum256(a.Data)),
+	}
+	f.docker.objects["crashed-id"] = Object{Kind: KindConfig, ID: "crashed-id", Name: a.Name, Labels: labels}
+	f.restart()
+	r := f.mustDo(1, "other", "step", KindCreateConfig, a)
+	wantStatus(t, r, StatusRefused, CodeNotOwned)
+	r = f.mustDo(1, "op", "step", KindCreateConfig, a)
+	wantStatus(t, r, StatusSucceeded, "")
+	if !f.exec.owner.Allowed("crashed-id") || len(f.docker.Mutations()) != 0 {
+		t.Fatalf("resume did not inventory without a duplicate create: allowed=%t mutations=%v", f.exec.owner.Allowed("crashed-id"), f.docker.Mutations())
+	}
+	f.restart()
+	if !f.exec.owner.Allowed("crashed-id") {
+		t.Fatal("resumed config was not persisted in allow-list")
+	}
+}
 
 func testConfig() ConfigSpec {
 	return ConfigSpec{Name: "app-config", Data: []byte("file contents"), Labels: map[string]string{LabelCluster: "cluster-1", LabelNode: "config"}}

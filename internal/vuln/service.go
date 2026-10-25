@@ -4,6 +4,8 @@ package vuln
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"slices"
@@ -44,6 +46,7 @@ func (x ImageBuildExecutor) Execute(ctx context.Context, actor string, p Proposa
 	}
 	req := *p.Plan.Build
 	req.ApprovalDigest = p.Plan.BuildPlanDigest
+	req.ExecutionID = p.ExecutionID
 	job, err := x.Builds.Start(ctx, actor, req)
 	if err != nil {
 		return "", err
@@ -62,6 +65,8 @@ type Service struct {
 	// Secrets holds provider API keys; AIDeps are the provider transports.
 	Secrets ai.SecretStore
 	AIDeps  ai.Deps
+	// AllowCLIProviders is set only by explicit manager configuration.
+	AllowCLIProviders bool
 	// OpenProvider overrides ai.Open (tests inject fakes).
 	OpenProvider func(ctx context.Context, c ai.ProviderConfig) (ai.Provider, error)
 	Budget       *ai.Budget
@@ -543,11 +548,7 @@ func (s *Service) analyse(ctx context.Context, actor string, p *Proposal, pol Po
 	if cfg.Consent == nil {
 		return change{}, ai.ErrNoConsent
 	}
-	if s.OpenProvider != nil {
-		prov, err = s.OpenProvider(ctx, cfg)
-	} else {
-		prov, err = ai.Open(ctx, cfg, s.Secrets, s.AIDeps)
-	}
+	prov, err = s.openProvider(ctx, cfg)
 	if err != nil {
 		return change{}, err
 	}
@@ -566,13 +567,20 @@ func (s *Service) analyse(ctx context.Context, actor string, p *Proposal, pol Po
 			return change{}, err
 		}
 	}
-	resp, err := prov.Complete(ctx, ai.Request{Model: pol.Model, System: prompt.System, User: prompt.User, MaxTokens: cfg.OutputTokens()})
+	req := ai.Request{Model: pol.Model, System: prompt.System, User: prompt.User, MaxTokens: cfg.OutputTokens()}
+	resp, err := prov.Complete(ctx, req)
 	if err != nil {
 		_ = s.audit(AuditRecord{Actor: actor, Event: EventAnalysis, FindingID: f.ID, Provider: cfg.ID, Model: pol.Model, PromptSHA: prompt.SHA256, Result: "provider_error"})
 		return change{}, err
 	}
 	if s.Budget != nil {
-		s.Budget.Record(cfg.ID, resp.InputTokens+resp.OutputTokens)
+		tokens, err := ai.UsageTokens(resp, req)
+		if err != nil {
+			return change{}, err
+		}
+		if err := s.Budget.Record(cfg.ID, tokens); err != nil {
+			return change{}, err
+		}
 	}
 	p.Origin, p.Provider, p.Model, p.PromptSHA256, p.ResponseSHA256 = OriginAI, cfg.ID, pol.Model, prompt.SHA256, ai.HashText(resp.Text)
 	_ = s.audit(AuditRecord{Actor: actor, Event: EventAnalysis, FindingID: f.ID, Provider: cfg.ID, Model: pol.Model,
@@ -590,6 +598,16 @@ func (s *Service) analyse(ctx context.Context, actor string, p *Proposal, pol Po
 		p.Validation.Errors = append([]string{"the AI target version is not a fixed version stated by the advisory"}, validateChange(c, f, adv, e)...)
 	}
 	return c, nil
+}
+
+func (s *Service) openProvider(ctx context.Context, cfg ai.ProviderConfig) (ai.Provider, error) {
+	if cfg.Kind.CLI() && !s.AllowCLIProviders {
+		return nil, fmt.Errorf("%w: CLI provider requires manager.vuln.allowCLIProviders=true", ErrInvalidInput)
+	}
+	if s.OpenProvider != nil {
+		return s.OpenProvider(ctx, cfg)
+	}
+	return ai.Open(ctx, cfg, s.Secrets, s.AIDeps)
 }
 
 func (s *Service) promptInput(f Finding, adv Advisory, e InventoryEntry) ai.PromptInput {
@@ -667,6 +685,12 @@ func (s *Service) approveLocked(ctx context.Context, actor, id, digest string, a
 	if !auto && pol.Mode == ModeNotifyOnly {
 		return Proposal{}, fmt.Errorf("%w: notify_only", ErrPolicyForbids)
 	}
+	if (p.Status == StatusApproved || p.Status == StatusFailed) && p.ExecutionID != "" && digest == p.Plan.Digest {
+		if p.Execution != "" && p.Status == StatusApproved {
+			return p, nil
+		}
+		return s.executeIntent(ctx, actor, p, ver, EventApproved)
+	}
 	if p.Status != StatusAwaitingApproval && p.Status != StatusProposed {
 		return Proposal{}, ErrClosed
 	}
@@ -687,9 +711,27 @@ func (s *Service) approveLocked(ctx context.Context, actor, id, digest string, a
 		ev = EventAutoApproved
 	}
 	p.Status, p.DecidedBy, p.DecidedAt = StatusApproved, actor, s.now()
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return Proposal{}, err
+	}
+	p.ExecutionID = "vx-" + hex.EncodeToString(nonce[:])
 	if err := s.audit(AuditRecord{Actor: actor, Event: ev, FindingID: p.FindingID, ProposalID: p.ID, PlanDigest: p.Plan.Digest}); err != nil {
 		return Proposal{}, err
 	}
+	if err := s.Store.PutProposal(p, ver); err != nil {
+		return Proposal{}, err
+	}
+	_, ver, _, err = s.Store.Proposal(id)
+	if err != nil {
+		return Proposal{}, err
+	}
+	return s.executeIntent(ctx, actor, p, ver, ev)
+}
+
+// executeIntent reconciles the durable execution ID. The build service
+// atomically claims that ID before calling the external builder.
+func (s *Service) executeIntent(ctx context.Context, actor string, p Proposal, ver uint64, ev string) (Proposal, error) {
 	if s.Executor == nil {
 		p.Execution = "no executor is wired: approval recorded, nothing started"
 	} else {
@@ -804,6 +846,9 @@ func (s *Service) AddProvider(ctx context.Context, actor string, c ai.ProviderCo
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if c.Kind.CLI() && !s.AllowCLIProviders {
+		return ProviderView{}, fmt.Errorf("%w: CLI provider requires manager.vuln.allowCLIProviders=true", ErrInvalidInput)
+	}
 	c.Consent, c.CreatedBy, c.CreatedAt, c.CredentialRef = nil, actor, s.now(), ""
 	if !key.IsZero() {
 		if c.Kind.CLI() {

@@ -396,6 +396,54 @@ func TestEndpointValidation(t *testing.T) {
 
 // --- service: credentials stored through the secret store ---
 
+type racingSecrets struct {
+	MemorySecretStore
+	mu   sync.Mutex
+	puts int
+	both chan struct{}
+}
+
+func (s *racingSecrets) Put(ctx context.Context, ref string, v Secret) error {
+	if err := s.MemorySecretStore.Put(ctx, ref, v); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.puts++
+	if s.puts == 2 {
+		close(s.both)
+	}
+	s.mu.Unlock()
+	select {
+	case <-s.both:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func TestConcurrentRegistrationKeepsWinningCredential(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	secrets := &racingSecrets{both: make(chan struct{})}
+	svc := &Service{Configs: &MemoryConfigStore{}, Secrets: secrets, NewClient: func(ExternalConfig) (Registry, error) { return nil, nil }}
+	inputs := []ExternalInput{
+		{ID: "shared", Name: "first", Kind: KindGeneric, Endpoint: "https://example.test", Username: "robot", Password: NewSecret("first-secret")},
+		{ID: "shared", Name: "second", Kind: KindGeneric, Endpoint: "https://example.test", Username: "robot", Password: NewSecret("second-secret")},
+	}
+	errCh := make(chan error, 2)
+	for _, in := range inputs {
+		go func() { _, err := svc.AddExternal(ctx, "admin", in); errCh <- err }()
+	}
+	e1, e2 := <-errCh, <-errCh
+	if (e1 == nil) == (e2 == nil) || (e1 != nil && !errors.Is(e1, ErrExists)) || (e2 != nil && !errors.Is(e2, ErrExists)) {
+		t.Fatalf("registrations: %v, %v", e1, e2)
+	}
+	cfg, sec, err := svc.Credential(ctx, "shared")
+	if err != nil || cfg.CredentialRef == "" || (sec.Reveal() != "first-secret" && sec.Reveal() != "second-secret") {
+		t.Fatalf("winning credential lost: ref=%q, value=%q, err=%v", cfg.CredentialRef, sec.Reveal(), err)
+	}
+}
+
 func TestServiceAddExternalStoresSecretSeparately(t *testing.T) {
 	ctx := context.Background()
 	f := newFake("basic")
@@ -419,7 +467,7 @@ func TestServiceAddExternalStoresSecretSeparately(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ := json.Marshal(cfg)
-	if strings.Contains(string(b), f.pw) || cfg.CredentialRef != "registry/r1/credential" || cfg.CreatedBy != "alice" {
+	if strings.Contains(string(b), f.pw) || !strings.HasPrefix(cfg.CredentialRef, "registry/r1/credential/") || cfg.CreatedBy != "alice" {
 		t.Fatalf("config %s", b)
 	}
 	if got, _ := secrets.Get(ctx, cfg.CredentialRef); got.Reveal() != f.pw {

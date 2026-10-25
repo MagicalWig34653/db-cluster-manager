@@ -39,7 +39,18 @@ func (e *Executor) createConfig(ctx context.Context, cmd Command, spec ConfigSpe
 	digest := fmt.Sprintf("%x", sha256.Sum256(spec.Data))
 	obj, err := e.docker.Inspect(ctx, KindConfig, spec.Name)
 	if err == nil {
-		if err := e.owner.Check(obj, KindConfig); err != nil {
+		if !e.owner.Allowed(obj.ID) {
+			// Docker may have committed CreateConfig just before the agent
+			// crashed, before the ID reached its persistent inventory. Only
+			// the same operation and step may adopt that exact content.
+			if obj.Kind != KindConfig || obj.Labels[LabelInstallation] != e.cfg.InstallationID ||
+				obj.Labels[LabelOpID] != cmd.OpID || obj.Labels[LabelStepID] != cmd.StepID ||
+				obj.Labels[LabelCluster] != spec.Labels[LabelCluster] || obj.Labels[LabelNode] != spec.Labels[LabelNode] ||
+				obj.Labels[labelConfigDigest] != digest {
+				return outcome(ErrNotOwned)
+			}
+			e.allow(obj.ID)
+		} else if err := e.owner.Check(obj, KindConfig); err != nil {
 			return outcome(err)
 		}
 		if obj.Labels[LabelCluster] != spec.Labels[LabelCluster] || obj.Labels[LabelNode] != spec.Labels[LabelNode] || obj.Labels[labelConfigDigest] != digest {

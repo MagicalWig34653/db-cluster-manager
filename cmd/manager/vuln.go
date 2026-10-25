@@ -28,6 +28,9 @@ import (
 // contacted unless a feed with an explicit URL is configured here, and the
 // policy stays notify_only until an administrator changes it in the UI.
 type vulnConfig struct {
+	// AllowCLIProviders explicitly permits CLI-login providers. These CLIs
+	// inherit the manager process rights and must not run in the stock stack.
+	AllowCLIProviders bool `json:"allowCLIProviders"`
 	// PollIntervalSeconds is the feed polling interval of the leader
 	// (default 3600, minimum 300).
 	PollIntervalSeconds int `json:"pollIntervalSeconds"`
@@ -41,7 +44,7 @@ type vulnConfig struct {
 	DefaultMode string `json:"defaultMode"`
 	// Providers are AI providers registered when no provider with the ID
 	// exists. They stay unusable until an administrator consents to the data
-	// egress statement. CLI providers are not accepted here.
+	// egress statement. CLI providers need AllowCLIProviders.
 	Providers []vulnProviderConfig `json:"providers"`
 }
 
@@ -69,6 +72,9 @@ type vulnProviderConfig struct {
 	Limits          ai.Limits `json:"limits"`
 	MaxOutputTokens int       `json:"maxOutputTokens"`
 	TimeoutSeconds  int       `json:"timeoutSeconds"`
+	Binary          string    `json:"binary,omitempty"`
+	Home            string    `json:"home,omitempty"`
+	Experimental    bool      `json:"experimental,omitempty"`
 }
 
 func (c *vulnConfig) pollInterval() time.Duration {
@@ -152,7 +158,12 @@ func (c *vulnConfig) validate() error {
 		}
 		ids[p.ID] = true
 		if p.Kind.CLI() {
-			return fmt.Errorf("%s: CLI providers can only be added through the API", at)
+			if !c.AllowCLIProviders {
+				return fmt.Errorf("%s: CLI providers require manager.vuln.allowCLIProviders=true", at)
+			}
+			if p.APIKeyFile != "" {
+				return fmt.Errorf("%s: CLI providers take no API key", at)
+			}
 		}
 		if p.APIKeyFile != "" && !filepath.IsAbs(p.APIKeyFile) {
 			return fmt.Errorf("%s.apiKeyFile must be an absolute path", at)
@@ -170,7 +181,8 @@ func (c *vulnConfig) validate() error {
 
 func (p vulnProviderConfig) providerConfig() ai.ProviderConfig {
 	return ai.ProviderConfig{ID: p.ID, Name: p.Name, Kind: p.Kind, BaseURL: p.BaseURL, Models: p.Models, DefaultModel: p.DefaultModel,
-		Limits: p.Limits, MaxOutputTokens: p.MaxOutputTokens, TimeoutSeconds: p.TimeoutSeconds}
+		Limits: p.Limits, MaxOutputTokens: p.MaxOutputTokens, TimeoutSeconds: p.TimeoutSeconds,
+		Binary: p.Binary, Home: p.Home, Experimental: p.Experimental}
 }
 
 func readKeyFile(path string) (ai.Secret, error) {
@@ -230,15 +242,16 @@ func (rt *managedRuntime) newVulnService(images *api.ImageBuildBackend) (*vuln.S
 	}
 	kv := vuln.MetastoreKV{Node: rt.svc.Store().Node()}
 	svc := &vuln.Service{
-		Store:       &vuln.Store{KV: kv},
-		Inventory:   manager.VulnInventory{Store: rt.svc.Store(), Jobs: manager.ImageJobStore{Store: rt.svc.Store()}, Registries: images.Regs},
-		Feeds:       feeds,
-		IsLeader:    rt.svc.IsLeader,
-		Secrets:     manager.SealedSecretStore{Store: rt.svc.Store(), Keys: rt.keys},
-		AIDeps:      ai.Deps{HTTP: httpc, Runner: ai.ExecRunner{}},
-		Budget:      &ai.Budget{Backing: vuln.BudgetStore{KV: kv}},
-		RedactNames: manager.VulnRedactNames(rt.svc.Store(), images.Regs),
-		Catalog:     imagebuild.DefaultCatalog(),
+		Store:             &vuln.Store{KV: kv},
+		Inventory:         manager.VulnInventory{Store: rt.svc.Store(), Jobs: manager.ImageJobStore{Store: rt.svc.Store()}, Registries: images.Regs},
+		Feeds:             feeds,
+		IsLeader:          rt.svc.IsLeader,
+		Secrets:           manager.SealedSecretStore{Store: rt.svc.Store(), Keys: rt.keys},
+		AIDeps:            ai.Deps{HTTP: httpc, Runner: ai.ExecRunner{}, AllowCLIProviders: vc.AllowCLIProviders},
+		Budget:            &ai.Budget{Backing: vuln.BudgetStore{KV: kv}},
+		AllowCLIProviders: vc.AllowCLIProviders,
+		RedactNames:       manager.VulnRedactNames(rt.svc.Store(), images.Regs),
+		Catalog:           imagebuild.DefaultCatalog(),
 		Notifier: manager.VulnNotifier{Send: func(ctx context.Context, e notify.Event) bool {
 			if rt.monitoring == nil {
 				return false
