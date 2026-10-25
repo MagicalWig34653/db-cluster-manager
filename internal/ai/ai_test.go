@@ -269,7 +269,10 @@ func TestProviderResponseCap(t *testing.T) {
 func TestCLIProvidersUseRestrictedCommand(t *testing.T) {
 	fr := &FakeRunner{Result: CmdResult{Stdout: []byte(`{"type":"result","result":"{\"x\":1}","is_error":false,"usage":{"input_tokens":7,"output_tokens":2}}`)}}
 	c := consented(ProviderConfig{ID: "cc", Name: "CC", Kind: KindClaudeCodeCLI, Binary: "/usr/local/bin/claude", Home: "/var/lib/dbcm/cc", Experimental: true, Models: []string{"sonnet"}})
-	p, err := Open(context.Background(), c, nil, Deps{Runner: fr})
+	if _, err := Open(context.Background(), c, nil, Deps{Runner: fr}); !errors.Is(err, ErrInvalidConfig) || len(fr.Calls) != 0 {
+		t.Fatalf("CLI opened without explicit manager opt-in: %v", err)
+	}
+	p, err := Open(context.Background(), c, nil, Deps{Runner: fr, AllowCLIProviders: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -306,7 +309,7 @@ func TestCLIProvidersUseRestrictedCommand(t *testing.T) {
 
 	fx := &FakeRunner{Result: CmdResult{Stdout: []byte("{\"kind\":\"no_op\"}")}}
 	cx := consented(ProviderConfig{ID: "cx", Name: "CX", Kind: KindCodexCLI, Binary: "/opt/codex", Experimental: true})
-	px, _ := Open(context.Background(), cx, nil, Deps{Runner: fx})
+	px, _ := Open(context.Background(), cx, nil, Deps{Runner: fx, AllowCLIProviders: true})
 	resp, err = px.Complete(context.Background(), Request{Model: "gpt-x", System: "SYS", User: "DATA"})
 	if err != nil || resp.Text != `{"kind":"no_op"}` {
 		t.Fatal(resp, err)

@@ -247,7 +247,7 @@ func (rt *managedRuntime) newVulnService(images *api.ImageBuildBackend) (*vuln.S
 		Feeds:             feeds,
 		IsLeader:          rt.svc.IsLeader,
 		Secrets:           manager.SealedSecretStore{Store: rt.svc.Store(), Keys: rt.keys},
-		AIDeps:            ai.Deps{HTTP: httpc, Runner: ai.ExecRunner{}},
+		AIDeps:            ai.Deps{HTTP: httpc, Runner: ai.ExecRunner{}, AllowCLIProviders: vc.AllowCLIProviders},
 		Budget:            &ai.Budget{Backing: vuln.BudgetStore{KV: kv}},
 		AllowCLIProviders: vc.AllowCLIProviders,
 		RedactNames:       manager.VulnRedactNames(rt.svc.Store(), images.Regs),
