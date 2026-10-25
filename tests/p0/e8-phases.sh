@@ -26,7 +26,15 @@ E8_APP='-user e5app -password-file '$E8'/app.pw'
 
 # ---------------------------------------------------------------- helpers
 # e8_login: the lab client's session cookie expires after about two hours.
-e8_login() { vm_args "$M1" 'sudo /usr/local/bin/dbcm-e4-client -state '"$STATE"'/client.json -base http://127.0.0.1:'"$API_PORT"' -origin http://localhost:'"$API_PORT"' login' >/dev/null 2>&1 || true; }
+e8_login() { rec "manager login for the lab client" vm_args "$M1" 'sudo /usr/local/bin/dbcm-e4-client -state '"$STATE"'/client.json -base http://127.0.0.1:'"$API_PORT"' -origin http://localhost:'"$API_PORT"' login' || true; }
+# e8_slot_logs: error and state-transfer lines of all three slots (all tasks).
+e8_slot_logs() {
+	local n
+	for n in 1 2 3; do
+		echo "== $(svc "$n")"
+		vm_docker "$M1" service logs --no-task-ids --tail 400 "$(svc "$n")" 2>&1 | grep -E 'ERROR|Aborting|aborted|\[Warning\].*WSREP|Found saved state|safe_to_bootstrap|State transfer|IST|SST failed|failed to open|exit|restore pc|view\(' | cut -c1-210 | tail -25
+	done
+}
 e8_vm_up() { [ "$(limactl list --format '{{.Status}}' "$1" 2>/dev/null)" = Running ]; }
 e8_now() { vm_sh "$M1" 'date -u +%T.%3N'; }
 e8_other_px() { # VM -> the other proxy VM
@@ -557,10 +565,11 @@ e8_power_scenario() {
 	local prim
 	prim=$(e8_primary_any 2>/dev/null || true)
 	if printf '%s\n' "$prim" | grep -q 'wsrep_cluster_status Primary'; then
-		rec "logs of the slot that did not join yet (all of its tasks)" sh -c "limactl shell --workdir / $M1 -- sudo docker service logs --no-task-ids --tail 60 $(svc 2) 2>&1 | grep -E 'WSREP|ERROR|abort|Aborting|failed' | cut -c1-200 | tail -30"
+		rec "slot logs 150 s after the boot (errors, state transfers, restored views)" e8_slot_logs
 		# The nodes found each other: no manager action is needed or allowed.
 		wait_until 600 "Galera cluster back to 3 synced nodes" e8_synced3 || true
 		rec "wsrep status after the self-recovery" e8_status3
+		e8_synced3 || rec "slot logs after the synced wait timed out" e8_slot_logs
 		if [ "$(e6_uuid 1)" = "$E6_UUID" ]; then result "$tag: Galera restored the primary component by itself (gvwstate.dat), same cluster state UUID, no manager action"; else result "$tag: cluster state UUID CHANGED after the self-recovery"; fi
 		rec "operations after the self-recovery (still none)" e6_ops
 		rec "sentinels on every node ($ids expected)" e8_sentinels_all "$ids"
