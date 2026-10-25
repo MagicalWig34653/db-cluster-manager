@@ -4,7 +4,7 @@ title: Installation and packaging
 
 # Installation and packaging
 
-Technical guide for installing the manager. It describes only what exists today. **Not verified from these files** (marked below): managed mode ran on lab VMs only as a process (lab E4), never from the compose/stack files; manager configuration backup has no scheduler or API; there are no signed images. Verification status: files in `deploy/` and the release workflow are statically checked (`python3 scripts/check_deploy.py`), and Go tests load `deploy/manager.example.json` with the manager's config loader and start the managed runtime from it on loopback; **the image has not been built, and the workflow, compose and stack files have not been run on a real Swarm.**
+Technical guide for installing the manager. The arm64 manager image and single-instance stack ran on lab VMs in [E7](../tests/p0/results/e7-stack-deploy.md). Native amd64 deployment, Compose, multi-replica Swarm services and the updated CI/release workflows remain unverified. Static deployment checks do not prove image builds or runtime compatibility. There are no signed images; manager configuration backup has no scheduler or API.
 
 ## What the manager does today
 
@@ -17,7 +17,7 @@ Without a configuration the image serves only the web UI, `GET /api/v1/health` a
 | Release archives `db-cluster-manager_<version>_<os>_<arch>.tar.gz` | `.github/workflows/release.yml` on tag `v*` | linux/darwin, amd64/arm64, CGO disabled; contain `manager`, `agent`, `cli`, `deploy/`, per-binary `go version -m` listings |
 | `SHA256SUMS` | same workflow | verify with `sha256sum -c SHA256SUMS` |
 | Container image `ghcr.io/<owner>/db-cluster-manager:<version>` | same workflow, `deploy/Dockerfile` | linux/amd64 and linux/arm64; distroless, uid 65532, `/var/lib/dbcm` owned by 65532, healthcheck via `manager -healthcheck`; contains the agent binary, so it is also the agent image |
-| Job image (backup/restore) | `deploy/Dockerfile.jobs` (not in the release workflow yet) | `mariadb:11.4.13` pinned by digest plus `dbcm-job` (`cmd/dbcm-job`); runs as uid/gid 999 (the image's `mysql`); **never built so far** ([ADR 0011](decisions/0011-galera-endpoints-and-bootstrap-sql.md)) |
+| Job image (backup/restore) | same workflow, `deploy/Dockerfile.jobs` | `mariadb:11.4.13` pinned by digest plus `dbcm-job` (`cmd/dbcm-job`); runs as uid/gid 999 (the image's `mysql`); linux/amd64 and linux/arm64; updated release path not yet run ([ADR 0011](decisions/0011-galera-endpoints-and-bootstrap-sql.md)) |
 | Example configuration `deploy/manager.example.json` | `manager init` (below) | single instance, no backups; a Go test checks that `manager init` reproduces it byte for byte |
 | Offline bundle | `scripts/make-offline-bundle.sh` | binaries, compose/stack files, example configuration, checksums, manifest, optional `docker save` image |
 
@@ -142,4 +142,12 @@ Objects the manager created stay in the Swarm: the agent service `dbcm-agent-<in
 - Base images are pinned by tag and digest in `deploy/Dockerfile` (resolved from the registries on 2026-10-20) and `deploy/Dockerfile.jobs` (`mariadb:11.4.13`, resolved 2026-10-22); refresh them deliberately. The job image's MariaDB version must match the clusters' server image.
 - Go builds use `-trimpath`, CGO disabled, `-ldflags "-s -w -X ...Version -X ...Commit"`. Node dependencies come from `npm ci` and the lockfile.
 - Bit-for-bit reproducibility has not been verified.
-- Release workflow actions are pinned to commit SHAs. No secrets other than `GITHUB_TOKEN`; image signing/attestation and a formal SBOM format (SPDX/CycloneDX) are not done, only `go version -m` listings.
+- Build and release Actions reuse the repository's existing commit-SHA pins (not refreshed or independently verified in this task). The release image builds request BuildKit SBOM (`sbom: true`) and provenance (`mode=max`); their presence and contents must be inspected after a real tag build. These flags do not provide image signing or vulnerability scanning. Only the image publication job has `packages: write`; it uses `GITHUB_TOKEN` for GHCR on version-tag pushes after native CI passes.
+
+## Architecture validation and publication
+
+[Build and test](../.github/workflows/build.yml) runs Go builds, vet, race tests and frontend build/check/tests on native `ubuntu-24.04` (amd64) and `ubuntu-24.04-arm` (arm64) runners. Each runner builds both Dockerfiles for its own architecture with Buildx into temporary OCI archives with SBOM/provenance, without login or push. The archives are validation outputs discarded with the runner, not downloadable release artifacts.
+
+[Release](../.github/workflows/release.yml) calls the same checks before publishing archives or images. Only `v*` tag pushes can publish the multi-platform manager/agent image and `ghcr.io/<owner>/db-cluster-manager-jobs:<version>`; both target `linux/amd64,linux/arm64`. The tag publication build uses QEMU for foreign-platform build steps. A multi-platform build is not native P0 evidence. No workflow has been run for this change and no registry publication is claimed.
+
+See the [deployment architecture plan](../deploy/README.md) and [native amd64 P0 plan](TESTING.md#native-amd64-p0-evidence-plan). The owner must still choose an amd64 host or cloud VM for multi-node P0; no resource is provisioned by CI.

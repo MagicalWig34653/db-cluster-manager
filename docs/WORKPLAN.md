@@ -42,3 +42,28 @@ Next concrete action: import the local commits into a writable checkout, rerun t
 ## cx-configs handover (2026-10-24)
 
 Implemented the scoped W07/W09 config delivery step; contracts, safety rules, actual checks and limitations are recorded in [STATUS](STATUS.md#w07w09-config-delivery-2026-10-24-fakes-only). No infrastructure was created. Targeted race tests pass (including encoding and Galera/service drift contracts); full race suite fails on sandbox-denied listeners plus one manager abort timeout (isolated race rerun passed). Formatting, vet, documentation and static deployment checks pass; deployment checks lack PyYAML. Implementation and guides committed as `5521645` and `2ace890`; no push. Next concrete action: rerun the full race suite with local listeners available, investigate any recurring abort timeout, then test config lifecycle in the owned lab. This does not replace the W05 priorities above.
+
+## amd64 CI handover (2026-10-24)
+
+Build/CI configuration for W05/P10 is implemented on `cx-amd64`: native Ubuntu
+amd64/arm64 Go/web checks and both native image builds without push; version-tag
+release waits for those checks and builds/publishes both multi-platform images
+with SBOM/provenance. Existing action SHA pins are retained. Deployment workflow
+guards and 12 mutation tests cover publication permissions, trigger/dependency,
+platforms and attestations. Deployment notes and the native amd64 P0 evidence
+plan are current; choosing an owner amd64 host versus cloud VM remains open.
+
+[Actual verification and limits](STATUS.md#amd64-build-and-ci-support-2026-10-24):
+format/vet/docs/deploy checks and 12 checker tests passed (also without PyYAML);
+web check, 185 tests and production build passed after offline dependency
+installation, and `.gitkeep` was restored. Full Go race suite failed (24 packages
+passed, 18 failed, 5 without tests) on sandbox listener restrictions plus one
+manager abort timeout; that test passed on an isolated race rerun. No image,
+Actions run or native amd64 P0 evidence exists for this change. No infrastructure
+contact or push occurred. Git staging/commits are blocked by the shared metadata
+`index.lock` permission; all changes remain in this worktree.
+
+Next: create small reviewed commits when metadata is writable, execute native
+CI, inspect version-tag image manifests/attestations after an explicit release
+trigger, then obtain the owner host/VM decision and a scoped lab plan before
+P0. W05 stays IN PROGRESS and its release gates are unchanged.

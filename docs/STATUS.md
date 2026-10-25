@@ -391,3 +391,61 @@ and documentation as small commits in a session with Git metadata write access;
 rerun the complete race suite where local listeners are permitted. Any real
 Kubernetes work still needs the timing/distribution decision, durable ownership
 inventory, fencing/RBAC/credential review and a scoped, budgeted lab plan.
+
+## amd64 build and CI support (2026-10-24)
+
+Branch `cx-amd64`; build configuration and fakes/unit tests only. No real
+infrastructure, Docker daemon or registry was contacted. The native CI matrix
+now uses `ubuntu-24.04` (amd64) and `ubuntu-24.04-arm` (arm64), checks the host
+architecture, builds Go/web, runs vet/format/docs/deploy checks, Go race tests
+and frontend tests, then builds both manager/agent and backup/restore job
+images for the runner's native platform. Buildx writes temporary OCI archives
+with SBOM/provenance and no login/push. Release calls that same workflow before
+publication; both images are built for `linux/amd64,linux/arm64` on version-tag
+pushes only. Only the image job has `packages: write`; other jobs retain their
+specific read/release permissions. Existing SHA pins were reused, not refreshed
+or independently verified. Tag builds use QEMU for foreign-platform steps.
+
+`scripts/check_deploy.py` guards both workflows (native matrix, both images,
+read-only checks, tag-only publication, validation dependency, SHA pins and
+SBOM/provenance); 12 mutation regression tests are in
+`scripts/test_check_deploy.py`. Both the PyYAML parse path and stdlib fallback
+were exercised. These checks are static and do not replace an Actions run.
+`deploy/README.md`, `docs/INSTALL.md` and `docs/TESTING.md` describe the artifact
+contract and native amd64 P0 plan. An owner-provided amd64 host versus cloud VM
+remains an open owner decision; no P0 gate is closed by these changes.
+
+Actual local verification:
+
+- `gofmt -l .`: exit 0, no output.
+- `go vet ./...`: exit 0, no output.
+- `go test -race -count=1 -p 4 ./...`: exit 1; 24 packages passed,
+  18 failed, 5 had no tests. Existing fake servers cannot bind local TCP/Unix
+  listeners in this sandbox (`bind: operation not permitted`, including
+  `httptest` panics). Additionally `TestAbortCreateRetryingExecSQLThenDelete`
+  timed out waiting for operation aborted. Its isolated race rerun with
+  `GOMAXPROCS=1` passed (`internal/manager`, 1.351 s); no full-suite pass claimed.
+- Go commands used writable `GOCACHE=/tmp/dbcm-cx-amd64-cache` and
+  `GOMAXPROCS=4` (14 logical CPUs detected by `os.cpu_count()`).
+- `python3 scripts/check_docs.py`: `Checked 71 Markdown files and 69 requirements; 0 errors.`
+- `python3 scripts/check_deploy.py`: `deploy checks passed (static only; no image was built)`.
+- `python3 scripts/test_check_deploy.py`: 12 tests, `OK`; also passed with
+  `python3 -S` to exercise the no-PyYAML path. The deployment checker itself
+  also passed with `-S`, explicitly reporting text-only YAML checks.
+- `cd web && npm run check && npm test && npm run build`: exit 0;
+  840 files, 0 errors/0 warnings; 15 test files/185 tests passed; adapter-static
+  wrote `internal/webui/assets`. Restored `.gitkeep` with `touch` afterwards.
+  Initial check failed because dependencies were absent; an empty temporary
+  npm cache lacked packages (`ENOTCACHED`). `npm ci --offline` using the existing
+  cache installed 100 packages successfully. npm reported pending `fsevents`
+  script approval; build emitted only the existing NO_COLOR/FORCE_COLOR warning.
+- `git diff --check`: exit 0.
+
+No image build, workflow execution, native amd64 runtime or P0 result is
+claimed. Commit creation was attempted but the sandbox denied
+`.git/worktrees/cx-amd64/index.lock` in shared Git metadata outside the writable
+worktree. No commit or push was made; changes remain in this worktree.
+Next: commit the reviewed CI/checker and deployment/docs as small commits in a
+session with Git metadata write access, run the native CI on GitHub, inspect
+both image indexes and attestations on an explicitly triggered version tag,
+and obtain the owner environment decision before any native amd64 P0 work.

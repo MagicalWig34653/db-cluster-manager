@@ -4,13 +4,28 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  workflow_call:
 permissions:
   contents: read
 jobs:
   build:
-    runs-on: ubuntu-latest
+    name: Native ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    env:
+      GOMAXPROCS: "4"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: go.mod
@@ -19,9 +34,41 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: web/package-lock.json
+      - name: Verify native architecture
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: test "$(go env GOHOSTARCH)" = "$EXPECTED_ARCH"
       - name: Build frontend and binaries
         run: make build
       - name: Check
-        run: make check
-      - name: Test
-        run: make test
+        run: |
+          make check
+          python3 scripts/check_deploy.py
+          python3 scripts/test_check_deploy.py
+      - name: Test Go with race detector
+        run: go test -race -count=1 -p 4 ./...
+      - name: Test frontend
+        working-directory: web
+        run: npm test
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      # OCI outputs retain attestations without registry access or a push.
+      - name: Build manager and agent image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          push: false
+          outputs: type=oci,dest=${{ runner.temp }}/manager-${{ matrix.arch }}.tar
+          sbom: true
+          provenance: mode=max
+      - name: Build backup and restore job image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: deploy/Dockerfile.jobs
+          platforms: linux/${{ matrix.arch }}
+          push: false
+          outputs: type=oci,dest=${{ runner.temp }}/jobs-${{ matrix.arch }}.tar
+          sbom: true
+          provenance: mode=max
