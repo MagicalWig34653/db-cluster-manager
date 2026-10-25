@@ -567,13 +567,20 @@ func (s *Service) analyse(ctx context.Context, actor string, p *Proposal, pol Po
 			return change{}, err
 		}
 	}
-	resp, err := prov.Complete(ctx, ai.Request{Model: pol.Model, System: prompt.System, User: prompt.User, MaxTokens: cfg.OutputTokens()})
+	req := ai.Request{Model: pol.Model, System: prompt.System, User: prompt.User, MaxTokens: cfg.OutputTokens()}
+	resp, err := prov.Complete(ctx, req)
 	if err != nil {
 		_ = s.audit(AuditRecord{Actor: actor, Event: EventAnalysis, FindingID: f.ID, Provider: cfg.ID, Model: pol.Model, PromptSHA: prompt.SHA256, Result: "provider_error"})
 		return change{}, err
 	}
 	if s.Budget != nil {
-		s.Budget.Record(cfg.ID, resp.InputTokens+resp.OutputTokens)
+		tokens, err := ai.UsageTokens(resp, req)
+		if err != nil {
+			return change{}, err
+		}
+		if err := s.Budget.Record(cfg.ID, tokens); err != nil {
+			return change{}, err
+		}
 	}
 	p.Origin, p.Provider, p.Model, p.PromptSHA256, p.ResponseSHA256 = OriginAI, cfg.ID, pol.Model, prompt.SHA256, ai.HashText(resp.Text)
 	_ = s.audit(AuditRecord{Actor: actor, Event: EventAnalysis, FindingID: f.ID, Provider: cfg.ID, Model: pol.Model,

@@ -4,6 +4,7 @@ package ai
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 )
@@ -21,6 +22,7 @@ type Budget struct {
 	Backing BudgetBacking
 	day     string
 	use     map[string]*Usage
+	loadErr error
 }
 
 // BudgetBacking persists per-provider usage of one UTC day.
@@ -45,7 +47,7 @@ func (b *Budget) today() string {
 	}
 	d := now().UTC().Format("2006-01-02")
 	if d != b.day || b.use == nil {
-		b.day, b.use = d, map[string]*Usage{}
+		b.day, b.use, b.loadErr = d, map[string]*Usage{}, nil
 		b.load()
 	}
 	return d
@@ -59,6 +61,7 @@ func (b *Budget) load() {
 	}
 	saved, err := b.Backing.LoadUsage()
 	if err != nil {
+		b.loadErr = err
 		return
 	}
 	for id, u := range saved {
@@ -101,6 +104,9 @@ func (b *Budget) Reserve(id string, l Limits) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	d := b.today()
+	if b.loadErr != nil {
+		return b.loadErr
+	}
 	u := b.use[id]
 	if u == nil {
 		u = &Usage{Day: d}
@@ -120,14 +126,44 @@ func (b *Budget) Reserve(id string, l Limits) error {
 }
 
 // Record adds the tokens of a completed request.
-func (b *Budget) Record(id string, tokens int) {
+func (b *Budget) Record(id string, tokens int) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.today()
+	if b.loadErr != nil {
+		return b.loadErr
+	}
+	if tokens < 0 || tokens > 2*maxUsageTokens {
+		return ErrResponseMalformed
+	}
 	if u := b.use[id]; u != nil {
 		u.Tokens += tokens
-		_ = b.save(id, u)
+		if err := b.save(id, u); err != nil {
+			b.loadErr = err
+			return err
+		}
+		return nil
 	}
+	return errors.New("ai: token usage has no reserved request")
+}
+
+const maxUsageTokens = 1_000_000
+
+// UsageTokens validates provider counters. A missing counter is charged one
+// token per UTF-8 byte, capped at one million per part. This is deliberately
+// conservative for ordinary prompts while bounding faulty provider output.
+func UsageTokens(resp Response, req Request) (int, error) {
+	in, out := resp.InputTokens, resp.OutputTokens
+	if in < 0 || out < 0 || in > maxUsageTokens || out > maxUsageTokens {
+		return 0, ErrResponseMalformed
+	}
+	if in == 0 {
+		in = min(maxUsageTokens, max(1, len(req.System)+len(req.User)))
+	}
+	if out == 0 {
+		out = min(maxUsageTokens, max(1, len(resp.Text)))
+	}
+	return in + out, nil
 }
 
 // Usage returns the current day's usage of a provider.

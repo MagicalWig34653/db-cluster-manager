@@ -506,6 +506,25 @@ func TestBuildPromptRejectsStructuredFields(t *testing.T) {
 	}
 }
 
+func TestBuildPromptRejectsSensitiveStructuredStrings(t *testing.T) {
+	for name, mut := range map[string]func(*PromptInput){
+		"advisory":            func(p *PromptInput) { p.AdvisoryID = "private-advisory" },
+		"alias":               func(p *PromptInput) { p.Aliases = []string{"private-alias"} },
+		"ecosystem":           func(p *PromptInput) { p.Ecosystem = "private-ecosystem" },
+		"package":             func(p *PromptInput) { p.Package = "private-package" },
+		"version":             func(p *PromptInput) { p.Version = "private-version" },
+		"fixed version":       func(p *PromptInput) { p.FixedVersions = []string{"private-version"} },
+		"setting name":        func(p *PromptInput) { p.AllowedSettings = []string{"private.setting"} },
+		"current setting key": func(p *PromptInput) { p.CurrentSettings = map[string]string{"private.setting": "safe"} },
+	} {
+		in := promptInput()
+		mut(&in)
+		if _, err := BuildPrompt(in, Redactor{Names: []string{"private"}}); err == nil {
+			t.Errorf("%s was sent without redaction", name)
+		}
+	}
+}
+
 func TestParseProposal(t *testing.T) {
 	valid := `{"kind":"mitigation","component":"php83","mitigation":{"setting":"session.upload_progress.enabled","value":"0"},"affected":"yes","benefit":"medium","risk":"low","rationale":"Disable upload progress."}`
 	p, err := ParseProposal(valid)
@@ -544,6 +563,37 @@ func TestParseProposal(t *testing.T) {
 		if _, err := ParseProposal(s); !errors.Is(err, ErrSchema) {
 			t.Errorf("%s: %v", name, err)
 		}
+	}
+}
+
+func TestUsageTokensRejectsInvalidAndEstimatesMissing(t *testing.T) {
+	req := Request{System: "system text", User: "prompt text", MaxTokens: 100}
+	if _, err := UsageTokens(Response{InputTokens: -1, OutputTokens: 2}, req); !errors.Is(err, ErrResponseMalformed) {
+		t.Fatalf("negative usage: %v", err)
+	}
+	n, err := UsageTokens(Response{Text: "answer"}, req)
+	if err != nil || n < len(req.System)+len(req.User)+len("answer") {
+		t.Fatalf("missing usage estimate: %d, %v", n, err)
+	}
+}
+
+type failingBudgetBacking struct{ saveErr error }
+
+func (f *failingBudgetBacking) LoadUsage() (map[string]Usage, error) { return map[string]Usage{}, nil }
+func (f *failingBudgetBacking) SaveUsage(string, Usage) error        { return f.saveErr }
+
+func TestBudgetRecordStoreErrorFailsClosed(t *testing.T) {
+	bk := &failingBudgetBacking{}
+	b := &Budget{Backing: bk}
+	if err := b.Reserve("p", Limits{}); err != nil {
+		t.Fatal(err)
+	}
+	bk.saveErr = errors.New("store down")
+	if err := b.Record("p", 10); err == nil {
+		t.Fatal("record ignored store failure")
+	}
+	if err := b.Reserve("p", Limits{}); err == nil {
+		t.Fatal("budget allowed another call after failed booking")
 	}
 }
 

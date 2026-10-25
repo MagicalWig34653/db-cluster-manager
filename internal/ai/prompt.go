@@ -81,6 +81,12 @@ Use "no_op" when no safe change is possible. Never propose changes to other pack
 // data.
 func BuildPrompt(in PromptInput, r Redactor) (Prompt, error) {
 	bad := func(what string) error { return fmt.Errorf("%w: prompt field %s rejected", ErrInvalidConfig, what) }
+	checkExact := func(what, value string) error {
+		if _, n := r.Redact(value); n > 0 {
+			return bad(what)
+		}
+		return nil
+	}
 	switch {
 	case !idTokenRe.MatchString(in.AdvisoryID):
 		return Prompt{}, bad("advisoryId")
@@ -91,23 +97,26 @@ func BuildPrompt(in PromptInput, r Redactor) (Prompt, error) {
 	case !imageRe.MatchString(in.Image):
 		return Prompt{}, bad("image")
 	}
-	if _, n := r.Redact(in.Image); n > 0 {
-		// The image name carries an environment identifier (for example a
-		// private registry host): reject rather than send it.
-		return Prompt{}, bad("image")
+	for _, v := range []struct{ field, value string }{
+		{"advisoryId", in.AdvisoryID}, {"ecosystem", in.Ecosystem}, {"package", in.Package},
+		{"version", in.Version}, {"image", in.Image},
+	} {
+		if err := checkExact(v.field, v.value); err != nil {
+			return Prompt{}, err
+		}
 	}
 	for _, a := range in.Aliases {
-		if !idTokenRe.MatchString(a) {
+		if !idTokenRe.MatchString(a) || checkExact("aliases", a) != nil {
 			return Prompt{}, bad("aliases")
 		}
 	}
 	for _, v := range in.FixedVersions {
-		if !versionRe.MatchString(v) {
+		if !versionRe.MatchString(v) || checkExact("fixedVersions", v) != nil {
 			return Prompt{}, bad("fixedVersions")
 		}
 	}
 	for _, s := range in.AllowedSettings {
-		if !settingRe.MatchString(s) {
+		if !settingRe.MatchString(s) || checkExact("allowedSettings", s) != nil {
 			return Prompt{}, bad("allowedSettings")
 		}
 	}
@@ -124,7 +133,7 @@ func BuildPrompt(in PromptInput, r Redactor) (Prompt, error) {
 	if len(in.CurrentSettings) > 0 {
 		data.CurrentSettings = map[string]string{}
 		for k, v := range in.CurrentSettings {
-			if !settingRe.MatchString(k) {
+			if !settingRe.MatchString(k) || checkExact("currentSettings", k) != nil {
 				return Prompt{}, bad("currentSettings")
 			}
 			data.CurrentSettings[k] = red(v)
