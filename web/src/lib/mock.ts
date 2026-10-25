@@ -80,8 +80,8 @@ const operations: Record<string, unknown>[] = [
 	{ id: 'mock-op-0', kind: 'mock-unknown-kind', state: 'unknown' }
 ];
 const hosts: Record<string, unknown>[] = [
-	{ swarm: 'mock-swarm-a', nodeId: 'mock-host-1', hostname: 'mock-host-1', enrollment: 'enrolled', state: 'ready', availability: 'active', nanoCpus: 4e9, memoryBytes: 16 * GiB, agentIdentity: true, agentVersion: '0.0.0-mock', agentSeenAt: ago(0) },
-	{ swarm: 'mock-swarm-a', nodeId: 'mock-host-2', hostname: 'mock-host-2', enrollment: 'enrolled', state: 'ready', availability: 'active', nanoCpus: 4e9, memoryBytes: 8 * GiB, agentIdentity: true, agentVersion: '0.0.0-mock', agentSeenAt: ago(1) },
+	{ swarm: 'mock-swarm-a', nodeId: 'mock-host-1', hostname: 'mock-host-1', role: 'manager', engineVersion: '29.8.0', enrollment: 'enrolled', state: 'ready', availability: 'active', nanoCpus: 4e9, memoryBytes: 16 * GiB, agentIdentity: true, agentVersion: '0.0.0-mock', agentSeenAt: ago(0) },
+	{ swarm: 'mock-swarm-a', nodeId: 'mock-host-2', hostname: 'mock-host-2', role: 'worker', engineVersion: '29.8.0', enrollment: 'enrolled', state: 'ready', availability: 'active', nanoCpus: 4e9, memoryBytes: 8 * GiB, agentIdentity: true, agentVersion: '0.0.0-mock', agentSeenAt: ago(1), maintenance: { since: ago(5), by: 'mock-admin', reason: 'mock engine update', operations: [], ready: true } },
 	{ swarm: 'mock-swarm-a', nodeId: 'mock-host-3', hostname: 'mock-host-3', enrollment: 'enrolled', state: 'down', availability: 'active', nanoCpus: 2e9, memoryBytes: 4 * GiB, agentIdentity: true, agentVersion: '0.0.0-mock', agentSeenAt: ago(45) },
 	{ swarm: 'mock-swarm-a', nodeId: 'mock-host-4', hostname: 'mock-host-4', enrollment: 'discovered', state: 'ready', availability: 'active' }
 ];
@@ -323,6 +323,27 @@ function platformMock(method: string, path: string, query: URLSearchParams, body
 	if (m && method === 'GET') {
 		const plan = maintenancePlan(decodeURIComponent(m[1]), query.get('end') === 'true');
 		return plan ? json(200, plan) : json(404, { error: 'not_found' });
+	}
+	m = path.match(/^\/api\/v1\/hosts\/([^/]+)\/engine-update-(plan|runbook)$/);
+	if (m) {
+		const id = decodeURIComponent(m[1]);
+		const h: any = hosts.find((x) => x.nodeId === id);
+		if (!h) return json(404, { error: 'not_found' });
+		const target = method === 'GET' ? query.get('targetVersion') ?? '' : body.targetVersion;
+		const blockers = target && target !== '29.9.1' ? ['Target has no tested compatibility entry'] : target ? [] : ['Select an available target version'];
+		if (!h.maintenance?.ready) blockers.push('Enter guided host maintenance and wait until ready before runbook export');
+		const plan = { swarm: h.swarm, host: id, currentVersion: h.engineVersion ?? '', targetVersion: target || undefined,
+			availableVersions: ['29.9.1'], compatibility: target === '29.9.1' ? 'Docker 29.9.1 tested in the arm64 lab.' : undefined,
+			maintenance: maintenancePlan(id, false) ?? { host: id, end: false, safe: true, clusters: [] },
+			steps: ['Enter host maintenance and wait for ready', 'Operator drains this Swarm node', 'Operator installs the exact Docker version', 'Verify Swarm and Galera; restore active availability; end maintenance'],
+			warnings: ['Mock plan: no real package source or host was queried'], blockers, rollbackNotes: ['Package downgrade support depends on the host installation method.'],
+			pinnedManager: h.role === 'manager', approvalRequired: true, exportable: !!target && blockers.length === 0, digest: 'sha256:' + digest('e') };
+		if (method === 'GET') return json(200, plan);
+		if (method === 'POST') {
+			if (body.digest !== plan.digest) return json(409, { error: 'approval_mismatch' });
+			if (!plan.exportable || (plan.pinnedManager && !body.confirmPinnedManager)) return json(409, { error: 'conflict' });
+			return json(200, { digest: plan.digest, script: '#!/bin/sh\n# Mock runbook; prints instructions only\nprintf "%s\\n" "Review maintenance, drain the node manually, install Docker manually and verify."\n' });
+		}
 	}
 	m = path.match(/^\/api\/v1\/hosts\/([^/]+)\/maintenance$/);
 	if (m && (method === 'POST' || method === 'DELETE')) {

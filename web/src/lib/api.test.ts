@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ApiError, createClient, dashboardIdRE, isCluster, isEvent, isOperation, isSwarm, leaderHint, type FetchFn } from './api';
+import { ApiError, createClient, dashboardIdRE, isCluster, isEngineUpdatePlan, isEvent, isOperation, isSwarm, leaderHint, type FetchFn } from './api';
 
 type Call = { url: string; init: RequestInit };
 
@@ -24,6 +24,19 @@ const cluster = {
 };
 
 describe('api client', () => {
+	it('validates an engine update plan and encodes export approval', async () => {
+		const plan = { swarm: 's', host: 'h', currentVersion: '29.8.0', targetVersion: '29.9.1', availableVersions: ['29.9.1'],
+			maintenance: { host: 'h', end: false, safe: true, clusters: [] }, steps: [], warnings: [], blockers: [], rollbackNotes: [],
+			pinnedManager: false, approvalRequired: true, exportable: true, digest: 'sha256:a' };
+		expect(isEngineUpdatePlan(plan)).toBe(true);
+		expect(isEngineUpdatePlan({ ...plan, blockers: 'none' })).toBe(false);
+		const p = server(200, plan);
+		expect(await p.client.engineUpdatePlan('a/b', '29.9.1')).toEqual(plan);
+		expect(p.calls[0].url).toBe('/api/v1/hosts/a%2Fb/engine-update-plan?targetVersion=29.9.1');
+		const b = server(200, { digest: plan.digest, script: '#!/bin/sh\n' });
+		await b.client.exportEngineRunbook('h', { targetVersion: '29.9.1', digest: plan.digest, confirmPinnedManager: false });
+		expect(JSON.parse(b.calls[0].init.body as string)).toEqual({ targetVersion: '29.9.1', digest: plan.digest, confirmPinnedManager: false });
+	});
 	it('parses health and version', async () => {
 		expect(await server(200, { status: 'ok' }).client.health()).toEqual({ status: 'ok' });
 		const v = { component: 'manager', version: '1', commit: 'abc', goVersion: 'go1', platform: 'linux/arm64' };
