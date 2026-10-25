@@ -769,3 +769,56 @@ No Swarm, Docker daemon, registry, AI provider or other infrastructure was
 contacted. W05/R1 and later release gates remain open. Next action: repeat the
 full race suite where local listeners work, then review the execution-intent
 reconciliation and recovery-path behavior before any infrastructure trial.
+
+## Manager HA operations (2026-10-25, fakes only)
+
+The scoped R1 HA operations increment is implemented in the manager, metastore
+TLS configuration and a separate [`deploy/stack-ha.yaml`](../deploy/stack-ha.yaml).
+`manager init -peers` now emits peer API forwarding addresses and an mTLS-only
+listener on port 7447. Followers forward API calls once to the current Raft
+leader, including the authenticated `POST /operations/{id}/approve` route;
+uncertain writes return 503 and are not retried. The leader completes a Raft
+barrier before a mutating HTTP request, then rechecks its term. A test with
+three in-process metastore nodes approved two guided-recovery records through
+followers across a leader change. Another test isolated a leader before its
+lease settled and confirmed the write barrier refused the request.
+
+Peer certificates can now renew before expiry without restarting: the HA
+configuration mounts a sealed peer CA and passphrase as separate online
+secrets and keeps each replica's certificate/key in one atomically replaced
+local PEM bundle. A fake-clock test crossed the original certificate expiry
+and verified the same TLS certificate callback returned and verified the new
+identity. This changes the earlier offline-CA assumption; [ADR 0013](decisions/0013-replica-keys-peer-tls-and-revocation.md)
+records the risk and alternatives. The leader compacts revocation entries
+only after their recorded certificate expiry, advancing a durable deny-list
+revision in the same transaction. A three-node in-process test verified the
+shorter list and revision after leader change. Legacy entries without a known
+expiry remain listed.
+
+The HA stack has three distinct pinned single-replica services, configs and
+local volumes; the static deployment checker guards these properties and the
+socket restrictions. It has **not** run on Swarm. No Docker, external service,
+agent, database or VM was contacted in this increment. No real mTLS HTTP
+forwarding handshake or certificate renewal in a running multi-host manager
+was executed; the new forwarding test injects an in-process HTTP transport.
+The actual approval route, session and authorization stack were exercised in
+that test. Already-open Raft streams are not reauthenticated immediately on
+certificate renewal or revocation. The default runtime still does not enable
+membership-changing endpoints, and a single-instance volume cannot be
+converted to this three-member layout by editing its config.
+
+Actual checks on this worktree: `gofmt -l .` produced no output (exit 0),
+`go vet ./...` produced no output (exit 0), and the focused race tests for
+renewal, forwarding, compaction and an isolated leader passed (three repeats).
+`python3 scripts/check_docs.py` reported 73 Markdown files, 69 requirements,
+0 errors; `python3 scripts/check_deploy.py` reported `deploy checks passed
+(static only; no image was built)`; 13 deployment-checker unit tests passed.
+The full `go test -race -count=1 -p 4 ./...` exited 1: 25 packages passed,
+4 had no tests and 19 failed because this sandbox denies local TCP/Unix
+listeners (`bind: operation not permitted`), including pre-existing test
+harnesses. No non-listener failure was seen in the captured output. A web
+check was attempted for documentation/Pages consistency, but `npm run check`
+exited 127 (`svelte-kit: command not found`); `npm test` and `npm run build`
+therefore did not run. `internal/webui/assets/.gitkeep` was touched. These
+results do not replace the full suite or a Swarm run in an environment that
+permits local listeners and has frontend dependencies installed.

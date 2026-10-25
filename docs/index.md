@@ -9,7 +9,7 @@ layout: landing
 
 # cluster-manager
 
-<p class="lead">A self-hosted, AGPLv3 manager for MariaDB Galera clusters on existing Docker Swarm clusters, with every risky action shown as a plan that waits for your approval. Working title; the product name is still open.</p>
+<p class="lead">A self-hosted, AGPLv3 manager for MariaDB Galera clusters on existing Docker Swarm clusters, with risky actions shown as plans that wait for your approval.</p>
 
 <div class="badges" markdown="1">
 <span class="status-badge">Early implementation · no release yet</span>
@@ -46,7 +46,7 @@ The manager creates a 3-node MariaDB Galera cluster through its API, using agent
 <div class="card" markdown="1">
 ### Authenticated agents <span class="tag lab">Lab VMs</span>
 
-Agents enroll with one-time tokens and talk mTLS 1.3 to the manager; revocation, deny-list distribution to agents and revoking manager certificates are <span class="tag fakes">Fakes</span> only.
+Agents enroll with one-time tokens and talk mTLS 1.3 to the manager; revocation and deny-list distribution remain <span class="tag fakes">Fakes</span> only.
 </div>
 
 <div class="card" markdown="1">
@@ -82,7 +82,7 @@ Deletion as an approved plan, guided host maintenance that never reboots or drai
 <div class="card" markdown="1">
 ### Replicated manager <span class="tag fakes">Fakes</span>
 
-Raft metastore with peer mTLS (`-issue-peer-certs`), a data keyring wrapped per replica (`-print-replica-key`) and a recovery key. No multi-replica run on VMs yet.
+Raft metastore with peer mTLS and a per-replica data keyring. Three manager processes survived leader kills on lab VMs (E4 B2). Follower API forwarding, automatic peer certificate renewal and deny-list compaction have in-process evidence; the three-service Swarm stack has static checks only.
 </div>
 
 <div class="card" markdown="1">

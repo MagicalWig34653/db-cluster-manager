@@ -6,9 +6,9 @@ title: Configuration reference
 
 [Guide index](index.md) | Previous: [Operator runbook](11-operator-runbook.md)
 
-Derived from `cmd/manager/main.go`, `cmd/manager/managed.go` and `cmd/manager/peers.go` (state of 2026-10-23). The manager reads one JSON file, given with `-config <file>` or the environment variable `DCM_CONFIG`. **Unknown fields are rejected** and the manager does not start. Comments are not allowed in real JSON; the `//` notes below are for explanation only.
+Derived from `cmd/manager/main.go`, `cmd/manager/managed.go` and `cmd/manager/peers.go` (state of 2026-10-25). The manager reads one JSON file, given with `-config <file>` or the environment variable `DCM_CONFIG`. **Unknown fields are rejected** and the manager does not start. Comments are not allowed in real JSON; the `//` notes below are for explanation only.
 
-Verification: parsing and validation are unit-tested [Fakes]. The sections `auth`, `manager`, `manager.agentTransport`, `manager.backup` and `manager.settings` ran on lab VMs in the E4-E6 configuration (single instance as a process on a Swarm manager node) [Lab VMs]. `manager.keyring`, `manager.peerTLS`, several `peers`, `-print-replica-key` and `-issue-peer-certs` were only tested with fakes and loopback TLS [Fakes]; no multi-replica manager has run on VMs.
+Verification: parsing and validation are unit-tested [Fakes]. The sections `auth`, `manager`, `manager.agentTransport`, `manager.backup` and `manager.settings` ran on lab VMs in the E4-E6 configuration (single instance as a process on a Swarm manager node) [Lab VMs]. Three manager processes with `keyring` and `peerTLS` ran on lab VMs in E4 B2 [Lab VMs]; the new renewal/forwarding fields and three-service stack have only fake/static evidence [Fakes].
 
 ## Command line
 
@@ -55,11 +55,12 @@ Presence of this section selects managed mode. Required: `dataDir` and `bind`.
 | `dataDir` | string | none, **required** | Metastore (`<dataDir>/metastore`), `data.key`, `replica.key` and the default monitoring store. Back it up, see the [runbook](11-operator-runbook.md). |
 | `bind` | string | none, **required** | Metastore TCP address, for example `127.0.0.1:7946`. Without `peerTLS` the transport is plain TCP: loopback or isolated networks only. |
 | `advertise` | string | empty | Address that peers dial, if it differs from `bind`. |
-| `peers` | list of `{id, address}` | empty | Initial voting membership **including this replica**; empty means single-instance mode. There is no membership change afterwards. |
+| `peers` | list of `{id, address, apiAddress?}` | empty | Initial voting membership **including this replica**; empty means single-instance mode. Default runtime membership changes are unavailable. |
 | `bootstrap` | bool | `false` | Write the initial membership (`peers`) on the first start of a new installation; ignored when the replica already has state on disk. All bootstrapping replicas must pass the same list, so set it to `true` on every replica of a new installation. |
 | `keyFile` | string | `<dataDir>/data.key` | 32-byte data key for secrets at rest. Without `keyring` it is created if missing and must be copied to every replica by hand. With `keyring` an existing file is adopted as the first key when the keyring is bootstrapped; none is created. |
 | `keyring` | bool | `false` | Replicated, wrapped data keyring ([ADR 0013](../../decisions/0013-replica-keys-peer-tls-and-revocation.md)). Each replica keeps only its identity in `<dataDir>/replica.key`. Recommended for more than one replica. |
 | `peerTLS` | object | absent | Mutual TLS 1.3 between metastore replicas, see below. Recommended for more than one replica. |
+| `apiForwardBind` | host:port | absent | mTLS listener for forwarding follower API requests. Requires `peerTLS`, at least three peers and an `apiAddress` for each. Do not expose it to clients. |
 | `labAgents` | bool | `false` | Unauthenticated lab HTTP agent endpoints. **Lab only**; excludes `agentTransport`. Without either, agent commands are refused. |
 | `autoResume` | bool | `false` | A new leader resumes taken-over operations. |
 | `agentTransport` | object | absent | Authenticated mTLS agent transport with enrollment ([ADR 0010](../../decisions/0010-agent-transport-and-enrollment.md)). Required in practice for hosts, clusters and backups. |
@@ -74,6 +75,7 @@ Presence of this section selects managed mode. Required: `dataDir` and `bind`.
 | --- | --- |
 | `id` | Replica ID, equal to that replica's `nodeId`. |
 | `address` | Metastore address of that replica as dialed by the others. With `peerTLS` the replica answering at this address must present exactly this ID. |
+| `apiAddress` | Separate manager API forwarding address. Every replica uses it to reach the current leader over peer mTLS. `manager init -peers` uses port 7447. |
 
 ### `manager.peerTLS`
 
@@ -85,6 +87,7 @@ All four fields are required if the section exists. Produced by `manager -issue-
 | `caFile` | Peer CA certificate (`ca.pem`). |
 | `certFile` | This replica's chain (`<id>/peer.pem`). |
 | `keyFile` | This replica's private key (`<id>/peer-key.pem`). |
+| `renew` | Optional `{caFile, passphraseFile, beforeDays?, validityDays?, intervalHours?}`. Sealed CA and passphrase files are separate online secrets. Defaults: 30-day window, 365-day new validity, 12-hour check. Use the same writable PEM bundle as `certFile` and `keyFile` for atomic replacement. A failed renewal is logged and retried; it does not bypass certificate expiry. |
 
 ### `manager.agentTransport`
 
@@ -202,7 +205,7 @@ Feeds are configured in `manager.vuln.feeds` (above); none has a default URL.
 | Health, outage events | `agentTransport.monitorUser` and `monitorSecret`; `settings.accounts`. |
 | Create clusters | All of the above plus `accounts`; networks and secrets labelled with the installation ID. |
 | Backups, restores | `manager.backup.backendConfigFile`; `settings.backup` (job image, backend secret, credential secret, recipient key, inspection network, key secret). |
-| Several replicas | `peers` on every replica, `keyring`, `peerTLS`; see the runbook. A multi-replica run on VMs has not happened [Untested]. |
+| Several replicas | `peers` on every replica, `keyring`, `peerTLS`; see the runbook. Three plain manager processes ran on lab VMs (E4 B2); the HA stack has not [Untested]. |
 
 ## Example: single instance
 
@@ -240,21 +243,25 @@ All names above are examples. The secret and network names must exist in the Swa
 
 ## Example: replica fragment with keyring and peer TLS
 
-For replica `manager-2` of three, after `manager -issue-peer-certs ./peers -installation inst-1 -peer-ids manager-1,manager-2,manager-3` and copying `./peers/manager-2/` to that host (the sealed CA `ca.sealed` and the passphrase stay offline):
+For replica `manager-2` of three, after `manager -issue-peer-certs ./peers -installation inst-1 -peer-ids manager-1,manager-2,manager-3`, copy its `peer-bundle.pem` into the local data volume and mount the sealed CA and passphrase as separate online secrets. See the [HA installation](../../INSTALL.md#three-replica-ha-stack-static-checks-and-in-process-tests-only):
 
 ```json
 "manager": {
   "nodeId": "manager-2",
-  "dataDir": "/var/lib/dbcm-manager",
-  "bind": "0.0.0.0:7946",
-  "advertise": "10.0.0.5:7946",
-  "peers": [ {"id": "manager-1", "address": "10.0.0.4:7946"},
-             {"id": "manager-2", "address": "10.0.0.5:7946"},
-             {"id": "manager-3", "address": "10.0.0.6:7946"} ],
+  "dataDir": "/var/lib/dbcm",
+  "bind": "10.0.0.5:7445",
+  "advertise": "10.0.0.5:7445",
+  "apiForwardBind": "10.0.0.5:7447",
+  "peers": [ {"id": "manager-1", "address": "10.0.0.4:7445", "apiAddress": "10.0.0.4:7447"},
+             {"id": "manager-2", "address": "10.0.0.5:7445", "apiAddress": "10.0.0.5:7447"},
+             {"id": "manager-3", "address": "10.0.0.6:7445", "apiAddress": "10.0.0.6:7447"} ],
   "bootstrap": true,
   "keyring": true,
-  "peerTLS": { "installation": "inst-1", "caFile": "/etc/dbcm/peer/ca.pem",
-               "certFile": "/etc/dbcm/peer/peer.pem", "keyFile": "/etc/dbcm/peer/peer-key.pem" }
+  "peerTLS": { "installation": "inst-1", "caFile": "/run/secrets/dbcm-peer-ca.pem",
+               "certFile": "/var/lib/dbcm/peer/peer-bundle.pem",
+               "keyFile": "/var/lib/dbcm/peer/peer-bundle.pem",
+               "renew": { "caFile": "/run/secrets/dbcm-peer-ca-sealed",
+                          "passphraseFile": "/run/secrets/dbcm-peer-ca-passphrase" } }
 }
 ```
 

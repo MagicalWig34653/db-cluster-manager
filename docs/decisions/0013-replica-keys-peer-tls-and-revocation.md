@@ -126,3 +126,60 @@ Not verified: real peer readiness, mTLS membership change, certificate delivery 
 renewal, membership restart from a disk snapshot, partitions during transition,
 and production peer-CA provisioning. A failed/expired staged candidate may need
 operator repair; no cancellation or peer-renewal endpoint is provided yet.
+
+## Amendment (2026-10-25): HA operations, fake-only
+
+`manager init -peers` now emits a separate peer-mTLS API forwarding listener
+(`apiForwardBind`, port 7447) and `peers[].apiAddress`. A follower forwards an
+API request to the leader ID reported by Raft, using the existing peer CA and
+replica URI SAN checks. The leader handles authentication, CSRF, authorization
+and approvals in its normal API stack. The follower sends each request only
+once: if the leader changes during a write or the connection fails after the
+request was sent, it returns 503 and the caller must inspect the operation
+before retrying. A forwarded marker prevents loops. The handler checks Raft
+leadership before serving a formerly active leader's API. Alternative: HTTP
+redirects would expose internal leader addresses and require clients to
+replay authenticated writes; external load-balancer-only routing would leave
+followers unable to accept approvals. Before dispatching a mutating request,
+an active leader completes a Raft barrier and rechecks its term. This closes
+the interval where a partitioned replica still reports `Leader` locally until
+its lease check steps it down. An in-process test isolates the leader from
+both followers and confirms the barrier refuses the write. The cost is one
+quorum round trip per mutating HTTP request; operation-level fencing and
+conditional commits remain necessary because leadership may change after it.
+
+Peer certificates previously relied on an offline CA and manual reissuance.
+Automatic renewal cannot happen with the issuer kept strictly offline. The
+HA configuration therefore **opts in** to online custody: the sealed CA and
+passphrase are separate Swarm secrets on every manager node. Each node issues
+only its own URI SAN from its existing certificate identity and atomically
+replaces a single PEM bundle in its local volume before expiry. It checks on
+startup and every 12 hours, with a 30-day window and 365-day validity by
+default. No metastore restart is needed because new handshakes reload the
+bundle. A compromised manager node with both secrets can issue other peer
+identities, so operators must restrict these nodes and keep offline recovery
+copies; CA rotation after compromise is not implemented. Alternative: a
+leader signing service would centralize custody but would need a separate
+authenticated CSR/authorization protocol before quorum was available and
+would make renewal depend on leader availability. This design is not a proof
+against a compromised manager node.
+
+The leader now compacts revocation records only when their certificate
+`NotAfter` is known and past. A replicated monotonic revision fence advances
+in the same conditional transaction as deletions, so agents can accept the
+shorter deny list after the latest revocation was removed. Unknown-expiry
+legacy entries are retained. No certificate is made valid again: x509 expiry
+is independently verified. Alternative: time-based retention without the
+certificate expiry would risk unblocking still-valid credentials.
+
+`deploy/stack-ha.yaml` pins three distinct single-replica services to three
+Swarm manager hostnames, each with a different config and local volume. The
+static checker guards identity, placement and socket constraints. Evidence:
+in-process three-node Raft forwarding/leader-change test, fake-clock renewal
+test, in-process three-node compaction/failover test, static deployment tests.
+The new stack has not run on Swarm. The forwarding test injects an in-process
+transport and exercises the real authenticated recovery-approval route before
+and after leader change; an actual manager API forwarding TLS handshake and
+Swarm-service deployment still require an owned lab run. Existing Raft
+streams are not immediately reauthenticated after certificate replacement or
+revocation.

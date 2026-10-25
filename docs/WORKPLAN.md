@@ -179,4 +179,25 @@ binding; passing focused race tests do not replace that release check. Next:
 repeat the unchanged verification loop with local sockets permitted, then provide
 authenticated remote readiness and a real binlog parser before infrastructure
 validation. Existing W05 gates remain open; no Swarm-trial readiness is claimed.
-W05 remaining (needs VMs, one at a time): coordinated writer choice for redundant proxies (E8 finding); re-run of the E8 B2/B3 stuck-node case with slot logs and a case where Galera cannot self-recover; native amd64 evidence (strategy still open); the three-replica manager as Swarm services from `deploy/stack.yaml` (only plain processes ran). Done 2026-10-24 (E7): images built from `deploy/Dockerfile` and `deploy/stack.yaml` deployed with a `manager init` configuration on lab VMs, see [results](../tests/p0/results/e7-stack-deploy.md); still open there: the per-replica three-service layout, a TLS reverse proxy and backups from the stack. W06 (R1) then continues with UI and user guides for maintenance, drift, keyring/replicas and backup retention, key rotation, and the rest of `docs/STATUS.md` "What R1 still lacks".
+W05 remaining (needs VMs, one at a time): coordinated writer choice for redundant proxies (E8 finding); re-run of the E8 B2/B3 stuck-node case with slot logs and a case where Galera cannot self-recover; native amd64 evidence (strategy still open); the three-replica manager as Swarm services from `deploy/stack-ha.yaml` (only plain processes ran; the new file has static checks only). Done 2026-10-24 (E7): images built from `deploy/Dockerfile` and `deploy/stack.yaml` deployed with a `manager init` configuration on lab VMs, see [results](../tests/p0/results/e7-stack-deploy.md); still open there: the per-replica three-service layout, a TLS reverse proxy and backups from the stack. W06 (R1) then continues with UI and user guides for maintenance, drift, keyring/replicas and backup retention, key rotation, and the rest of `docs/STATUS.md` "What R1 still lacks".
+
+## W05 / R1 manager HA operations (2026-10-25)
+
+Implemented the scoped fake-only HA increment: optional peer certificate
+renewal from separately mounted sealed-CA/passphrase secrets and an atomic
+local bundle; expiry-aware deny-list compaction with a replicated monotonic
+revision; follower-to-leader mTLS API forwarding with one-send semantics,
+including the real authenticated recovery-approval route; a per-write Raft
+barrier for the isolated-leader lease edge; and `deploy/stack-ha.yaml` with
+three pinned Swarm services. Code, static checker, ADR 0013, INSTALL,
+English/German guides and Pages copy were updated. Evidence and exact check
+results are in [STATUS](STATUS.md#manager-ha-operations-2026-10-25-fakes-only).
+
+Next: in a test environment that permits local listeners and has frontend
+dependencies, rerun the complete race and web suites, then exercise the
+mTLS forwarding listener and certificate renewal on a three-node owned lab.
+Only after that, deploy `stack-ha.yaml` on the owned lab Swarm and record
+placement, leader failover, recovery approval through a follower, renewal
+across certificate expiry, and deny-list shrink propagation. Do not treat
+static checks or the in-process tests as Swarm evidence. The other W05/P0
+release gates remain open.

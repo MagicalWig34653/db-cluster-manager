@@ -29,7 +29,7 @@ Datenbankpasswörter liegen in Swarm-Secrets, nie in der API oder in versioniert
 
 ## Bekannte Schwächen
 
-- Der Metastore-Transport zwischen Manager-Replikaten ist unverschlüsseltes TCP, solange `manager.peerTLS` nicht konfiguriert ist (TLS 1.3, gegenseitig, Peer-CA aus `manager -issue-peer-certs`) [Fakes]. Peer-Zertifikate erneuert das Produkt nicht, und die Peer-CA halten Sie offline.
+- Der Metastore-Transport zwischen Manager-Replikaten ist unverschlüsseltes TCP, solange `manager.peerTLS` nicht konfiguriert ist (TLS 1.3, gegenseitig, Peer-CA aus `manager -issue-peer-certs`) [Fakes]. Die optionale HA-Konfiguration erneuert Peer-Zertifikate mit einer versiegelten CA und einer separat eingebundenen Passphrase auf jedem Manager-Knoten. Damit ist die CA dort online verfügbar; eine getrennte Offline-Kopie behalten und die Knoten schützen. Der Leader bereinigt Sperreinträge mit bekanntem Zertifikatsablauf [Fakes].
 - Backup-Manifeste im Format 1 enthalten Klartext-Chunk-Digests; Format 2 nutzt HMACs mit Schlüssel [Fakes]. Alte Backups behalten das schwächere Format.
 - Oberfläche und API unterstützen ACME oder importierte TLS-Zertifikate [Fakes], siehe [Manager-HTTPS](17-manager-tls.md). HTTP außerhalb numerischer Loopback-Adressen braucht ausdrücklich `manager.tls.allowPlainHttp` für Ihren eigenen Proxy.
 - Lima leitet Gast-Listener auf den Host-Loopback weiter: Im Labor waren das unauthentifizierte Metastore-Werkzeug und Agentenports auf dem Host erreichbar. Nur Labor, aber keine Laborwerkzeuge auf gemeinsam genutzten Rechnern betreiben.

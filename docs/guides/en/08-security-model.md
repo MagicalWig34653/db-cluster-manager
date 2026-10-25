@@ -29,7 +29,7 @@ Database passwords live in Swarm secrets, never in the API or tracked files. Not
 
 ## Known weaknesses
 
-- The metastore transport between manager replicas is plain TCP unless `manager.peerTLS` is configured (TLS 1.3, mutual, peer CA from `manager -issue-peer-certs`) [Fakes]. Peer certificates are not renewed by the product, and the peer CA is kept offline by you.
+- The metastore transport between manager replicas is plain TCP unless `manager.peerTLS` is configured (TLS 1.3, mutual, peer CA from `manager -issue-peer-certs`) [Fakes]. The opt-in HA configuration renews peer certificates from a sealed CA and passphrase mounted as separate secrets on each manager node. This makes the CA available online on those nodes; keep a separate offline recovery copy and protect the nodes. Expired deny entries with known certificate expiry are compacted by the leader [Fakes].
 - Backup manifests of format 1 contain plaintext chunk digests; format 2 uses keyed HMACs [Fakes]. Old backups keep the weaker format.
 - The UI/API supports native ACME or imported TLS certificates [Fakes]; see [Manager HTTPS](17-manager-tls.md). Plain HTTP beyond numeric loopback requires explicit `manager.tls.allowPlainHttp` for an operator-managed proxy.
 - Lima forwards guest listeners to host loopback: in the lab, the unauthenticated metastore harness and agent ports were reachable on the host. Lab-only, but do not run lab harnesses on shared machines.
