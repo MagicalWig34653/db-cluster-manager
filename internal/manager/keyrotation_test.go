@@ -10,6 +10,59 @@ import (
 	"github.com/MagicalWig34653/db-cluster-manager/internal/authz"
 )
 
+func TestRotationRequiresConfiguredRecoveryEnvelope(t *testing.T) {
+	c, rings := keyringCluster(t, 1)
+	l := c.leader()
+	svc := &ReplicaService{Svc: l, Ring: rings[l.cfg.NodeID], Authorizer: opsFor(t, l).Authorizer}
+	recovery := newIdentity(t)
+	pub, _ := recovery.StreamPublicKey()
+	if _, err := Put(l.Store(), CollSettings, SettingsKey, Settings{Backup: BackupSettings{RecipientKey: pub.String()}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	old, _, _ := Get[KeyringRecord](l.Store(), CollKeys, KeyringKey)
+	if err := svc.Ring.updateDistributed(l); err != nil {
+		t.Fatal(err)
+	}
+	settings, _, _ := Get[Settings](l.Store(), CollSettings, SettingsKey)
+	settings.Value.Backup.RecipientKey = ""
+	if _, err := Put(l.Store(), CollSettings, SettingsKey, settings.Value, IfVersion(settings.Version)); err != nil {
+		t.Fatal(err)
+	}
+	p, err := svc.RotateDataKey(context.Background(), adminSubject, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.RotateDataKey(context.Background(), adminSubject, p.Digest); err == nil {
+		t.Fatal("rotation committed without recovery recipient")
+	}
+	rec, _, _ := Get[KeyringRecord](l.Store(), CollKeys, KeyringKey)
+	if rec.Value.Current != old.Value.Current || rec.Value.Rotation != nil {
+		t.Fatal("failed rotation changed keyring")
+	}
+	settings, _, _ = Get[Settings](l.Store(), CollSettings, SettingsKey)
+	settings.Value.Backup.RecipientKey = pub.String()
+	if _, err := Put(l.Store(), CollSettings, SettingsKey, settings.Value, IfVersion(settings.Version)); err != nil {
+		t.Fatal(err)
+	}
+	p, err = svc.RotateDataKey(context.Background(), adminSubject, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	started, err := svc.RotateDataKey(context.Background(), adminSubject, p.Digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec, _, _ = Get[KeyringRecord](l.Store(), CollKeys, KeyringKey)
+	w := rec.Value.key(started.CurrentKey)
+	if w == nil || w.RecoveryKeyID != pub.ID() || len(w.Recovery) == 0 {
+		t.Fatalf("missing new recovery envelope: %+v", w)
+	}
+	keys, err := RecoverDataKeys(rec.Value, recovery)
+	if err != nil || len(keys[started.CurrentKey]) != 32 {
+		t.Fatalf("unusable recovery envelope: %v", err)
+	}
+}
+
 func TestRotationResumesAfterLeaderLoss(t *testing.T) {
 	c, rings := keyringCluster(t, 3)
 	l := c.leader()
