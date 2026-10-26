@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/MagicalWig34653/db-cluster-manager/internal/agent"
@@ -152,7 +153,15 @@ type Backups struct {
 	// Notify receives failure notifications (typically Monitoring.Notify).
 	Notify func(ctx context.Context, e notify.Event) bool
 
-	xfer transferState
+	// MetaInterval, if positive, makes the scheduler back up the manager's
+	// own metastore (metabackup.go) when the newest verified backup is
+	// older; MetaKeep is the number kept (default DefaultMetaKeep).
+	MetaInterval time.Duration
+	MetaKeep     int
+
+	xfer     transferState
+	metaMu   sync.Mutex
+	metaLast time.Time
 }
 
 func (b *Backups) store() *Store            { return b.Ops.Svc.store }
@@ -1004,6 +1013,7 @@ func (s BackupScheduler) Run(ctx context.Context, _ *Leadership) error {
 			b.RunSchedules(actor)
 			b.RunVerifications(ctx, actor)
 			b.failInterruptedCopies(ctx)
+			b.RunMetastoreBackup(ctx, actor)
 			b.TeardownExpired(actor)
 			if err := b.ApplyRetention(ctx); err != nil && ctx.Err() == nil {
 				b.log("manager: backup retention incomplete", "err", err)

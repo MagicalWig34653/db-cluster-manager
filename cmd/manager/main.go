@@ -258,6 +258,9 @@ func run(args []string, getenv func(string) string, stderr io.Writer) error {
 	if len(args) > 0 && args[0] == "init" {
 		return runInit(args[1:], os.Stdout, stderr)
 	}
+	if len(args) > 0 && args[0] == "metastore-import" {
+		return runMetastoreImport(args[1:], os.Stdout, stderr)
+	}
 	fs := flag.NewFlagSet("manager", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	addr := fs.String("listen", "127.0.0.1:8080", "address to listen on")

@@ -268,11 +268,16 @@ func TestManagedModeMonitoringAndBackupConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, m := range map[string]map[string]any{
-		"relative monitoring dir": {"monitoring": map[string]any{"dataDir": "metrics"}},
-		"short schedule interval": {"backup": map[string]any{"scheduleIntervalSeconds": 5}},
-		"relative backend file":   {"backup": map[string]any{"backendConfigFile": "backend.json"}},
-		"missing backend file":    {"backup": map[string]any{"backendConfigFile": filepath.Join(t.TempDir(), "none.json")}},
-		"invalid backend file":    {"backup": map[string]any{"backendConfigFile": bad}},
+		"relative monitoring dir":  {"monitoring": map[string]any{"dataDir": "metrics"}},
+		"short schedule interval":  {"backup": map[string]any{"scheduleIntervalSeconds": 5}},
+		"relative backend file":    {"backup": map[string]any{"backendConfigFile": "backend.json"}},
+		"missing backend file":     {"backup": map[string]any{"backendConfigFile": filepath.Join(t.TempDir(), "none.json")}},
+		"invalid backend file":     {"backup": map[string]any{"backendConfigFile": bad}},
+		"relative target file":     {"backup": map[string]any{"targets": map[string]any{"dr": "dr.json"}}},
+		"bad target name":          {"backup": map[string]any{"targets": map[string]any{"DR!": good}}},
+		"invalid target file":      {"backup": map[string]any{"targets": map[string]any{"dr": bad}}},
+		"unknown metastore target": {"backup": map[string]any{"targets": map[string]any{"dr": good}, "metastoreTarget": "other"}},
+		"negative metastore hours": {"backup": map[string]any{"metastoreBackupHours": -1}},
 	} {
 		m["dataDir"], m["bind"] = t.TempDir(), "127.0.0.1:0"
 		cfg, err := loadConfig(writeConfig(t, map[string]any{"manager": m}))
@@ -288,7 +293,8 @@ func TestManagedModeMonitoringAndBackupConfig(t *testing.T) {
 		t.Fatal("unknown backup field accepted")
 	}
 	cfg, err := loadConfig(writeConfig(t, map[string]any{"manager": map[string]any{"dataDir": t.TempDir(), "bind": freeLoopback(t),
-		"monitoring": map[string]any{"disabled": true}, "backup": map[string]any{"backendConfigFile": good}}}))
+		"monitoring": map[string]any{"disabled": true}, "backup": map[string]any{"backendConfigFile": good,
+			"targets": map[string]any{"dr": good}, "metastoreTarget": "dr", "metastoreBackupHours": 24}}}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -299,6 +305,9 @@ func TestManagedModeMonitoringAndBackupConfig(t *testing.T) {
 	defer rt.Close()
 	if rt.backend == nil {
 		t.Fatal("backend not opened")
+	}
+	if rt.targets["dr"] == nil || rt.backupCfg == nil || rt.backupCfg.MetastoreBackupHours != 24 {
+		t.Fatalf("copy targets not opened: %+v", rt.targets)
 	}
 	waitUntil(t, "leadership", rt.svc.IsLeader)
 	time.Sleep(50 * time.Millisecond)

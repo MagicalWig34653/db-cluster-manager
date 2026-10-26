@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -197,7 +198,23 @@ type backupConfig struct {
 	// ScheduleIntervalSeconds is how often the leader evaluates backup
 	// schedules and inspection expiry (default 60, minimum 10).
 	ScheduleIntervalSeconds int `json:"scheduleIntervalSeconds"`
+	// Targets are further named backup targets (name to backend config
+	// file, same JSON as backendConfigFile) that backups can be copied to,
+	// for example the storage of a cluster in another Swarm. A backend
+	// config may carry an "encryption" section (client-side encryption).
+	Targets map[string]string `json:"targets"`
+	// MetastoreTarget names the target of backups of the manager's own
+	// metastore; empty uses the main backend.
+	MetastoreTarget string `json:"metastoreTarget"`
+	// MetastoreBackupHours, if positive, backs up the manager's own
+	// metastore that often (needs backup.recipientKey in the settings).
+	MetastoreBackupHours int `json:"metastoreBackupHours"`
+	// MetastoreBackupKeep is the number of metastore backups kept
+	// (default 14).
+	MetastoreBackupKeep int `json:"metastoreBackupKeep"`
 }
+
+var targetNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 
 func (b *backupConfig) validate() error {
 	if b.ScheduleIntervalSeconds != 0 && b.ScheduleIntervalSeconds < 10 {
@@ -206,7 +223,42 @@ func (b *backupConfig) validate() error {
 	if b.BackendConfigFile != "" && !filepath.IsAbs(b.BackendConfigFile) {
 		return errors.New("manager.backup.backendConfigFile must be an absolute path")
 	}
+	for name, file := range b.Targets {
+		if !targetNamePattern.MatchString(name) || !filepath.IsAbs(file) {
+			return fmt.Errorf("manager.backup.targets[%q]: needs a lower-case name and an absolute backend config file", name)
+		}
+	}
+	if b.MetastoreTarget != "" {
+		if _, ok := b.Targets[b.MetastoreTarget]; !ok {
+			return fmt.Errorf("manager.backup.metastoreTarget %q is not in targets", b.MetastoreTarget)
+		}
+	}
+	if b.MetastoreBackupHours < 0 || b.MetastoreBackupKeep < 0 {
+		return errors.New("manager.backup.metastoreBackupHours and metastoreBackupKeep must not be negative")
+	}
 	return nil
+}
+
+// openTargets reads and opens the named copy targets (no network I/O).
+func (b *backupConfig) openTargets() (map[string]backup.Backend, error) {
+	if b == nil || len(b.Targets) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]backup.Backend, len(b.Targets))
+	for name, file := range b.Targets {
+		raw, err := os.ReadFile(file)
+		if err != nil {
+			return nil, fmt.Errorf("manager.backup.targets[%q]: %w", name, err)
+		}
+		c, err := dbbackup.ParseBackendConfig(raw)
+		if err != nil {
+			return nil, fmt.Errorf("manager.backup.targets[%q]: %w", name, err)
+		}
+		if out[name], err = c.Open(); err != nil {
+			return nil, fmt.Errorf("manager.backup.targets[%q]: %w", name, err)
+		}
+	}
+	return out, nil
 }
 
 // openBackend reads and opens the configured backend (no network I/O).
@@ -432,6 +484,8 @@ type managedRuntime struct {
 	swarms     *manager.Swarms
 	monitoring *manager.Monitoring
 	backend    backup.Backend
+	targets    map[string]backup.Backend
+	backupCfg  *backupConfig
 	backups    atomic.Pointer[manager.Backups]
 
 	// imageRunner executes docker for image builds.
@@ -506,10 +560,14 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 	if err != nil {
 		return nil, err
 	}
+	targets, err := mc.Backup.openTargets()
+	if err != nil {
+		return nil, err
+	}
 	if mc.Vuln != nil && !cfg.Auth.Enabled {
 		return nil, errors.New("manager.vuln needs auth.enabled")
 	}
-	rt := &managedRuntime{proto: api.NewHandler(), keys: keys, backend: backend, imageCfg: mc.ImageBuild, imageRunner: newImageRunner(), vulnCfg: mc.Vuln,
+	rt := &managedRuntime{proto: api.NewHandler(), keys: keys, backend: backend, targets: targets, backupCfg: mc.Backup, imageCfg: mc.ImageBuild, imageRunner: newImageRunner(), vulnCfg: mc.Vuln,
 		proxyWriters: map[string]proxyWriterConfig{}, provisioning: mc.ExperimentalProvisioning, kubernetesProvisioning: mc.ExperimentalKubernetesProvisioning,
 		forwardTLS: scfg.PeerTLS, forwardPeers: map[string]peerConfig{}}
 	for _, w := range mc.ProxyWriters {
@@ -886,6 +944,24 @@ type commandSet struct {
 	vuln     *vuln.Service // nil without manager.vuln
 }
 
+// newBackups builds the backup service with copy targets, the metastore
+// backup settings and the monitoring notification hook.
+func (rt *managedRuntime) newBackups(ops *manager.Operations, sw *manager.Swarms) *manager.Backups {
+	b := &manager.Backups{Ops: ops, Swarms: sw, Backend: rt.backend, Targets: rt.targets, Keys: rt.keys,
+		Notify: func(ctx context.Context, e notify.Event) bool {
+			if rt.monitoring == nil {
+				return false
+			}
+			return rt.monitoring.Notify(ctx, e)
+		}}
+	if c := rt.backupCfg; c != nil {
+		b.MetaTarget = c.MetastoreTarget
+		b.MetaInterval = time.Duration(c.MetastoreBackupHours) * time.Hour
+		b.MetaKeep = c.MetastoreBackupKeep
+	}
+	return b
+}
+
 // commandServices builds the command services on the leadership's
 // authorizer.
 func (rt *managedRuntime) commandServices(st *manager.AuthStack) (commandSet, error) {
@@ -906,7 +982,7 @@ func (rt *managedRuntime) commandServices(st *manager.AuthStack) (commandSet, er
 	set := commandSet{
 		images:   images,
 		control:  &manager.Control{Ops: ops, Swarms: &sw},
-		backups:  &manager.Backups{Ops: ops, Swarms: &sw, Backend: rt.backend},
+		backups:  rt.newBackups(ops, &sw),
 		settings: &manager.SettingsService{Svc: rt.svc, Authorizer: st.Authorizer, Keys: rt.keys, Monitoring: rt.monitoring},
 		services: &manager.Services{Ops: ops},
 	}
