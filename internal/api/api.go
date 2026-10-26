@@ -61,6 +61,16 @@ func Routes() []Route {
 	return out
 }
 
+// ManagedRuntimeRoutes are served by cmd/manager's managed runtime outside
+// the session API. They use separate per-proxy and administrator tokens.
+func ManagedRuntimeRoutes() []Route {
+	return []Route{
+		{Method: http.MethodGet, Path: "/proxy-writers/{clusterId}"},
+		{Method: http.MethodPost, Path: "/proxy-writers/{clusterId}/ack"},
+		{Method: http.MethodPost, Path: "/proxy-writers/{clusterId}/switch"},
+	}
+}
+
 // NewHandler returns the unauthenticated prototype handler, rooted at /api/v1.
 // It serves only health and version; every other API path is a JSON 404.
 func NewHandler() http.Handler {

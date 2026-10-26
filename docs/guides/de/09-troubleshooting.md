@@ -31,6 +31,7 @@ Einträge mit „im Labor gesehen“ wurden in den Experimenten E4-E6 beobachtet
 | Backup-Warnung `galera_info not found` | MariaDB 11.4 schreibt sie nicht nach `--extra-lsndir` (im Labor gesehen) | Nur Hinweis; die Position wird ggf. aus dem Stream gelesen (nur Fakes). |
 | Proxy: etwa zwei abgebrochene Handshakes pro Sekunde und Knoten in den Knoten-Logs | Health-Proben des Proxys | Erwartet; je eine Logzeile (E5). |
 | Nach Ausfall des Schreibknotens etwa 6 s kein Schreiben möglich | Galeras Ausfallerkennung (E5) | Erwartet; der Proxy selbst wechselte binnen 0,2 s. |
+| Redundante Proxys zeigen `writer: none` und `coordination.pending` | Ein gemeinsamer Wechsel ist gesperrt, bis alle eingetragenen Proxys bestätigt haben | Prüfen Sie `/status` jedes Proxys, die Manager-Verbindung und Galera-Health. Stellen Sie den fehlenden Proxy wieder her; entfernen Sie seine Mitgliedschaft nicht bloß wegen einer Partition. |
 
 ## Belege sammeln
 

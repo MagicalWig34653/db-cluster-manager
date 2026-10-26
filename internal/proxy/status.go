@@ -23,12 +23,20 @@ type Status struct {
 	WriterAddress string   `json:"writer_address,omitempty"`
 	Readers       []string `json:"readers"`
 	// DecidedAt is null before the first decision.
-	DecidedAt     *time.Time   `json:"decided_at"`
-	Reasons       []string     `json:"reasons"`
-	WriterChanges int          `json:"writer_changes"`
-	Policy        PolicyStatus `json:"policy"`
-	Nodes         []NodeStatus `json:"nodes"`
-	Connections   ConnStatus   `json:"connections"`
+	DecidedAt     *time.Time          `json:"decided_at"`
+	Reasons       []string            `json:"reasons"`
+	WriterChanges int                 `json:"writer_changes"`
+	Policy        PolicyStatus        `json:"policy"`
+	Nodes         []NodeStatus        `json:"nodes"`
+	Connections   ConnStatus          `json:"connections"`
+	Coordination  *CoordinationStatus `json:"coordination,omitempty"`
+}
+
+type CoordinationStatus struct {
+	ClusterID string `json:"cluster_id"`
+	ProxyID   string `json:"proxy_id"`
+	Epoch     uint64 `json:"epoch"`
+	Pending   string `json:"pending,omitempty"`
 }
 
 // PolicyStatus summarises the effective policy.
@@ -91,6 +99,9 @@ func (p *Proxy) Status() Status {
 	}
 	if s.Readers == nil {
 		s.Readers = []string{}
+	}
+	if p.cfg.Coordination != nil {
+		s.Coordination = &CoordinationStatus{ClusterID: p.cfg.Coordination.ClusterID, ProxyID: p.cfg.Coordination.ProxyID, Epoch: p.hint.Epoch, Pending: p.hint.Pending}
 	}
 	if p.decidedAt.IsZero() {
 		s.Writer = Unknown

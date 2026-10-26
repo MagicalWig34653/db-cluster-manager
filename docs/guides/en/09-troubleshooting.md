@@ -31,6 +31,7 @@ Entries marked "seen in lab" were observed in experiments E4-E6 (see `tests/p0/r
 | Backup warning `galera_info not found` | MariaDB 11.4 does not write it to `--extra-lsndir` (seen in lab) | Informational; the position may be read from the stream (fakes only). |
 | Proxy: about two aborted handshakes per second per node in node logs | Proxy health probes | Expected; one log line each (E5). |
 | After a writer failure no write works for about 6 s | Galera failure detection (E5) | Expected; the proxy itself switched within 0.2 s. |
+| Redundant proxies show `writer: none` and `coordination.pending` | A coordinated switch is frozen while at least one configured proxy has not acknowledged | Check each proxy's `/status`, manager connectivity and local Galera health. Restore the unreachable proxy; do not remove its membership merely to clear a partition. |
 
 ## Collecting evidence
 

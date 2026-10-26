@@ -24,6 +24,84 @@ info:
 servers:
   - url: /api/v1
 paths:
+  /proxy-writers/{clusterId}:
+    parameters:
+      - name: clusterId
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: Read the replicated writer choice (configured proxies only)
+      description: Leader read barrier; Bearer proxy token and X-Proxy-ID required. A blank writer with pending set freezes all writes. Followers and quorum loss return 503.
+      operationId: getProxyWriterChoice
+      security: [{ proxyWriterToken: [] }]
+      responses:
+        "200":
+          description: Current writer or freeze epoch
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProxyWriterChoice" }
+        "401": { description: Invalid proxy identity or token }
+        "503": { description: No leader, quorum or consistent read }
+  /proxy-writers/{clusterId}/ack:
+    parameters:
+      - name: clusterId
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Confirm that a proxy closed all write connections for a freeze epoch
+      description: Bearer proxy token and X-Proxy-ID required. The last registered proxy acknowledgement atomically publishes the pending writer.
+      operationId: ackProxyWriterFreeze
+      security: [{ proxyWriterToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [proxy_id, epoch]
+              properties:
+                proxy_id: { type: string }
+                epoch: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: Updated choice
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProxyWriterChoice" }
+        "401": { description: Invalid proxy identity or token }
+        "409": { description: Stale or inactive freeze epoch }
+        "503": { description: No leader or quorum }
+  /proxy-writers/{clusterId}/switch:
+    parameters:
+      - name: clusterId
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Request a coordinated writer switch
+      description: Separate Bearer administrator token required. The request is audited before the freeze is written. A missing proxy acknowledgement leaves the cluster with no published writer.
+      operationId: switchProxyWriter
+      security: [{ proxyWriterAdminToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [writer]
+              properties:
+                writer: { type: string }
+      responses:
+        "200":
+          description: Frozen or unchanged choice
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProxyWriterChoice" }
+        "401": { description: Invalid administrator token }
+        "409": { description: Another switch is pending }
+        "503": { description: No leader, quorum or audit store }
   /kubernetes-clusters:
     get:
       summary: List experimental Kubernetes registrations (W10, fakes only)
@@ -2279,6 +2357,14 @@ components:
       description: Export format of the plan document; json (default) or yaml (application/yaml, same content).
       schema: { type: string, enum: [json, yaml] }
   securitySchemes:
+    proxyWriterToken:
+      type: http
+      scheme: bearer
+      description: Per-proxy secret from a local file; requires X-Proxy-ID.
+    proxyWriterAdminToken:
+      type: http
+      scheme: bearer
+      description: Separate administrator secret from a local file.
     sessionCookie:
       type: apiKey
       in: cookie
@@ -2337,6 +2423,22 @@ components:
             properties:
               pendingPasskeyEnrollment: { type: boolean, enum: [true] }
   schemas:
+    ProxyWriterChoice:
+      type: object
+      required: [epoch, writer, members, candidates]
+      properties:
+        epoch: { type: integer, minimum: 1 }
+        writer: { type: string, description: Empty during a switch freeze. }
+        pending: { type: string }
+        members:
+          type: array
+          items: { type: string }
+        candidates:
+          type: array
+          items: { type: string }
+        acks:
+          type: object
+          additionalProperties: { type: boolean }
     ClusterOperationInput:
       type: object
       additionalProperties: false

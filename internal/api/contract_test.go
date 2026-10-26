@@ -74,6 +74,9 @@ func TestRoutesMatchOpenAPI(t *testing.T) {
 	for _, r := range Routes() {
 		code = append(code, r.Method+" "+r.Path)
 	}
+	for _, r := range ManagedRuntimeRoutes() {
+		code = append(code, r.Method+" "+r.Path)
+	}
 	for _, op := range code {
 		if !slices.Contains(spec, op) {
 			t.Errorf("route %s is registered but missing from api/openapi.yaml", op)

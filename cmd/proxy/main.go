@@ -49,6 +49,12 @@
 // the account without privileges (USAGE is enough for SHOW GLOBAL STATUS):
 //
 //	CREATE USER 'dbcm_monitor'@'<proxy host>' IDENTIFIED BY '<secret>' REQUIRE SSL;
+//
+// Redundant proxies should set "coordination" with a cluster_id, distinct
+// proxy_id, manager_urls and token_file; the manager's replicated writer
+// choice then overrides local writer selection. See ADR 0017 and the
+// configuration guide. A writer switch freezes and closes write sessions
+// until every registered proxy acknowledges.
 package main
 
 import (
