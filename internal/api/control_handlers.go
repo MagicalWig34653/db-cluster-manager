@@ -404,7 +404,7 @@ func (s *server) handleBackupPolicy(w http.ResponseWriter, r *http.Request, c *c
 	if !decodeJSON(w, r, &p, false) {
 		return
 	}
-	if len(p.Schedule) > 128 || len(p.Timezone) > 64 {
+	if len(p.Schedule) > 128 || len(p.Timezone) > 64 || (p.Verify != nil && (len(p.Verify.Schedule) > 128 || len(p.Verify.Timezone) > 64 || p.Verify.MaxMinutes < 0 || p.Verify.MaxMinutes > 240)) {
 		writeError(w, http.StatusBadRequest, errBadRequest)
 		return
 	}

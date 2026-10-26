@@ -1669,6 +1669,149 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
+  /backup-copies:
+    get:
+      summary: List backup copies
+      description: >-
+        Copies of backups to named backup targets (another cluster's or
+        Swarm's storage), newest first, for the clusters the caller may read.
+        A copy is data only: it never promotes or starts anything.
+      operationId: listBackupCopies
+      responses:
+        "200":
+          description: Copies
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/BackupCopy" } }
+        "401": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /clusters/{id}/backup-copies:
+    post:
+      summary: Copy a backup to another backup target
+      description: >-
+        Copies one completed backup (stream and manifest) from the cluster's
+        backup backend to a named target configured on the manager. The copy
+        is verified against the manifest digest while it streams, then the
+        manifest and a signed transfer record (HMAC-SHA256 with a key derived
+        from the data keyring) are written last. It runs in the background of
+        the leader; poll GET /backup-copies. Needs the backup permission on the
+        cluster's backups; audited. A copy interrupted by a leader change is
+        marked failed and can be started again (idempotent). A failed copy
+        records an event and a notification (backup.copy_failed). Retention of
+        the source set also removes its copies.
+      operationId: startBackupCopy
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [backup, target]
+              properties:
+                backup: { type: string, description: Backup ID }
+                target: { type: string, description: Name of a configured backup target }
+      responses:
+        "202":
+          description: Copy started
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BackupCopy" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /backup-copies/{id}/restore-proposal:
+    post:
+      summary: Propose restoring a copied backup into a new cluster
+      description: >-
+        Read-only. Verifies the copy deeply (signature, manifest digest,
+        stream digest) and returns a digest-bound proposal to restore it into
+        a NEW cluster of the target Swarm. Nothing is changed, promoted or
+        started; approvalRequired is always true and autoPromotion always
+        false. The restore itself is a separate operation whose destructive
+        steps wait for an explicit approval of that proposal's digest. Needs
+        the restore permission on the source cluster's backups; audited.
+        conflict (409) when the copy is not verified or the cluster name is in
+        use.
+      operationId: proposeCopyRestore
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [targetSwarm, targetCluster]
+              properties:
+                targetSwarm: { type: string }
+                targetCluster: { type: string, description: Name of the new cluster }
+      responses:
+        "200":
+          description: Proposal
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RestoreProposal" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /settings/metastore-backups:
+    get:
+      summary: List backups of the manager's own metastore
+      description: >-
+        Backups of the replicated metadata store (clusters, hosts, accounts,
+        policies, sealed secrets, keyring, approvals, audit), newest first.
+        Each object is sealed for the backup recovery key; verified reports
+        that the signed record and the stored size match. Needs settings read
+        permission.
+      operationId: listMetastoreBackups
+      responses:
+        "200":
+          description: Backups
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/MetastoreBackup" } }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Back up the manager's own metastore now
+      description: >-
+        Exports the metadata documents (not sessions, events or operations),
+        encrypts the export for the backup recovery key with the streaming
+        format, writes it with a signed record to the metastore backup target
+        and returns the record. Restoring needs the recovery key, which the
+        manager does not hold (see the disaster recovery runbook). Needs the
+        backup permission on settings; audited. settings_incomplete (409)
+        without a backup backend or recipient key.
+      operationId: createMetastoreBackup
+      responses:
+        "202":
+          description: Backup written
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MetastoreBackup" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
   /settings/notifications:
     get:
       summary: Notification channel settings
@@ -3246,6 +3389,67 @@ components:
             keepLast: { type: integer, minimum: 1, maximum: 1000 }
             keepDaily: { type: integer, minimum: 0, maximum: 1000 }
             keepWeekly: { type: integer, minimum: 0, maximum: 1000 }
+        verify: { $ref: "#/components/schemas/RestoreVerifyPolicy" }
+    BackupCopy:
+      type: object
+      required: [id, cluster, swarm, backup, target, status, objects, by, startedAt]
+      properties:
+        id: { type: string }
+        cluster: { type: string }
+        swarm: { type: string }
+        backup: { type: string }
+        target: { type: string }
+        status: { type: string, enum: [running, succeeded, failed] }
+        error: { type: string }
+        objects: { type: array, items: { type: string } }
+        by: { type: string }
+        startedAt: { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time }
+    RestoreProposal:
+      type: object
+      required: [copy, backupId, sourceCluster, manifestSha256, objectSha256, copiedBy, copiedAt, targetSwarm, targetCluster, approvalRequired, autoPromotion, steps, digest]
+      properties:
+        copy: { type: string }
+        backupId: { type: string }
+        sourceCluster: { type: string }
+        sourceSwarm: { type: string }
+        manifestSha256: { type: string }
+        objectSha256: { type: string }
+        copiedBy: { type: string }
+        copiedAt: { type: string, format: date-time }
+        targetSwarm: { type: string }
+        targetCluster: { type: string }
+        approvalRequired: { type: boolean, const: true }
+        autoPromotion: { type: boolean, const: false }
+        steps: { type: array, items: { type: string } }
+        digest: { type: string, description: "sha256:<hex> of the proposal; the approval must carry it" }
+    MetastoreBackup:
+      type: object
+      required: [name, createdAt, size, documents, collections, verified]
+      properties:
+        name: { type: string }
+        target: { type: string }
+        createdAt: { type: string, format: date-time }
+        size: { type: integer, format: int64 }
+        documents: { type: integer }
+        collections: { type: integer }
+        by: { type: string }
+        verified: { type: boolean }
+    RestoreVerifyPolicy:
+      type: object
+      additionalProperties: false
+      required: [enabled, schedule]
+      description: >-
+        Scheduled restore verification: an isolated inspection restore of the
+        newest completed physical backup (pre-approved by the person who
+        enabled it, who needs the restore permission), probed and torn down
+        again. A failed, aborted or overdue run records an event and sends a
+        notification of kind backup.restore_verification_failed.
+      properties:
+        enabled: { type: boolean }
+        schedule: { type: string, maxLength: 128 }
+        timezone: { type: string, maxLength: 64 }
+        maxMinutes: { type: integer, minimum: 0, maximum: 240, description: "Default 60" }
     BackupSummary:
       type: object
       required: [cluster, swarm]

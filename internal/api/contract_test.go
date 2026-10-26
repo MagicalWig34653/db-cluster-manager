@@ -152,7 +152,8 @@ func TestServiceSchemasListEveryField(t *testing.T) {
 	}
 	lines := strings.Split(string(raw), "\n")
 	for schema, v := range map[string]any{
-		"EngineUpdatePlan": EngineUpdatePlan{}, "EngineRunbookRequest": EngineRunbookRequest{}, "EngineRunbook": EngineRunbook{},
+		"BackupCopy": BackupCopy{}, "RestoreProposal": RestoreProposal{}, "MetastoreBackup": MetastoreBackup{},
+		"RestoreVerifyPolicy": RestoreVerifyPolicy{}, "EngineUpdatePlan": EngineUpdatePlan{}, "EngineRunbookRequest": EngineRunbookRequest{}, "EngineRunbook": EngineRunbook{},
 		"ClusterOperationInput": galera.OperationRequest{}, "ClusterOperationPlan": ClusterOperationPlan{},
 		"ServiceInfo": ServiceInfo{}, "ServicePlan": ServicePlan{}, "ServiceStarted": ServiceStarted{},
 		"ServiceHealth": ServiceHealth{}, "ServiceUpdateInput": ServiceUpdateInput{},

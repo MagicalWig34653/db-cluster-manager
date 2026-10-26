@@ -19,6 +19,7 @@ import (
 	"github.com/MagicalWig34653/db-cluster-manager/internal/dbbackup"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/galera"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/metastore"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/notify"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/runner"
 )
 
@@ -136,6 +137,19 @@ type Backups struct {
 	// StaleAfter bounds the age of health observations used to pick a
 	// backup source (default 2 minutes).
 	StaleAfter time.Duration
+	// Targets are named backup targets for copies (transfers.go), typically
+	// the storage of another cluster or Swarm.
+	Targets map[string]backup.Backend
+	// Keys signs and verifies transfer records and signs the records of
+	// metastore backups; the manager keyring. Nil refuses copies.
+	Keys backup.KeySource
+	// MetaTarget names the target of metastore backups (metabackup.go);
+	// empty uses Backend.
+	MetaTarget string
+	// Notify receives failure notifications (typically Monitoring.Notify).
+	Notify func(ctx context.Context, e notify.Event) bool
+
+	xfer transferState
 }
 
 func (b *Backups) store() *Store            { return b.Ops.Svc.store }
@@ -954,6 +968,7 @@ func (s BackupScheduler) Run(ctx context.Context, _ *Leadership) error {
 		}
 		if b := s.Backups(); b != nil {
 			b.RunSchedules(actor)
+			b.failInterruptedCopies(ctx)
 			b.TeardownExpired(actor)
 			if err := b.ApplyRetention(ctx); err != nil && ctx.Err() == nil {
 				b.log("manager: backup retention incomplete", "err", err)

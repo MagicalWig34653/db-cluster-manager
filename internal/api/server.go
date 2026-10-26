@@ -374,6 +374,23 @@ func (s *server) coreEndpoints() []endpoint {
 			method: "POST", path: "/restores/inspect", access: accessPermission,
 			action: authz.ActionRestore, resolve: s.resolveInspection, hideUnreadable: true, handle: s.handleInspectionStart,
 		},
+		{method: "GET", path: "/backup-copies", access: accessFiltered, handle: s.handleBackupCopies},
+		{
+			method: "POST", path: "/clusters/{id}/backup-copies", access: accessPermission,
+			action: authz.ActionBackup, resolve: s.resolveClusterBackups, hideUnreadable: true, handle: s.handleBackupCopyStart,
+		},
+		{
+			method: "POST", path: "/backup-copies/{id}/restore-proposal", access: accessPermission,
+			action: authz.ActionRestore, resolve: s.resolveBackupCopy, hideUnreadable: true, handle: s.handleRestoreProposal,
+		},
+		{
+			method: "GET", path: "/settings/metastore-backups", access: accessPermission,
+			action: authz.ActionRead, resolve: s.resolveSettings, handle: s.handleMetastoreBackups,
+		},
+		{
+			method: "POST", path: "/settings/metastore-backups", access: accessPermission,
+			action: authz.ActionBackup, resolve: s.resolveSettings, handle: s.handleMetastoreBackupCreate,
+		},
 
 		{
 			method: "GET", path: "/settings/notifications", access: accessPermission,

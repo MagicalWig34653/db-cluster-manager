@@ -139,6 +139,8 @@ func (b *Backups) retainCluster(ctx context.Context, clusterID string, pol backu
 			continue
 		}
 		removed = append(removed, s.BackupID)
+		// Copies of a deleted set go with it (retention coupling).
+		err = errors.Join(err, b.removeCopiesOf(ctx, s.BackupID))
 	}
 	if len(removed) > 0 {
 		c, _, _ := Get[ClusterRecord](b.store(), CollClusters, clusterID)

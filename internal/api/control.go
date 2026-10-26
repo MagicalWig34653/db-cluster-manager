@@ -245,6 +245,23 @@ type BackupPolicy struct {
 	// after each scheduler pass; the newest set, the newest verified set
 	// and sets used by an inspection are always kept.
 	Retention *BackupRetention `json:"retention,omitempty"`
+	// Verify schedules automatic restore verification: an isolated
+	// inspection restore of the newest completed physical backup, checked
+	// and torn down again. Enabling it needs the restore permission; the
+	// person who enables it is recorded as approver of the scheduled
+	// inspections (they are isolated and never touch production).
+	Verify *RestoreVerifyPolicy `json:"verify,omitempty"`
+}
+
+// RestoreVerifyPolicy is the schedule of automatic restore verification.
+// A failed, aborted or overdue verification records an event and sends a
+// notification (kind backup.restore_verification_failed).
+type RestoreVerifyPolicy struct {
+	Enabled  bool   `json:"enabled"`
+	Schedule string `json:"schedule"`
+	Timezone string `json:"timezone,omitempty"`
+	// MaxMinutes bounds one verification (default 60, at most 240).
+	MaxMinutes int `json:"maxMinutes,omitempty"`
 }
 
 // BackupRetention keeps the newest KeepLast sets plus the newest set of
