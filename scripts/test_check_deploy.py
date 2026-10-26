@@ -44,6 +44,17 @@ class WorkflowGuards(unittest.TestCase):
         self.check_mutation("build", "sbom: true", "sbom: false")
         self.check_mutation("release", "provenance: mode=max", "provenance: false")
 
+    def test_release_supply_chain_required(self):
+        self.check_mutation("release", "sha256sum -c SHA256SUMS", "true")
+        self.check_mutation("release", "cyclonedx-gomod@v1.9.0", "cyclonedx-gomod@latest")
+        self.check_mutation("release", "cosign@v3.0.2", "cosign@latest")
+        self.check_mutation("release", 'cosign" sign --yes "${IMAGE}@${DIGEST}"', "true")
+        self.check_mutation("release", "needs: [binaries, image]", "needs: binaries")
+        self.check_mutation("release", "goarch: [amd64, arm64]", "goarch: [amd64]")
+
+    def test_release_oidc_scoped_to_image(self):
+        self.check_mutation("release", "contents: write", "contents: write\n      id-token: write")
+
     def test_tag_guard_required(self):
         self.check_mutation("release", "startsWith(github.ref, 'refs/tags/v')", "true")
 

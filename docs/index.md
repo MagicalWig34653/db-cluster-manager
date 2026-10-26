@@ -21,6 +21,7 @@ layout: landing
 [User guides (English)](guides/en/index.md)
 [Benutzerhandbuch (Deutsch)](guides/de/index.md)
 [Current status](STATUS.md)
+[Release policy](RELEASING.md)
 </div>
 
 Keyboard navigation, focus and narrow-screen behavior are described in the [UI design note](DESIGN.md#static-accessibility-and-narrow-screen-review-2026-10-26) and the bilingual getting-started guides. This review is static; no new browser or screen-reader result is claimed.

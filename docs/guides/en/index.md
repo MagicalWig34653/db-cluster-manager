@@ -8,6 +8,8 @@ These guides describe what the software does **today**. This is pre-release soft
 
 German version: [Benutzerhandbuch (Deutsch)](../de/index.md). Technical details: [INSTALL.md](../../INSTALL.md), [KONZEPT.md](../../KONZEPT.md), [api/openapi.yaml](../../../api/openapi.yaml).
 
+When a version is published, use the [release and verification policy](../../RELEASING.md). The pipeline is configured but has not run for a release.
+
 ## Verification labels
 
 | Label | Meaning |

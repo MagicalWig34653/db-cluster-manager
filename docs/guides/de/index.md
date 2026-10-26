@@ -8,6 +8,8 @@ Diese Anleitungen beschreiben, was die Software **heute** kann. Es handelt sich 
 
 English version: [User guides (English)](../en/index.md). Technische Details (englisch): [INSTALL.md](../../INSTALL.md), [KONZEPT.md](../../KONZEPT.md), [api/openapi.yaml](../../../api/openapi.yaml).
 
+Für veröffentlichte Versionen gilt die [Release- und Prüfregel](../../RELEASING.md). Die Pipeline ist eingerichtet, wurde aber noch für kein Release ausgeführt.
+
 ## Prüfstufen
 
 | Stufe | Bedeutung |

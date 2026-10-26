@@ -10,6 +10,8 @@ An AGPLv3, self-hosted manager for clusters and services, starting with MariaDB 
 [![Docs](https://github.com/MagicalWig34653/db-cluster-manager/actions/workflows/docs-check.yml/badge.svg)](https://github.com/MagicalWig34653/db-cluster-manager/actions/workflows/docs-check.yml)
 [Documentation site](https://magicalwig34653.github.io/db-cluster-manager/)
 
+The tag-triggered [release pipeline and verification policy](docs/RELEASING.md) is configured but has not published a release.
+
 ![Cluster detail page of the web UI](docs/assets/screenshots/en-light-cluster-detail.png)
 
 *Screenshot from the development mock server (`npm run dev:mock`, invented sample data). The UI has not been run against a real manager yet.*

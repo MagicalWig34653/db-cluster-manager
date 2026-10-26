@@ -20,6 +20,8 @@ Automatic single-node replacement is allowed by policy/capacity. Full-cluster re
 
 **W10 provisioning experiment (2026-10-25, fakes only):** [ADR 0018](decisions/0018-ssh-cluster-provisioning.md) records SSH host preflight, sealed credentials, reviewed scripts, two digest checks, the term-fenced operation runner and a confirmed-host ownership manifest. Swarm is the only executable variant behind an explicit manager flag; the separately flagged k3s variant is a script preview. No real host was contacted, and this does not settle Kubernetes timing or distribution support.
 
+**Release pipeline mechanism (2026-10-26, static checks only):** [RELEASING.md](RELEASING.md) defines stable SemVer tags and a CI pipeline for Linux archives and two multi-platform images. The existing Buildx action supplies image SBOM/provenance; a pinned CycloneDX Go tool produces per-binary dependency SBOMs; a pinned cosign Go tool signs image digests with GitHub OIDC. Alternatives considered: introducing new SBOM/cosign/attestation Actions (would require new SHA pins against this task's constraint), module-wide SBOMs (would include dependencies absent from individual binaries), and unsigned tag-only images (would leave consumers without a signature). `actionlint`, Python unit tests and static deployment guards passed locally; the workflow, tool downloads, actual attestations and signatures remain unverified. Binary archive provenance is still open.
+
 ## Remaining product decisions
 
 - Final project name/GitHub owner, release naming and Pages setup. Public visibility and Git initialization/public push by Claude are explicitly authorized.

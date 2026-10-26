@@ -1,5 +1,5 @@
 name: Release
-# Runs only for version tags. Builds release archives and a multi-arch image.
+# Runs only for stable version tags. Publish after read-only CI verification.
 on:
   push:
     tags: ["v*"]
@@ -13,8 +13,25 @@ jobs:
     permissions:
       contents: read
 
-  web:
+  tag:
     needs: verify
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Validate stable SemVer tag and release notes generator
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          python3 scripts/test_release_notes.py
+          python3 scripts/release_notes.py --tag "$TAG" --output "$RUNNER_TEMP/release-notes.md"
+
+  web:
+    needs: tag
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -41,18 +58,13 @@ jobs:
 
   binaries:
     needs: web
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     strategy:
       fail-fast: true
       matrix:
-        goos: [linux, darwin]
         goarch: [amd64, arm64]
-    env:
-      CGO_ENABLED: "0"
-      GOOS: ${{ matrix.goos }}
-      GOARCH: ${{ matrix.goarch }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -60,6 +72,8 @@ jobs:
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: go.mod
+      - name: Install pinned CycloneDX Go tool
+        run: go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.9.0
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: web-assets
@@ -67,6 +81,9 @@ jobs:
       - name: Build, package and list build info
         env:
           REF_NAME: ${{ github.ref_name }}
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
         run: |
           set -eu
           VERSION="${REF_NAME#v}"
@@ -79,6 +96,9 @@ jobs:
               -o "dist/${NAME}/${c}" "./cmd/${c}"
             # Dependency listing per binary (module versions and build settings).
             go version -m "dist/${NAME}/${c}" > "dist/${NAME}/${c}.buildinfo.txt"
+            "$(go env GOPATH)/bin/cyclonedx-gomod" app -json -main "cmd/${c}" \
+              -output "dist/${NAME}/${c}.bom.json" .
+            cp "dist/${NAME}/${c}.bom.json" "dist/${NAME}-${c}.bom.json"
           done
           cp LICENSE README.md "dist/${NAME}/"
           cp -r deploy "dist/${NAME}/deploy"
@@ -86,27 +106,40 @@ jobs:
             -C dist -czf "dist/${NAME}.tar.gz" "${NAME}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: archive-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: dist/*.tar.gz
+          name: archive-linux-${{ matrix.goarch }}
+          path: |
+            dist/*.tar.gz
+            dist/*.bom.json
           if-no-files-found: error
 
   release:
-    needs: binaries
-    runs-on: ubuntu-latest
+    needs: [binaries, image]
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: archive-*
           merge-multiple: true
           path: release
-      - name: Checksums and release notes
-        working-directory: release
+      - name: Validate tag, generate notes and check artifacts
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
           set -eu
-          sha256sum -- *.tar.gz > SHA256SUMS
+          python3 scripts/test_release_notes.py
+          python3 scripts/release_notes.py --tag "$TAG" --output release/RELEASE_NOTES.md
+          cd release
+          test "$(find . -maxdepth 1 -name '*.tar.gz' | wc -l | tr -d ' ')" = 2
+          test "$(find . -maxdepth 1 -name '*.bom.json' | wc -l | tr -d ' ')" = 6
+          sha256sum -- *.tar.gz *.bom.json > SHA256SUMS
           sha256sum -c SHA256SUMS
+          python3 -c 'import glob,json; [None if json.load(open(p))["bomFormat"] == "CycloneDX" else exit(1) for p in glob.glob("*.bom.json") ]'
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -115,12 +148,12 @@ jobs:
         working-directory: release
         run: |
           set -eu
-          gh release create "$TAG" --title "$TAG" --generate-notes --verify-tag \
-            --notes "Build info (go version -m) is included in each archive. Not a production-readiness declaration; see docs/INSTALL.md." \
-            ./*.tar.gz SHA256SUMS
+          gh release create "$TAG" --title "$TAG" --verify-tag \
+            --notes-file RELEASE_NOTES.md \
+            ./*.tar.gz ./*.bom.json SHA256SUMS
 
   image:
-    needs: verify
+    needs: tag
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     strategy:
       fail-fast: false
@@ -130,16 +163,22 @@ jobs:
             suffix: ""
           - dockerfile: deploy/Dockerfile.jobs
             suffix: "-jobs"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
+      id-token: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
       - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+      - name: Install pinned cosign Go tool
+        run: go install github.com/sigstore/cosign/v3/cmd/cosign@v3.0.2
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
@@ -159,7 +198,8 @@ jobs:
         run: |
           echo "version=${REF_NAME#v}" >> "$GITHUB_OUTPUT"
           echo "commit=$(git rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
-      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+      - id: push
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: ${{ matrix.dockerfile }}
@@ -172,3 +212,13 @@ jobs:
           build-args: |
             VERSION=${{ steps.args.outputs.version }}
             COMMIT=${{ steps.args.outputs.commit }}
+      - name: Sign immutable image digest with keyless cosign
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          set -eu
+          IMAGE="$(printf '%s\n' "$TAGS" | head -n 1 | cut -d: -f1)"
+          test -n "$IMAGE"
+          test -n "$DIGEST"
+          "$(go env GOPATH)/bin/cosign" sign --yes "${IMAGE}@${DIGEST}"
