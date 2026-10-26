@@ -17,6 +17,8 @@
 	import ApiGate from '../../../../lib/components/app/ApiGate.svelte';
 	import ErrorNotice from '../../../../lib/components/app/ErrorNotice.svelte';
 	import Loading from '../../../../lib/components/app/Loading.svelte';
+	import KeyRotationPanel from '../../../../lib/components/app/KeyRotationPanel.svelte';
+	import MembershipPanel from '../../../../lib/components/app/MembershipPanel.svelte';
 
 	const keyring = load(api.keyring);
 	const stateLabel: Record<ReplicaState, MessageKey> = { ready: 'keyStateReady', noKey: 'keyStateNoKey', unregistered: 'keyStateUnregistered' };
@@ -175,5 +177,8 @@
 				</form>
 			</Card.Content>
 		</Card.Root>
+
+		<KeyRotationPanel onstarted={keyring.refresh} />
+		<MembershipPanel replicas={k.replicas.map((r) => r.id)} onchanged={keyring.refresh} />
 	{/if}
 </div>

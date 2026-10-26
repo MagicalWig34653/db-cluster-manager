@@ -922,6 +922,40 @@ export interface ServiceStarted {
 	plan: ServicePlan;
 }
 
+/** Mirrors api.ClusterOperationInput (Galera scale, rolling restart, patch upgrade). */
+export const clusterOperationKinds = ['scale-out', 'scale-in', 'rolling-restart', 'minor-upgrade'] as const;
+export type ClusterOperationKind = (typeof clusterOperationKinds)[number];
+export interface ClusterOperationInput {
+	kind: ClusterOperationKind;
+	slot?: string;
+	image?: string;
+}
+/** The stored plan; no agent command runs before the digest is approved on the operation. */
+export interface ClusterOperationPlan {
+	id: string;
+	kind: string;
+	approval: OperationApproval;
+	plan: { steps?: PlanStep[]; warnings?: string[]; [k: string]: unknown };
+	agentSteps: { id: string; command?: string; target?: string; note?: string }[];
+}
+export interface KeyRotationResult {
+	digest: string;
+	currentKey: string;
+	started: boolean;
+}
+export interface MembershipResult {
+	digest: string;
+	complete: boolean;
+}
+export interface ProxyWriterChoice {
+	epoch: number;
+	writer: string;
+	pending?: string;
+	members: string[];
+	candidates: string[];
+	acks?: Record<string, boolean>;
+}
+
 export interface MaintenanceCluster {
 	cluster: string;
 	name: string;
@@ -1351,6 +1385,24 @@ export const isDriftReport = (v: unknown): v is DriftReport =>
 const isReplica = (r: unknown): r is ReplicaKeyStatus =>
 	isObj(r) && isStr(r.id) && optStr(r.address) && isBool(r.leader) && optStr(r.publicKeyId) && optStr(r.registeredBy) && optDate(r.registeredAt) && isBool(r.hasCurrentKey);
 
+export const isClusterOperationPlan = (v: unknown): v is ClusterOperationPlan =>
+	isObj(v) && isStr(v.id) && isStr(v.kind) && isApproval(v.approval) && isObj(v.plan) && Array.isArray(v.agentSteps);
+
+export const isKeyRotationPreview = (v: unknown): v is KeyRotationResult => isObj(v) && isStr(v.digest) && isStr(v.currentKey) && isBool(v.started);
+
+export const isMembershipResult = (v: unknown): v is MembershipResult => isObj(v) && isStr(v.digest) && isBool(v.complete);
+
+export const isProxyWriterChoice = (v: unknown): v is ProxyWriterChoice =>
+	isObj(v) &&
+	isNum(v.epoch) &&
+	isStr(v.writer) &&
+	optStr(v.pending) &&
+	Array.isArray(v.members) &&
+	v.members.every(isStr) &&
+	Array.isArray(v.candidates) &&
+	v.candidates.every(isStr) &&
+	(v.acks === undefined || (isObj(v.acks) && Object.values(v.acks).every(isBool)));
+
 export const isKeyringStatus = (v: unknown): v is KeyringStatus =>
 	isObj(v) && isStr(v.currentKey) && isBool(v.recoverable) && Array.isArray(v.replicas) && v.replicas.every(isReplica);
 
@@ -1560,11 +1612,11 @@ export function newDashboardId(): string {
 }
 
 export function createClient(fetchFn: FetchFn) {
-	async function call<T>(method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, guard: Guard<T>, body?: unknown): Promise<T> {
+	async function call<T>(method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, guard: Guard<T>, body?: unknown, extraHeaders?: Record<string, string>): Promise<T> {
 		const init: RequestInit = {
 			method,
 			credentials: 'same-origin',
-			headers: { Accept: 'application/json', ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
+			headers: { Accept: 'application/json', ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...extraHeaders },
 			body: body !== undefined ? JSON.stringify(body) : undefined
 		};
 		let res: Response;
@@ -1732,6 +1784,17 @@ export function createClient(fetchFn: FetchFn) {
 		planProvision: (input: ProvisionPlanInput) => call('POST', '/provision/plans', isProvisionPlan, input),
 		startProvision: (id: string, digest: string) => call('POST', `/provision/plans/${encodeURIComponent(id)}/execute`, isOperationRef, { digest }),
 		registerKubernetes: (input: KubernetesRegistrationInput) => call('POST', '/kubernetes-clusters', isKubernetesRegistration, input),
+		/** Plans only; the returned operation waits for approveOperation with the displayed digest. */
+		planClusterOperation: (cluster: string, input: ClusterOperationInput) =>
+			call('POST', `/clusters/${encodeURIComponent(cluster)}/operation-plan`, isClusterOperationPlan, input),
+		/** Empty digest previews; the same call with the previewed digest starts the rotation. */
+		rotateDataKey: (digest?: string) => call('POST', '/settings/data-key/rotate', isKeyRotationPreview, digest ? { digest } : {}),
+		/** Empty digest previews one Raft member change; resubmit the digest to apply it. */
+		changeMembership: (replica: string, remove: boolean, digest?: string) =>
+			call('POST', `/settings/replicas/${encodeURIComponent(replica)}/membership`, isMembershipResult, { remove, ...(digest ? { digest } : {}) }),
+		/** Needs the separate writer-admin token, which is sent once and never stored. */
+		switchProxyWriter: (cluster: string, writer: string, adminToken: string) =>
+			call('POST', `/proxy-writers/${encodeURIComponent(cluster)}/switch`, isProxyWriterChoice, { writer }, { Authorization: `Bearer ${adminToken}` }),
 		keyring: () => call('GET', '/settings/replicas', isKeyringStatus),
 		registerReplicaKey: (replica: string, publicKey: string) =>
 			call('PUT', `/settings/replicas/${encodeURIComponent(replica)}/data-key-recipient`, isReplicaKeyStatus, { publicKey }),

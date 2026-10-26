@@ -375,6 +375,44 @@ function platformMock(method: string, path: string, query: URLSearchParams, body
 	}
 	m = path.match(/^\/api\/v1\/settings\/replicas\/([^/]+)\/revoke-certificates$/);
 	if (m && method === 'POST') return json(200, { replica: decodeURIComponent(m[1]), revoked: 2 });
+	if (path === P + '/settings/data-key/rotate' && method === 'POST') {
+		const want = digest('r');
+		if (!body?.digest) return json(200, { digest: want, currentKey: keyring.currentKey, started: false });
+		if (body.digest !== want) return json(409, { error: 'conflict' });
+		keyring.currentKey = 'key-2026-11';
+		return json(200, { digest: want, currentKey: keyring.currentKey, started: true });
+	}
+	m = path.match(/^\/api\/v1\/settings\/replicas\/([^/]+)\/membership$/);
+	if (m && method === 'POST') {
+		const want = digest(body?.remove ? 'm' : 'n');
+		if (!body?.digest) return json(200, { digest: want, complete: false });
+		return body.digest === want ? json(200, { digest: want, complete: true }) : json(409, { error: 'conflict' });
+	}
+	m = path.match(/^\/api\/v1\/clusters\/([^/]+)\/operation-plan$/);
+	if (m && method === 'POST') {
+		const cluster = decodeURIComponent(m[1]);
+		const kind = String(body?.kind ?? '');
+		if (!['scale-out', 'scale-in', 'rolling-restart', 'minor-upgrade'].includes(kind)) return json(400, { error: 'bad_request' });
+		const slots = ['mock-node-1', 'mock-node-2', 'mock-node-3'];
+		const slot = String(body?.slot ?? '');
+		const targets = kind === 'scale-out' ? [slot] : kind === 'scale-in' ? [slot] : slots;
+		const steps = targets.flatMap((s, i) => [
+			{ id: `s${i}-gate`, kind: 'gate-synced', slot: s, note: 'Require fresh Synced evidence in one Primary component', conditions: ['wsrep_local_state = Synced', 'No other operation running'] },
+			{ id: `s${i}-act`, kind: kind === 'scale-out' ? 'add-node' : kind === 'scale-in' ? 'remove-node' : kind === 'minor-upgrade' ? 'upgrade-node' : 'restart-node', slot: s }
+		]);
+		const op = pendingOp(`cluster/${kind}`, cluster, 'p', steps.length);
+		return json(202, {
+			id: op.id,
+			kind: op.kind,
+			approval: op.approval,
+			plan: { steps, warnings: kind === 'minor-upgrade' ? ['Patch upgrade keeps the MariaDB series; rollback needs a backup.'] : ['Live gates are rechecked before every stop.'] },
+			agentSteps: steps.map((s) => ({ id: s.id, command: s.kind, target: s.slot }))
+		});
+	}
+	m = path.match(/^\/api\/v1\/proxy-writers\/([^/]+)\/switch$/);
+	if (m && method === 'POST') {
+		return json(200, { epoch: 4, writer: '', pending: String(body?.writer ?? ''), members: ['proxy-1', 'proxy-2'], candidates: ['mock-node-1', 'mock-node-2', 'mock-node-3'], acks: { 'proxy-1': true, 'proxy-2': false } });
+	}
 	return undefined;
 }
 

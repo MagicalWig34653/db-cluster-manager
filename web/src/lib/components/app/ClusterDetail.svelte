@@ -17,6 +17,8 @@
 	import Loading from './Loading.svelte';
 	import ApiGate from './ApiGate.svelte';
 	import DriftPanel from './DriftPanel.svelte';
+	import ClusterOperationPanel from './ClusterOperationPanel.svelte';
+	import ProxyWriterPanel from './ProxyWriterPanel.svelte';
 	import { Button } from '../ui/button/index.js';
 	import * as Alert from '../ui/alert/index.js';
 
@@ -281,6 +283,10 @@
 		</Card.Root>
 
 		<DriftPanel cluster={c.id} />
+
+		<ClusterOperationPanel cluster={c.id} nodes={c.nodes} />
+
+		<ProxyWriterPanel cluster={c.id} nodes={c.nodes} />
 
 		<Card.Root class="lg:col-span-2">
 			<Card.Header>
