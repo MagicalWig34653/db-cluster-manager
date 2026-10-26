@@ -1,4 +1,4 @@
-# ADR 0017: Docker Engine update plans and operator runbooks
+# ADR 0019: Docker Engine update plans and operator runbooks
 
 Status: **Proposal**, 2026-10-25. X09/W07 safe default, fakes only. The update
 boundary questions in [ENTSCHEIDUNGEN.md](../ENTSCHEIDUNGEN.md#open-decisions-from-the-scope-extension)

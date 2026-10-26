@@ -35,4 +35,4 @@ Der Manager führt Upgrade, Drain, Neustart und Rollback niemals selbst aus.
 Ein Paket-Downgrade ist möglicherweise nicht unterstützt. Änderungen an
 Inventar oder Wartung machen den bisherigen Digest ungültig. Die Grenzen für
 Engine-Updates bleiben eine Produktentscheidung in
-[ADR 0017](../../decisions/0017-docker-engine-update-plans.md).
+[ADR 0019](../../decisions/0019-docker-engine-update-plans.md).

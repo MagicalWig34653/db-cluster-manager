@@ -20,6 +20,7 @@
 	export const navItems: { href: string; label: MessageKey; icon: typeof Settings; available: boolean }[] = [
 		{ href: '/', label: 'navOverview', icon: LayoutDashboard, available: true },
 		{ href: '/kubernetes', label: 'kubeTitle', icon: Boxes, available: true },
+		{ href: '/provision', label: 'provisionTitle', icon: Server, available: true },
 		{ href: '/swarms', label: 'navSwarms', icon: Boxes, available: true },
 		{ href: '/clusters', label: 'navClusters', icon: Database, available: true },
 		{ href: '/hosts', label: 'navHosts', icon: Server, available: true },

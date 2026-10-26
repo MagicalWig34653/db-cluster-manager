@@ -34,6 +34,8 @@ import (
 	"github.com/MagicalWig34653/db-cluster-manager/internal/metastore"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/notify"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/passkey"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/provision"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/runner"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/vuln"
 )
 
@@ -93,6 +95,9 @@ type managerConfig struct {
 	Vuln *vulnConfig `json:"vuln,omitempty"`
 	// ProxyWriters enables the replicated writer-choice protocol.
 	ProxyWriters []proxyWriterConfig `json:"proxyWriters,omitempty"`
+	// ExperimentalProvisioning enables approval-gated SSH host provisioning.
+	ExperimentalProvisioning           bool `json:"experimentalProvisioning,omitempty"`
+	ExperimentalKubernetesProvisioning bool `json:"experimentalKubernetesProvisioning,omitempty"`
 }
 
 // imageBuildConfig is the "manager.imageBuild" section. Presence enables
@@ -393,8 +398,10 @@ type managedRuntime struct {
 
 	// vulnCfg is nil when the vulnerability response is disabled; vuln is
 	// the current leadership's service.
-	vulnCfg *vulnConfig
-	vuln    atomic.Pointer[vuln.Service]
+	vulnCfg                *vulnConfig
+	vuln                   atomic.Pointer[vuln.Service]
+	provisioning           bool
+	kubernetesProvisioning bool
 
 	enroll *http.Server
 
@@ -450,7 +457,7 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 	if mc.Vuln != nil && !cfg.Auth.Enabled {
 		return nil, errors.New("manager.vuln needs auth.enabled")
 	}
-	rt := &managedRuntime{proto: api.NewHandler(), keys: keys, backend: backend, imageCfg: mc.ImageBuild, imageRunner: newImageRunner(), vulnCfg: mc.Vuln, proxyWriters: map[string]proxyWriterConfig{}}
+	rt := &managedRuntime{proto: api.NewHandler(), keys: keys, backend: backend, imageCfg: mc.ImageBuild, imageRunner: newImageRunner(), vulnCfg: mc.Vuln, proxyWriters: map[string]proxyWriterConfig{}, provisioning: mc.ExperimentalProvisioning, kubernetesProvisioning: mc.ExperimentalKubernetesProvisioning}
 	for _, w := range mc.ProxyWriters {
 		rt.proxyWriters[w.ClusterID] = w
 	}
@@ -542,17 +549,18 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 		_ = svc.Close()
 		return nil, err
 	}
+	var agentClient runner.AgentClient
 	switch {
 	case mc.LabAgents:
 		// Agents are only configurable before Start; the directory reads
 		// host records from the service's own store.
-		svc.SetAgents(manager.LabAgentDirectory{Store: svc.Store()})
+		agentClient = manager.LabAgentDirectory{Store: svc.Store()}
 	case mc.AgentTransport != nil:
 		at := mc.AgentTransport
 		pki := &manager.AgentPKI{Store: svc.Store(), Keys: keys, ReplicaID: nodeID, ServerDNS: at.ServerDNS, ServerIPs: serverIPs,
 			RequireSourceAddr: !at.AllowAnySource}
 		rt.pki = pki
-		svc.SetAgents(&manager.AgentDirectory{Store: svc.Store(), PKI: pki, Port: at.AgentPort})
+		agentClient = &manager.AgentDirectory{Store: svc.Store(), PKI: pki, Port: at.AgentPort}
 		swarms.Transport = &manager.AgentTransport{PKI: pki, ManagerURL: at.ManagerURL, Port: at.AgentPort,
 			MonitorUser: at.MonitorUser, MonitorSecret: at.MonitorSecret, DBSecrets: at.DBSecrets}
 		es := &enroll.Server{Authority: pki, Registry: pki, Log: log, Installation: ""}
@@ -560,6 +568,12 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 			_ = svc.Close()
 			return nil, err
 		}
+	}
+	if mc.ExperimentalProvisioning {
+		agentClient = manager.ProvisionAgentClient{Next: agentClient, Store: svc.Store(), Keys: keys, Commands: provision.SSHRunner{}}
+	}
+	if agentClient != nil {
+		svc.SetAgents(agentClient)
 	}
 	rt.svc = svc
 	if mc.TLS != nil && mc.TLS.ACME != nil {
@@ -676,6 +690,10 @@ func (rt *managedRuntime) leaderAPI(pk passkey.Config, keys manager.KeyProvider,
 		SetupToken: token, AdministratorExists: st.AdministratorExists, Inventory: inv, Activity: inv, Logger: log,
 		Monitoring: rt.monitoring, Control: svc.control, Backups: svc.backups, Settings: svc.settings, Maintenance: svc.control, EngineUpdates: svc.control,
 		Services: svc.services,
+	}
+	if rt.provisioning {
+		acfg.ExperimentalProvisioning = true
+		acfg.Provisioning = &manager.Provisioning{Ops: svc.control.Ops, Keys: keys, Commands: provision.SSHRunner{}, AllowKubernetes: rt.kubernetesProvisioning}
 	}
 	// Registries are always available; builds only with manager.imageBuild.
 	// The interfaces stay nil otherwise, so the routes answer 503.

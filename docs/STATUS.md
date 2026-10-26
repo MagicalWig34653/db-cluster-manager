@@ -35,6 +35,18 @@ sandbox (`operation not permitted`); `internal/manager` aborted at an
 `httptest` listener before its full test set ran. The full race gate therefore
 remains unverified. Next: rerun that gate where local listeners are permitted.
 
+## W10 SSH cluster provisioning increment (2026-10-25, fakes only)
+
+Implemented on `cx-provision`: `internal/provision` creates deterministic Swarm host plans and flag-gated k3s script previews. Read-only SSH preflight checks Linux, requested ports, time synchronization, at least 10 GiB free disk and existing Swarm/k3s membership. The SSH `CommandRunner` uses a private key and pinned OpenSSH `known_hosts`; unit tests use a fake runner and contact no hosts. Per-host scripts are exportable, carry no key or join token and check a per-plan marker before treating existing membership as their own. `internal/manager` seals drafts and SSH credentials in the replicated store, compares the plan digest on execute, then uses the existing term-fenced operation runner with a second definition-digest approval gate. It records observed Swarm cluster IDs and confirmed hosts in an ownership manifest for later scoped cleanup. A command with uncertain completion pauses for reconciliation. The shipping manager wires this only with `manager.experimentalProvisioning`; `manager.experimentalKubernetesProvisioning` allows k3s preview but not execution. The API (`/provision/plans`, `/provision/plans/{id}/execute`), OpenAPI contract, global settings `operate` authz, DE/EN UI wizard and mock, guides and [ADR 0018](decisions/0018-ssh-cluster-provisioning.md) are current.
+
+Swarm preflight requires an already installed, responding Docker daemon; no engine installation or update is performed.
+
+Actual checks: `gofmt -l .` initially listed `internal/provision/plan.go`; after `gofmt -w`, rerun was empty (exit 0). `go vet ./...` exited 0 without output using writable `GOCACHE`. Focused `go test -race -count=1 -p 4` for provision, API contract and manager ownership passed. Final full `go test -race -count=1 -p 4 ./...` exited 1: 26 packages passed, 19 failed, four had no tests. Existing TCP/Unix listener tests failed with `bind: operation not permitted` in this sandbox. In an earlier full run, `internal/manager/TestAbortCreateWithExecSQLInFlight` also timed out; it passed alone with the race detector and did not fail in the final full run. No all-suite pass is claimed. `python3 scripts/check_docs.py`: 76 Markdown files, 69 requirements, 0 errors. `python3 scripts/check_deploy.py`: static checks passed; no image built. `web`: `npm run check` reported 0 errors and 0 warnings, `npm test` passed 19 files / 198 tests, `npm run build` succeeded and `internal/webui/assets/.gitkeep` was touched afterward. Dependencies were restored with `npm ci --offline --ignore-scripts` because this worktree had no `node_modules`.
+
+Limits: no real SSH, Docker, k3s, host-key handshake, browser render or deployment test; the SSH execution path remains experimental and should not be enabled on production hosts. Preflight does not reserve capacity, install Docker, configure firewalls or NTP. A crash between a successful remote command and manifest write leaves a host for manual reconciliation. No cleanup operation, automatic Swarm registration, Kubernetes execution, key rotation or complete k3s security design exists. The exported k3s scripts have not been run or schema-validated. The R9 gates remain open. Next: review the SSH/token threat model, test deliberate disconnect/restart cases in an owned lab within `docs/TESTING.md` limits, and implement a manifest-scoped cleanup plan before a real host trial.
+
+Git limitation: `git add internal/provision` failed because the sandbox cannot create the shared `.git/worktrees/cx-provision/index.lock` outside this writable worktree (`Operation not permitted`). No commit or push was made; the changes remain in this worktree. Once Git metadata is writable, review and commit the core, API/manager, and UI/docs groups separately.
+
 ## Phase
 
 Concept documented; Claude Code handover prepared. Go and the monorepo are confirmed. The user explicitly authorized Claude to initialize Git and push a public GitHub repository.
@@ -830,7 +842,7 @@ administrator preset only. Runbook export checks a freshly recomputed digest
 and requires explicit manager-host confirmation. The downloadable shell script
 prints operator instructions; no manager/agent Docker upgrade, drain, restart
 or package execution path exists. The DE/EN page `/engine-updates`, development
-mock, UI guard/client tests, [ADR 0017](decisions/0017-docker-engine-update-plans.md)
+mock, UI guard/client tests, [ADR 0019](decisions/0019-docker-engine-update-plans.md)
 and [EN](guides/en/18-docker-engine-updates.md)/[DE](guides/de/18-docker-engine-updates.md)
 guides are included; Pages links were updated.
 

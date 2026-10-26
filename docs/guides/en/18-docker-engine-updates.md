@@ -33,4 +33,4 @@ When an exportable version source is configured, use this order:
 The manager never executes the upgrade, drain, reboot or rollback. Package
 downgrades can be unsupported. A change to inventory or maintenance invalidates
 the previous digest. Update boundaries remain an owner decision in
-[ADR 0017](../../decisions/0017-docker-engine-update-plans.md).
+[ADR 0019](../../decisions/0019-docker-engine-update-plans.md).

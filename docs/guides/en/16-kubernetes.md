@@ -9,7 +9,7 @@ The shipping manager does not enable or wire this feature. Library consumers
 must explicitly enable the renderer/KubeAPI. An API test host must set
 `api.Config.ExperimentalKubernetes` and supply the registration backend; the
 backend also requires `Enabled`. There is no production configuration switch,
-CLI, provisioning, deployment or Kubernetes recovery workflow in W10.
+CLI, executable provisioning, deployment or Kubernetes recovery workflow in W10. A separate [flag-gated k3s script preview](19-provisioning.md) exists; no host is changed by it.
 
 ## Registration UI
 
