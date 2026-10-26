@@ -320,6 +320,15 @@ func TestDiagnoseRefusesWhenPrimaryExists(t *testing.T) {
 	}
 }
 
+func TestDiagnoseRefusesZeroUUIDPrimary(t *testing.T) {
+	v := syncedVars()
+	v["wsrep_cluster_state_uuid"] = ZeroUUID
+	_, err := DiagnoseFullOutage([]NodeInfo{{Slot: "n1", Health: HealthFromStatus(v)}, {Slot: "n2"}, {Slot: "n3"}})
+	if !errors.Is(err, ErrZeroUUIDPrimary) {
+		t.Fatalf("zero-UUID Primary must block recovery: %v", err)
+	}
+}
+
 func TestRecoveryPlanAttachesSpecs(t *testing.T) {
 	d, err := DiagnoseFullOutage([]NodeInfo{
 		{Slot: "n1", Grastate: mustGrastate(t, withSeqno(grastateClean, "10", "0"))},

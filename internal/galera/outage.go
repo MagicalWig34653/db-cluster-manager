@@ -21,6 +21,8 @@ var (
 	ErrNotFullOutage = errors.New("galera: a Primary component exists; not a full outage")
 	// ErrNoCandidate reports a diagnosis without a bootstrap candidate.
 	ErrNoCandidate = errors.New("galera: no bootstrap candidate")
+	// ErrZeroUUIDPrimary reports an unsafe but still existing Primary component.
+	ErrZeroUUIDPrimary = errors.New("galera: Primary component has zero cluster UUID; operator investigation required")
 )
 
 // ZeroUUID is the cluster state UUID of a node without Galera state.
@@ -265,7 +267,10 @@ func DiagnoseFullOutage(nodes []NodeInfo) (Diagnosis, error) {
 			return Diagnosis{}, fmt.Errorf("%w: empty or duplicate slot %q", ErrBadRecoveryInput, n.Slot)
 		}
 		seen[n.Slot] = true
-		if n.Health.InPrimary() {
+		if n.Health.ReportsPrimary() && n.Health.StateUUID == ZeroUUID {
+			return Diagnosis{}, fmt.Errorf("%w: %s", ErrZeroUUIDPrimary, n.Slot)
+		}
+		if n.Health.ReportsPrimary() {
 			return Diagnosis{}, fmt.Errorf("%w: %s reports Primary", ErrNotFullOutage, n.Slot)
 		}
 	}

@@ -31,6 +31,22 @@ func TestHealthFromStatusSynced(t *testing.T) {
 	}
 }
 
+func TestHealthFromStatusZeroUUIDPrimaryIncident(t *testing.T) {
+	v := syncedVars()
+	v["wsrep_cluster_state_uuid"] = ZeroUUID
+	h := HealthFromStatus(v)
+	if h.State != HealthUnhealthy || h.Healthy() || h.DonorCapable() || h.InPrimary() {
+		t.Fatalf("zero UUID accepted as healthy or quorum evidence: %+v", h)
+	}
+	if h.ReasonCode != ReasonZeroUUIDPrimary || !h.ReportsPrimary() || len(h.Reasons) == 0 {
+		t.Fatalf("incident evidence missing: %+v", h)
+	}
+	v["wsrep_cluster_status"] = "non-Primary"
+	if h = HealthFromStatus(v); h.ReasonCode == ReasonZeroUUIDPrimary {
+		t.Fatalf("zero UUID without Primary misclassified: %+v", h)
+	}
+}
+
 func TestHealthFromStatusCases(t *testing.T) {
 	cases := []struct {
 		name      string

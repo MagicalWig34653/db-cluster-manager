@@ -26,6 +26,12 @@ Den Plan anzufordern braucht die Berechtigung Betreiben auf dem Cluster. **Die F
 
 Folgen Sie der Diagnose. Nennt sie keinen, erzwingen Sie keinen. Bei Verdacht auf Divergenz oder Datenverlust stellen Sie aus einem Backup wieder her ([Backups](05-backup-restore.md)). Der Manager befördert nie automatisch eine Cluster-übergreifende Backup-Kopie.
 
+## Primary-Komponente mit Null-State-UUID (E9)
+
+Nach einem Stromausfall aller VMs bildeten zwei Knoten in E9 aus `gvwstate.dat` eine Primary-Komponente mit `wsrep_cluster_state_uuid = 00000000-0000-0000-0000-000000000000`. Der dritte Knoten scheiterte wiederholt beim SST/IST mit `Failed to parse uuid:seqno pair` und `IST started with wrong seqno`. Der Manager bewertet diesen Befund nun als ungesund und meldet einen kritischen Incident `health.zero_cluster_uuid_primary`. Er zählt die Komponente weder als sicheren Donor noch als Quorum-Beleg für Operationen und bezeichnet sie bei gemeldeter Primary-Komponente nicht als Totalausfall.
+
+Die Endpunkte für Ausfalldiagnose und Wiederherstellung antworten bei dieser Beobachtung mit `409` und `{"error":"conflict","reason":"zero_cluster_uuid_primary"}`. Alle Knotendaten und Logs erhalten, den Zustand der Komponente und die Fehler beim Beitritt prüfen und eine Wiederherstellung erst nach Auflösung der Primary-Komponente durch die verantwortliche Person planen. Keinen Bootstrap erzwingen, keinen Knoten automatisch ersetzen und keine Quorum-Regel umgehen. `409` mit `reason:"no_candidate"` bedeutet, dass die Belege der gestoppten Knoten keinen Bootstrap-Kandidaten stützen; vor einer freigegebenen Wiederherstellung die Positionen prüfen. E9 hat die Ursache diagnostiziert, aber weder eine Reparatur noch die geführte Wiederherstellung aus diesem Zustand bestätigt.
+
 ## Prüfstand
 
 | Teil | Stufe |

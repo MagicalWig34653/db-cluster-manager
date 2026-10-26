@@ -32,6 +32,10 @@ func (s HealthState) String() string {
 // not a measured one.
 const FlowControlDegradedThreshold = 0.1
 
+// ReasonZeroUUIDPrimary identifies a Primary component with no valid state
+// UUID. It must not be used as a donor or as quorum evidence for operations.
+const ReasonZeroUUIDPrimary = "zero_cluster_uuid_primary"
+
 // NodeHealth is derived from wsrep status variables.
 type NodeHealth struct {
 	State             HealthState `json:"state"`
@@ -44,6 +48,7 @@ type NodeHealth struct {
 	StateUUID         string      `json:"state_uuid,omitempty"`
 	LastCommitted     int64       `json:"last_committed,omitempty"`
 	Reasons           []string    `json:"reasons,omitempty"`
+	ReasonCode        string      `json:"reason_code,omitempty"`
 }
 
 // Healthy reports a fully healthy node.
@@ -54,6 +59,12 @@ func (h NodeHealth) Healthy() bool { return h.State == HealthHealthy }
 func (h NodeHealth) InPrimary() bool {
 	return (h.State == HealthHealthy || h.State == HealthDegraded) &&
 		h.ClusterStatus == "Primary" && h.Connected && h.Ready && h.ClusterSize > 0
+}
+
+// ReportsPrimary records that a component exists even when its members are
+// unsafe for operations. Full-outage recovery must be refused in this case.
+func (h NodeHealth) ReportsPrimary() bool {
+	return h.ClusterStatus == "Primary" && h.ClusterSize > 0
 }
 
 // DonorCapable reports a node that may serve as a verified state-transfer
@@ -127,6 +138,10 @@ func HealthFromStatus(vars map[string]string) NodeHealth {
 		h.LastCommitted = lc
 	}
 	var unhealthy, degraded []string
+	if status == "Primary" && h.StateUUID == ZeroUUID {
+		h.ReasonCode = ReasonZeroUUIDPrimary
+		unhealthy = append(unhealthy, "Primary component reports the zero cluster UUID; preserve all node data and logs, inspect Galera state and state-transfer failures, and use an operator-led recovery plan only after the Primary component is gone; do not bootstrap or replace automatically")
+	}
 	if status != "Primary" {
 		unhealthy = append(unhealthy, "cluster status "+status)
 	}

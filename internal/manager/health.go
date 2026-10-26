@@ -201,6 +201,9 @@ func (h HealthCollector) CollectOnce(ctx context.Context, l *Leadership) error {
 						t.slot = n.Slot
 						changes = append(changes, t)
 					}
+				} else if o.Health.ReasonCode == galera.ReasonZeroUUIDPrimary {
+					changes = append(changes, nodeTransition{slot: n.Slot, state: o.Health.State,
+						reasonCode: o.Health.ReasonCode, reason: o.Health.Reasons[0]})
 				}
 				cur.Health[n.Slot] = o
 				nodes = append(nodes, o)
@@ -223,10 +226,11 @@ func (h HealthCollector) CollectOnce(ctx context.Context, l *Leadership) error {
 
 // nodeTransition is a change of a node between healthy and not healthy.
 type nodeTransition struct {
-	slot      string
-	recovered bool
-	state     galera.HealthState
-	reason    string
+	slot       string
+	recovered  bool
+	state      galera.HealthState
+	reason     string
+	reasonCode string
 }
 
 // transition reports whether a node changed between healthy and not
@@ -234,10 +238,12 @@ type nodeTransition struct {
 // a 30-40 s outage of a node raised no event and no notification.
 func transition(prev, next galera.NodeHealth) (nodeTransition, bool) {
 	was, is := prev.Healthy(), next.Healthy()
-	if was == is {
+	incidentStarted := next.ReasonCode == galera.ReasonZeroUUIDPrimary && prev.ReasonCode != galera.ReasonZeroUUIDPrimary
+	incidentEnded := prev.ReasonCode == galera.ReasonZeroUUIDPrimary && next.ReasonCode != galera.ReasonZeroUUIDPrimary
+	if was == is && !incidentStarted && !incidentEnded {
 		return nodeTransition{}, false
 	}
-	t := nodeTransition{recovered: is, state: next.State}
+	t := nodeTransition{recovered: is && !incidentStarted, state: next.State, reasonCode: next.ReasonCode}
 	if t.state == galera.HealthUnknown {
 		t.state = "unknown"
 	}
@@ -251,6 +257,7 @@ func transition(prev, next galera.NodeHealth) (nodeTransition, bool) {
 const (
 	KindNodeUnavailable = "health.node_unavailable"
 	KindNodeRecovered   = "health.node_recovered"
+	KindZeroUUIDPrimary = "health.zero_cluster_uuid_primary"
 	// KindClusterOutage: no node of the cluster is in a Primary component
 	// and no majority is unknown, so the cluster serves no writes (lab E6).
 	// Recovery is never started automatically (A06); the notification
@@ -298,7 +305,10 @@ func (h HealthCollector) report(ctx context.Context, l *Leadership, c ClusterRec
 	for _, t := range changes {
 		sev, nsev, kind := api.SeverityWarning, notify.SeverityWarning, KindNodeUnavailable
 		msg := fmt.Sprintf("node %s of cluster %s became %s", t.slot, c.Name, t.state)
-		if t.recovered {
+		if t.reasonCode == galera.ReasonZeroUUIDPrimary {
+			sev, nsev, kind = api.SeverityCritical, notify.SeverityCritical, KindZeroUUIDPrimary
+			msg = fmt.Sprintf("node %s of cluster %s reports %s: %s", t.slot, c.Name, t.reasonCode, t.reason)
+		} else if t.recovered {
 			sev, nsev, kind = api.SeverityInfo, notify.SeverityInfo, KindNodeRecovered
 			msg = fmt.Sprintf("node %s of cluster %s is healthy again", t.slot, c.Name)
 		} else if t.reason != "" {
@@ -310,7 +320,7 @@ func (h HealthCollector) report(ctx context.Context, l *Leadership, c ClusterRec
 		}
 		h.Notify(ctx, notify.Event{Time: l.svc.cfg.Now(), Severity: nsev, Kind: kind,
 			Resource: "swarm/" + c.Swarm + "/cluster/" + c.ID + "/node/" + t.slot, Message: msg,
-			Details: map[string]string{"swarm": c.Swarm, "cluster": c.ID, "node": t.slot, "state": string(t.state)}})
+			Details: map[string]string{"swarm": c.Swarm, "cluster": c.ID, "node": t.slot, "state": string(t.state), "reason_code": t.reasonCode}})
 	}
 	h.reportCluster(ctx, l, c, cc)
 }
@@ -355,7 +365,7 @@ func sameNode(before, now ClusterRecord, n galera.Node) bool {
 // otherwise.
 func clusterObservation(c ClusterRecord, at time.Time) *Observation {
 	total := len(c.Nodes)
-	healthy, inPrimary, unknown := 0, 0, 0
+	healthy, inPrimary, primaryReported, unknown := 0, 0, 0, 0
 	for _, n := range c.Nodes {
 		h, ok := c.Health[n.Slot]
 		switch {
@@ -367,12 +377,17 @@ func clusterObservation(c ClusterRecord, at time.Time) *Observation {
 		if ok && h.Health.InPrimary() {
 			inPrimary++
 		}
+		if ok && h.Health.ReportsPrimary() {
+			primaryReported++
+		}
 	}
 	o := &Observation{At: at}
 	switch {
 	case total > 0 && healthy == total:
 		o.State = api.StateHealthy
 	case inPrimary*2 > total:
+		o.State = api.StateDegraded
+	case primaryReported > 0:
 		o.State = api.StateDegraded
 	case unknown > 0:
 		o.State = api.StateUnknown
@@ -508,7 +523,10 @@ func (o *Operations) collectOutageEvidence(ctx context.Context, actor authz.Subj
 			return nil, err
 		}
 		for slot, h := range cur.Value.Health {
-			if h.Health.InPrimary() {
+			if h.Health.ReportsPrimary() {
+				if h.Health.StateUUID == galera.ZeroUUID {
+					return nil, fmt.Errorf("%w: %s", galera.ErrZeroUUIDPrimary, slot)
+				}
 				return nil, fmt.Errorf("%w: %s was last seen in a Primary component", galera.ErrNotFullOutage, slot)
 			}
 		}

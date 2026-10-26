@@ -215,6 +215,14 @@ func MapCommandError(err error) error {
 		sentinel = api.ErrForbidden
 	case errors.Is(err, galera.ErrRequiresGuidedRecovery):
 		sentinel = api.ErrRequiresGuidedRecovery
+	case errors.Is(err, galera.ErrZeroUUIDPrimary):
+		sentinel = api.ErrZeroUUIDPrimary
+	case errors.Is(err, galera.ErrNotFullOutage):
+		sentinel = api.ErrPrimaryComponent
+	case errors.Is(err, galera.ErrNoCandidate):
+		sentinel = api.ErrNoRecoveryCandidate
+	case errors.Is(err, ErrCandidateMismatch):
+		sentinel = api.ErrRecoveryCandidateMismatch
 	case errors.Is(err, galera.ErrNoCapacity):
 		sentinel = api.ErrNoCapacity
 	case errors.Is(err, galera.ErrPolicyConflict):

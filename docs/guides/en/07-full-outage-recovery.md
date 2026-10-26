@@ -26,6 +26,12 @@ Requesting the plan needs operate permission on the cluster. **Approval needs th
 
 Follow the diagnosis. If it names none, do not force one. If you suspect divergence or data loss, restore from a backup instead ([Backups and restore](05-backup-restore.md)). The manager never promotes a cross-cluster backup copy automatically.
 
+## Primary component with a zero state UUID (E9)
+
+After a full VM power loss in E9, two nodes re-formed a Primary component from `gvwstate.dat` with `wsrep_cluster_state_uuid = 00000000-0000-0000-0000-000000000000`. A third node repeatedly failed SST/IST with `Failed to parse uuid:seqno pair` and `IST started with wrong seqno`. The manager now marks this observation unhealthy and emits a critical `health.zero_cluster_uuid_primary` incident. It does not treat the component as safe donor or quorum evidence, and it does not label it a full outage while Primary is still reported.
+
+The outage diagnosis and recovery endpoints return `409` with `{"error":"conflict","reason":"zero_cluster_uuid_primary"}` while this Primary component is observed. Preserve all node data and logs, inspect the component's state and joiner transfer errors, and plan recovery with an operator after the Primary component is gone. Do not force a bootstrap, replace a node automatically, or bypass quorum rules. A `409` with `reason:"no_candidate"` means the stopped nodes' evidence does not support a bootstrap candidate; inspect positions before any approved recovery. E9 diagnosed the cause but did not verify a repair or a guided recovery from this state.
+
 ## Verification
 
 | Part | Level |

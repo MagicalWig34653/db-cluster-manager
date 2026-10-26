@@ -177,6 +177,97 @@ func TestHealthCollectorStoresObservations(t *testing.T) {
 	}
 }
 
+func TestHealthCollectorZeroUUIDPrimaryIncident(t *testing.T) {
+	ha := &healthAgents{status: map[string]map[string]string{
+		"h1": wsrep("Synced", "Primary", "3"), "h2": wsrep("Synced", "Primary", "3"), "h3": wsrep("Synced", "Primary", "3"),
+	}, dbDown: map[string]bool{}}
+	s, _ := healthSetup(t, ha, nil)
+	var got []notify.Event
+	hc := HealthCollector{Notify: func(_ context.Context, e notify.Event) bool { got = append(got, e); return true }}
+	collect := func() {
+		t.Helper()
+		if err := hc.CollectOnce(context.Background(), s.Current()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	collect()
+	ha.mu.Lock()
+	ha.status["h1"]["wsrep_cluster_state_uuid"] = galera.ZeroUUID
+	ha.status["h2"]["wsrep_cluster_state_uuid"] = galera.ZeroUUID
+	ha.dbDown["h3"] = true
+	ha.mu.Unlock()
+	collect()
+	collect()
+	cluster, _, err := Get[ClusterRecord](s.Store(), CollClusters, "clu-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cluster.Value.Observed.State != api.StateDegraded || cluster.Value.Health["n1"].Health.ReasonCode != galera.ReasonZeroUUIDPrimary {
+		t.Fatalf("observation %+v", cluster.Value)
+	}
+	incidents := 0
+	for _, e := range got {
+		if e.Kind == KindZeroUUIDPrimary {
+			incidents++
+			if e.Details["reason_code"] != galera.ReasonZeroUUIDPrimary || e.Severity != notify.SeverityCritical || !strings.Contains(e.Message, "do not bootstrap") {
+				t.Fatalf("incident %+v", e)
+			}
+		}
+		if e.Kind == KindClusterOutage {
+			t.Fatalf("existing Primary misreported as full outage: %+v", e)
+		}
+	}
+	if incidents != 2 {
+		t.Fatalf("incident count %d, events %+v", incidents, got)
+	}
+	if ops, err := List[OperationRecord](s.Store(), CollOperations); err != nil || len(ops) != 0 {
+		t.Fatalf("automatic operation: %+v, %v", ops, err)
+	}
+}
+
+func TestOutageRecoveryRefusesZeroUUIDPrimaryBeforeAgentRecovery(t *testing.T) {
+	ha := &healthAgents{status: map[string]map[string]string{
+		"h1": wsrep("Synced", "Primary", "2"), "h2": wsrep("Synced", "Primary", "2"), "h3": wsrep("Joining", "non-Primary", "0"),
+	}}
+	ha.status["h1"]["wsrep_cluster_state_uuid"] = galera.ZeroUUID
+	s, _ := healthSetup(t, ha, nil)
+	if err := (HealthCollector{}).CollectOnce(context.Background(), s.Current()); err != nil {
+		t.Fatal(err)
+	}
+	before := len(ha.commands())
+	ops := opsFor(t, s)
+	_, _, err := ops.DiagnoseOutageRecovering(context.Background(), adminSubject, "clu-1")
+	if !errors.Is(err, galera.ErrZeroUUIDPrimary) || !errors.Is(MapCommandError(err), api.ErrZeroUUIDPrimary) {
+		t.Fatalf("diagnosis error = %v", err)
+	}
+	if len(ha.commands()) != before {
+		t.Fatalf("agent recovery ran despite Primary component: %+v", ha.commands()[before:])
+	}
+}
+
+func TestZeroUUIDPrimaryIncidentOnFirstObservation(t *testing.T) {
+	ha := &healthAgents{status: map[string]map[string]string{
+		"h1": wsrep("Synced", "Primary", "2"), "h2": wsrep("Synced", "Primary", "2"), "h3": wsrep("Joining", "non-Primary", "0"),
+	}}
+	ha.status["h1"]["wsrep_cluster_state_uuid"] = galera.ZeroUUID
+	s, _ := healthSetup(t, ha, nil)
+	var incidents int
+	hc := HealthCollector{Notify: func(_ context.Context, e notify.Event) bool {
+		if e.Kind == KindZeroUUIDPrimary {
+			incidents++
+		}
+		return true
+	}}
+	for range 2 {
+		if err := hc.CollectOnce(context.Background(), s.Current()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if incidents != 1 {
+		t.Fatalf("first observation incidents = %d, want 1", incidents)
+	}
+}
+
 // TestHealthCollectorReportsNodeOutage: lab E4 killed a node; the cluster
 // turned degraded for 30-40 s without any event or notification. A change
 // between healthy and not healthy now records an event and notifies once

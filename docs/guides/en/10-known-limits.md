@@ -6,11 +6,11 @@ title: Known limits
 
 [Guide index](index.md) | Previous: [Troubleshooting](09-troubleshooting.md) | Next: [Operator runbook](11-operator-runbook.md)
 
-Taken from [STATUS.md](../../STATUS.md) of 2026-10-23. The R1 gates in [RELEASES.md](../../RELEASES.md) are **not** met, and the P0 exit gates are not met either. This is not production software and there has been no Swarm trial.
+Baseline limits were taken from [STATUS.md](../../STATUS.md) on 2026-10-23; the E9 power-loss finding below is newer. The R1 gates in [RELEASES.md](../../RELEASES.md) and the P0 exit gates are **not** met. This is not production software; see STATUS for later lab evidence.
 
 ## Evidence base
 
-Real-component evidence exists only from Lima VMs on one Apple-silicon host (arm64, Docker 29.9.2, MariaDB 11.4.13): E1-E6. Most features were exercised once. Everything else was tested only with fakes. Timings from E4 were measured under foreign host load.
+Real-component evidence exists from E1-E9 on Lima VMs on one Apple-silicon host (arm64, Docker 29.9.2, MariaDB 11.4.13); [E9 results](../../../tests/p0/results/e9-ha-proxy-writer.md) include the zero-UUID finding. Most features were exercised once. The new incident and 409 contract have fake-test evidence only.
 
 ## Not proven or missing
 
@@ -23,7 +23,8 @@ Real-component evidence exists only from Lima VMs on one Apple-silicon host (arm
 - **Monitoring:** the full-outage event and notification exist only with fakes; many default alert series have no real collector; notification channels untested against real receivers.
 - **Authorization:** outage-recovery approval needs the `recover` permission (administrator preset only) [Fakes]. Real hardware authenticators, Safari/Firefox and screen readers untested.
 - **Deletion:** cluster deletion keeps host directories of local volumes and backend backups by design, and ran only against fakes.
-- **Resilience:** resource exhaustion and capacity denial, restart during cleanup, VM power loss and graceful host drain were not tested.
+- **Resilience:** resource exhaustion and capacity denial, restart during cleanup and graceful host drain were not tested. E8/E9 exercised VM power loss, but recovery from the E9 state remains open.
+- **Full power loss:** E9 reproduced a two-node Primary component with a zero cluster UUID and a third node crash-looping during SST/IST. The new critical incident and 409 reason are tested with fakes only; repair, guided recovery and a valid staggered-loss B3 run remain open. See [full-outage recovery](07-full-outage-recovery.md#primary-component-with-a-zero-state-uuid-e9).
 - **Lab hazard:** Lima exposes guest listeners (including unauthenticated lab harness ports) on host loopback.
 
 ## Rules that will not change

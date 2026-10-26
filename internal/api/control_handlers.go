@@ -3,6 +3,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"slices"
 	"strings"
@@ -207,7 +208,7 @@ func (s *server) handleOutageRecovery(w http.ResponseWriter, r *http.Request, c 
 	}
 	out, err := s.control().OutageRecovery(r.Context(), c.subject, cl.ID, in.Candidate)
 	if err != nil {
-		s.writeServiceError(w, r, err)
+		s.writeOutageError(w, r, err)
 		return
 	}
 	if out.Diagnosis.Positions == nil {
@@ -228,7 +229,7 @@ func (s *server) handleOutageDiagnosisRecover(w http.ResponseWriter, r *http.Req
 	cl := c.target.(Cluster)
 	d, err := s.control().OutageDiagnosisRecover(r.Context(), c.subject, cl.ID)
 	if err != nil {
-		s.writeServiceError(w, r, err)
+		s.writeOutageError(w, r, err)
 		return
 	}
 	writeDiagnosis(w, d)
@@ -246,11 +247,36 @@ func writeDiagnosis(w http.ResponseWriter, d Diagnosis) {
 	writeJSON(w, http.StatusOK, d)
 }
 
+// writeOutageError gives authorized operators a stable conflict reason without
+// exposing agent output or recovered positions in the response.
+func (s *server) writeOutageError(w http.ResponseWriter, r *http.Request, err error) {
+	var reason string
+	switch {
+	case errors.Is(err, ErrZeroUUIDPrimary):
+		reason = "zero_cluster_uuid_primary"
+	case errors.Is(err, ErrPrimaryComponent):
+		reason = "primary_component_exists"
+	case errors.Is(err, ErrNoRecoveryCandidate):
+		reason = "no_candidate"
+	case errors.Is(err, ErrRecoveryCandidateMismatch):
+		reason = "candidate_mismatch"
+	case errors.Is(err, ErrBusy):
+		reason = "busy"
+	case errors.Is(err, ErrConflict):
+		reason = "conflict"
+	}
+	if reason != "" {
+		writeJSON(w, http.StatusConflict, ErrorBody{Error: errConflict, Reason: reason})
+		return
+	}
+	s.writeServiceError(w, r, err)
+}
+
 func (s *server) handleOutageDiagnosis(w http.ResponseWriter, r *http.Request, c *caller) {
 	cl := c.target.(Cluster)
 	d, err := s.control().OutageDiagnosis(r.Context(), c.subject, cl.ID)
 	if err != nil {
-		s.writeServiceError(w, r, err)
+		s.writeOutageError(w, r, err)
 		return
 	}
 	if d.Positions == nil {

@@ -134,7 +134,8 @@ const (
 
 // ErrorBody is the JSON body of every error response.
 type ErrorBody struct {
-	Error string `json:"error"`
+	Error  string `json:"error"`
+	Reason string `json:"reason,omitempty"`
 }
 
 func writeError(w http.ResponseWriter, status int, code string) {

@@ -47,6 +47,11 @@ var (
 	ErrApprovalMismatch = errors.New("api: approval does not match the operation")
 	// ErrNotLeader: this replica cannot run commands (503 not_leader).
 	ErrNotLeader = errors.New("api: not leader")
+	// Outage-specific conflicts retain a stable, machine-readable reason.
+	ErrZeroUUIDPrimary           = errors.New("api: zero UUID Primary component")
+	ErrPrimaryComponent          = errors.New("api: Primary component exists")
+	ErrNoRecoveryCandidate       = errors.New("api: no recovery candidate")
+	ErrRecoveryCandidateMismatch = errors.New("api: recovery candidate mismatch")
 )
 
 // Host is one Swarm node as inventoried by the manager. Its ID in paths is

@@ -1,8 +1,10 @@
 # Decisions and remaining questions
 
-Updated: 2026-10-22 (scope extension). [Requirements](KONZEPT.md) are the canonical detailed record of confirmed user choices. [ADR 0001](decisions/0001-product-direction.md) records the resulting product direction.
+Updated: 2026-10-26. [Requirements](KONZEPT.md) are the canonical detailed record of confirmed user choices. [ADR 0001](decisions/0001-product-direction.md) records the resulting product direction.
 
 ## Confirmed direction
+
+**E9 zero-UUID response (2026-10-26, implementation verified with fakes):** A reported Primary component with the zero Galera state UUID is a critical incident and unsafe as donor/quorum evidence. It still blocks full-outage recovery and does not trigger automatic repair. The outage API returns a stable 409 reason. Alternatives considered: treat the node as healthy (misses the SST/IST failure) or treat the component as absent (could enable recovery while it still serves writes). E9 provides the real failure observation; the new behavior has unit tests only, with no repair verified on VMs.
 
 The operator CLI increment uses the existing session-cookie REST API, keeps tokens out of command arguments and context files, and requires explicit digest approval ([ADR 0020](decisions/0020-operator-cli.md), 2026-10-26, fakes only). General operator API tokens remain unavailable in the manager.
 

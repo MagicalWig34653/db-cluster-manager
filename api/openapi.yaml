@@ -1154,7 +1154,10 @@ paths:
         and adds the last collected health observation, then evaluates the
         recovery evidence. Nothing is started; requires_approval is always
         true. Needs cluster read permission; a cluster the caller may not read
-        answers 404. 409 conflict when a Primary component exists.
+        answers 404. A 409 response has error=conflict and a reason:
+        primary_component_exists or zero_cluster_uuid_primary when a Primary
+        component exists. The latter requires operator investigation; this
+        endpoint never repairs or bootstraps it.
       operationId: outageDiagnosis
       parameters:
         - { $ref: "#/components/parameters/Id" }
@@ -1178,7 +1181,9 @@ paths:
         known. This performs InnoDB crash recovery on the stopped node's data,
         as any start would; it starts no database service, changes no
         service spec and never bootstraps. Refused (409) while a node was last
-        seen in a Primary component; the agent refuses while a container on
+        seen in a Primary component (reason primary_component_exists, or
+        zero_cluster_uuid_primary if its state UUID is all zeroes); the agent
+        refuses while a container on
         the host mounts the volume. Needs operate permission; audited. Body:
         empty object or none.
       operationId: outageDiagnosisRecover
@@ -1204,7 +1209,10 @@ paths:
         and diagnoses; refuses with 409 conflict
         when the fresh diagnosis proposes no candidate or a candidate other
         than the confirmed one, when a Primary component exists or another
-        operation of the cluster is unfinished. Otherwise stores the guided
+        operation of the cluster is unfinished. The error body has
+        error=conflict and reason no_candidate, candidate_mismatch,
+        primary_component_exists, zero_cluster_uuid_primary or busy;
+        unrelated conflicts use reason conflict. Otherwise stores the guided
         recovery plan (stop every node, wait until no task runs, verify every
         identity marker, re-check the candidate's grastate position and set
         safe_to_bootstrap, bootstrap the candidate, start the other nodes one
@@ -2790,6 +2798,13 @@ components:
       required: [error]
       properties:
         error: { type: string }
+        reason:
+          type: string
+          description: >-
+            Optional machine-readable conflict reason on outage diagnosis and
+            recovery: zero_cluster_uuid_primary, primary_component_exists,
+            no_candidate, candidate_mismatch, busy or conflict. No raw agent
+            output or recovered position is included.
     ReplicaKeyStatus:
       type: object
       required: [id, leader, hasCurrentKey]

@@ -537,6 +537,30 @@ func TestOutageDiagnosisRecoverNeedsOperate(t *testing.T) {
 	}
 }
 
+func TestOutageConflictReasons(t *testing.T) {
+	cf := newControlFixture(t)
+	op := cf.loggedIn("op", authz.RoleOperator, authz.ClusterScope("s1", "c1"))
+	for _, tc := range []struct {
+		method, path string
+		body         any
+		err          error
+		reason       string
+	}{
+		{"GET", "/api/v1/clusters/c1/outage-diagnosis", nil, ErrZeroUUIDPrimary, "zero_cluster_uuid_primary"},
+		{"POST", "/api/v1/clusters/c1/outage-diagnosis", nil, ErrPrimaryComponent, "primary_component_exists"},
+		{"POST", "/api/v1/clusters/c1/outage-recovery", map[string]string{"candidate": "n2"}, ErrNoRecoveryCandidate, "no_candidate"},
+	} {
+		cf.ctl.err = tc.err
+		r := op.do(tc.method, tc.path, tc.body)
+		wantStatus(t, r, http.StatusConflict)
+		var body ErrorBody
+		r.decode(t, &body)
+		if body.Error != "conflict" || body.Reason != tc.reason {
+			t.Fatalf("%s %s: %+v", tc.method, tc.path, body)
+		}
+	}
+}
+
 func TestOutageRecoveryNeedsOperateAndAKnownCandidate(t *testing.T) {
 	cf := newControlFixture(t)
 	viewer := cf.loggedIn("v", authz.RoleViewer, authz.SwarmScope("s1"))
@@ -554,7 +578,13 @@ func TestOutageRecoveryNeedsOperateAndAKnownCandidate(t *testing.T) {
 	}
 	// A refusal (no candidate, candidate changed) is a conflict, never an override.
 	cf.ctl.err = fmt.Errorf("%w: no candidate", ErrConflict)
-	wantError(t, op.do("POST", "/api/v1/clusters/c1/outage-recovery", map[string]string{"candidate": "n2"}), http.StatusConflict, "conflict")
+	r = op.do("POST", "/api/v1/clusters/c1/outage-recovery", map[string]string{"candidate": "n2"})
+	wantStatus(t, r, http.StatusConflict)
+	var body ErrorBody
+	r.decode(t, &body)
+	if body.Error != "conflict" || body.Reason != "conflict" {
+		t.Fatalf("unclassified conflict: %+v", body)
+	}
 }
 
 func TestOperationControlAndApproval(t *testing.T) {

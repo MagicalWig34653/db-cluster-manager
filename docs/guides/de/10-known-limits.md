@@ -6,11 +6,11 @@ title: Bekannte Grenzen
 
 [Übersicht](index.md) | Zurück: [Fehlersuche](09-troubleshooting.md) | Weiter: [Betriebshandbuch](11-operator-runbook.md)
 
-Entnommen aus [STATUS.md](../../STATUS.md) vom 2026-10-23. Die R1-Tore in [RELEASES.md](../../RELEASES.md) sind **nicht** erfüllt, ebenso nicht die P0-Ausgangstore. Dies ist keine Produktionssoftware, und es gab keinen Swarm-Test.
+Die grundlegenden Grenzen stammen aus [STATUS.md](../../STATUS.md) vom 2026-10-23; der E9-Befund zum Stromausfall unten ist neuer. Die R1-Tore in [RELEASES.md](../../RELEASES.md) und die P0-Ausgangstore sind **nicht** erfüllt. Dies ist keine Produktionssoftware; spätere Labornachweise stehen in STATUS.
 
 ## Nachweisbasis
 
-Nachweise mit echten Komponenten gibt es nur von Lima-VMs auf einem Apple-Silicon-Host (arm64, Docker 29.9.2, MariaDB 11.4.13): E1-E6. Die meisten Funktionen wurden einmal geprüft. Alles andere wurde nur mit Fakes getestet. Zeiten aus E4 wurden unter Fremdlast des Hosts gemessen.
+Nachweise mit echten Komponenten stammen aus E1-E9 auf Lima-VMs eines Apple-Silicon-Hosts (arm64, Docker 29.9.2, MariaDB 11.4.13); die [E9-Ergebnisse](../../../tests/p0/results/e9-ha-proxy-writer.md) enthalten den Null-UUID-Befund. Die meisten Funktionen wurden nur einmal geprüft. Für den neuen Incident und den 409-Vertrag gibt es bisher nur Fake-Tests.
 
 ## Nicht nachgewiesen oder fehlend
 
@@ -23,7 +23,8 @@ Nachweise mit echten Komponenten gibt es nur von Lima-VMs auf einem Apple-Silico
 - **Monitoring:** Ereignis und Benachrichtigung bei Totalausfall gibt es nur mit Fakes; für viele Standard-Alarmreihen fehlt ein echter Sammler; Benachrichtigungskanäle gegen echte Empfänger ungetestet.
 - **Autorisierung:** Die Freigabe der Totalausfall-Wiederherstellung braucht die Berechtigung `recover` (nur Administrator-Preset) [Fakes]. Echte Hardware-Authenticator, Safari/Firefox und Screenreader ungetestet.
 - **Löschen:** Das Löschen eines Clusters lässt Host-Verzeichnisse lokaler Volumes und Backups im Ziel bewusst bestehen und lief nur gegen Fakes.
-- **Belastbarkeit:** Ressourcenerschöpfung und Kapazitätsverweigerung, Neustart während der Bereinigung, VM-Stromausfall und geordnetes Leeren eines Hosts wurden nicht getestet.
+- **Belastbarkeit:** Ressourcenerschöpfung und Kapazitätsverweigerung, Neustart während der Bereinigung und geordnetes Leeren eines Hosts wurden nicht getestet. E8/E9 prüften VM-Stromausfälle; die Wiederherstellung aus dem E9-Zustand bleibt offen.
+- **Vollständiger Stromausfall:** E9 reproduzierte eine Primary-Komponente aus zwei Knoten mit Null-Cluster-UUID und einen dritten Knoten in der SST/IST-Neustartschleife. Der neue kritische Incident und der 409-Grund wurden nur mit Fakes geprüft; Reparatur, geführte Wiederherstellung und ein gültiger B3-Lauf mit gestaffeltem Ausfall bleiben offen. Siehe [Wiederherstellung nach Totalausfall](07-full-outage-recovery.md#primary-komponente-mit-null-state-uuid-e9).
 - **Laborrisiko:** Lima legt Gast-Listener (auch unauthentifizierte Laborwerkzeug-Ports) auf dem Host-Loopback offen.
 
 ## Regeln, die sich nicht ändern
