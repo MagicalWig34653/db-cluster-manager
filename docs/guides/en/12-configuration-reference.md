@@ -117,7 +117,11 @@ All four fields are required if the section exists. Produced by `manager -issue-
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `backendConfigFile` | string | empty | Absolute path of a JSON file with the same content as the jobs' backend secret: `{"type": "sftp" or "s3" or "dir", ...}` plus an `sftp`, `s3` or `dir` section (host key verification is mandatory for SFTP). Without it backup conditions stay unmet and restores are refused (`settings_incomplete`). `dir` works for lab tests only. |
-| `scheduleIntervalSeconds` | int | `60` | How often the leader evaluates schedules, retention and inspection expiry; minimum 10. |
+| `scheduleIntervalSeconds` | int | `60` | How often the leader evaluates schedules, retention, verification schedules, copies and inspection expiry; minimum 10. |
+| `targets` | object | empty | Named copy targets: name (lower case) to the absolute path of a backend config file. The config may carry `"type": "local"` and an `encryption` section (`key_id`, base64 32-byte `key`, `previous`). See [guide 21](21-disaster-recovery.md). |
+| `metastoreTarget` | string | empty | Name from `targets` that receives metastore backups; empty uses the main backend. |
+| `metastoreBackupHours` | int | `0` | If positive, back up the manager's own metastore that often (needs `settings.backup.recipientKey`). |
+| `metastoreBackupKeep` | int | `14` | Number of metastore backups kept. |
 
 ### `manager.imageBuild`
 

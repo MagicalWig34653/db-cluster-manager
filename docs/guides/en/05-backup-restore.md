@@ -63,9 +63,11 @@ Mock-server view only [Mock only].
 
 A backup is not proven good until a restore has been tested. Until a verified restore exists for your data, treat the backup as unverified. Manifest format 2 ([ADR 0009 amendment](../../decisions/0009-cluster-backup-method.md)) stores chunk and plaintext digests as HMACs keyed from the per-stream data key, so the manifest no longer reveals plaintext hashes [Fakes]; format 1 manifests stay restorable and verified. The lab backups of E4 predate format 2 and are format 1 [Untested on VMs].
 
-## Manager configuration backup
+## Copies, scheduled verification and the manager's own backup
 
-`internal/backup` can create encrypted backups of the manager configuration to local, S3 or SFTP backends and restore them in inspection mode. Nothing schedules it and no UI or API exposes it [Fakes]. See the [operator runbook](11-operator-runbook.md) for what to do instead.
+Backups can be copied to other targets (another cluster's or Swarm's storage) with signed, verified transfer records, restored from a copy only through an explicit, digest-approved proposal into a new cluster, verified on a schedule with a notification on failure, and the manager's own metastore can be backed up and restored offline. Targets may be local, S3-compatible or SFTP with optional client-side encryption. All of this is described in [Disaster recovery and backup copies](21-disaster-recovery.md) [Fakes].
+
+The older library `internal/backup` (encrypted manager-configuration snapshots with inspection-mode restore) is not what the API calls; the metastore backup replaces its role for disaster recovery.
 
 ## Point-in-time recovery groundwork [Fakes]
 

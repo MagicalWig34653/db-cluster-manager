@@ -10,7 +10,7 @@ Procedures for whoever runs the manager. Each step states what is verified. Wher
 
 ## 1. Back up the manager state
 
-**Product feature:** `internal/backup` can write encrypted manager-config backups, but no scheduler, API or UI calls it [Fakes]. The "Fresh install and configuration restore documented and reproduced" R1 gate is therefore open.
+**Product feature [Fakes]:** `POST /api/v1/settings/metastore-backups` (or `manager.backup.metastoreBackupHours`) writes an encrypted export of the metastore for the backup recovery key, and `manager metastore-import` restores it offline; see [Disaster recovery and backup copies](21-disaster-recovery.md). It has never run against a real manager, so the "Fresh install and configuration restore documented and reproduced" R1 gate stays open.
 
 **Manual fallback [Untested]** (managed mode, single instance):
 

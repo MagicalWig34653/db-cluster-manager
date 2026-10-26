@@ -63,9 +63,11 @@ Nur Ansicht des Mock-Servers [Nur Mock].
 
 Ein Backup gilt erst als gut, wenn eine Wiederherstellung getestet wurde. Bis zu einer geprüften Wiederherstellung Ihrer Daten behandeln Sie das Backup als ungeprüft. Manifestformat 2 ([ADR-0009-Ergänzung](../../decisions/0009-cluster-backup-method.md)) speichert Chunk- und Klartext-Digests als HMACs mit einem aus dem Datenschlüssel des Streams abgeleiteten Schlüssel, sodass das Manifest keine Klartext-Hashes mehr verrät [Fakes]; Manifeste im Format 1 bleiben wiederherstellbar und geprüft. Die Lab-Backups aus E4 sind älter als Format 2 und haben Format 1 [auf VMs ungetestet].
 
-## Backup der Manager-Konfiguration
+## Kopien, geplante Prüfung und das Backup des Managers selbst
 
-`internal/backup` kann verschlüsselte Backups der Manager-Konfiguration auf lokale, S3- oder SFTP-Ziele schreiben und im Inspektionsmodus wiederherstellen. Nichts plant es ein, und weder UI noch API bieten es an [Fakes]. Was stattdessen zu tun ist, steht im [Betriebshandbuch](11-operator-runbook.md).
+Backups lassen sich mit signierten, geprüften Transfer-Records auf andere Ziele kopieren (Speicher eines anderen Clusters oder Swarms), aus einer Kopie nur über einen ausdrücklichen, per Digest freigegebenen Vorschlag in einen neuen Cluster wiederherstellen, nach Zeitplan prüfen (mit Benachrichtigung bei Fehlschlag), und das Metastore des Managers lässt sich sichern und offline wiederherstellen. Ziele können lokal, S3-kompatibel oder SFTP sein, optional mit clientseitiger Verschlüsselung. Alles steht in [Notfallwiederherstellung und Backup-Kopien](21-disaster-recovery.md) [Fakes].
+
+Die ältere Bibliothek `internal/backup` (verschlüsselte Konfigurations-Snapshots mit Wiederherstellung im Inspektionsmodus) wird von der API nicht aufgerufen; das Metastore-Backup übernimmt ihre Rolle für die Notfallwiederherstellung.
 
 ## Grundlage für Point-in-Time-Recovery [Fakes]
 

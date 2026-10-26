@@ -117,7 +117,11 @@ Existiert der Abschnitt, sind alle vier Felder Pflicht. Erzeugt von `manager -is
 | Feld | Typ | Standard | Bedeutung |
 | --- | --- | --- | --- |
 | `backendConfigFile` | string | leer | Absoluter Pfad einer JSON-Datei mit demselben Inhalt wie das Backend-Secret der Jobs: `{"type": "sftp" oder "s3" oder "dir", ...}` plus ein Abschnitt `sftp`, `s3` oder `dir` (Hostschlüsselprüfung ist bei SFTP Pflicht). Ohne sie bleiben Backup-Bedingungen unerfüllt und Wiederherstellungen werden abgelehnt (`settings_incomplete`). `dir` taugt nur für Labortests. |
-| `scheduleIntervalSeconds` | int | `60` | Wie oft der Leader Zeitpläne, Aufbewahrung und Ablauf von Inspektionen prüft; mindestens 10. |
+| `scheduleIntervalSeconds` | int | `60` | Wie oft der Leader Zeitpläne, Aufbewahrung, Prüfzeitpläne, Kopien und Ablauf von Inspektionen prüft; mindestens 10. |
+| `targets` | Objekt | leer | Benannte Kopierziele: Name (Kleinbuchstaben) zum absoluten Pfad einer Backend-Konfigurationsdatei. Sie kann `"type": "local"` und einen Abschnitt `encryption` (`key_id`, Base64-`key` mit 32 Byte, `previous`) enthalten. Siehe [Handbuch 21](21-disaster-recovery.md). |
+| `metastoreTarget` | string | leer | Name aus `targets`, der Metastore-Backups erhält; leer nutzt das Hauptbackend. |
+| `metastoreBackupHours` | int | `0` | Wenn positiv, sichert der Manager sein eigenes Metastore so oft (braucht `settings.backup.recipientKey`). |
+| `metastoreBackupKeep` | int | `14` | Anzahl der aufbewahrten Metastore-Backups. |
 
 ### `manager.imageBuild`
 

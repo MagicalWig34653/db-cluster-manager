@@ -113,6 +113,6 @@ func runMetastoreImport(args []string, stdout, stderr io.Writer) error {
 	for _, w := range res.Warnings {
 		fmt.Fprintf(stdout, "warning: %s\n", w)
 	}
-	fmt.Fprintln(stdout, "next: start the manager, log in, check clusters and hosts, then add further replicas (docs/guides/en/20-disaster-recovery.md)")
+	fmt.Fprintln(stdout, "next: start the manager, log in, check clusters and hosts, then add further replicas (docs/guides/en/21-disaster-recovery.md)")
 	return nil
 }

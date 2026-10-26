@@ -1038,3 +1038,19 @@ commands exited 127: `npm run check` (`svelte-kit: command not found`),
 `internal/webui/assets/.gitkeep` was touched. These
 results do not replace the full suite or a Swarm run in an environment that
 permits local listeners and has frontend dependencies installed.
+
+## W06 backup gaps: copies, targets, scheduled verification, metastore backup (2026-10-26, fakes only)
+
+Branch `w06-backups`. [ADR 0021](decisions/0021-backup-targets-copies-and-metastore-backup.md), guide [21](guides/en/21-disaster-recovery.md) (EN/DE).
+
+Implemented, verified only with fakes (in-memory backends, `httptest` S3, in-process SFTP server, one in-memory Raft replica, fake agents):
+
+- **Signed documents and encrypted targets:** `backup.Sign` (HMAC-SHA256, HKDF per purpose) and `backup.EncryptedBackend` (chunked AES-GCM with keyring data key, name and final flag bound). Backend configs accept `type: local` and an `encryption` section. The shared backend test suite passes through the wrapper over local, S3 and SFTP; tamper, truncation, swap, wrong key and key rotation are tested. Retention works through the wrapper.
+- **Copies and restore proposal:** `dbbackup.CopyBackup`/`VerifyTransfer`, `POST /clusters/{id}/backup-copies`, `GET /backup-copies`, `POST /backup-copies/{id}/restore-proposal` (restore permission, audited). The proposal is read-only and digest-bound (`approvalRequired` true, `autoPromotion` false). Retention of a source set deletes its copies. Failed or interrupted copies notify (`backup.copy_failed`).
+- **Scheduled restore verification:** policy field `verify`; isolated inspection run as the system subject with an approval recorded for the policy author (needs restore permission to enable); failures notify (`backup.restore_verification_failed`).
+- **Metastore backup:** `POST/GET /settings/metastore-backups`, scheduled via `manager.backup.metastoreBackupHours`, sealed for the recovery key's public half, signed record, retention; offline `manager metastore-import` (empty store only, keyring first, data keys re-wrapped). Config: `manager.backup.targets`, `metastoreTarget`, `metastoreBackupHours`, `metastoreBackupKeep`.
+- OpenAPI, route-contract and schema tests, authorization tests (viewer/operator/administrator, audit), EN/DE guides.
+
+Limits: nothing ran on VMs or against real S3/SFTP. Restoring from a copy through the API is not wired (proposal only). Transfer records verify only with the keyring of the writing installation. Scheduled verification is instance-level, compares no tables and needs `verify.host` (disk space not observed). The metastore-import runbook was never run on a real manager; imported state can lag reality. No UI for the new endpoints. Copy targets/keys live in config files, not Swarm secrets.
+
+Checks on this branch: `gofmt -l .` (no output), `go vet ./...` (no output), `go test -race -count=1 -p 4 ./...` (45 packages ok, no failures), `python3 scripts/check_docs.py`, `python3 scripts/check_deploy.py` (passed).

@@ -10,7 +10,7 @@ Abläufe für die Person, die den Manager betreibt. Jeder Schritt nennt den Prü
 
 ## 1. Manager-Zustand sichern
 
-**Produktfunktion:** `internal/backup` kann verschlüsselte Sicherungen der Manager-Konfiguration schreiben, aber kein Planer, keine API und keine Oberfläche ruft es auf [Fakes]. Das R1-Tor „Neuinstallation und Konfigurationswiederherstellung dokumentiert und reproduziert“ ist damit offen.
+**Produktfunktion [Fakes]:** `POST /api/v1/settings/metastore-backups` (oder `manager.backup.metastoreBackupHours`) schreibt einen für den Backup-Wiederherstellungsschlüssel verschlüsselten Export des Metastores, und `manager metastore-import` stellt ihn offline wieder her; siehe [Notfallwiederherstellung und Backup-Kopien](21-disaster-recovery.md). Das lief nie gegen einen echten Manager, daher bleibt das R1-Tor „Neuinstallation und Konfigurationswiederherstellung dokumentiert und reproduziert“ offen.
 
 **Manueller Ausweg [Ungetestet]** (verwalteter Modus, Einzelinstanz):
 

@@ -279,3 +279,8 @@ entries against release-specific upstream docs,
 run the optional scans and complete race suite with local listeners permitted,
 then triage findings. This does not replace W05/R1 gates or authorize a real
 infrastructure trial.
+
+## W06 backup gaps handover (2026-10-26, w06-backups)
+
+Done with fakes: signed copies between targets with approval-gated restore proposal, client-side encrypted local/S3/SFTP targets with retention coupling, scheduled restore verification with notification, metastore backup and offline import, API/OpenAPI/authz, guide 21 DE/EN. See [actual results](STATUS.md#w06-backup-gaps-copies-targets-scheduled-verification-metastore-backup-2026-10-26-fakes-only).
+Next: wire execution of a restore from an approved proposal; UI for copies/verification/metastore backups; run the metastore-import runbook and a copy plus inspection restore on lab VMs.

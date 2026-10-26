@@ -141,6 +141,9 @@ func TestMetastoreImportCommand(t *testing.T) {
 	kr := &manager.Keyring{ReplicaID: "manager-1", Identity: ident}
 	re := startSource(t, filepath.Join(dataDir, "metastore"), addr, kr)
 	defer re.Close()
+	if err := re.Node().Barrier(10 * time.Second); err != nil {
+		t.Fatal(err)
+	}
 	id, key, err := kr.Current()
 	if err != nil || !bytes.Equal(key, dataKey) {
 		t.Fatalf("restored keyring: %q %v", id, err)

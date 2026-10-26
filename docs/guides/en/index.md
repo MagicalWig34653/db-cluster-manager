@@ -47,3 +47,5 @@ Reading order for a first test: 1, 2, 3, then 10 before trusting anything.
 - [19 — Cluster provisioning (experimental)](19-provisioning.md)
 
 - [20 — Operator CLI (fakes only)](20-cli.md)
+
+- [21 — Disaster recovery and backup copies (fakes only)](21-disaster-recovery.md)
