@@ -49,6 +49,10 @@ Verification: the API flow ran on lab VMs with a software ES256 authenticator (a
 
 If the setup token was lost: restart the manager (a new token is printed while no administrator exists). If all passkeys are lost, see [Security model](08-security-model.md) for recovery codes.
 
+## Using the interface with a keyboard
+
+Tab reaches the language switch, navigation and page actions. The skip link at the start of the page moves to the main content. On a narrow screen, open the navigation drawer with its menu button; Escape closes it. After changing pages, focus moves to the new page heading. Tables can be focused and scrolled horizontally with the keyboard. Form validation announces a summary and focuses the first invalid field in the main cluster, service, dashboard and notification forms. These behaviors have static and unit-test coverage; this update has not had a browser or screen-reader pass.
+
 ## Next steps
 
 Connect a Swarm and enroll hosts: [Enrolling hosts and agents](02-hosts-and-agents.md). Before relying on anything, read [Known limits](10-known-limits.md).

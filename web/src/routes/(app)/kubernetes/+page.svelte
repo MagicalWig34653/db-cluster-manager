@@ -41,7 +41,7 @@
   {:else}
    <div class="rounded-lg border"><Table.Root>
     <Table.Header><Table.Row>
-     <Table.Head>ID</Table.Head><Table.Head>{t('colName')}</Table.Head><Table.Head>{t('kubeEndpoint')}</Table.Head><Table.Head>{t('kubeNamespace')}</Table.Head><Table.Head>{t('kubeKind')}</Table.Head><Table.Head>{t('kubeStored')}</Table.Head>
+     <Table.Head>{t('idLabel')}</Table.Head><Table.Head>{t('colName')}</Table.Head><Table.Head>{t('kubeEndpoint')}</Table.Head><Table.Head>{t('kubeNamespace')}</Table.Head><Table.Head>{t('kubeKind')}</Table.Head><Table.Head>{t('kubeStored')}</Table.Head>
     </Table.Row></Table.Header>
     <Table.Body>{#each registrations.state.value as r (r.id)}<Table.Row>
      <Table.Cell>{r.id}</Table.Cell><Table.Cell>{r.name}</Table.Cell><Table.Cell class="break-all font-mono text-xs">{r.endpoint}</Table.Cell><Table.Cell>{r.namespace}</Table.Cell><Table.Cell>{t(r.credentialKind === 'token' ? 'kubeToken' : 'kubeConfig')}</Table.Cell><Table.Cell>{t(r.credentialSet ? 'yes' : 'no')}</Table.Cell>
@@ -51,9 +51,9 @@
   <Card.Root><Card.Header><Card.Title><h2>{t('kubeRegister')}</h2></Card.Title><Card.Description>{t('kubeSecretHint')}</Card.Description></Card.Header>
    <Card.Content><form onsubmit={register} class="max-w-2xl space-y-4">
     <fieldset disabled={busy} class="space-y-4">
-     <div class="space-y-1.5"><Label for="k-id">ID</Label><Input id="k-id" bind:value={form.id} required maxlength={63} /></div>
+     <div class="space-y-1.5"><Label for="k-id">{t('idLabel')}</Label><Input id="k-id" bind:value={form.id} required maxlength={63} /></div>
      <div class="space-y-1.5"><Label for="k-name">{t('colName')}</Label><Input id="k-name" bind:value={form.name} required maxlength={100} /></div>
-     <div class="space-y-1.5"><Label for="k-endpoint">{t('kubeEndpoint')}</Label><Input id="k-endpoint" bind:value={form.endpoint} required placeholder="https://kube.example.invalid:6443" /></div>
+     <div class="space-y-1.5"><Label for="k-endpoint">{t('kubeEndpoint')}</Label><Input id="k-endpoint" bind:value={form.endpoint} required placeholder={t('exampleKubeUrl')} /></div>
      <div class="space-y-1.5"><Label for="k-namespace">{t('kubeNamespace')}</Label><Input id="k-namespace" bind:value={form.namespace} required maxlength={63} /></div>
      <div class="space-y-1.5"><Label for="k-kind">{t('kubeKind')}</Label><select id="k-kind" class={selectClass} bind:value={form.kind} onchange={() => { form.credential = ''; }}><option value="token">{t('kubeToken')}</option><option value="kubeconfig">{t('kubeConfig')}</option></select></div>
      <div class="space-y-1.5"><Label for="k-secret">{t('kubeCredential')}</Label>

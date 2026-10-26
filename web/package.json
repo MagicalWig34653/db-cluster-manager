@@ -12,6 +12,7 @@
     "dev:mock": "VITE_MOCK=1 vite dev",
     "build": "vite build",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "check:i18n": "node scripts/check_i18n.mjs",
     "test": "vitest run"
   },
   "devDependencies": {

@@ -50,7 +50,7 @@
   <label class="flex gap-2 text-sm"><input type="checkbox" class={checkClass} disabled={!service.rollbackable} bind:checked={rollback} />{t('svcRollback')}</label>
   {#if !rollback}<label class="block text-sm">{t('svcImage')}<input class={selectClass} required bind:value={image} aria-invalid={!imagePinned(image)} /></label>{/if}
   <div class="grid gap-3 md:grid-cols-3">
-   <label class="text-sm">{t('svcOrder')}<select class={selectClass} bind:value={strategy.order}><option value="stop-first">stop-first</option><option value="start-first">start-first</option></select></label>
+   <label class="text-sm">{t('svcOrder')}<select class={selectClass} bind:value={strategy.order}><option value="stop-first">{t('stopFirst')}</option><option value="start-first">{t('startFirst')}</option></select></label>
    <label class="text-sm">{t('svcOnFailure')}<select class={selectClass} bind:value={strategy.onFailure}><option value="rollback">{t('svcRollback')}</option><option value="pause">{t('svcPause')}</option></select></label>
    {#each numeric as f (f.key)}<label class="text-sm">{t(f.label)}<input class={selectClass} type="number" required min={f.min} max={f.max} step={f.step} bind:value={strategy[f.key]} /></label>{/each}
   </div>

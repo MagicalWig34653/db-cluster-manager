@@ -62,7 +62,7 @@
 			{#if kind === 'scale-out'}
 				<div class="space-y-1.5">
 					<Label for="cp-slot">{t('cpSlotNew')}</Label>
-					<Input id="cp-slot" bind:value={slot} autocomplete="off" spellcheck={false} aria-invalid={touched && !!problem} placeholder="node-4" />
+					<Input id="cp-slot" bind:value={slot} autocomplete="off" spellcheck={false} aria-invalid={touched && !!problem} placeholder={t('exampleNode')} />
 				</div>
 			{:else if kind === 'scale-in'}
 				<div class="space-y-1.5">

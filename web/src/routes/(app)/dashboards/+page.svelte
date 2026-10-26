@@ -16,6 +16,8 @@
 	import PanelView from '../../../lib/components/app/PanelView.svelte';
 	import ApiGate from '../../../lib/components/app/ApiGate.svelte';
 	import Loading from '../../../lib/components/app/Loading.svelte';
+	import FormErrors from '../../../lib/components/app/FormErrors.svelte';
+	import { focusFirstInvalid } from '../../../lib/components/app/form-focus';
 
 	// GET /dashboards, POST /dashboards/{id} (create, client-chosen id),
 	// PUT/DELETE /dashboards/{id}; panels query POST /metrics/query. Personal vs
@@ -27,6 +29,7 @@
 	let editing = $state<{ id?: string; draft: DashboardInput } | undefined>();
 	let error = $state<ApiError | undefined>();
 	let busy = $state(false);
+	let editForm = $state<HTMLFormElement | null>(null);
 
 	const current = $derived(dashboards.state.status === 'ok' ? dashboards.state.value.find((d) => d.id === selected) : undefined);
 	const personal = $derived(dashboards.state.status === 'ok' ? dashboards.state.value.filter((d) => !d.shared) : []);
@@ -48,7 +51,10 @@
 	async function save(e: SubmitEvent) {
 		e.preventDefault();
 		shown = true;
-		if (!editing || !valid) return;
+		if (!editing || !valid) {
+			void focusFirstInvalid(editForm);
+			return;
+		}
 		busy = true;
 		error = undefined;
 		try {
@@ -113,9 +119,10 @@
 		</div>
 		<div>
 			{#if editing}
-				<form class="space-y-4" onsubmit={save}>
+				<form bind:this={editForm} class="space-y-4" onsubmit={save} novalidate>
 					<Card.Root>
 						<Card.Content class="space-y-4">
+							<FormErrors errors={shown ? issues.map((issue) => issue.key) : []} />
 							<div class="space-y-1.5">
 								<Label for="d-name">{t('panelTitle')}</Label>
 								<Input id="d-name" bind:value={editing.draft.title} autocomplete="off" aria-invalid={issueFor('title') ? true : undefined} />

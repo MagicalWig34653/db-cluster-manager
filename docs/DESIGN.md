@@ -8,6 +8,16 @@ Observed visual direction: neutral Zinc surfaces, Inter typography, fine borders
 
 UI supports German/English per user. Code and comments are English. User guides are bilingual. This project must remain understandable without access to the local reference repository.
 
+## Static accessibility and narrow-screen review (2026-10-26)
+
+Reviewed `web/src` without a browser, screen reader or infrastructure. The shell keeps a skip link and focuses the page heading after client navigation; the mobile drawer uses the bits-ui dialog focus trap and Escape behavior. Its title and description are now exposed to assistive technology. The inline operation-abort confirmation is a named group, not a modal dialog; opening it focuses Cancel, and canceling or completing the request returns focus to the Abort trigger. This avoids claiming a modal focus trap where none exists.
+
+`StateView` supplies the loading, empty and error visual/ARIA pattern. Loading and empty states use a polite status; errors use an assertive alert. Major list pages, `ApiGate` and `NotAvailable` use it. `FormErrors` announces validation summaries on the cluster wizard, service form, dashboard editor and notification settings; the first invalid control receives focus after rendering where present. Field-level `aria-invalid` and descriptions remain visible. Other specialized forms still need a per-flow browser and screen-reader pass.
+
+At 360 px, the drawer width is capped to the viewport and can scroll, page actions wrap, tables have a keyboard-focusable scroll region, and definition lists stack below 400 px. These are CSS/source checks only; rendered overflow, touch targets and zoom were not measured in a browser. Light/dark text tokens and all primary accent pairs have automated WCAG 2 contrast tests at 4.5:1; focus rings and input/border tokens are checked at 3:1. The prior light ring and input border were below 3:1, so their tokens were darkened. Status text continues to pair color with words or icons.
+
+`npm run check:i18n` and Vitest compare every English/German key and placeholder, reject empty values, and parse Svelte templates for literal visible text and static `aria-label`, `alt`, `placeholder` and `title` values. The checker does not prove that translated wording is correct, and it does not analyze arbitrary strings built in TypeScript or manager-provided data. Technical example placeholders are catalogued so both languages remain complete. The next UI gate is keyboard/screen-reader and 360 px browser testing with synthetic data before treating this as verified accessibility.
+
 ## Navigation proposal
 
 Overview · Swarms · Clusters · Hosts · Databases · Backups · Dashboards · Operations · Events · Settings.

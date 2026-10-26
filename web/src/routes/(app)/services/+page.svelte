@@ -1,4 +1,6 @@
 <script lang="ts">
+	import StateView from '../../../lib/components/app/StateView.svelte';
+
  import { onMount } from 'svelte';
 	import { api, asApiError, serviceTypes, type ApiError, type ServiceInfo, type ServicePlan, type ServiceStarted, type ServiceType } from '../../../lib/api';
 	import { buildServiceInput, canUpdateService, serviceHealth, emptyServiceForm, logLevels, planView, validateServiceForm, type RestartPolicy, type ServiceFormError } from '../../../lib/services';
@@ -18,6 +20,8 @@
 	import Freshness from '../../../lib/components/app/Freshness.svelte';
 	import ApiGate from '../../../lib/components/app/ApiGate.svelte';
 	import Loading from '../../../lib/components/app/Loading.svelte';
+	import FormErrors from '../../../lib/components/app/FormErrors.svelte';
+	import { focusFirstInvalid } from '../../../lib/components/app/form-focus';
 
 	import ServiceDetails from '../../../lib/components/app/ServiceDetails.svelte';
 	import ServiceUpdate from '../../../lib/components/app/ServiceUpdate.svelte';
@@ -32,6 +36,13 @@
 
 	let form = $state(emptyServiceForm('container'));
 	let invalid = $state<ServiceFormError[]>([]);
+	let serviceForm = $state<HTMLFormElement | null>(null);
+	const errorLabels: Record<ServiceFormError, MessageKey> = {
+		details: 'valSvcDetails', swarm: 'valSvcSwarm', name: 'valSvcName', image: 'valSvcImage',
+		replicas: 'valSvcReplicas', env: 'valSvcEnv', envSecret: 'valSvcEnvSecret', volumes: 'valSvcVolumes',
+		volumeHost: 'valSvcVolumeHost', networks: 'valSvcNetworks', cpu: 'valSvcCpu', memory: 'valSvcMemory',
+		email: 'valSvcEmail', routes: 'valSvcRoutes', tlsEmail: 'valSvcTlsEmail'
+	};
 	// The plan that was shown; editing the form afterwards invalidates it.
 	let shown = $state<{ plan: ServicePlan; request: string } | undefined>();
 	let planBusy = $state(false);
@@ -61,7 +72,10 @@
 		e.preventDefault();
 		invalid = validateServiceForm(form);
 		started = undefined;
-		if (invalid.length > 0) return;
+		if (invalid.length > 0) {
+			void focusFirstInvalid(serviceForm);
+			return;
+		}
 		planBusy = true;
 		planError = undefined;
 		const snapshot = requestJson;
@@ -146,7 +160,7 @@
 	{:else if services.state.status === 'error'}
 		<ApiGate error={services.state.error} retry={services.reload} />
 	{:else if services.state.value.length === 0}
-		<p class="text-sm text-muted-foreground">{t('svcEmpty')}</p>
+		<StateView kind="empty" message="svcEmpty" />
 	{:else}
 		<div class="rounded-lg border">
 			<Table.Root>
@@ -226,7 +240,8 @@
 	<Card.Root>
 		<Card.Header><Card.Title><h2>{t('svcNew')}</h2></Card.Title></Card.Header>
 		<Card.Content>
-			<form class="space-y-4" onsubmit={preview} aria-label={t('svcNew')}>
+			<form bind:this={serviceForm} class="space-y-4" onsubmit={preview} aria-label={t('svcNew')} novalidate>
+				<FormErrors errors={invalid.map((key) => errorLabels[key])} />
 				<div class="grid gap-4 md:grid-cols-3">
 					<div class="space-y-1.5">
 						<Label for="sv-swarm">{t('svcSwarm')}</Label>
@@ -251,7 +266,7 @@
 				<div class="grid gap-4 md:grid-cols-2">
 					<div class="space-y-1.5">
 						<Label for="sv-image">{t('svcImage')}</Label>
-						<Input id="sv-image" class="font-mono" bind:value={form.image} autocomplete="off" placeholder={form.type === 'traefik' ? 'traefik:v3.1.2' : 'nginx:1.27'} aria-invalid={invalid.includes('image')} aria-describedby="sv-image-hint" />
+						<Input id="sv-image" class="font-mono" bind:value={form.image} autocomplete="off" placeholder={form.type === 'traefik' ? t('exampleTraefikImage') : t('exampleNginxImage')} aria-invalid={invalid.includes('image')} aria-describedby="sv-image-hint" />
 						<p id="sv-image-hint" class="text-xs {invalid.includes('image') ? 'text-red-700 dark:text-red-400' : 'text-muted-foreground'}">{invalid.includes('image') ? t('valSvcImage') : t('svcImageHint')}</p>
 					</div>
 					{#if form.type !== 'galera'}<div class="space-y-1.5">
@@ -291,14 +306,14 @@
 					<div class="grid gap-4 md:grid-cols-2">
 						<div class="space-y-1.5">
 							<Label for="sv-env">{t('svcEnv')}</Label>
-							<textarea id="sv-env" rows="3" class="w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring" bind:value={form.env} aria-invalid={invalid.includes('env') || invalid.includes('envSecret')} aria-describedby="sv-env-hint" placeholder="TZ=Europe/Berlin"></textarea>
+							<textarea id="sv-env" rows="3" class="w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring" bind:value={form.env} aria-invalid={invalid.includes('env') || invalid.includes('envSecret')} aria-describedby="sv-env-hint" placeholder={t('exampleEnv')}></textarea>
 							<p id="sv-env-hint" class="text-xs {invalid.includes('env') || invalid.includes('envSecret') ? 'text-red-700 dark:text-red-400' : 'text-muted-foreground'}">
 								{invalid.includes('envSecret') ? t('valSvcEnvSecret') : invalid.includes('env') ? t('valSvcEnv') : t('svcEnvHint')}
 							</p>
 						</div>
 						<div class="space-y-1.5">
 							<Label for="sv-vol">{t('svcVolumes')}</Label>
-							<textarea id="sv-vol" rows="3" class="w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring" bind:value={form.volumes} aria-invalid={invalid.includes('volumes')} aria-describedby="sv-vol-hint" placeholder="data:/var/lib/app"></textarea>
+							<textarea id="sv-vol" rows="3" class="w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring" bind:value={form.volumes} aria-invalid={invalid.includes('volumes')} aria-describedby="sv-vol-hint" placeholder={t('exampleVolume')}></textarea>
 							<p id="sv-vol-hint" class="text-xs {invalid.includes('volumes') ? 'text-red-700 dark:text-red-400' : 'text-muted-foreground'}">{invalid.includes('volumes') ? t('valSvcVolumes') : t('svcVolumesHint')}</p>
 						</div>
 						<div class="space-y-1.5">
@@ -320,7 +335,7 @@
 						</div>
 						<div class="space-y-1.5 md:col-span-2">
 							<Label for="sv-mail">{t('svcAcmeEmail')}</Label>
-							<Input id="sv-mail" type="email" bind:value={form.acmeEmail} autocomplete="off" aria-invalid={invalid.includes('email') || invalid.includes('tlsEmail')} aria-describedby="sv-mail-hint" placeholder="ops@example.org" />
+							<Input id="sv-mail" type="email" bind:value={form.acmeEmail} autocomplete="off" aria-invalid={invalid.includes('email') || invalid.includes('tlsEmail')} aria-describedby="sv-mail-hint" placeholder={t('exampleEmail')} />
 							<p id="sv-mail-hint" class="text-xs {invalid.includes('email') || invalid.includes('tlsEmail') ? 'text-red-700 dark:text-red-400' : 'text-muted-foreground'}">
 								{invalid.includes('tlsEmail') ? t('valSvcTlsEmail') : invalid.includes('email') ? t('valSvcEmail') : t('svcAcmeEmailHint')}
 							</p>
@@ -337,11 +352,11 @@
 							<div class="grid items-end gap-2 md:grid-cols-[1fr_1fr_auto_auto]">
 								<div class="space-y-1">
 									<Label for="sv-rh-{i}" class="text-xs">{t('svcRouteHost')}</Label>
-									<Input id="sv-rh-{i}" bind:value={r.host} autocomplete="off" placeholder="app.example.org" />
+									<Input id="sv-rh-{i}" bind:value={r.host} autocomplete="off" placeholder={t('exampleHost')} />
 								</div>
 								<div class="space-y-1">
 									<Label for="sv-rb-{i}" class="text-xs">{t('svcRouteBackend')}</Label>
-									<Input id="sv-rb-{i}" class="font-mono" bind:value={r.backend} autocomplete="off" placeholder="http://web-app:8080" />
+									<Input id="sv-rb-{i}" class="font-mono" bind:value={r.backend} autocomplete="off" placeholder={t('exampleServiceUrl')} />
 								</div>
 								<label class="flex h-9 items-center gap-2 text-sm"><input type="checkbox" class={checkClass} bind:checked={r.tls} />{t('svcRouteTls')}</label>
 								<Button type="button" size="sm" variant="ghost" disabled={form.routes.length === 1} onclick={() => (form.routes = form.routes.filter((_, j) => j !== i))}>{t('svcRouteRemove')}</Button>

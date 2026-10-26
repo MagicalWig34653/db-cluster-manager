@@ -153,8 +153,8 @@
 			{#if version.state.status === 'ok'}
 				<dl class="grid grid-cols-[8rem_1fr] gap-y-2 text-sm">
 					<dt class="text-muted-foreground">{t('version')}</dt><dd class="font-mono">{version.state.value.version}</dd>
-					<dt class="text-muted-foreground">Commit</dt><dd class="font-mono">{version.state.value.commit}</dd>
-					<dt class="text-muted-foreground">Go</dt><dd class="font-mono">{version.state.value.goVersion}</dd>
+					<dt class="text-muted-foreground">{t('commit')}</dt><dd class="font-mono">{version.state.value.commit}</dd>
+					<dt class="text-muted-foreground">{t('go')}</dt><dd class="font-mono">{version.state.value.goVersion}</dd>
 					<dt class="text-muted-foreground">{t('platform')}</dt><dd class="font-mono">{version.state.value.platform}</dd>
 				</dl>
 			{:else if version.state.status === 'error'}

@@ -7,6 +7,7 @@
 	import * as Alert from '../ui/alert/index.js';
 	import { Button } from '../ui/button/index.js';
 	import { checkClass } from './fieldClass';
+	import { tick } from 'svelte';
 	import ErrorNotice from './ErrorNotice.svelte';
 	import Status from './Status.svelte';
 
@@ -19,6 +20,18 @@
 	let error = $state<ApiError | undefined>();
 	let note = $state<'requested' | 'approved' | undefined>();
 	let confirmAbort = $state(false);
+	let abortTrigger: HTMLButtonElement | null = null;
+	let cancelAbort: HTMLButtonElement | null = null;
+	async function showAbort() {
+		confirmAbort = true;
+		await tick();
+		cancelAbort?.focus();
+	}
+	async function hideAbort() {
+		confirmAbort = false;
+		await tick();
+		if (abortTrigger?.isConnected) abortTrigger.focus();
+	}
 	let reviewed = $state(false);
 	const approval = $derived(approvalView(op));
 	const ph = $derived(phase(op));
@@ -39,7 +52,13 @@
 			error = asApiError(e);
 		} finally {
 			busy = false;
+			const wasConfirmingAbort = confirmAbort;
 			confirmAbort = false;
+			if (wasConfirmingAbort) {
+				await tick();
+				if (abortTrigger?.isConnected && !abortTrigger.disabled) abortTrigger.focus();
+				else document.getElementById('page-title')?.focus();
+			}
 		}
 	}
 	// The digest sent is the one of the plan that is displayed right now.
@@ -126,16 +145,16 @@
 	{#if canResume(op) || canAbort(op)}
 		<div class="flex flex-wrap gap-2">
 			{#if canResume(op)}<Button size="sm" variant="outline" disabled={busy} onclick={() => run(() => api.resumeOperation(op.id), 'requested')}>{t('resumeOp')}</Button>{/if}
-			{#if canAbort(op) && !confirmAbort}<Button size="sm" variant="outline" disabled={busy} onclick={() => (confirmAbort = true)}>{t('abortOp')}</Button>{/if}
+			{#if canAbort(op)}<Button ref={abortTrigger} size="sm" variant="outline" disabled={busy} aria-expanded={confirmAbort} aria-controls="abort-confirm-{op.id}" onclick={showAbort}>{t('abortOp')}</Button>{/if}
 		</div>
 	{/if}
 	{#if confirmAbort}
-		<Alert.Root variant="destructive" role="alertdialog" aria-label={t('abortOp')}>
+		<Alert.Root id="abort-confirm-{op.id}" variant="destructive" role="group" aria-label={t('abortOp')} aria-describedby="abort-body-{op.id}">
 			<Alert.Description class="space-y-2">
-				<p>{t('abortConfirmBody', { kind: op.kind })}</p>
+				<p id="abort-body-{op.id}">{t('abortConfirmBody', { kind: op.kind })}</p>
 				<div class="flex gap-2">
 					<Button size="sm" variant="destructive" disabled={busy} onclick={() => run(() => api.abortOperation(op.id), 'requested')}>{t('abortConfirm')}</Button>
-					<Button size="sm" variant="ghost" onclick={() => (confirmAbort = false)}>{t('cancel')}</Button>
+					<Button ref={cancelAbort} size="sm" variant="ghost" onclick={hideAbort}>{t('cancel')}</Button>
 				</div>
 			</Alert.Description>
 		</Alert.Root>

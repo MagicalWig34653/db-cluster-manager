@@ -1,4 +1,6 @@
 <script lang="ts">
+	import StateView from '../../../lib/components/app/StateView.svelte';
+
 	import { api, asApiError, type ApiError, type InspectionStarted } from '../../../lib/api';
 	import { restoreHosts } from '../../../lib/operations';
 	import { load } from '../../../lib/load.svelte';
@@ -96,7 +98,7 @@
 	{:else if clusters.state.status === 'error'}
 		<ErrorNotice error={clusters.state.error} retry={clusters.reload} />
 	{:else if clusters.state.value.length === 0}
-		<p class="text-sm text-muted-foreground">{t('clustersEmpty')}</p>
+		<StateView kind="empty" message="clustersEmpty" />
 	{:else}
 		{#if backups.state.status === 'error'}<ApiGate error={backups.state.error} retry={backups.reload} />{/if}
 		<div class="rounded-lg border">

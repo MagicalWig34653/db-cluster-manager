@@ -1,4 +1,6 @@
 <script lang="ts">
+	import StateView from '../../../lib/components/app/StateView.svelte';
+
 	import { api, asApiError, type ApiError } from '../../../lib/api';
 	import { load } from '../../../lib/load.svelte';
 	import { locale, t } from '../../../lib/locale.svelte';
@@ -39,7 +41,7 @@
 			{:else if inbox.state.status === 'error'}
 				<ApiGate error={inbox.state.error} retry={inbox.reload} />
 			{:else if inbox.state.value.length === 0}
-				<p class="text-sm text-muted-foreground">{t('inboxEmpty')}</p>
+				<StateView kind="empty" message="inboxEmpty" />
 			{:else}
 				<ul class="divide-y">
 					{#each newestFirst(inbox.state.value, (n) => n.time) as n (n.id)}
