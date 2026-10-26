@@ -12,6 +12,7 @@ This describes the design and what was verified. No external security review has
 
 - **Passkeys only.** There are no passwords for the UI. Sessions are server-side with an idle timeout of 30 minutes and an absolute timeout of 12 hours (defaults); logout and recovery end them. Strict `Origin` checking protects state-changing requests (CSRF). [Fakes] with a software authenticator and a virtual browser authenticator; [Lab VMs] only for the API flow.
 - **Setup token:** printed once at start while no administrator exists; rate limited per client IP; setup is disabled for good after the first administrator.
+- **Login lockout:** starting and finishing a passkey login have separate per-TCP-peer-IP limits. Five attempts within 15 minutes trigger a 15-minute lockout (`429` and `Retry-After`); a successful finish clears the finish counter. The limiter is in memory, resets on manager restart or leader change and does not trust forwarded IP headers. [Fakes].
 - **Recovery codes:** ten single-use codes issued at setup, shown once, stored as hashes. Redeeming one removes the account's passkeys, ends all sessions and opens a short recovery session (10 minutes idle, 15 absolute) that only allows registering a new passkey. Attempts are limited per IP and per account (five failures in 15 minutes lock for 15 minutes, doubling up to 24 hours); every failure returns the same body. [Fakes].
 - **Recovery URL tokens** (`/auth/recovery/token`): the issuing command line does not exist yet, so this path cannot be used [Untested].
 

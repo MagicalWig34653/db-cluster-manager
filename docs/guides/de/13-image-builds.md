@@ -28,7 +28,7 @@ title: Image-Builds und Registries (Entwurf)
 Das Manager-Image enthält kein Docker-CLI und der Stack kein BuildKit; Builds funktionieren im mitgelieferten Deployment daher nicht ohne zusätzliche Arbeit. Der Build läuft als Manager-Prozess auf dem Host des Leaders (Zugriff auf den Docker-Socket). Das Registrieren einer Registry kontaktiert sie vom Manager aus (Prüfung der Zugangsdaten). Löschen oder Ändern einer Registry und Löschen von Jobs sind nicht implementiert. Pläne werden zur Nachvollziehbarkeit gespeichert, eine API zum Lesen gibt es noch nicht.
 
 
-Kein echter Build, Push, keine SBOM, kein Schwachstellenscan, keine Signatur. Alpine-Paketversionen sind nicht festgelegt. Paketnamen und Versionskatalog sind ungeprüft. Die Ausschnittsprüfung ist eine Sperrliste, kein Parser. Siehe [Bekannte Grenzen](10-known-limits.md) und [STATUS.md](../../STATUS.md).
+Kein echter Build, Push, keine SBOM, kein Schwachstellenscan, keine Signatur. Alpine-Paketversionen sind nicht festgelegt. Nach der Offline-Prüfung ist jeder Katalogeintrag als ungeprüft markiert; siehe [Katalog-Herkunft](../../IMAGEBUILD-CATALOG.md). Die Ausschnittsprüfung ist eine Sperrliste, kein Parser. Siehe [Bekannte Grenzen](10-known-limits.md) und [STATUS.md](../../STATUS.md).
 
 ## In der Web-Oberfläche (nur Mock)
 

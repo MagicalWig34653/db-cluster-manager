@@ -156,7 +156,7 @@ func (s *server) handleSetupFinish(w http.ResponseWriter, r *http.Request, _ *ca
 	}
 	if _, err := s.cfg.Passkeys.FinishRegistration(req.CeremonyID, binding, req.Credential); err != nil {
 		_ = s.cfg.Authorizer.Policy().Unbind(admin)
-		s.log.Info("api: setup passkey registration failed", "remote", clientIP(r), "err", err)
+		s.log.Info("api: setup passkey registration failed", "remote", clientIP(r))
 		s.auditResult(accountID, authz.ActionCreate, reasonFirstRunSetup, change, err)
 		writeError(w, http.StatusUnauthorized, errAuthFailed)
 		return

@@ -4,10 +4,47 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      security_checks:
+        description: Run optional Go vulnerability and static security scans
+        type: boolean
+        default: false
   workflow_call:
 permissions:
   contents: read
 jobs:
+  govulncheck:
+    if: github.event_name == 'workflow_dispatch' && inputs.security_checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+      - name: Scan reachable Go vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+
+  gosec:
+    if: github.event_name == 'workflow_dispatch' && inputs.security_checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+      - name: Scan Go source
+        run: go run github.com/securego/gosec/v2/cmd/gosec@v2.22.0 ./...
+
   build:
     name: Native ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}

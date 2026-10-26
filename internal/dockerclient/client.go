@@ -323,16 +323,12 @@ func (c *Client) send(ctx context.Context, method, path string, payload []byte, 
 		return resp, nil
 	}
 	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-	apiErr := &APIError{StatusCode: resp.StatusCode, Method: method, Path: stripQuery(path), Mutating: mutating}
-	var er struct {
-		Message string `json:"message"`
-	}
-	if json.Unmarshal(raw, &er) == nil && er.Message != "" {
-		apiErr.Message = er.Message
-	} else {
-		apiErr.Message = strings.TrimSpace(string(raw))
-	}
+	// The daemon can echo request data (including a new secret's base64
+	// payload) in its error body. Never put that untrusted body into an
+	// APIError: it can travel to agent results, operation views and logs.
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
+	apiErr := &APIError{StatusCode: resp.StatusCode, Method: method, Path: stripQuery(path),
+		Mutating: mutating, Message: http.StatusText(resp.StatusCode)}
 	return nil, apiErr
 }
 

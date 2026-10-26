@@ -9,15 +9,42 @@ import (
 )
 
 // Catalog is the allow-list of selectable versions, extensions and packages.
-// The default catalog is a proposal: version numbers and Alpine package
-// names were written from knowledge, not verified against the live
-// repositories. A real build is the only check; a wrong name fails at
-// `apk add`.
+// The default catalog is a proposal. Every entry has a provenance status;
+// no bundled upstream package index or extension documentation currently
+// verifies these names. A real build is still required before release.
 type Catalog struct {
 	nginx    []string
 	php      map[string]map[string]bool // version -> extension -> available
 	known    map[string]bool
 	packages []string
+}
+
+// CatalogEvidence distinguishes an upstream-document-checked name from a
+// proposal. It does not claim that a package is available in a given base
+// image or Alpine repository snapshot.
+type CatalogEvidence string
+
+const (
+	VerifiedByDoc CatalogEvidence = "verified-by-doc"
+	Unverified    CatalogEvidence = "unverified"
+)
+
+// Evidence returns the status for a selectable catalog entry. kind is
+// "nginx", "php", "extension" or "package". The current bundled catalog
+// has no upstream documentation snapshot, so every selectable entry is
+// explicitly unverified; unknown entries return false.
+func (c *Catalog) Evidence(kind, version, name string) (CatalogEvidence, bool) {
+	switch kind {
+	case "nginx":
+		return Unverified, c.HasNginx(version)
+	case "php":
+		return Unverified, c.HasPHP(version)
+	case "extension":
+		return Unverified, c.PHPExtensionAvailable(version, name)
+	case "package":
+		return Unverified, c.HasPackage(name)
+	}
+	return "", false
 }
 
 // DefaultCatalog returns the built-in catalog.

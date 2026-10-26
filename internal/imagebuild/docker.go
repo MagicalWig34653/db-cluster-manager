@@ -101,7 +101,8 @@ func BuildArgs(in BuildInput, contextDir, metadataFile string) ([]string, error)
 func WriteContext(dir string, r Rendered) error {
 	write := func(name string, mode uint32, content string) error {
 		clean := path.Clean(name)
-		if clean != name || path.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, "../") {
+		if clean != name || path.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, "../") ||
+			strings.ContainsAny(name, "\\\x00\r\n") {
 			return fmt.Errorf("imagebuild: unsafe context path %q", name)
 		}
 		full := filepath.Join(dir, filepath.FromSlash(clean))
@@ -114,6 +115,9 @@ func WriteContext(dir string, r Rendered) error {
 		return err
 	}
 	for _, f := range r.Files {
+		if f.Path == "Dockerfile" {
+			return fmt.Errorf("imagebuild: context file must not replace Dockerfile")
+		}
 		if err := write(f.Path, f.Mode, f.Content); err != nil {
 			return err
 		}
@@ -156,7 +160,9 @@ func (b *DockerBuilder) Build(ctx context.Context, in BuildInput) (BuildOutput, 
 		cmd.Env = []string{"DOCKER_CONFIG=" + cfgDir}
 	}
 	if err := b.Runner.Run(ctx, cmd); err != nil {
-		return BuildOutput{}, fmt.Errorf("%w: %v", ErrBuild, err)
+		// Runner errors can embed command arguments or registry credentials.
+		// Detailed subprocess output already goes through the bounded redactor.
+		return BuildOutput{}, fmt.Errorf("%w: builder command failed", ErrBuild)
 	}
 	digest, err := readMetadataDigest(meta)
 	if err != nil {

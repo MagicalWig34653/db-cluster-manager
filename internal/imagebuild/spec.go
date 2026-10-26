@@ -7,8 +7,8 @@
 // Status: proposal implemented against fakes only. Nothing here has built a
 // real image. The command-line construction of the docker/BuildKit builder is
 // unit-tested but never executed, and the catalog of versions, PHP extensions
-// and Alpine package names has not been verified against the real
-// repositories.
+// and Alpine package names are marked unverified in Catalog.Evidence until
+// upstream documentation can be checked; no network or real build was used.
 package imagebuild
 
 import (
