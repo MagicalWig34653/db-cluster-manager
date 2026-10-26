@@ -24,6 +24,55 @@ info:
 servers:
   - url: /api/v1
 paths:
+  /provision/plans:
+    post:
+      summary: Preflight SSH hosts and store a sealed provisioning plan
+      description: Experimental, disabled by default. Requires global settings operate permission. Checks Linux, free ports, synchronized time, at least 10 GiB free disk and no existing Swarm or k3s membership. Private keys and known_hosts are sealed and never returned. No host is changed.
+      operationId: createProvisionPlan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProvisionPlanInput' }
+      responses:
+        '201':
+          description: Reviewed plan, digest and exportable scripts without secrets
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProvisionPlan' }
+        '400': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /provision/plans/{id}/execute:
+    post:
+      summary: Queue a reviewed Swarm provision operation
+      description: Requires global settings operate permission and the exact plan digest. Every host step waits for a second approval of the operation definition digest through the existing operation approval endpoint. Kubernetes execution is disabled.
+      operationId: executeProvisionPlan
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [digest]
+              properties:
+                digest: { type: string, pattern: '^[a-f0-9]{64}$' }
+      responses:
+        '202':
+          description: Queued operation reference; approve its definition digest separately
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OperationRef' }
+        '400': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
   /kubernetes-clusters:
     get:
       summary: List experimental Kubernetes registrations (W10, fakes only)
@@ -42,7 +91,7 @@ paths:
         "503": { description: Feature disabled or sealed store unavailable }
     post:
       summary: Register an existing Kubernetes cluster (metadata only)
-      description: Requires create on global kubernetes_cluster and same-origin CSRF checks. Exactly one token or opaque kubeconfig is sealed; never returned or executed. No provisioning or connectivity validation.
+      description: Requires create on global kubernetes_cluster and same-origin CSRF checks. Exactly one token or opaque kubeconfig is sealed; never returned or executed. No connectivity validation.
       operationId: registerKubernetesCluster
       requestBody:
         required: true
@@ -2337,6 +2386,44 @@ components:
             properties:
               pendingPasskeyEnrollment: { type: boolean, enum: [true] }
   schemas:
+    ProvisionPlanInput:
+      type: object
+      required: [id, platform, hosts, credentials]
+      properties:
+        id: { type: string }
+        platform: { type: string, enum: [swarm, kubernetes] }
+        hosts:
+          type: array
+          items:
+            type: object
+            required: [id, address, user, role]
+            properties:
+              id: { type: string }
+              address: { type: string }
+              user: { type: string }
+              role: { type: string, enum: [manager, worker] }
+        credentials:
+          type: object
+          description: Host ID to SSH credential; sealed at rest and write-only
+          additionalProperties:
+            type: object
+            required: [privateKey, knownHosts]
+            properties:
+              privateKey: { type: string, writeOnly: true }
+              knownHosts: { type: string, writeOnly: true }
+    ProvisionPlan:
+      type: object
+      required: [id, platform, hosts, checks, steps, digest, scripts]
+      properties:
+        id: { type: string }
+        platform: { type: string, enum: [swarm, kubernetes] }
+        hosts: { type: array, items: { type: object } }
+        checks: { type: array, items: { type: object } }
+        steps: { type: array, items: { type: object } }
+        digest: { type: string }
+        scripts:
+          type: object
+          additionalProperties: { type: string }
     ClusterOperationInput:
       type: object
       additionalProperties: false

@@ -94,7 +94,7 @@ SvelteKit UI with light and dark mode. Checked in a browser only against the dev
 <div class="card" markdown="1">
 ### Beyond Galera <span class="tag planned">Planned</span>
 
-Kubernetes, cluster provisioning, web and storage servers, Traefik, image builds and Docker engine updates are proposals ([ADR 0012](decisions/0012-broadened-scope-platform.md)). AI-assisted vulnerability response (advisory feeds, patched rebuilds or mitigations, selectable AI providers, notify-only by default, admin approval before any change) is a proposal too ([ADR 0015](decisions/0015-ai-assisted-vulnerability-response.md)); its backend groundwork exists and is tested with fakes only ([guide](guides/en/15-vulnerability-response.md)).
+Kubernetes, web and storage servers, Traefik, image builds and Docker engine updates are proposals ([ADR 0012](decisions/0012-broadened-scope-platform.md)). Cluster provisioning has experimental Swarm plan and SSH code plus a flag-gated Kubernetes script preview, tested only with fakes ([guide](guides/en/18-provisioning.md), [ADR 0018](decisions/0018-ssh-cluster-provisioning.md)); no host was contacted. AI-assisted vulnerability response (advisory feeds, patched rebuilds or mitigations, selectable AI providers, notify-only by default, admin approval before any change) is a proposal too ([ADR 0015](decisions/0015-ai-assisted-vulnerability-response.md)); its backend groundwork exists and is tested with fakes only ([guide](guides/en/15-vulnerability-response.md)).
 </div>
 
 </div>

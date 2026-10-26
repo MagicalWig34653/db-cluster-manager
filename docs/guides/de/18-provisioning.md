@@ -1,0 +1,14 @@
+# Cluster provisionieren (experimentell)
+
+**[Fakes]** W10 enthält einen Swarm-Hostplan und einen SSH-Ausführungspfad. Es wurde jedoch kein echter SSH-Host, Docker Swarm oder Kubernetes-Cluster kontaktiert. Nicht auf Produktiv-Hosts verwenden. [ADR 0018](../../decisions/0018-ssh-cluster-provisioning.md) beschreibt Sicherheitsmodell und offene Arbeiten.
+
+Administratoren aktivieren `manager.experimentalProvisioning` in der Managed-Manager-Konfiguration. Danach erscheinen **Cluster provisionieren** und `/api/v1/provision/plans`. Standardmäßig ist die Funktion deaktiviert (503). Das separate Flag `manager.experimentalKubernetesProvisioning` erlaubt eine k3s-Skriptvorschau; Kubernetes wird weiterhin nicht per SSH ausgeführt. Anmeldung und die globale Berechtigung `settings:operate` sind erforderlich.
+
+1. Dedizierte, leere Linux-Hosts mit SSH-Erreichbarkeit bereitstellen. Der erste Host muss Manager sein; die Managerzahl muss ungerade sein. Eindeutige Plan-ID, Hostname oder IPv4-Adresse, SSH-Benutzer, privaten Schlüssel und einen fest hinterlegten OpenSSH-`known_hosts`-Eintrag je Host eingeben. Schlüssel sind in der Oberfläche nur zur Eingabe sichtbar und werden im replizierten Manager-Speicher verschlüsselt.
+2. Vorprüfung starten. Sie prüft Linux, freie Swarm-Ports, synchronisierte Zeit, mindestens 10 GiB freien Speicher und bestehende Swarm-/k3s-Mitgliedschaft. Mitglieder beliebiger bestehender Cluster werden abgelehnt. Eine erfolgreiche Antwort enthält Prüfergebnisse, geordnete Befehle, herunterladbare Skripte je Host und eine SHA-256-Prüfsumme. Token und private Schlüssel werden nicht exportiert. Die Skripte verwenden Platzhalter `JOIN_TOKEN` und `MANAGER_ADDRESS`; bei manueller Ausführung müssen sie sicher bereitgestellt werden.
+
+Für Swarm muss Docker bereits installiert sein und der Daemon auf die Vorprüfung antworten. Dieser Schritt installiert oder aktualisiert Docker nicht.
+3. Befehle und Prüfsumme prüfen. Für Swarm die Operation mit dieser Prüfsumme einreihen. Unter **Operationen** die separate Prüfsumme der Operationsdefinition freigeben. Vor der Freigabe läuft kein Host-Befehl. Der Runner protokolliert Schritte und kann sie nach einem Manager-Neustart übernehmen. Unklare SSH-Ergebnisse halten zur manuellen Prüfung an, statt einen bestehenden Host stillschweigend zu übernehmen.
+4. Der Manager speichert bestätigte Hosts und die beobachtete Swarm-Cluster-ID in einem Besitzmanifest für eine spätere gezielte Bereinigung. Ein Bereinigungsbefehl und die automatische Registrierung des neuen Swarms sind in diesem Schritt nicht enthalten.
+
+Die Kubernetes-Vorschau erzeugt nur k3s-Skriptvorlagen. Auf jedem Host ist eine gesondert geprüfte Installationsdatei nötig; Clusterausführung, Zugangsdaten-Bootstrap, Speicher und Recovery fehlen. Die [Kubernetes-Grundlage](16-kubernetes.md) umfasst nur Registrierung und Workload-Rendering. Kein R9-Abnahmekriterium ist erfüllt.

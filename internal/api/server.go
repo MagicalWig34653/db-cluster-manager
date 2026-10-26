@@ -76,6 +76,10 @@ type Config struct {
 	// ExperimentalKubernetes gates metadata-only W10 registration.
 	ExperimentalKubernetes bool
 	Kubernetes             KubernetesRegistrations
+	// ExperimentalProvisioning requires an explicit backend. SSH credentials
+	// are write-only and the routes return 503 by default.
+	ExperimentalProvisioning bool
+	Provisioning             Provisioning
 	// RecoveryCodeIterations is passed to recovery.GenerateCodes; 0 selects
 	// the default.
 	RecoveryCodeIterations int
@@ -183,7 +187,7 @@ type server struct {
 // endpoints is the route table. It is safe to call on a nil server: method
 // values are only bound, not invoked.
 func (s *server) endpoints() []endpoint {
-	return append(append(s.coreEndpoints(), s.vulnEndpoints()...), s.kubernetesEndpoints()...)
+	return append(append(append(s.coreEndpoints(), s.vulnEndpoints()...), s.kubernetesEndpoints()...), s.provisioningEndpoints()...)
 }
 
 func (s *server) coreEndpoints() []endpoint {

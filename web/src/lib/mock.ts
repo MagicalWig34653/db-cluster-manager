@@ -6,6 +6,7 @@ import type { ServiceInput } from './api';
 // whenever this module is active.
 
 import { kubernetesMock } from './mock-kubernetes';
+import { provisionMock } from './mock-provision';
 import { vulnMock } from './mock-vuln';
 
 const now = Date.now();
@@ -366,7 +367,7 @@ export const mockFetch: typeof fetch = async (input, init) => {
 	} catch {
 		// ignore
 	}
-	const platform = platformMock(method, url.pathname, url.searchParams, parsed) ?? vulnMock(method, url.pathname, parsed) ?? kubernetesMock(method, url.pathname, parsed);
+	const platform = provisionMock(method, url.pathname, parsed) ?? platformMock(method, url.pathname, url.searchParams, parsed) ?? vulnMock(method, url.pathname, parsed) ?? kubernetesMock(method, url.pathname, parsed);
 	if (platform) return platform;
 	if (method === 'POST') {
 		if (url.pathname === '/api/v1/auth/logout') return new Response(null, { status: 204 });

@@ -2,6 +2,17 @@ export const locales = ['en', 'de'] as const;
 export type Locale = (typeof locales)[number];
 
 const en = {
+ provisionTitle: 'Provision a cluster',
+ provisionIntro: 'Experimental host provisioning on SSH-reachable machines. Review the plan and approve the operation before a host changes.',
+ provisionHosts: 'Hosts and SSH access',
+ provisionSafety: 'Use dedicated empty Linux hosts. Pin each SSH host key. Existing Swarm or k3s members are refused.',
+ provisionId: 'Plan ID', provisionHost: 'Host', provisionAddress: 'Host name or IPv4 address', provisionUser: 'SSH user', provisionRole: 'Role',
+ provisionManager: 'Manager', provisionWorker: 'Worker', provisionPrivateKey: 'SSH private key (write only)', provisionKnownHosts: 'Pinned known_hosts entry (write only)',
+ provisionRemove: 'Remove host', provisionAddHost: 'Add host', provisionCheck: 'Run preflight and create plan',
+ provisionInvalid: 'Enter a plan ID, unique hosts and pinned SSH credentials. The first host must be a manager; use an odd number of managers.',
+ provisionReview: 'Review plan', provisionDigest: 'Plan digest', provisionDisk: 'free disk', provisionPorts: 'ports free', provisionTime: 'time synchronized',
+ provisionDownload: 'Download script', provisionApproval: 'Queuing creates an operation. Approve its separate operation digest on the Operations page before any host command runs.',
+ provisionQueue: 'Queue Swarm operation', provisionQueued: 'Operation queued:', provisionKubernetesLimit: 'Kubernetes is a flag-gated k3s script preview. SSH execution is disabled.',
  vulnAuditNoMatches: 'No matching audit records.',
  auditActor: 'Actor', auditEvent: 'Event', auditResult: 'Result',
  kubeTitle: "Kubernetes registrations",
@@ -1144,6 +1155,17 @@ const en = {
 export type MessageKey = keyof typeof en;
 
 const de: Record<MessageKey, string> = {
+ provisionTitle: 'Cluster provisionieren',
+ provisionIntro: 'Experimentelle Host-Provisionierung auf per SSH erreichbaren Rechnern. Prüfe den Plan und gib die Operation frei, bevor ein Host geändert wird.',
+ provisionHosts: 'Hosts und SSH-Zugang',
+ provisionSafety: 'Nur dedizierte, leere Linux-Hosts verwenden. Jeden SSH-Hostschlüssel fest hinterlegen. Bestehende Swarm- oder k3s-Mitglieder werden abgelehnt.',
+ provisionId: 'Plan-ID', provisionHost: 'Host', provisionAddress: 'Hostname oder IPv4-Adresse', provisionUser: 'SSH-Benutzer', provisionRole: 'Rolle',
+ provisionManager: 'Manager', provisionWorker: 'Worker', provisionPrivateKey: 'Privater SSH-Schlüssel (nur Eingabe)', provisionKnownHosts: 'Fest hinterlegter known_hosts-Eintrag (nur Eingabe)',
+ provisionRemove: 'Host entfernen', provisionAddHost: 'Host hinzufügen', provisionCheck: 'Vorprüfung durchführen und Plan erstellen',
+ provisionInvalid: 'Plan-ID, eindeutige Hosts und fest hinterlegte SSH-Zugangsdaten eingeben. Der erste Host muss Manager sein; die Managerzahl muss ungerade sein.',
+ provisionReview: 'Plan prüfen', provisionDigest: 'Plan-Prüfsumme', provisionDisk: 'freier Speicher', provisionPorts: 'Ports frei', provisionTime: 'Zeit synchronisiert',
+ provisionDownload: 'Skript herunterladen', provisionApproval: 'Beim Einreihen entsteht eine Operation. Gib deren separate Prüfsumme auf der Operationsseite frei, bevor Host-Befehle laufen.',
+ provisionQueue: 'Swarm-Operation einreihen', provisionQueued: 'Operation eingereiht:', provisionKubernetesLimit: 'Kubernetes ist eine per Flag aktivierbare k3s-Skriptvorschau. Die SSH-Ausführung ist deaktiviert.',
  vulnAuditNoMatches: 'Keine passenden Protokolleinträge.',
  auditActor: 'Akteur', auditEvent: 'Ereignis', auditResult: 'Ergebnis',
  kubeTitle: "Kubernetes-Registrierungen",

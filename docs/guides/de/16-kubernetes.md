@@ -10,8 +10,8 @@ Der ausgelieferte Manager aktiviert und verdrahtet diese Funktion nicht.
 Bibliotheksnutzer müssen Renderer/KubeAPI ausdrücklich aktivieren. Ein
 API-Testhost muss `api.Config.ExperimentalKubernetes` setzen und das
 Registrierungsbackend bereitstellen; auch dessen `Enabled` muss gesetzt sein.
-W10 enthält keinen Produktionsschalter, keine CLI, Provisionierung und
-keinen Kubernetes-Deployment- oder Recovery-Ablauf.
+W10 enthält keinen Produktionsschalter, keine CLI, ausführbare Provisionierung und
+keinen Kubernetes-Deployment- oder Recovery-Ablauf. Eine separate [k3s-Skriptvorschau mit Flag](18-provisioning.md) ändert keinen Host.
 
 ## Registrierungsoberfläche
 

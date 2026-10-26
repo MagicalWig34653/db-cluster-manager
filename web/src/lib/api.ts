@@ -29,6 +29,28 @@ export type OperationState = (typeof operationStates)[number];
 export const severities = ['info', 'warning', 'critical', 'unknown'] as const;
 export type Severity = (typeof severities)[number];
 
+export interface ProvisionHost { id: string; address: string; user: string; role: 'manager' | 'worker' }
+export interface ProvisionPlanInput {
+	id: string;
+	platform: 'swarm' | 'kubernetes';
+	hosts: ProvisionHost[];
+	credentials: Record<string, { privateKey: string; knownHosts: string }>;
+}
+export interface ProvisionPlan {
+	id: string;
+	platform: 'swarm' | 'kubernetes';
+	hosts: ProvisionHost[];
+	checks: { hostId: string; os: string; portsAvailable: boolean; timeSynchronized: boolean; diskBytes: number; clusterId?: string }[];
+	steps: { id: string; hostId: string; action: string; command: string }[];
+	digest: string;
+	scripts: Record<string, string>;
+}
+export const isProvisionPlan = (v: unknown): v is ProvisionPlan =>
+	isObj(v) && isStr(v.id) && (v.platform === 'swarm' || v.platform === 'kubernetes') &&
+	Array.isArray(v.hosts) && Array.isArray(v.checks) && Array.isArray(v.steps) &&
+	isStr(v.digest) && /^[a-f0-9]{64}$/.test(v.digest) && isObj(v.scripts) &&
+	Object.values(v.scripts).every(isStr) && !('credentials' in v);
+
 export interface KubernetesRegistration {
  id: string;
  name: string;
@@ -1685,6 +1707,8 @@ export function createClient(fetchFn: FetchFn) {
 		leaveMaintenance: (nodeId: string) => call('DELETE', `/hosts/${encodeURIComponent(nodeId)}/maintenance`, isMaintenanceStarted),
 		clusterDrift: (id: string) => call('GET', `/clusters/${encodeURIComponent(id)}/drift`, isDriftReport),
 		kubernetesRegistrations: () => call('GET', '/kubernetes-clusters', listOfArray(isKubernetesRegistration)),
+		planProvision: (input: ProvisionPlanInput) => call('POST', '/provision/plans', isProvisionPlan, input),
+		startProvision: (id: string, digest: string) => call('POST', `/provision/plans/${encodeURIComponent(id)}/execute`, isOperationRef, { digest }),
 		registerKubernetes: (input: KubernetesRegistrationInput) => call('POST', '/kubernetes-clusters', isKubernetesRegistration, input),
 		keyring: () => call('GET', '/settings/replicas', isKeyringStatus),
 		registerReplicaKey: (replica: string, publicKey: string) =>

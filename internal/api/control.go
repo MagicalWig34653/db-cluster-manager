@@ -175,6 +175,8 @@ func ApprovalPermission(kind, swarm, cluster string) (authz.Action, authz.Resour
 	// service needs create, deleting one needs delete on the service
 	// resource in that Swarm.
 	switch kind {
+	case "provision/swarm":
+		return authz.ActionOperate, settingsResource
 	case OperationKindServiceCreate:
 		return authz.ActionCreate, authz.Resource{Type: authz.ResourceService, Scope: authz.SwarmScope(swarm)}
 	case OperationKindServiceDelete:

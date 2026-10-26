@@ -14,6 +14,8 @@ Automatic single-node replacement is allowed by policy/capacity. Full-cluster re
 
 **Packaging decision of 2026-10-23 (proposed, static checks only):** the managed-mode manager container mounts the local Docker socket on one pinned Swarm manager node, runs non-root with the socket group, read-only and without capabilities, on the host network with a loopback-only API; configuration comes from `manager init` as a non-secret Swarm config ([ADR 0014](decisions/0014-manager-container-docker-access.md)).
 
+**W10 provisioning experiment (2026-10-25, fakes only):** [ADR 0018](decisions/0018-ssh-cluster-provisioning.md) records SSH host preflight, sealed credentials, reviewed scripts, two digest checks, the term-fenced operation runner and a confirmed-host ownership manifest. Swarm is the only executable variant behind an explicit manager flag; the separately flagged k3s variant is a script preview. No real host was contacted, and this does not settle Kubernetes timing or distribution support.
+
 ## Remaining product decisions
 
 - Final project name/GitHub owner, release naming and Pages setup. Public visibility and Git initialization/public push by Claude are explicitly authorized.

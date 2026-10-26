@@ -30,7 +30,8 @@ Nothing has run on a production Swarm; the first Swarm trial has not started. Le
 | Cluster deletion as an approved plan, host maintenance, drift detection | Fakes |
 | Replicated manager (Raft metastore, peer mTLS with `-issue-peer-certs`, wrapped data keyring with `-print-replica-key`) | Fakes; no multi-replica run on VMs |
 | Web UI in German and English, light and dark; pages for services, image builds, registries, host maintenance, drift, replica keyring, logical backup and retention | Mock only |
-| Kubernetes, provisioning, web/storage servers, Traefik, image builds, engine updates | Planned ([ADR 0012](docs/decisions/0012-broadened-scope-platform.md)) |
+| Kubernetes, web/storage servers, Traefik, image builds, engine updates | Planned ([ADR 0012](docs/decisions/0012-broadened-scope-platform.md)) |
+| Cluster provisioning | Experimental Swarm plan/SSH code and Kubernetes script preview, fakes only ([guide](docs/guides/en/18-provisioning.md)) |
 | AI-assisted vulnerability response (advisory feeds, patched rebuilds or mitigations, selectable AI providers, approval by default) | Wired and UI built, fakes and mock only; proposed ([ADR 0015](docs/decisions/0015-ai-assisted-vulnerability-response.md)) |
 
 ## Screenshots
@@ -62,7 +63,7 @@ More views, also in German, are in [docs/assets/screenshots](docs/assets/screens
 
 ## Scope
 
-Scope (2026-10-22, [ADR 0012](docs/decisions/0012-broadened-scope-platform.md)): Galera on Swarm is priority 1 and the first release target. Planned later, as proposals: Kubernetes and provisioning of new Swarm/Kubernetes clusters, web servers with detailed composition (for example Nginx + PHP with chosen extensions), storage protocol servers (SFTP, FTP, S3-compatible, NFS), generic containers, Traefik management, image builds with a managed or external registry, and Docker engine updates — operable through the UI with every action shown as a reviewable plan.
+Scope (2026-10-22, [ADR 0012](docs/decisions/0012-broadened-scope-platform.md)): Galera on Swarm is priority 1 and the first release target. Proposals for later releases include Kubernetes, web servers with detailed composition (for example Nginx + PHP with chosen extensions), storage protocol servers (SFTP, FTP, S3-compatible, NFS), generic containers, Traefik management, image builds with a managed or external registry, and Docker engine updates — operable through the UI with reviewable plans. Experimental Swarm host provisioning code and a Kubernetes script preview exist only with fake-test evidence ([ADR 0018](docs/decisions/0018-ssh-cluster-provisioning.md)).
 
 The user deploys the manager; it deploys agents and database services. Swarm comes first, Kubernetes later. Local storage and replicated managers are required. Initial validation uses isolated Colima/Lima environments, not the user's existing Swarm.
 
