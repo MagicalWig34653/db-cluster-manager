@@ -7,6 +7,19 @@
 # and C are in e9-phases-proxy.sh.
 
 # ---------------------------------------------------------------- helpers
+# Host disk guard: the lab VM disks are sparse and the host may be nearly
+# full. Below E9_MIN_FREE_GIB the run stops (the exit trap removes the VMs).
+E9_MIN_FREE_GIB=${E9_MIN_FREE_GIB:-2}
+hostload() {
+	note "host uptime: $(uptime)"
+	say "host load: $(sysctl -n vm.loadavg); $(host_free_disk)"
+	local free
+	free=$(df -g "$HOME/.lima" | tail -1 | awk '{print $4}')
+	if [ "$free" -lt "$E9_MIN_FREE_GIB" ]; then
+		say "host free disk ${free} GiB is below the guard of ${E9_MIN_FREE_GIB} GiB: stopping and cleaning up"
+		exit 1
+	fi
+}
 HA_IDS="1 2 3"
 MGR_PORT_META=7445
 MGR_PORT_FWD=7447
@@ -168,6 +181,11 @@ e9_images() {
 		rec "copy the image to $vm (docker save | docker load through the host)" sh -c \
 			"limactl shell --workdir / $M1 -- sudo docker save $IMAGE | limactl shell --workdir / $vm -- sudo docker load"
 	done
+	rec "free VM disk: remove the build cache and the builder base images inside m1 (VM-local, not a host prune)" vm_root "$M1" '
+		docker builder prune -af 2>&1 | tail -1
+		for i in $(docker images --format "{{.Repository}}:{{.Tag}}" | grep -E "^(golang|node)"); do docker rmi "$i" >/dev/null 2>&1 && echo "removed $i"; done
+		fstrim -av 2>&1 | tail -2; df -h / | tail -1'
+	rec "host free disk" host_free_disk
 	for vm in $VMS; do
 		rec "pull pinned MariaDB image on $vm" vm_docker "$vm" pull -q "$MARIADB_IMAGE"
 	done
