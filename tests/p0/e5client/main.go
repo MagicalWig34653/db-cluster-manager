@@ -6,6 +6,7 @@
 //
 //	e5client gencert -dir D -name N           CA + server certificate (ECDSA P-256) for the proxy
 //	e5client status -url http://127.0.0.1:9306/status
+//	e5client sample -url U -label L -duration D -interval 100ms   one status line per tick (E9)
 //	e5client query  -addr H:P -user U -password-file F [-tls off|CAFILE] [-server-name N] SQL
 //	e5client load   -addr H:P -user U -password-file F [-tls ...] -duration 90s -interval 100ms
 //	                [-mode persistent|per-connection] [-label L]
@@ -54,7 +55,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: e5client gencert|status|query|load|bench ...")
+		fmt.Fprintln(os.Stderr, "usage: e5client gencert|status|sample|query|load|bench ...")
 		os.Exit(2)
 	}
 	var err error
@@ -63,6 +64,8 @@ func main() {
 		err = gencert(os.Args[2:])
 	case "status":
 		err = status(os.Args[2:])
+	case "sample":
+		err = sample(os.Args[2:])
 	case "query":
 		err = query(os.Args[2:])
 	case "load":
@@ -430,5 +433,61 @@ func bench(args []string) error {
 	q := func(p float64) time.Duration { return lat[int(p*float64(len(lat)-1))].Round(time.Microsecond) }
 	fmt.Printf("addr %s connect+auth %s, %d x SELECT 1: p50 %s p90 %s p99 %s max %s\n",
 		d.addr, connect.Round(time.Microsecond), *n, q(0.5), q(0.9), q(0.99), lat[len(lat)-1].Round(time.Microsecond))
+	return nil
+}
+
+// sampleLine formats one status sample: timestamp, label, HTTP code, writer,
+// has_writer, coordination epoch and pending target ("-" when empty).
+func sampleLine(at time.Time, label string, code int, body []byte) string {
+	var st struct {
+		Writer       string `json:"writer"`
+		HasWriter    bool   `json:"has_writer"`
+		Coordination *struct {
+			Epoch   uint64 `json:"epoch"`
+			Pending string `json:"pending"`
+		} `json:"coordination"`
+	}
+	ts := at.UTC().Format("15:04:05.000")
+	if err := json.Unmarshal(body, &st); err != nil {
+		return fmt.Sprintf("%s %s %d unparsable - - - -", ts, label, code)
+	}
+	w, pend, epoch := st.Writer, "-", uint64(0)
+	if w == "" {
+		w = "-"
+	}
+	if st.Coordination != nil {
+		epoch = st.Coordination.Epoch
+		if st.Coordination.Pending != "" {
+			pend = st.Coordination.Pending
+		}
+	}
+	return fmt.Sprintf("%s %s %d %s %t %d %s", ts, label, code, w, st.HasWriter, epoch, pend)
+}
+
+// sample polls a proxy status URL at a fixed interval and prints one line per
+// sample (E9: writer agreement of redundant proxies at sub-second resolution).
+func sample(args []string) error {
+	fs := flag.NewFlagSet("sample", flag.ExitOnError)
+	url := fs.String("url", "http://127.0.0.1:9306/status", "status URL")
+	label := fs.String("label", "px", "label printed on each line")
+	dur := fs.Duration("duration", 60*time.Second, "run time")
+	interval := fs.Duration("interval", 100*time.Millisecond, "time between samples")
+	_ = fs.Parse(args)
+	c := http.Client{Timeout: 400 * time.Millisecond}
+	start := time.Now()
+	for time.Since(start) < *dur {
+		tick := time.Now()
+		resp, err := c.Get(*url)
+		if err != nil {
+			fmt.Printf("%s %s 0 error - - - -\n", tick.UTC().Format("15:04:05.000"), *label)
+		} else {
+			b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+			resp.Body.Close()
+			fmt.Println(sampleLine(tick, *label, resp.StatusCode, b))
+		}
+		if w := *interval - time.Since(tick); w > 0 {
+			time.Sleep(w)
+		}
+	}
 	return nil
 }
