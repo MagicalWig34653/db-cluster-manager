@@ -314,7 +314,11 @@ func TestRetention(t *testing.T) {
 	}
 }
 
-func testBackend(t *testing.T, b Backend) {
+func testBackend(t *testing.T, b Backend) { testBackendOverhead(t, b, 0) }
+
+// testBackendOverhead runs the shared suite; overhead is the number of bytes
+// a wrapper adds to every stored object.
+func testBackendOverhead(t *testing.T, b Backend, overhead int64) {
 	ctx := context.Background()
 	if _, err := b.Get(ctx, "missing"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("get missing: %v", err)
@@ -345,7 +349,7 @@ func testBackend(t *testing.T, b Backend) {
 		t.Fatalf("got %q", got)
 	}
 	l, err := b.List(ctx, "mgr-")
-	if err != nil || len(l) != 2 || l[0].Name != "mgr-1" || l[1].Name != "mgr-2" || l[0].Size != 8 {
+	if err != nil || len(l) != 2 || l[0].Name != "mgr-1" || l[1].Name != "mgr-2" || l[0].Size != 8+overhead {
 		t.Fatalf("list: %v %+v", err, l)
 	}
 	if err := b.Delete(ctx, "mgr-1"); err != nil {
