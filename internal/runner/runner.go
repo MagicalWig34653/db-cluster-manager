@@ -1067,9 +1067,12 @@ func (r *Runner) List() []View {
 }
 
 func (r *Runner) view(st *opState) View {
-	jop, jerr := r.cfg.Journal.Get(st.def.ID)
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	// Read the journal while holding the state lock. Otherwise a snapshot
+	// could read a Running step, then observe Aborted after the execution
+	// goroutine has journaled Unknown, and publish an incoherent view.
+	jop, jerr := r.cfg.Journal.Get(st.def.ID)
 	v := View{ID: st.def.ID, Kind: st.def.Kind, Status: st.status, Term: st.term, Reason: st.reason,
 		PausedStep: st.pausedStep, AbortRequested: st.abortReq, Locks: slices.Clone(st.def.Locks),
 		Timeline: slices.Clone(st.timeline)}

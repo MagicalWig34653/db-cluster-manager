@@ -88,6 +88,40 @@ func assertAPIAborted(t *testing.T, l *Service, opID string) api.Operation {
 	return o
 }
 
+// An abort request can save a Running snapshot while the execution goroutine
+// saves its Aborted result. Raft commits may complete in the opposite order.
+func TestAbortViewCannotBeOverwrittenByEarlierRunningSnapshot(t *testing.T) {
+	c := newCluster(t, 1, nil)
+	l := c.leader()
+	const id = "abort-view-order"
+	const kind = "galera/create-cluster"
+	if _, err := Put(l.Store(), CollOperations, id, OperationRecord{ID: id, Kind: kind}, IfVersion(0)); err != nil {
+		t.Fatal(err)
+	}
+	term := l.Node().Term()
+	stale := runner.View{ID: id, Kind: kind, Status: runner.StatusRunning, Term: term,
+		AbortRequested: true, Steps: []runner.StepView{{ID: "exec-sql", State: opjournal.Running}},
+		Timeline: []runner.Event{{Type: runner.EventAbortRequested}}}
+	aborted := runner.View{ID: id, Kind: kind, Status: runner.StatusAborted, Term: term,
+		Reason:   "aborted at a safe boundary; outcome unknown for step(s) [exec-sql]",
+		Steps:    []runner.StepView{{ID: "exec-sql", State: opjournal.Unknown}},
+		Timeline: []runner.Event{{Type: runner.EventAbortRequested}, {Type: runner.EventAbort}}}
+	if err := l.saveView(aborted); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.saveView(stale); err != nil {
+		t.Fatal(err)
+	}
+	rec := opRecord(t, l, id)
+	if rec.View == nil || rec.View.Status != runner.StatusAborted || rec.View.Steps[0].State != opjournal.Unknown {
+		t.Fatalf("stale snapshot replaced aborted operation: %+v", rec.View)
+	}
+	if rec.EndedAt.IsZero() {
+		t.Fatal("aborted operation lost its end time")
+	}
+	assertAPIAborted(t, l, id)
+}
+
 // TestAbortCreateRetryingExecSQLThenDelete reproduces lab E4 failcreate:
 // abort ends the create promptly although its exec-sql step is in its
 // retry backoff, the progress shows the agent's error, and the cluster's

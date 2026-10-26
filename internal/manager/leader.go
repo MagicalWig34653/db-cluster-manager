@@ -261,6 +261,29 @@ func terminal(st runner.Status) bool {
 	return st == runner.StatusSucceeded || st == runner.StatusAborted || st == runner.StatusFailed
 }
 
+var errSupersededView = errors.New("manager: operation view superseded")
+
+func viewSuperseded(current *runner.View, next runner.View) bool {
+	if current == nil {
+		return false
+	}
+	// A completed operation cannot change status. A later view of the same
+	// terminal status may still add step details after recovery.
+	completed := current.Status == runner.StatusSucceeded || current.Status == runner.StatusAborted
+	if completed && next.Status != current.Status {
+		return true
+	}
+	if next.Term != current.Term {
+		return next.Term < current.Term
+	}
+	// Each runner event advances the timeline. An older snapshot can finish
+	// its store transaction after a newer one under the same leader term.
+	if completed {
+		return len(next.Timeline) <= len(current.Timeline)
+	}
+	return len(next.Timeline) < len(current.Timeline)
+}
+
 // saveView stores an operation's runner view in its record and records an
 // event when the operation first reaches a terminal status.
 func (s *Service) saveView(v runner.View) error {
@@ -277,6 +300,9 @@ func (s *Service) saveView(v runner.View) error {
 		if !exists {
 			return cur, ErrNotFound
 		}
+		if viewSuperseded(cur.View, v) {
+			return cur, errSupersededView
+		}
 		ended = false
 		vc := v
 		cur.View = &vc
@@ -287,6 +313,9 @@ func (s *Service) saveView(v runner.View) error {
 		}
 		return cur, nil
 	})
+	if errors.Is(err, errSupersededView) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}

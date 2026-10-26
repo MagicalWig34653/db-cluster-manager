@@ -27,6 +27,17 @@ For the active task, maintain: objective, changed files/contracts, executed chec
 
 ## Current next action
 
+Abort view-ordering fix (2026-10-25, `cx-abortfix`): a deterministic regression
+test now covers a stale `running` snapshot arriving after `aborted`; the manager
+keeps the terminal view and the in-flight step's unknown outcome. Three
+separate 30-count `TestAbortCreate` race runs passed. The baseline `536154d`
+also failed once under concurrent host load, so the suspected range is not a
+valid monotonic bisect range. The full race suite was attempted and failed on
+sandbox-denied local listeners; formatting, vet and documentation checks
+passed. See [actual results](STATUS.md#abort-view-ordering-fix-2026-10-25-cx-abortfix).
+Next for this fix: rerun `go test -race -count=1 -p 4 ./...` where local
+listeners are permitted. W05 and R1 release gates remain open.
+
 E4 re-run 2026-10-24: Part A attempt 4 passed all 19 steps and Part B attempt 2 (three manager replicas with `manager.keyring` and `manager.peerTLS`, two leader SIGKILLs) passed all steps, both on lab VMs under foreign host load ([A4](../tests/p0/results/e4-rerun-A4.md), [B2](../tests/p0/results/e4-rerun-B2.md)). Fixed before the runs (fakes first): the API reports an operator abort as `aborted`; the runner journals a due retry and the attempt's agent step ID, so a deletion survives a manager restart during the "volume in use" backoff; replica configs whose node ID is not in the peers are refused; the script's node-ID quoting and replica-log capture. Next: the remaining W05 items below (redundant proxy/VIP, VM power-loss outage, native amd64 evidence, `deploy/stack.yaml` with a `manager init` configuration on lab VMs, done in E7).
 
 

@@ -2,6 +2,39 @@
 
 Updated: 2026-10-25.
 
+## Abort view ordering fix (2026-10-25, cx-abortfix)
+
+`TestAbortCreate` intermittently timed out under host load because an abort
+request saved an older `running` runner snapshot after the execution goroutine
+had saved `aborted`. The persisted operation then had `EndedAt` set but still
+reported `running`; the runner and journal had already reached `aborted` and
+`unknown` for the in-flight exec-sql step. The manager now discards superseded
+views by leader term and runner timeline length, and never replaces a stored
+`aborted` or `succeeded` status with another status. The runner reads its
+journal and state together so a terminal view cannot carry an earlier
+`running` step. Failed operations remain resumable and abortable.
+A deterministic test saves the two snapshots in reverse order and checks that
+the API remains aborted and the step remains unknown. It failed before the fix
+and passed after it.
+
+The suspected regression interval was not a valid monotonic bisect range in
+this environment: a detached worktree at `536154d` also timed out once during
+`go test -race -count=15 -run TestAbortCreate ./internal/manager` while another
+race run loaded the host. The view-saving code responsible for the overwrite
+was already present at that commit. The current commit before the fix failed
+in a five-count race run; the diagnostic run captured the persisted/runner
+disagreement above. No infrastructure was used.
+
+After the fix, three separate `go test -race -count=30 -run TestAbortCreate
+./internal/manager` runs passed (90 repetitions of each matching test overall).
+`gofmt -l .` was empty, `go vet ./...` passed, and
+`python3 scripts/check_docs.py` reported 73 Markdown files, 69 requirements,
+zero errors. `go test -race -count=1 -p 4 ./...` was executed but exited 1:
+existing tests across packages could not bind local TCP/Unix listeners in this
+sandbox (`operation not permitted`); `internal/manager` aborted at an
+`httptest` listener before its full test set ran. The full race gate therefore
+remains unverified. Next: rerun that gate where local listeners are permitted.
+
 ## Phase
 
 Concept documented; Claude Code handover prepared. Go and the monorepo are confirmed. The user explicitly authorized Claude to initialize Git and push a public GitHub repository.
