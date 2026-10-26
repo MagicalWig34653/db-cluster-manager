@@ -72,9 +72,10 @@
 						</Button>
 					{/snippet}
 				</Sheet.Trigger>
-				<Sheet.Content side="left" showCloseButton={false} class="w-72 p-3">
+				<Sheet.Content side="left" showCloseButton={false} class="max-w-[calc(100vw-1rem)] w-72 overflow-y-auto p-3">
 					<div class="flex items-center justify-between">
 						<Sheet.Title class="text-base">{@render brand()}</Sheet.Title>
+						<Sheet.Description class="sr-only">{t('mainNavigation')}</Sheet.Description>
 						<Sheet.Close>
 							{#snippet child({ props })}
 								<Button {...props} variant="ghost" size="icon-sm" aria-label={t('closeNavigation')}><X aria-hidden="true" /></Button>
@@ -96,7 +97,7 @@
 			</div>
 		</header>
 
-		<main id="main" class="mx-auto w-full max-w-6xl flex-1 p-4 sm:p-6">
+		<main id="main" tabindex="-1" class="mx-auto w-full min-w-0 max-w-6xl flex-1 p-4 sm:p-6">
 			{#if st.status === 'loading' || st.status === 'anonymous'}
 				<Loading />
 			{:else if st.status === 'error'}

@@ -29,6 +29,9 @@ For the active task, maintain: objective, changed files/contracts, executed chec
 
 ## Current next action
 
+Static accessibility/UX follow-up (2026-10-26, `cx-a11y`): `web/src` now has shared loading/empty/error states, validation announcements in the main forms, stronger light/dark contrast tokens, keyboard/focus corrections and a DE/EN Svelte-template checker. Web checks pass (22 files / 212 Vitest tests); the full Go race gate was attempted and failed on sandbox-denied TCP/Unix listeners after moving its cache to a writable directory. The 360 px review is source/CSS only. See [actual results and limits](STATUS.md#static-web-accessibility-and-ux-review-2026-10-26-cx-a11y-fakesunit-only) and [design note](DESIGN.md#static-accessibility-and-narrow-screen-review-2026-10-26). Next: synthetic-data browser and screen-reader verification at 360 px/zoom, then the full Go race gate where local listeners are allowed. This does not change W05/R1 priorities.
+
+
 UI coverage round 2 (2026-10-26, `w06-ui2`): the Galera operation planner, data-key rotation, metastore membership and proxy writer switch now have DE/EN UI with digest confirmation, mock data, vitest and mock screenshots; all checks passed locally (see [actual results](STATUS.md#ui-coverage-round-2-2026-10-26-w06-ui2-mock-only)). Next: verify these panels against a real manager with the opt-in backends enabled.
 
 Abort view-ordering fix (2026-10-25, `cx-abortfix`): a deterministic regression

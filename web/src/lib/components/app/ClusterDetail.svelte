@@ -232,7 +232,7 @@
 					</p>
 					{#if d.positions.length > 0}
 						<Table.Root>
-							<Table.Header><Table.Row><Table.Head>{t('colId')}</Table.Head><Table.Head>seqno</Table.Head><Table.Head>{t('source')}</Table.Head><Table.Head>{t('outageSafe')}</Table.Head></Table.Row></Table.Header>
+							<Table.Header><Table.Row><Table.Head>{t('colId')}</Table.Head><Table.Head>{t('seqno')}</Table.Head><Table.Head>{t('source')}</Table.Head><Table.Head>{t('outageSafe')}</Table.Head></Table.Row></Table.Header>
 							<Table.Body>
 								{#each d.positions as p (p.slot)}
 									<Table.Row>

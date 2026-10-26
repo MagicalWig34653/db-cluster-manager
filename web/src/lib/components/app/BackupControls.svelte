@@ -115,7 +115,7 @@
 			{#if form.method === 'logical'}
 				<div class="space-y-1.5">
 					<Label for="bp-dbs-{cluster}">{t('policyDatabases')}</Label>
-					<Input id="bp-dbs-{cluster}" class="font-mono" bind:value={form.databases} autocomplete="off" aria-invalid={invalid.includes('databases')} aria-describedby="bp-dbs-hint-{cluster}" placeholder="app, shop" />
+					<Input id="bp-dbs-{cluster}" class="font-mono" bind:value={form.databases} autocomplete="off" aria-invalid={invalid.includes('databases')} aria-describedby="bp-dbs-hint-{cluster}" placeholder={t('exampleDatabases')} />
 					<p id="bp-dbs-hint-{cluster}" class="text-xs {invalid.includes('databases') ? 'text-red-700 dark:text-red-400' : 'text-muted-foreground'}">{invalid.includes('databases') ? t('valDatabases') : t('policyDatabasesHint')}</p>
 				</div>
 			{/if}

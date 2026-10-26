@@ -1,4 +1,6 @@
 <script lang="ts">
+	import StateView from '../../../lib/components/app/StateView.svelte';
+
 	import { api } from '../../../lib/api';
 	import { newestFirst } from '../../../lib/format';
 	import { load } from '../../../lib/load.svelte';
@@ -19,7 +21,7 @@
 {:else if ops.state.status === 'error'}
 	<ErrorNotice error={ops.state.error} retry={ops.reload} />
 {:else if sorted.length === 0}
-	<p class="text-sm text-muted-foreground">{t('operationsEmpty')}</p>
+	<StateView kind="empty" message="operationsEmpty" />
 {:else}
 	<p class="mb-4 text-xs text-muted-foreground">{t('opNoPause')}</p>
 	<!-- Timeline, newest first. -->

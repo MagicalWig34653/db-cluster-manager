@@ -60,7 +60,7 @@
 		<Card.Content><form onsubmit={preflight} class="space-y-5">
 			<div class="grid gap-4 sm:grid-cols-2">
 				<div class="space-y-1"><Label for="plan-id">{t('provisionId')}</Label><Input id="plan-id" bind:value={form.id} required /></div>
-				<div class="space-y-1"><Label for="platform">{t('platform')}</Label><select id="platform" class={selectClass} bind:value={form.platform}><option value="swarm">Docker Swarm</option><option value="kubernetes">Kubernetes (k3s preview)</option></select></div>
+				<div class="space-y-1"><Label for="platform">{t('platform')}</Label><select id="platform" class={selectClass} bind:value={form.platform}><option value="swarm">{t('swarmPlatform')}</option><option value="kubernetes">{t('k3sPreview')}</option></select></div>
 			</div>
 			{#each form.hosts as host, i (host.id)}
 				<fieldset class="space-y-3 rounded border p-4" disabled={busy}>
@@ -83,7 +83,7 @@
 	{#if plan}
 		<Card.Root><Card.Header><Card.Title>{t('provisionReview')}</Card.Title><Card.Description>{t('provisionDigest')}: <code class="break-all">{plan.digest}</code></Card.Description></Card.Header>
 			<Card.Content class="space-y-4">
-				{#each plan.checks as c}<p class="text-sm">{c.hostId}: {c.os}, {t('provisionDisk')} {Math.floor(c.diskBytes / 1024 ** 3)} GiB, {t('provisionPorts')} {c.portsAvailable ? t('yes') : t('no')}, {t('provisionTime')} {c.timeSynchronized ? t('yes') : t('no')}</p>{/each}
+				{#each plan.checks as c}<p class="text-sm">{c.hostId}: {c.os}, {t('provisionDisk')} {Math.floor(c.diskBytes / 1024 ** 3)} {t('gibUnit')}, {t('provisionPorts')} {c.portsAvailable ? t('yes') : t('no')}, {t('provisionTime')} {c.timeSynchronized ? t('yes') : t('no')}</p>{/each}
 				{#each plan.steps as s}<div class="rounded border p-3"><p class="font-medium">{s.hostId} · {s.action}</p><pre class="overflow-x-auto text-xs">{s.command}</pre><Button type="button" variant="outline" onclick={() => download(s.hostId, plan!.scripts[s.hostId])}>{t('provisionDownload')}</Button></div>{/each}
 				{#if plan.platform === 'swarm'}<p class="text-sm">{t('provisionApproval')}</p><Button type="button" onclick={execute} disabled={busy || !!started}>{t('provisionQueue')}</Button>
 				{:else}<p class="text-sm">{t('provisionKubernetesLimit')}</p>{/if}

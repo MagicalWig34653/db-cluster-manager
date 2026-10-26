@@ -14,6 +14,8 @@
 	import ApiGate from '../../../../lib/components/app/ApiGate.svelte';
 	import ErrorNotice from '../../../../lib/components/app/ErrorNotice.svelte';
 	import Loading from '../../../../lib/components/app/Loading.svelte';
+	import FormErrors from '../../../../lib/components/app/FormErrors.svelte';
+	import { focusFirstInvalid } from '../../../../lib/components/app/form-focus';
 
 	// POST /api/v1/clusters with api.CreateClusterRequest (lib/cluster.ts
 	// buildRequest) answers 202 { id, kind } of the started operation. Coded
@@ -30,6 +32,7 @@
 	let created = $state<{ id: string; kind?: string } | undefined>();
 	let submitError = $state<ReturnType<typeof asApiError> | undefined>();
 	let shown = $state(false); // show validation errors after the first attempt to proceed
+	let wizard = $state<HTMLDivElement | null>(null);
 
 	const errors = $derived(validate(form));
 	const errFor = (f: keyof ClusterForm) => (shown ? errors.find((e) => e.field === f)?.key : undefined);
@@ -57,7 +60,10 @@
 	];
 	function next() {
 		shown = true;
-		if (errors.some((e) => stepFields[step].includes(e.field))) return;
+		if (errors.some((e) => stepFields[step].includes(e.field))) {
+			void focusFirstInvalid(wizard);
+			return;
+		}
 		shown = false;
 		step = Math.min(step + 1, steps.length - 1);
 	}
@@ -66,7 +72,10 @@
 	}
 	async function create() {
 		shown = true;
-		if (errors.length > 0) return;
+		if (errors.length > 0) {
+			void focusFirstInvalid(wizard);
+			return;
+		}
 		busy = true;
 		submitError = undefined;
 		try {
@@ -119,6 +128,8 @@
 		{/each}
 	</ol>
 
+	<div bind:this={wizard}>
+	<FormErrors errors={shown ? errors.filter((error) => stepFields[step].includes(error.field)).map((error) => error.key) : []} />
 	<Card.Root>
 		<Card.Content class="space-y-5">
 			{#if step === 0}
@@ -176,7 +187,7 @@
 					</ol>
 				</div>
 				{#if form.mode !== 'automatic'}
-					<fieldset class="space-y-2">
+					<fieldset class="space-y-2" tabindex="-1" data-invalid={errFor('hosts') ? 'true' : undefined} aria-describedby={errFor('hosts') ? 'hosts-error' : undefined}>
 						<legend class="text-sm font-medium">{t('pickHosts')}</legend>
 						{#if hosts.state.status === 'loading'}
 							<Loading />
@@ -192,7 +203,7 @@
 								</label>
 							{/each}
 						{/if}
-						{#if errFor('hosts')}<p class="text-xs text-red-700 dark:text-red-400">{t(errFor('hosts')!)}</p>{/if}
+						{#if errFor('hosts')}<p id="hosts-error" class="text-xs text-red-700 dark:text-red-400">{t(errFor('hosts')!)}</p>{/if}
 					</fieldset>
 				{/if}
 			{:else if step === 2}
@@ -274,4 +285,5 @@
 			</div>
 		</Card.Content>
 	</Card.Root>
+	</div>
 {/if}

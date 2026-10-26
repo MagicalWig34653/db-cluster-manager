@@ -1,4 +1,6 @@
 <script lang="ts">
+	import StateView from '../../../lib/components/app/StateView.svelte';
+
 	import { api, asApiError, type ApiError, type Host } from '../../../lib/api';
 	import { load } from '../../../lib/load.svelte';
 	import { locale, t } from '../../../lib/locale.svelte';
@@ -52,7 +54,7 @@
 {:else if hosts.state.status === 'error'}
 	<ApiGate error={hosts.state.error} retry={hosts.reload} />
 {:else if hosts.state.value.length === 0}
-	<p class="text-sm text-muted-foreground">{t('hostsEmpty')}</p>
+	<StateView kind="empty" message="hostsEmpty" />
 {:else}
 	<div class="overflow-x-auto rounded-lg border">
 		<Table.Root>
@@ -63,7 +65,7 @@
 					<Table.Head>{t('colEnrollment')}</Table.Head>
 					<Table.Head>{t('colState')}</Table.Head>
 					<Table.Head>{t('colAgentIdentity')}</Table.Head>
-					<Table.Head>Docker</Table.Head>
+					<Table.Head>{t('dockerLabel')}</Table.Head>
 					<Table.Head>{t('colAgentVersion')}</Table.Head>
 					<Table.Head>{t('colAgentSeen')}</Table.Head>
 					<Table.Head>{t('colLastObserved')}</Table.Head>

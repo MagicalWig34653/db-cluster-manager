@@ -14,6 +14,8 @@
 	import PageHeader from '../../../../lib/components/app/PageHeader.svelte';
 	import ApiGate from '../../../../lib/components/app/ApiGate.svelte';
 	import Loading from '../../../../lib/components/app/Loading.svelte';
+	import FormErrors from '../../../../lib/components/app/FormErrors.svelte';
+	import { focusFirstInvalid } from '../../../../lib/components/app/form-focus';
 
 	// GET/PUT /settings/notifications and POST /settings/notifications/test.
 	// The webhook secret and the SMTP password are write-only: they are sent
@@ -22,6 +24,7 @@
 	let form = $state<NotifyForm | undefined>();
 	let loadedFrom: NotificationSettings | undefined;
 	let invalid = $state<NotifyError[]>([]);
+	let notifyForm = $state<HTMLFormElement | null>(null);
 	let saving = $state(false);
 	let saved = $state(false);
 	let saveError = $state<ApiError | undefined>();
@@ -41,7 +44,10 @@
 		e.preventDefault();
 		if (!form) return;
 		invalid = validateNotify(form);
-		if (invalid.length > 0) return;
+		if (invalid.length > 0) {
+			void focusFirstInvalid(notifyForm);
+			return;
+		}
 		saving = true;
 		saved = false;
 		saveError = undefined;
@@ -83,7 +89,8 @@
 			<ApiGate error={settings.state.error} retry={settings.reload} />
 		{:else if form}
 			{@const s = settings.state.value}
-			<form class="space-y-5" onsubmit={save}>
+			<form bind:this={notifyForm} class="space-y-5" onsubmit={save} novalidate>
+				<FormErrors errors={invalid.map((key) => errKey[key])} />
 				<div class="space-y-1.5">
 					<Label for="ns-sev">{t('notifyMinSeverity')}</Label>
 					<select id="ns-sev" class={selectClass} value={form.minSeverity} onchange={(e) => { if (form && isMinSeverity(e.currentTarget.value)) form.minSeverity = e.currentTarget.value; }} aria-describedby="ns-sev-hint">
@@ -96,8 +103,8 @@
 					<legend class="text-sm font-medium">{t('webhook')}</legend>
 					<label class="flex items-center gap-2 text-sm"><input type="checkbox" class={checkClass} bind:checked={form.webhookEnabled} />{t('enabled')}</label>
 					<div class="space-y-1.5">
-						<Label for="wh-url">URL</Label>
-						<Input id="wh-url" type="url" bind:value={form.webhookUrl} autocomplete="off" placeholder="https://" aria-invalid={invalid.includes('webhookUrl')} />
+						<Label for="wh-url">{t('urlLabel')}</Label>
+						<Input id="wh-url" type="url" bind:value={form.webhookUrl} autocomplete="off" placeholder={t('exampleHttps')} aria-invalid={invalid.includes('webhookUrl')} />
 						{#if invalid.includes('webhookUrl')}<p class="text-xs text-red-700 dark:text-red-400">{t(errKey.webhookUrl)}</p>{/if}
 					</div>
 					<div class="space-y-1.5">
@@ -120,7 +127,7 @@
 					</div>
 					<div class="space-y-1.5">
 						<Label for="em-addr">{t('smtpAddr')}</Label>
-						<Input id="em-addr" bind:value={form.addr} autocomplete="off" placeholder="smtp.example.org:587" aria-invalid={invalid.includes('addr')} />
+						<Input id="em-addr" bind:value={form.addr} autocomplete="off" placeholder={t('exampleSmtp')} aria-invalid={invalid.includes('addr')} />
 						{#if invalid.includes('addr')}<p class="text-xs text-red-700 dark:text-red-400">{t(errKey.addr)}</p>{/if}
 					</div>
 					<div class="space-y-1.5">

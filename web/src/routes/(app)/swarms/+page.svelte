@@ -1,4 +1,6 @@
 <script lang="ts">
+	import StateView from '../../../lib/components/app/StateView.svelte';
+
 	import { api, asApiError, type AgentDeployment, type ApiError, type Swarm } from '../../../lib/api';
 	import { load } from '../../../lib/load.svelte';
 	import { t } from '../../../lib/locale.svelte';
@@ -88,7 +90,7 @@
 	{:else if swarms.state.status === 'error'}
 		<ErrorNotice error={swarms.state.error} retry={swarms.reload} />
 	{:else if swarms.state.value.length === 0}
-		<p class="text-sm text-muted-foreground">{t('swarmsEmpty')}</p>
+		<StateView kind="empty" message="swarmsEmpty" />
 	{:else}
 		<div class="rounded-lg border">
 			<Table.Root>

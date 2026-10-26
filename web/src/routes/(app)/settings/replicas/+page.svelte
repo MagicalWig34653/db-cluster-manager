@@ -166,7 +166,7 @@
 					</div>
 					<div class="space-y-1.5">
 						<Label for="rk-key">{t('keyPublicKey')}</Label>
-						<Input id="rk-key" class="font-mono" bind:value={publicKey} autocomplete="off" spellcheck={false} aria-invalid={touched && !keyOk} placeholder="dbcmpk1:…" />
+						<Input id="rk-key" class="font-mono" bind:value={publicKey} autocomplete="off" spellcheck={false} aria-invalid={touched && !keyOk} placeholder={t('examplePublicKey')} />
 						{#if touched && !keyOk}<p class="text-xs text-red-700 dark:text-red-400">{t('valKeyFormat')}</p>{/if}
 					</div>
 					<Button type="submit" disabled={busy}>{t('keyRegisterBtn')}</Button>

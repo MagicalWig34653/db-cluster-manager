@@ -113,7 +113,7 @@
 					{#if form.kind === 'generic'}
 						<div class="space-y-1.5">
 							<Label for="rg-ep">{t('regEndpoint')}</Label>
-							<Input id="rg-ep" class="font-mono" bind:value={form.endpoint} autocomplete="off" placeholder="https://registry.example.org" aria-invalid={invalid.includes('endpoint')} aria-describedby="rg-ep-hint" />
+							<Input id="rg-ep" class="font-mono" bind:value={form.endpoint} autocomplete="off" placeholder={t('exampleRegistryUrl')} aria-invalid={invalid.includes('endpoint')} aria-describedby="rg-ep-hint" />
 							<p id="rg-ep-hint" class="text-xs {invalid.includes('endpoint') ? 'text-red-700 dark:text-red-400' : 'text-muted-foreground'}">{invalid.includes('endpoint') ? t('valRegEndpoint') : t('regEndpointHint')}</p>
 						</div>
 					{/if}

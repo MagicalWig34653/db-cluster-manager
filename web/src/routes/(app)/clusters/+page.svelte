@@ -1,4 +1,6 @@
 <script lang="ts">
+	import StateView from '../../../lib/components/app/StateView.svelte';
+
 	import { api } from '../../../lib/api';
 	import { load } from '../../../lib/load.svelte';
 	import { t } from '../../../lib/locale.svelte';
@@ -22,7 +24,7 @@
 {:else if clusters.state.status === 'error'}
 	<ErrorNotice error={clusters.state.error} retry={clusters.reload} />
 {:else if clusters.state.value.length === 0}
-	<p class="text-sm text-muted-foreground">{t('clustersEmpty')}</p>
+	<StateView kind="empty" message="clustersEmpty" />
 {:else}
 	<div class="rounded-lg border">
 		<Table.Root>

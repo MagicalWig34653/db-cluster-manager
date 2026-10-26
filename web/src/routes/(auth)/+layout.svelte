@@ -33,7 +33,7 @@
 		</span>
 		<div class="ml-auto"><LanguageSwitch /></div>
 	</header>
-	<main id="main" class="mx-auto w-full max-w-lg flex-1 p-4 sm:py-12">
+	<main id="main" tabindex="-1" class="mx-auto w-full min-w-0 max-w-lg flex-1 p-4 sm:py-12">
 		{#if st.status === 'loading'}
 			<Loading />
 		{:else if st.status === 'error'}

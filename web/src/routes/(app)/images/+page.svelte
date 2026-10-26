@@ -147,19 +147,19 @@
 					</div>
 					<div class="space-y-1.5">
 						<Label for="im-nginx">{t('imgNginx')}</Label>
-						<select id="im-nginx" class={selectClass} bind:value={form.nginxVersion}>{#each nginxVersions as v (v)}<option value={v}>nginx {v}</option>{/each}</select>
+						<select id="im-nginx" class={selectClass} bind:value={form.nginxVersion}>{#each nginxVersions as v (v)}<option value={v}>{t('nginxLabel')} {v}</option>{/each}</select>
 					</div>
 					<div class="space-y-1.5">
 						<Label for="im-php">{t('imgPhp')}</Label>
 						<select id="im-php" class={selectClass} bind:value={form.phpVersion} onchange={() => (form.extensions = pruneExtensions(form.phpVersion, form.extensions))}>
 							<option value="">{t('imgPhpNone')}</option>
-							{#each phpVersions as v (v)}<option value={v}>PHP {v}</option>{/each}
+							{#each phpVersions as v (v)}<option value={v}>{t('phpLabel')} {v}</option>{/each}
 						</select>
 					</div>
 				</div>
 				<div class="space-y-1.5">
 					<Label for="im-digest">{t('imgBaseDigest')}</Label>
-					<Input id="im-digest" class="font-mono" bind:value={form.baseDigest} autocomplete="off" placeholder="sha256:…" aria-invalid={bad('digest')} aria-describedby="im-digest-hint" />
+					<Input id="im-digest" class="font-mono" bind:value={form.baseDigest} autocomplete="off" placeholder={t('exampleSha')} aria-invalid={bad('digest')} aria-describedby="im-digest-hint" />
 					<p id="im-digest-hint" class="text-xs {bad('digest') ? 'text-red-700 dark:text-red-400' : 'text-muted-foreground'}">{bad('digest') ? t('valImgDigest') : t('imgBaseDigestHint')}</p>
 				</div>
 
@@ -232,7 +232,7 @@
 
 				<div class="space-y-1.5">
 					<Label for="im-snip">{t('imgSnippet')}</Label>
-					<textarea id="im-snip" rows="4" class="w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring" bind:value={form.snippet} aria-invalid={bad('snippet')} aria-describedby="im-snip-hint" placeholder={'location /health {\n    return 200 "ok";\n}'}></textarea>
+					<textarea id="im-snip" rows="4" class="w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring" bind:value={form.snippet} aria-invalid={bad('snippet')} aria-describedby="im-snip-hint" placeholder={t('exampleNginxSnippet')}></textarea>
 					<p id="im-snip-hint" class="text-xs {bad('snippet') ? 'text-red-700 dark:text-red-400' : 'text-muted-foreground'}">{bad('snippet') ? t('valImgSnippet') : t('imgSnippetHint')}</p>
 				</div>
 
@@ -268,12 +268,12 @@
 						</div>
 						<div class="space-y-1">
 							<Label for="im-repo" class="text-xs">{t('imgRepository')}</Label>
-							<Input id="im-repo" class="font-mono" bind:value={form.repository} autocomplete="off" placeholder="team/shop-web" aria-invalid={bad('repository')} />
+							<Input id="im-repo" class="font-mono" bind:value={form.repository} autocomplete="off" placeholder={t('exampleRepository')} aria-invalid={bad('repository')} />
 							{#if bad('repository')}<p class="text-xs text-red-700 dark:text-red-400">{t('valImgRepository')}</p>{/if}
 						</div>
 						<div class="space-y-1">
 							<Label for="im-tag" class="text-xs">{t('imgTag')}</Label>
-							<Input id="im-tag" class="font-mono" bind:value={form.tag} autocomplete="off" placeholder="1.0.0" aria-invalid={bad('tag')} />
+							<Input id="im-tag" class="font-mono" bind:value={form.tag} autocomplete="off" placeholder={t('exampleTag')} aria-invalid={bad('tag')} />
 							{#if bad('tag')}<p class="text-xs text-red-700 dark:text-red-400">{t('valImgTag')}</p>{/if}
 						</div>
 					</div>

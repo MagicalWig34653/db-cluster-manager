@@ -23,6 +23,8 @@ layout: landing
 [Current status](STATUS.md)
 </div>
 
+Keyboard navigation, focus and narrow-screen behavior are described in the [UI design note](DESIGN.md#static-accessibility-and-narrow-screen-review-2026-10-26) and the bilingual getting-started guides. This review is static; no new browser or screen-reader result is claimed.
+
 <div class="shot" markdown="1">
 ![Cluster detail page of the web UI with node table and state](assets/screenshots/en-light-cluster-detail.png)
 

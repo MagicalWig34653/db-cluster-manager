@@ -1,4 +1,6 @@
 <script lang="ts">
+	import StateView from '../../../lib/components/app/StateView.svelte';
+
 	import { api } from '../../../lib/api';
 	import { dateTime, newestFirst, relativeAge } from '../../../lib/format';
 	import { load } from '../../../lib/load.svelte';
@@ -20,7 +22,7 @@
 {:else if events.state.status === 'error'}
 	<ErrorNotice error={events.state.error} retry={events.reload} />
 {:else if sorted.length === 0}
-	<p class="text-sm text-muted-foreground">{t('eventsEmpty')}</p>
+	<StateView kind="empty" message="eventsEmpty" />
 {:else}
 	<div class="rounded-lg border">
 		<Table.Root>

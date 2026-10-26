@@ -1,8 +1,7 @@
 <script lang="ts">
-	import CircleDashed from '@lucide/svelte/icons/circle-dashed';
 	import type { ApiError } from '../../api';
-	import { t } from '../../locale.svelte';
 	import ErrorNotice from './ErrorNotice.svelte';
+	import StateView from './StateView.svelte';
 
 	let { error, retry }: { error: ApiError; retry?: () => void } = $props();
 	// 404/503 on an endpoint this UI knows only from its assumed contract means
@@ -12,10 +11,7 @@
 </script>
 
 {#if missing}
-	<div class="rounded-lg border border-dashed p-4 text-sm" role="status">
-		<p class="flex items-center gap-2 font-medium"><CircleDashed class="size-4" aria-hidden="true" />{t('apiNotAvailable')}</p>
-		<p class="mt-1 text-muted-foreground">{t('apiNotAvailableBody')}</p>
-	</div>
+	<StateView kind="empty" title="apiNotAvailable" message="apiNotAvailableBody" />
 {:else}
 	<ErrorNotice {error} {retry} />
 {/if}

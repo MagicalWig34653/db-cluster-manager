@@ -49,6 +49,10 @@ Prüfstand: Der API-Ablauf lief auf Lab-VMs mit einem ES256-Software-Authenticat
 
 Token verloren: Manager neu starten (solange kein Administrator existiert, wird ein neues Token ausgegeben). Alle Passkeys verloren: siehe [Sicherheitsmodell](08-security-model.md).
 
+## Oberfläche mit der Tastatur bedienen
+
+Mit Tab erreichen Sie Sprachwahl, Navigation und Seitenaktionen. Der Sprunglink am Seitenanfang führt zum Hauptinhalt. Auf schmalen Bildschirmen öffnen Sie die Navigation über die Menüschaltfläche; Escape schließt sie. Nach einem Seitenwechsel wird die neue Überschrift fokussiert. Tabellen lassen sich fokussieren und horizontal mit der Tastatur verschieben. In den wichtigsten Formularen für Cluster, Dienste, Dashboards und Benachrichtigungen wird bei Eingabefehlern eine Zusammenfassung angesagt und das erste ungültige Feld fokussiert. Diese Funktionen wurden statisch und mit Unit-Tests geprüft; ein Browser- oder Screenreader-Test für diese Änderung steht noch aus.
+
 ## Nächste Schritte
 
 Swarm anbinden und Hosts einbinden: [Hosts und Agenten einbinden](02-hosts-and-agents.md). Lesen Sie vor jedem Vertrauen [Bekannte Grenzen](10-known-limits.md).
