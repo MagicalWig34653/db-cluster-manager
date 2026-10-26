@@ -924,6 +924,15 @@ export interface MaintenanceStarted {
 	plan: MaintenancePreview;
 }
 
+export interface EngineUpdatePlan {
+	swarm: string; host: string; currentVersion: string; targetVersion?: string;
+	availableVersions: string[]; compatibility?: string; maintenance: MaintenancePreview;
+	steps: string[]; warnings: string[]; blockers: string[]; rollbackNotes: string[];
+	pinnedManager: boolean; approvalRequired: boolean; exportable: boolean; digest: string;
+}
+
+export interface EngineRunbook { digest: string; script: string }
+
 export const driftKinds = [
 	'missing-service',
 	'service-replaced-outside',
@@ -1299,6 +1308,15 @@ export const isMaintenancePreview = (v: unknown): v is MaintenancePreview =>
 
 export const isMaintenanceStarted = (v: unknown): v is MaintenanceStarted =>
 	isObj(v) && isStr(v.host) && Array.isArray(v.operations) && v.operations.every(isOperationRef) && isMaintenancePreview(v.plan);
+
+export const isEngineUpdatePlan = (v: unknown): v is EngineUpdatePlan =>
+	isObj(v) && isStr(v.swarm) && isStr(v.host) && isStr(v.currentVersion) && optStr(v.targetVersion) &&
+	strArray(v.availableVersions) && optStr(v.compatibility) && isMaintenancePreview(v.maintenance) &&
+	strArray(v.steps) && strArray(v.warnings) && strArray(v.blockers) && strArray(v.rollbackNotes) &&
+	isBool(v.pinnedManager) && isBool(v.approvalRequired) && isBool(v.exportable) && isStr(v.digest);
+
+export const isEngineRunbook = (v: unknown): v is EngineRunbook =>
+	isObj(v) && isStr(v.digest) && isStr(v.script);
 
 export const isDriftReport = (v: unknown): v is DriftReport =>
 	isObj(v) &&
@@ -1680,6 +1698,10 @@ export function createClient(fetchFn: FetchFn) {
 		createRegistry: (input: ExternalRegistryInput) => call('POST', '/registries', isRegistry, input),
 		maintenancePlan: (nodeId: string, end: boolean) =>
 			call('GET', `/hosts/${encodeURIComponent(nodeId)}/maintenance-plan${end ? '?end=true' : ''}`, isMaintenancePreview),
+		engineUpdatePlan: (nodeId: string, targetVersion?: string) =>
+			call('GET', `/hosts/${encodeURIComponent(nodeId)}/engine-update-plan${targetVersion ? `?targetVersion=${encodeURIComponent(targetVersion)}` : ''}`, isEngineUpdatePlan),
+		exportEngineRunbook: (nodeId: string, input: { targetVersion: string; digest: string; confirmPinnedManager: boolean }) =>
+			call('POST', `/hosts/${encodeURIComponent(nodeId)}/engine-update-runbook`, isEngineRunbook, input),
 		enterMaintenance: (nodeId: string, reason?: string) =>
 			call('POST', `/hosts/${encodeURIComponent(nodeId)}/maintenance`, isMaintenanceStarted, reason ? { reason } : {}),
 		leaveMaintenance: (nodeId: string) => call('DELETE', `/hosts/${encodeURIComponent(nodeId)}/maintenance`, isMaintenanceStarted),

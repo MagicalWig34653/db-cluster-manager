@@ -24,6 +24,9 @@ import (
 type Control struct {
 	Ops    *Operations
 	Swarms *Swarms
+	// EngineVersions is an explicitly configured, read-only package version
+	// source. Without one, engine update plans remain blocked.
+	EngineVersions EngineVersionSource
 }
 
 var _ api.Control = (*Control)(nil)

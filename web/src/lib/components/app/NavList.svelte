@@ -23,6 +23,7 @@
 		{ href: '/swarms', label: 'navSwarms', icon: Boxes, available: true },
 		{ href: '/clusters', label: 'navClusters', icon: Database, available: true },
 		{ href: '/hosts', label: 'navHosts', icon: Server, available: true },
+		{ href: '/engine-updates', label: 'engineTitle', icon: Server, available: true },
 		{ href: '/databases', label: 'navDatabases', icon: HardDrive, available: true },
 		{ href: '/services', label: 'navServices', icon: Layers, available: true },
 		{ href: '/images', label: 'navImages', icon: Hammer, available: true },

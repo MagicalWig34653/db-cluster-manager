@@ -2,6 +2,15 @@ export const locales = ['en', 'de'] as const;
 export type Locale = (typeof locales)[number];
 
 const en = {
+ engineTitle: 'Docker Engine updates',
+ engineIntro: 'Plan one host at a time. Review Swarm quorum and Galera maintenance. The manager never drains, restarts or upgrades a host.',
+ engineHost: 'Host', engineTarget: 'Target version', engineShowPlan: 'Show plan', engineExport: 'Approve and download runbook',
+ engineConfirmManager: 'I confirmed that this pinned manager host can be taken out of service and another manager endpoint remains available.',
+ engineCurrent: 'Current version', engineAvailable: 'Available versions', engineCompatibility: 'Compatibility',
+ engineSteps: 'Operator steps', engineWarnings: 'Warnings', engineBlockers: 'Blockers', engineRollback: 'Rollback limits',
+ engineNoVersions: 'No version source is configured or no versions are available. Export stays blocked.',
+ engineDigest: 'Approval digest', engineExportHint: 'The downloaded shell script prints instructions only. Perform commands manually after host maintenance is ready.',
+ engineRefresh: 'Refresh this plan after any maintenance or inventory change. A stale digest is refused.',
  vulnAuditNoMatches: 'No matching audit records.',
  auditActor: 'Actor', auditEvent: 'Event', auditResult: 'Result',
  kubeTitle: "Kubernetes registrations",
@@ -1144,6 +1153,15 @@ const en = {
 export type MessageKey = keyof typeof en;
 
 const de: Record<MessageKey, string> = {
+ engineTitle: 'Docker-Engine-Updates',
+ engineIntro: 'Immer nur einen Host planen. Swarm-Quorum und Galera-Wartung prüfen. Der Manager drainiert, startet und aktualisiert keinen Host.',
+ engineHost: 'Host', engineTarget: 'Zielversion', engineShowPlan: 'Plan anzeigen', engineExport: 'Freigeben und Runbook herunterladen',
+ engineConfirmManager: 'Ich habe geprüft, dass dieser angepinnte Manager-Host außer Betrieb genommen werden kann und ein anderer Manager-Endpunkt erreichbar bleibt.',
+ engineCurrent: 'Aktuelle Version', engineAvailable: 'Verfügbare Versionen', engineCompatibility: 'Kompatibilität',
+ engineSteps: 'Schritte für Bedienende', engineWarnings: 'Warnungen', engineBlockers: 'Sperren', engineRollback: 'Grenzen der Rückkehr',
+ engineNoVersions: 'Keine Versionsquelle konfiguriert oder keine Version verfügbar. Der Export bleibt gesperrt.',
+ engineDigest: 'Freigabe-Digest', engineExportHint: 'Das heruntergeladene Shell-Skript gibt nur Anweisungen aus. Befehle nach bestätigter Host-Wartung manuell ausführen.',
+ engineRefresh: 'Nach jeder Wartungs- oder Inventaränderung den Plan erneuern. Ein veralteter Digest wird abgewiesen.',
  vulnAuditNoMatches: 'Keine passenden Protokolleinträge.',
  auditActor: 'Akteur', auditEvent: 'Ereignis', auditResult: 'Ergebnis',
  kubeTitle: "Kubernetes-Registrierungen",

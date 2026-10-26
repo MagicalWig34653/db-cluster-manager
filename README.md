@@ -58,7 +58,7 @@ All from the development mock server with invented data; they show the interface
 | **Policy with the auto-approval warning** | **AI providers and the consent step** |
 | ![Vulnerability policy](docs/assets/screenshots/en-light-vulnerability-policy.png) | ![AI providers and consent](docs/assets/screenshots/en-light-vulnerability-providers.png) |
 
-More views, also in German, are in [docs/assets/screenshots](docs/assets/screenshots/) and in the user guides ([English](docs/guides/en/index.md), [Deutsch](docs/guides/de/index.md)).
+More views, also in German, are in [docs/assets/screenshots](docs/assets/screenshots/) and in the user guides ([English](docs/guides/en/index.md), [Deutsch](docs/guides/de/index.md)). Docker Engine update plans are documented in [English](docs/guides/en/18-docker-engine-updates.md) and [German](docs/guides/de/18-docker-engine-updates.md); the shipping manager has no package-version source and cannot export a real runbook yet.
 
 ## Scope
 
