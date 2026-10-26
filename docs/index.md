@@ -143,6 +143,18 @@ Dark mode.
 German interface: hosts and agent enrollment.
 </div>
 
+<div markdown="1">
+![Galera operations card with a stored plan and its approval digest (mock capture)](assets/screenshots/en-light-cluster-operation-plan-mock.png)
+
+Galera scale, rolling restart and patch-upgrade planner: the plan is stored first, approval needs the displayed digest (mock capture).
+</div>
+
+<div markdown="1">
+![Data-key rotation preview (mock capture)](assets/screenshots/de-light-key-rotation-mock.png)
+
+German interface: data-key rotation preview and explicit confirmation (mock capture). Metastore membership and proxy writer switch work the same way.
+</div>
+
 </div>
 
 ## User guides

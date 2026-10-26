@@ -93,6 +93,12 @@ Mock-server view only [Mock only].
 
 [Fakes only] `POST /api/v1/clusters/{id}/operation-plan` stores a plan and returns `id`, `approval.digest`, `plan` (including warnings and resulting nodes) and `agentSteps`. It requires **operate** on that cluster. It reserves the cluster until completion or abort; it sends no agent command before approval. Review the response and approve with `POST /api/v1/operations/{id}/approve`, body `{"digest":"<approval.digest>"}`. The digest covers the stored runner definition. Keep the plan response for review; `GET /api/v1/operations/{id}` supplies its status and approval digest. Abort with `POST /api/v1/operations/{id}/abort` before requesting a different plan.
 
+In the web UI the cluster page has a "Galera operations" card with the same four kinds. It validates the slot or image locally, shows the stored plan (steps, warnings) and then embeds the operation card, where the plan digest is displayed and approval needs an explicit confirmation of that digest. Nothing runs before that. The "Proxy writer switch" card on the same page sends `POST /api/v1/proxy-writers/{cluster}/switch`; it needs the separate writer administrator token (kept in memory only, cleared after the request), shows the freeze epoch and proxy acknowledgements, and has no plan digest because the API offers no preview. Screenshots are mock captures with invented data:
+
+![Galera operations card with a stored patch-upgrade plan and approval (mock capture)](../../assets/screenshots/en-light-cluster-operation-plan-mock.png)
+
+![Proxy writer switch result (mock capture)](../../assets/screenshots/en-light-proxy-writer-mock.png)
+
 Request bodies:
 
 - Add one node: `{"kind":"scale-out","slot":"n4"}`. Use a unique slot and an eligible free enrolled host; a fresh identity and volume are allocated. The donor and the whole component must be Synced before the join.

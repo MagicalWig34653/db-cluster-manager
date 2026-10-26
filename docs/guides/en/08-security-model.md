@@ -47,7 +47,11 @@ The leader resumes batches after failover; corrupt ciphertext pauses progress
 without discarding the old key. New seals use the new ID and recovery envelope.
 Old envelopes remain available for historical configuration backups even after
 completion. This does not rotate database passwords or the external recovery key.
-There is no rotation UI and no real multi-host rotation evidence yet.
+The web UI (Settings, Replicas and keyring) offers the same two steps: "Preview rotation" shows the revision-bound digest, an explicit confirmation names that digest, and only then does "Approve and start rotation" send it. The membership panel works the same way for one add or removal at a time. Both panels need the opt-in backend; otherwise the manager answers 503. There is no real multi-host rotation evidence yet. Screenshots are mock captures with invented data:
+
+![Data-key rotation preview with digest and confirmation (mock capture)](../../assets/screenshots/en-light-key-rotation-mock.png)
+
+![Metastore membership removal preview (mock capture)](../../assets/screenshots/en-light-metastore-membership-mock.png)
 
 Replica CSR provisioning and add/remove have an optional backend and HTTP
 contracts, but the default manager returns 503. The fake workflow provisions a

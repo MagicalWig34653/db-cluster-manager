@@ -53,6 +53,12 @@ All from the development mock server with invented data; they show the interface
 | **Replicas and keyring** | **Logical backup and retention** |
 | ![Replicas and keyring](docs/assets/screenshots/en-light-keyring.png) | ![Backup schedule form](docs/assets/screenshots/en-light-backup-policy.png) |
 
+| **Galera operation plan with approval digest (mock capture)** | **Proxy writer switch (mock capture)** |
+| --- | --- |
+| ![Galera operations card](docs/assets/screenshots/en-light-cluster-operation-plan-mock.png) | ![Proxy writer switch](docs/assets/screenshots/en-light-proxy-writer-mock.png) |
+| **Data-key rotation preview (mock capture)** | **Metastore membership removal preview (mock capture)** |
+| ![Data-key rotation](docs/assets/screenshots/en-light-key-rotation-mock.png) | ![Metastore membership](docs/assets/screenshots/en-light-metastore-membership-mock.png) |
+
 | **Vulnerabilities: findings** | **Finding detail with proposal and plan** |
 | --- | --- |
 | ![Vulnerability findings](docs/assets/screenshots/en-light-vulnerabilities.png) | ![Finding detail with a proposal](docs/assets/screenshots/en-light-vulnerability-detail.png) |

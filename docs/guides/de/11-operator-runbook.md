@@ -93,6 +93,12 @@ Nur Ansicht des Mock-Servers [Nur Mock].
 
 [Nur Fakes] `POST /api/v1/clusters/{id}/operation-plan` speichert einen Plan und liefert `id`, `approval.digest`, `plan` (mit Warnungen und Zielknoten) sowie `agentSteps`. Dafür ist **operate** auf dem Cluster erforderlich. Der Cluster bleibt bis zum Abschluss oder Abbruch reserviert; vor der Freigabe wird kein Agent-Befehl gesendet. Antwort prüfen und mit `POST /api/v1/operations/{id}/approve`, Body `{"digest":"<approval.digest>"}`, freigeben. Der Digest bindet die gespeicherte Runner-Definition. Die Planantwort aufbewahren; `GET /api/v1/operations/{id}` zeigt Status und Freigabe-Digest. Vor einem anderen Plan den bestehenden über `POST /api/v1/operations/{id}/abort` abbrechen.
 
+In der Weboberfläche zeigt die Clusterseite eine Karte „Galera-Operationen“ mit denselben vier Arten. Sie prüft Slot oder Image lokal, zeigt den gespeicherten Plan (Schritte, Warnungen) und bettet dann die Operationskarte ein, auf der der Plan-Digest steht und die Freigabe eine ausdrückliche Bestätigung dieses Digests verlangt. Vorher läuft nichts. Die Karte „Proxy-Writer wechseln“ auf derselben Seite sendet `POST /api/v1/proxy-writers/{cluster}/switch`; sie braucht das getrennte Writer-Administrator-Token (nur im Speicher, nach der Anfrage gelöscht), zeigt Freeze-Epoche und Proxy-Bestätigungen und hat keinen Plan-Digest, weil die API keine Vorschau bietet. Die Bilder sind Mock-Aufnahmen mit erfundenen Daten:
+
+![Karte Galera-Operationen mit gespeichertem Patch-Upgrade-Plan und Freigabe (Mock-Aufnahme)](../../assets/screenshots/de-light-cluster-operation-plan-mock.png)
+
+![Ergebnis des Proxy-Writer-Wechsels (Mock-Aufnahme)](../../assets/screenshots/de-light-proxy-writer-mock.png)
+
 Mögliche Request-Bodies:
 
 - Einen Knoten hinzufügen: `{"kind":"scale-out","slot":"n4"}`. Ein eindeutiger Slot und ein geeigneter freier, registrierter Host sind erforderlich; Identität und Volume werden neu vergeben. Vor dem Beitritt müssen Donor und gesamte Komponente Synced sein.

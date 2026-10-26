@@ -1,6 +1,19 @@
 # Current status
 
-Updated: 2026-10-25.
+Updated: 2026-10-26.
+
+## UI coverage round 2 (2026-10-26, w06-ui2, mock only)
+
+Compared `api/openapi.yaml` with `web/src/lib/api.ts` and the pages. Backend features without UI were: the Galera operation planner (`/clusters/{id}/operation-plan`: scale-out/in, rolling restart, patch upgrade), data-key rotation, metastore membership change and the proxy writer switch. Added, with DE/EN texts, dev mock handlers and vitest:
+
+- Cluster page card "Galera operations": local slot/image validation, scale-in-below-three warning, stored plan with steps and warnings, then the operation card with the plan digest and an explicit confirmation before approval (`approveOperation` sends the displayed digest).
+- Settings, replicas: data-key rotation (preview, digest, confirmation naming the digest, approval) and membership change (preview add/remove, same confirmation). A 409 clears the stale preview.
+- Cluster page card "Proxy writer switch": sends the separate writer administrator token once as a Bearer header and clears it afterwards; there is no plan digest because the API has none, so the card requires an explicit confirmation of the write freeze.
+- Not added: peer-certificate issuance (needs an offline CSR and key and is a fakes-only backend), proxy `GET`/`ack` (machine endpoints with proxy tokens), and TLS/ACME status, PITR/binlog planning, provisioning wizard and security/audit views, which already had UI or no HTTP route on `integration`.
+
+Mock screenshots (DE/EN, Chromium via a scratch Playwright install, `scripts/screenshots/ops.mjs`) are in `docs/assets/screenshots/*-mock.png`, labelled as mock captures in the README, `docs/index.md` and guides 08 and 11. They are element captures, so the MOCK DATA banner is not inside the image; captions say so. Nothing was run against a real manager, so the panels are unverified against the real API.
+
+Actual checks: `npm run check` 0 errors/0 warnings; `npm test` 21 files / 207 tests passed; `npm run build` succeeded and `internal/webui/assets/.gitkeep` was touched; `go test -race -count=1 -p 4 ./...` exit 0 (45 packages ok); `gofmt -l .` empty; `python3 scripts/check_docs.py` 81 Markdown files, 69 requirements, 0 errors. Limits: the membership and rotation backends are opt-in (default manager 503); screenshots use invented data; screenshots are not optimized (no Pillow installed). Next: exercise these panels against a real manager with the fakes-enabled backends and in a lab.
 
 ## Abort view ordering fix (2026-10-25, cx-abortfix)
 

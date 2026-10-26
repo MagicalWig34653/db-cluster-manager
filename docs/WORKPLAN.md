@@ -29,6 +29,8 @@ For the active task, maintain: objective, changed files/contracts, executed chec
 
 ## Current next action
 
+UI coverage round 2 (2026-10-26, `w06-ui2`): the Galera operation planner, data-key rotation, metastore membership and proxy writer switch now have DE/EN UI with digest confirmation, mock data, vitest and mock screenshots; all checks passed locally (see [actual results](STATUS.md#ui-coverage-round-2-2026-10-26-w06-ui2-mock-only)). Next: verify these panels against a real manager with the opt-in backends enabled.
+
 Abort view-ordering fix (2026-10-25, `cx-abortfix`): a deterministic regression
 test now covers a stale `running` snapshot arriving after `aborted`; the manager
 keeps the terminal view and the in-flight step's unknown outcome. Three

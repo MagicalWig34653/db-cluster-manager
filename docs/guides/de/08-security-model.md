@@ -48,8 +48,18 @@ Leader die Stapel fort. Beschädigte Geheimnisse halten den Fortschritt an, ohne
 den alten Schlüssel zu verwerfen. Neue Verschlüsselungen verwenden die neue ID
 und Recovery-Hülle. Alte Hüllen bleiben auch nach Abschluss für historische
 Konfigurationsbackups erhalten. Datenbankpasswörter und der externe Recovery-Key
-werden dadurch nicht rotiert. Eine Rotationsoberfläche und echte Mehrhost-Tests
-fehlen noch.
+werden dadurch nicht rotiert. Die Weboberfläche (Einstellungen, Replikate und
+Schlüsselbund) bietet dieselben zwei Schritte: „Rotation ansehen“ zeigt den
+revisionsgebundenen Digest, eine ausdrückliche Bestätigung nennt diesen Digest,
+und erst dann sendet „Freigeben und Rotation starten“ ihn. Das
+Mitgliedschaftsfeld funktioniert genauso für je ein Hinzufügen oder Entfernen.
+Beide Felder brauchen das optionale Backend; sonst antwortet der Manager mit
+503. Echte Mehrhost-Tests fehlen noch. Die Bilder sind Mock-Aufnahmen mit
+erfundenen Daten:
+
+![Vorschau der Datenschlüssel-Rotation mit Digest und Bestätigung (Mock-Aufnahme)](../../assets/screenshots/de-light-key-rotation-mock.png)
+
+![Vorschau zum Entfernen eines Metastore-Mitglieds (Mock-Aufnahme)](../../assets/screenshots/de-light-metastore-membership-mock.png)
 
 CSR-Ausstellung sowie Hinzufügen/Entfernen von Replikaten haben ein optionales
 Backend und HTTP-Verträge; der Standard-Manager antwortet mit 503. Der Fake-Ablauf
