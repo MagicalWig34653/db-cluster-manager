@@ -71,3 +71,10 @@ Prepared 2026-10-24; **not executed**. The owner decision between an owner-provi
 4. Retain sanitized commands, commit and image digests, logs, assertions, timings and resource measurements in `tests/p0/results/`; compare owned/unrelated inventories before and after scoped teardown and measure reclaimed disk. Update the compatibility claims and release gates only from that evidence.
 
 The native CI matrix in [build.yml](../.github/workflows/build.yml) checks Go (including `-race`), web and both native image builds on each architecture without push. The tag-only [release workflow](../.github/workflows/release.yml) gates publication on this matrix and requests SBOM/provenance for both multi-platform images. Neither workflow runs P0 infrastructure experiments. Run `python3 scripts/check_deploy.py` for static workflow guards and `python3 scripts/test_check_deploy.py` for their regression checks; these do not execute Actions or Docker.
+
+The build workflow also offers a `security_checks` checkbox for a manual
+`workflow_dispatch`. It starts separate `govulncheck` and `gosec` jobs with
+read-only repository permissions and the existing SHA-pinned setup actions.
+The Go tool versions are fixed in the workflow. These jobs are optional and
+have not been executed in this worktree; an offline static check does not
+verify tool download, findings or compatibility with the current Go version.

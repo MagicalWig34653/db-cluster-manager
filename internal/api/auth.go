@@ -224,7 +224,7 @@ func (s *server) writeCeremonyStartError(w http.ResponseWriter, err error) {
 	case errors.Is(err, passkey.ErrInvalidRequest):
 		writeError(w, http.StatusBadRequest, errBadRequest)
 	default:
-		s.log.Error("api: begin ceremony", "err", err)
+		s.log.Error("api: begin ceremony failed")
 		writeError(w, http.StatusInternalServerError, errInternal)
 	}
 }
@@ -232,6 +232,11 @@ func (s *server) writeCeremonyStartError(w http.ResponseWriter, err error) {
 // --- login ---
 
 func (s *server) handleLoginBegin(w http.ResponseWriter, r *http.Request, _ *caller) {
+	key := "login-begin|" + clientIP(r)
+	if err := s.cfg.Limiter.Begin(key); err != nil {
+		s.writeLocked(w, r, err)
+		return
+	}
 	var req struct{}
 	if !decodeJSON(w, r, &req, true) {
 		return
@@ -262,6 +267,11 @@ type SessionInfo struct {
 }
 
 func (s *server) handleLoginFinish(w http.ResponseWriter, r *http.Request, _ *caller) {
+	key := "login-finish|" + clientIP(r)
+	if err := s.cfg.Limiter.Begin(key); err != nil {
+		s.writeLocked(w, r, err)
+		return
+	}
 	binding, ok := s.ceremonyBinding(r)
 	if !ok {
 		s.log.Info("api: login finish without ceremony cookie", "remote", clientIP(r))
@@ -275,7 +285,7 @@ func (s *server) handleLoginFinish(w http.ResponseWriter, r *http.Request, _ *ca
 	s.clearCookie(w, s.cookies.ceremony)
 	res, err := s.cfg.Passkeys.FinishLogin(req.CeremonyID, binding, req.Credential)
 	if err != nil {
-		s.log.Info("api: login failed", "remote", clientIP(r), "err", err)
+		s.log.Info("api: login failed", "remote", clientIP(r))
 		writeError(w, http.StatusUnauthorized, errAuthFailed)
 		return
 	}
@@ -285,6 +295,7 @@ func (s *server) handleLoginFinish(w http.ResponseWriter, r *http.Request, _ *ca
 	if !s.startSession(w, r, res.AccountID) {
 		return
 	}
+	s.cfg.Limiter.Succeed(key)
 	writeJSON(w, http.StatusOK, map[string]string{"accountId": res.AccountID})
 }
 
@@ -357,7 +368,7 @@ func (s *server) handlePasskeyFinish(w http.ResponseWriter, r *http.Request, c *
 	}
 	info, err := s.cfg.Passkeys.FinishRegistration(req.CeremonyID, sessionBinding(c.session), req.Credential)
 	if err != nil {
-		s.log.Info("api: passkey registration failed", "account", c.subject.ID, "err", err)
+		s.log.Info("api: passkey registration failed", "account", c.subject.ID)
 		s.auditResult(c.subject.ID, authz.ActionUpdate, reason, change, err)
 		writeError(w, http.StatusBadRequest, errBadRequest)
 		return
@@ -417,7 +428,7 @@ func (s *server) redeem(w http.ResponseWriter, r *http.Request, accountID, chang
 		return
 	}
 	if err := verify(); err != nil {
-		s.log.Info("api: recovery failed", "account", accountID, "remote", ip, "err", err)
+		s.log.Info("api: recovery failed", "account", accountID, "remote", ip)
 		writeError(w, http.StatusUnauthorized, errAuthFailed)
 		return
 	}

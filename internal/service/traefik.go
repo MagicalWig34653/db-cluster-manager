@@ -39,6 +39,29 @@ var (
 	sensitiveHeaderRe = regexp.MustCompile(`(?i)^(authorization|proxy-authorization|cookie|set-cookie)$|(?i)(token|secret|password|api-?key)`)
 )
 
+// safeRoutePath rejects ambiguous paths before they reach Traefik's matcher
+// or health checker. Encoded separators and dot segments can be decoded by
+// different layers in different orders.
+func safeRoutePath(s string) bool {
+	if !pathRe.MatchString(s) || strings.Contains(s, "%") {
+		return false
+	}
+	// A single trailing slash is meaningful for a PathPrefix matcher.
+	cleanInput := strings.TrimSuffix(s, "/")
+	if cleanInput == "" {
+		return s == "/"
+	}
+	if path.Clean(cleanInput) != cleanInput {
+		return false
+	}
+	for _, segment := range strings.Split(s, "/") {
+		if segment == ".." || segment == "." {
+			return false
+		}
+	}
+	return true
+}
+
 // EntryPoint is a Traefik listener. The Swarm publishes Published (default:
 // Port) to it.
 type EntryPoint struct {
@@ -335,7 +358,7 @@ func (t TraefikSpec) validateBackend(p *problems, b Backend, seen map[string]boo
 			}
 		}
 	}
-	if b.HealthPath != "" && !pathRe.MatchString(b.HealthPath) {
+	if b.HealthPath != "" && !safeRoutePath(b.HealthPath) {
 		p.addf("service %q: healthPath %q is invalid", b.Name, b.HealthPath)
 	}
 	if b.HealthIntervalSeconds < 0 || b.HealthIntervalSeconds > 3600 || (b.HealthIntervalSeconds > 0 && b.HealthPath == "") {
@@ -372,7 +395,7 @@ func (t TraefikSpec) validateMiddleware(p *problems, m Middleware, seen map[stri
 	case MWStripPrefix:
 		want(len(m.StripPrefix) > 0, "stripPrefix")
 		for _, x := range m.StripPrefix {
-			if !pathRe.MatchString(x) || x == "/" {
+			if !safeRoutePath(x) || x == "/" {
 				p.addf("middleware %q: prefix %q is invalid", m.Name, x)
 			}
 		}
@@ -435,7 +458,7 @@ func (t TraefikSpec) validateRouter(p *problems, r Router, seen map[string]bool,
 		}
 	}
 	for _, x := range []string{m.Path, m.PathPrefix} {
-		if x != "" && !pathRe.MatchString(x) {
+		if x != "" && !safeRoutePath(x) {
 			p.addf("router %q: path %q is invalid", r.Name, x)
 		}
 	}

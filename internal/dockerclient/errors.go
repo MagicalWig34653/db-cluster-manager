@@ -25,8 +25,9 @@ var (
 	ErrInvalidArgument = errors.New("dockerclient: invalid argument")
 )
 
-// APIError is a non-2xx response from the daemon. Message is the "message"
-// field of the ErrorResponse object, or the raw body if it is not JSON.
+// APIError is a non-2xx response from the daemon. Message is the standard
+// HTTP status text; daemon response bodies can echo credentials and are not
+// retained or logged.
 type APIError struct {
 	StatusCode int
 	Message    string

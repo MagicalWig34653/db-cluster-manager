@@ -511,8 +511,8 @@ func TestErrorMapping(t *testing.T) {
 			if !errors.As(err, &ae) || ae.StatusCode != tc.status {
 				t.Fatalf("err = %v, want *APIError %d", err, tc.status)
 			}
-			if tc.message != "" && ae.Message != tc.message {
-				t.Fatalf("message = %q, want %q", ae.Message, tc.message)
+			if ae.Message != http.StatusText(tc.status) {
+				t.Fatalf("message = %q, want HTTP status text", ae.Message)
 			}
 			for _, m := range []struct {
 				target error

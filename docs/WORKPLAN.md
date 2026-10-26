@@ -180,3 +180,32 @@ repeat the unchanged verification loop with local sockets permitted, then provid
 authenticated remote readiness and a real binlog parser before infrastructure
 validation. Existing W05 gates remain open; no Swarm-trial readiness is claimed.
 W05 remaining (needs VMs, one at a time): coordinated writer choice for redundant proxies (E8 finding); re-run of the E8 B2/B3 stuck-node case with slot logs and a case where Galera cannot self-recover; native amd64 evidence (strategy still open); the three-replica manager as Swarm services from `deploy/stack.yaml` (only plain processes ran). Done 2026-10-24 (E7): images built from `deploy/Dockerfile` and `deploy/stack.yaml` deployed with a `manager init` configuration on lab VMs, see [results](../tests/p0/results/e7-stack-deploy.md); still open there: the per-replica three-service layout, a TLS reverse proxy and backups from the stack. W06 (R1) then continues with UI and user guides for maintenance, drift, keyring/replicas and backup retention, key rotation, and the rest of `docs/STATUS.md` "What R1 still lacks".
+
+## Security hardening round 2 handover (2026-10-25, cx-security2)
+
+The scoped changes are implemented with fakes and unit tests only. Snippet,
+route and home-path input checks were tightened; a malicious-input table and
+fuzz seed corpus were added. Build-context path handling, builder-error and
+Docker daemon error-body secrecy have regression tests. Auth login
+begin/finish now use distinct
+per-peer lockout keys; OpenAPI and both security guides describe `429`;
+setup-token handling and synthetic secret
+non-disclosure are tested. Optional manual `govulncheck`/`gosec` CI jobs use
+existing SHA-pinned actions and read-only permissions. The threat model,
+catalog provenance record, EN/DE guides and testing documentation are current.
+
+[Actual results and limitations](STATUS.md#security-hardening-round-2-2026-10-25-cx-security2-fakes-only):
+format and vet passed; focused three-package race run passed; documentation
+and static deployment checks passed, with 12 deployment checker tests.
+The required full race run failed on sandbox-denied local listeners (25
+packages passed, 19 failed, four without tests). No infrastructure was used,
+no optional Actions scan ran and every catalog entry remains unverified
+because no upstream documentation was available offline. No web code changed,
+so no frontend commands ran. `git add` was denied at the shared worktree
+`index.lock`; no commit or push was made.
+
+Next action: commit in a writable Git-metadata session, then verify catalog
+entries against release-specific upstream docs,
+run the optional scans and complete race suite with local listeners permitted,
+then triage findings. This does not replace W05/R1 gates or authorize a real
+infrastructure trial.

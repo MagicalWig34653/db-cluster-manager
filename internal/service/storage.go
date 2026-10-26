@@ -141,7 +141,7 @@ func validateUsers(p *problems, users []StorageUser, keysAllowed bool) {
 		if u.GID < 0 || u.GID > 60000 {
 			p.addf("user %q: gid %d out of range", u.Name, u.GID)
 		}
-		if u.Home != "" && (!path.IsAbs(u.Home) || path.Clean(u.Home) != u.Home || u.Home == "/") {
+		if u.Home != "" && (!path.IsAbs(u.Home) || path.Clean(u.Home) != u.Home || u.Home == "/" || strings.ContainsAny(u.Home, "\\%\x00\r\n") || strings.Contains(u.Home, "..")) {
 			p.addf("user %q: home %q must be a clean absolute path below the data root", u.Name, u.Home)
 		}
 		if u.PasswordSecret == "" && u.AuthorizedKeysSecret == "" {

@@ -116,3 +116,27 @@ Dependency rules:
 - Galera-specific safety (bootstrap, quorum, guided full recovery) stays explicit code behind the service-type interface; the generic reconciler must not restart or replace stateful nodes on its own.
 
 Interfaces built during R1 should keep these seams cheap (engine capabilities, orchestrator, backup transport) but R1 does not implement them generically.
+
+## Threat model for extended features (2026-10-25)
+
+Trust boundaries are the browser/API, manager process and replicated state,
+agent/Docker host, build worker/registry, external advisory or AI provider,
+ACME CA/DNS provider, and user-supplied service configuration. The manager's
+Docker socket and any CLI-login AI provider inherit broad manager privileges.
+These controls are code-level and fake-tested unless another section records
+real evidence; they are not deployment assurance.
+
+| Surface and attacker-controlled input | Failure mode | Current control and remaining gap |
+| --- | --- | --- |
+| Login, recovery and first-run setup requests | Credential guessing, ceremony exhaustion, setup takeover | Per-peer-IP lockout covers setup-token guesses, recovery redemption and now login begin/finish; peer address ignores forwarded headers. Setup token is 256-bit random, held as a digest and invalidated after the first administrator. The token is printed once to the manager console, so console/log readers are trusted during setup. Limiter state is process-local and lost on restart or leader change; distributed rate limits and a trusted-proxy policy remain open. |
+| Web composer, custom nginx snippet and build context | Directive injection, file disclosure, context traversal, compromised build host | Typed fields and a size/structure-limited snippet deny-list reject file roots, includes, dynamic script modules and request proxying; context paths are cleaned and reject traversal and backslashes. Tests cover a malicious corpus. The snippet validator is not a complete nginx parser, and the catalog and output image have no upstream or runtime verification. Build execution has manager-process privileges in the current design; isolate it before production use. |
+| Traefik, SFTP and other service specs | Route injection, ambiguous encoded paths, directory escape, secret values in plans | Typed Traefik rules and generated YAML avoid free-form rules; canonical path validation rejects dot segments and percent encoding. SFTP user homes must be clean absolute paths and reject backslashes. Secret *names* may enter plans; secret values use Swarm secrets. Generated artifacts and container image contracts have only fake evidence. |
+| Advisory feeds and AI providers | Malicious feed text, prompt injection, secret exfiltration, unsafe auto-apply | Feed bodies and prompt inputs are bounded and screened, and AI output is advisory to a deterministic planner; CLI providers require explicit opt-in. Admin review and digest-bound approval protect state changes. Provider isolation, feed authenticity beyond transport, legal login mechanics and safe automated policy are unresolved. No real provider was contacted in this review. |
+| ACME and certificate/key rotation | Challenge abuse, wrong-domain issuance, stale replica keys, irreversible key loss | Listener exposure policy, sealed ACME state, challenge scoping and leader-scoped renewal are code paths; keyring rotation checks every configured recipient and recovery envelope before commit. Tests use fake CAs and keys. DNS-01 and real CA behavior, recovery with an external private key, revocation propagation and replica startup after rotation need separate evidence. |
+| Logs, plans and audit | Secrets copied from request bodies or underlying library errors | API errors are coarse; authentication failure logs now omit verification errors that could echo credentials. Docker daemon error bodies are discarded because they can echo secret/config payloads; the HTTP status and typed error remain. Registry/build logs redact known values and patterns, and audit records describe changes rather than credential bodies. Redaction is best effort; log sinks, subprocess output, future handlers and exported plans need recurring review and regression tests. |
+
+The security workflow contains optional, manually triggered `govulncheck` and
+`gosec` jobs with the repository's existing SHA-pinned checkout/setup-go
+actions and read-only permissions. Tool versions are pinned as Go module
+versions, but their availability and findings were not checked offline. A
+workflow run is required before treating either scan as evidence.

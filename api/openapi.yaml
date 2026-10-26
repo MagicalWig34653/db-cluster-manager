@@ -187,7 +187,9 @@ paths:
   /auth/login/begin:
     post:
       summary: Start a discoverable passkey login
-      description: No account name is sent, so the response cannot reveal whether an account exists.
+      description: >-
+        No account name is sent, so the response cannot reveal whether an
+        account exists. Ceremony starts are rate limited by TCP peer IP.
       operationId: beginLogin
       security: []
       requestBody:
@@ -198,10 +200,12 @@ paths:
       responses:
         "200": { $ref: "#/components/responses/Challenge" }
         "403": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
         "503": { $ref: "#/components/responses/Error" }
   /auth/login/finish:
     post:
       summary: Finish a passkey login and start a session
+      description: Failed attempts are locked out by TCP peer IP.
       operationId: finishLogin
       security: []
       requestBody:
@@ -224,6 +228,7 @@ paths:
         "400": { $ref: "#/components/responses/Error" }
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
         "503": { $ref: "#/components/responses/Error" }
   /auth/logout:
     post:

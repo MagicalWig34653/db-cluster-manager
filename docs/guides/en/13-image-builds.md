@@ -28,7 +28,7 @@ title: Image builds and registries (stub)
 The manager image has no docker CLI and the stack no BuildKit, so builds cannot work in the shipped deployment without extra work. The build runs on the leader's host as the manager process (access to the Docker socket). Registering a registry contacts it from the manager (credential check). Deleting or changing a registry and deleting jobs are not implemented. Plans are stored for audit but there is no API to read them yet.
 
 
-No real build, push, SBOM, vulnerability scan or signature. Alpine package versions are not pinned. Package names and version catalog are unverified. The snippet check is a deny-list, not a parser. See [Known limits](10-known-limits.md) and [STATUS.md](../../STATUS.md).
+No real build, push, SBOM, vulnerability scan or signature. Alpine package versions are not pinned. Every catalog entry is marked unverified after the offline review; see the [catalog provenance table](../../IMAGEBUILD-CATALOG.md). The snippet check is a deny-list, not a parser. See [Known limits](10-known-limits.md) and [STATUS.md](../../STATUS.md).
 
 ## In the web UI (mock only)
 

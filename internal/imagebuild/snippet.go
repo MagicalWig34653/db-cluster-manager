@@ -22,6 +22,16 @@ var deniedDirectives = map[string]bool{
 	"ssl_certificate_key": true, "ssl_password_file": true, "auth_basic_user_file": true,
 	"master_process": true, "worker_rlimit_core": true, "lock_file": true,
 	"proxy_ssl_certificate_key": true, "uwsgi_pass": true, "scgi_pass": true,
+	// File and request routing directives can escape the generated document
+	// root or expose files and credentials inside the build image.
+	"root": true, "alias": true, "try_files": true, "proxy_pass": true,
+	"fastcgi_pass": true, "fastcgi_param": true, "fastcgi_index": true,
+	"auth_basic": true, "auth_request": true, "ssl_certificate": true,
+	"proxy_ssl_certificate": true, "proxy_set_header": true,
+	"proxy_pass_request_headers": true, "proxy_pass_request_body": true,
+	"mirror": true, "dav_methods": true, "create_full_put_path": true,
+	"autoindex": true, "ssi": true, "client_body_temp_path": true,
+	"client_body_in_file_only": true, "proxy_store": true, "fastcgi_store": true,
 }
 
 // deniedPrefixes cover the scripting modules (Lua, Perl, njs).
@@ -49,7 +59,7 @@ func ValidateSnippet(s string) error {
 		return invalid("custom nginx snippet exceeds %d lines", MaxSnippetLines)
 	}
 	for _, r := range s {
-		if r == 0 || (r < 0x20 && r != '\n' && r != '\t' && r != '\r') {
+		if r == 0 || (r < 0x20 && r != '\n' && r != '\t') {
 			return invalid("custom nginx snippet contains control characters")
 		}
 	}
@@ -82,9 +92,6 @@ func ValidateSnippet(s string) error {
 				return invalid("custom nginx snippet: directive %q is not allowed", name)
 			}
 		}
-		if (name == "root" || name == "alias") && strings.Contains(st.text, "..") {
-			return invalid("custom nginx snippet: %s must not contain '..'", name)
-		}
 		if st.end == '{' {
 			if !allowedBlocks[name] {
 				return invalid("custom nginx snippet: block %q is not allowed (location, if, limit_except only)", name)
@@ -113,8 +120,14 @@ func splitStatements(s string) ([]statement, error) {
 		c := s[i]
 		switch {
 		case quote != 0:
+			if c == '\n' || c == '\r' {
+				return nil, invalid("custom nginx snippet has a multiline quoted value")
+			}
 			cur.WriteByte(c)
 			if c == '\\' && i+1 < len(s) {
+				if s[i+1] == '\n' || s[i+1] == '\r' {
+					return nil, invalid("custom nginx snippet has a multiline quoted value")
+				}
 				i++
 				cur.WriteByte(s[i])
 			} else if c == quote {

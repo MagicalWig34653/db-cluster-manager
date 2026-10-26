@@ -2,6 +2,87 @@
 
 Updated: 2026-10-25.
 
+## Security hardening round 2 (2026-10-25, cx-security2, fakes only)
+
+- Reviewed the nginx snippet deny-list and composer context paths. The
+  snippet now rejects file-root, proxy/FastCGI, authentication and write
+  directives; `WriteContext` rejects backslashes, control characters and a
+  second Dockerfile. Traefik route/health paths reject ambiguous dot segments
+  and percent encoding; SFTP homes reject ambiguous separators, encoding and
+  control characters. Table and fuzz seed corpora cover injection and
+  traversal. A deny-list still is not a complete nginx parser or runtime
+  sandbox; no real image or service was run.
+- Reviewed the nginx/PHP catalog against what is available offline. No
+  upstream documentation snapshot or Alpine package index is in this
+  worktree, so **every selectable entry remains `unverified`**, including
+  version availability and the PHP 8.2/8.4 exclusions. The exact entries and
+  evidence needed to promote one to `verified-by-doc` are in
+  [IMAGEBUILD-CATALOG.md](IMAGEBUILD-CATALOG.md). No network request or build
+  was made. The browser catalog remains a separate copy.
+- Added manually triggered `govulncheck` and `gosec` jobs to `build.yml` with
+  the existing SHA-pinned checkout/setup-go actions, read-only permissions
+  and fixed Go tool versions. No Actions job or tool download ran; version
+  availability, Go compatibility and findings are unknown.
+- Reviewed secret-shaped formatting and request-body error paths across
+  `internal/`, including API, manager, imagebuild, service and Docker client.
+  Authentication failure logs no longer
+  include verifier errors that could echo a supplied credential; Docker
+  builder errors no longer echo a runner error that could carry a registry
+  password. Docker daemon error bodies are discarded because they can echo
+  the base64 contents of secret/config requests; typed HTTP status mapping
+  remains. Synthetic-secret tests check responses, logs, audit and Docker
+  errors. Other
+  generic errors and plan exports still need ongoing review as code changes.
+- Login begin and finish now have separate per-peer-IP lockout keys, using the
+  existing five-attempt/15-minute policy; setup-token guessing already used
+  that policy. Tests cover lockout, `Retry-After`, expiry and token secrecy.
+  OpenAPI and both security-model guides describe the new `429` responses.
+  The limiter is process-local and reset on restart/leader change; it is not
+  a distributed anti-abuse control. Setup token is a one-time 256-bit value
+  stored only as a digest, but whoever can read the initial manager console
+  can use it before setup finishes.
+- Added the extension threat model to [ARCHITEKTUR.md](ARCHITEKTUR.md#threat-model-for-extended-features-2026-10-25)
+  and updated both image-build guides, both security guides and TESTING. No
+  Swarm, Docker daemon,
+  registry, CA, AI provider or other infrastructure was contacted.
+
+Actual final-tree checks (Go used `GOCACHE=/private/tmp/dbcm-cx-security2-cache`
+and `GOMAXPROCS=4`):
+
+- `gofmt -l .`: exit 0, no output.
+- `go vet ./...`: exit 0, no output.
+- `go test -race -count=1 -p 4 ./...`: exit 1; 25 packages passed, 19 failed,
+  four had no tests. Every reported test failure has immediate TCP/Unix
+  `bind: operation not permitted` or `httptest` listener evidence in this
+  sandbox. The full suite is **not passing** here.
+- Focused `go test -race -count=1 -p 4` for the new security tests and fuzz
+  seed corpus in `internal/imagebuild`, `internal/service`, `internal/api`
+  and `internal/dockerclient`: all four packages passed (1.159 s, 1.243 s,
+  1.281 s, 1.135 s). The complete
+  `internal/imagebuild` and `internal/service` package suites also passed
+  after the last code edit (1.931 s, 1.413 s); complete `internal/api`
+  requires a local listener.
+- `internal/dockerclient`'s fake-transport test for daemon error-body
+  reflection passed with `-race` (1.260 s). Its full package suite still
+  needs local listeners; the new test used none.
+- The OpenAPI route/parser contract tests passed in `internal/api` with
+  `-race` (1.176 s).
+- `python3 scripts/check_docs.py`: `Checked 74 Markdown files and 69 requirements; 0 errors.`
+- `python3 scripts/check_deploy.py`: `deploy checks passed (static only; no image was built)`.
+- `python3 scripts/test_check_deploy.py`: 12 tests passed, `OK`.
+- `git diff --check`: exit 0, no output.
+- No frontend code changed; frontend check/test/build were not run.
+
+Small commits were attempted, but `git add` could not create the shared
+`.git/worktrees/cx-security2/index.lock` (`Operation not permitted`). No
+commit or push was made; the reviewed changes remain in this worktree.
+
+Next: commit the reviewed changes where Git metadata is writable; check
+catalog names against exact upstream image and Alpine release
+documentation, run the optional CI scans and the complete race suite in an
+environment permitting local listeners, then review any findings before
+claiming security or release readiness. W05/R1 gates remain open.
+
 ## Phase
 
 Concept documented; Claude Code handover prepared. Go and the monorepo are confirmed. The user explicitly authorized Claude to initialize Git and push a public GitHub repository.
