@@ -13,6 +13,11 @@ PXID_m2=proxy-a
 PXID_m3=proxy-b
 E9_A1="" E9_A2="" E9_A3=""
 
+# e9_addrs sets the VM addresses (also when pxprep did not run in this process).
+e9_addrs() {
+	[ -n "$E9_A1" ] || E9_A1=$(uv2_ip dbcm-lab-m1) E9_A2=$(uv2_ip dbcm-lab-m2) E9_A3=$(uv2_ip dbcm-lab-m3)
+}
+
 px_id() { case "$1" in dbcm-lab-m2) echo proxy-a ;; dbcm-lab-m3) echo proxy-b ;; esac; }
 px_lbl() { case "$1" in dbcm-lab-m2) echo pa ;; dbcm-lab-m3) echo pb ;; esac; }
 px_vm() { case "$1" in proxy-a) echo dbcm-lab-m2 ;; proxy-b) echo dbcm-lab-m3 ;; esac; }
@@ -189,6 +194,7 @@ e9_collect() { # TAG
 # e9_admin_switch WRITER — POST the controlled switch to every manager URL
 # until one (the leader) accepts; followers answer 503.
 e9_admin_switch() {
+	e9_addrs
 	vm_args "$M1" '
 		for a in "$3" "$4" "$5"; do
 			code=$(sudo curl -s -m 5 -o /tmp/e9sw.out -w "%{http_code}" --cacert "$2/tls/ca.pem" -H "Authorization: Bearer $(sudo cat "$2/admin.token")" -H "Content-Type: application/json" -d "{\"writer\":\"$1\"}" "https://$a:8443/api/v1/proxy-writers/$6/switch")
@@ -199,6 +205,7 @@ e9_admin_switch() {
 }
 # e9_choice — the manager's current choice, read with the proxy-a token.
 e9_choice() {
+	e9_addrs
 	vm_args "$M1" '
 		for a in "$2" "$3" "$4"; do
 			out=$(sudo curl -s -m 5 --cacert "$1/tls/ca.pem" -H "Authorization: Bearer $(sudo cat "$6/tokens/proxy-a.token")" -H "X-Proxy-ID: proxy-a" "https://$a:8443/api/v1/proxy-writers/$5" -w " HTTP %{http_code}")
@@ -498,6 +505,28 @@ e9_pxteardown() {
 	wait_until 600 "Galera cluster at 3 synced nodes" e8_synced3 || true
 }
 
+# Replaces e8_status3: also records wsrep_cluster_state_uuid (E9 finding: a
+# primary component restored from gvwstate.dat after a power loss has the zero UUID).
+e8_status3() {
+	local n
+	for n in 1 2 3; do echo "n$n: $(rsql "$n" "SHOW GLOBAL STATUS WHERE Variable_name IN ('wsrep_cluster_size','wsrep_cluster_status','wsrep_local_state_comment','wsrep_last_committed','wsrep_cluster_state_uuid')" 2>&1 | tr '\n\t' '  ')"; done
+}
+
+# Replaces e8_slot_logs: `docker service logs` hung for good in E8 run 2 and in
+# E9 (a slot whose tasks keep failing), so the logs are read per container on
+# the slot's own VM (the newest two containers, including exited ones).
+e8_slot_logs() {
+	local n vm c
+	for n in 1 2 3; do
+		vm=$(node_vm "$n")
+		echo "== $(svc "$n") on $vm"
+		for c in $(vm_docker "$vm" ps -aq --no-trunc --filter "label=com.docker.swarm.service.name=$(svc "$n")" | head -2); do
+			echo "-- container ${c:0:12}: $(vm_docker "$vm" inspect -f 'status={{.State.Status}} exit={{.State.ExitCode}} finished={{.State.FinishedAt}}' "$c")"
+			vm_docker "$vm" logs "$c" 2>&1 | grep -E 'ERROR|Aborting|aborted|\[Warning\].*WSREP|Found saved state|safe_to_bootstrap|State transfer|IST|SST failed|failed to open|restore pc|Quorum results|group UUID|view\(' | cut -c1-210 | tail -14
+		done
+	done
+}
+
 # e9_slot_diag WHY — everything that can explain a slot that does not reach
 # Synced: Swarm task history with errors, exited task containers (exit code,
 # OOM, last log lines), the data directory state, kernel OOM messages.
@@ -628,6 +657,27 @@ e8_power_scenario() {
 	e6_verify_recovered "$tag" "$((E8_ROW))"
 	rec "sentinels on every node after the guided recovery ($ids expected)" e8_sentinels_all "$ids"
 	e8_measure "gate $tag after: cluster recovered by the guided recovery"
+}
+
+# Diagnosis of a slot that does not rejoin (run after pwrb2 on the kept VMs).
+e9_pwrdiag() {
+	section "Phase pwrdiag (C): why does a slot not rejoin? Everything the E8 run lacked"
+	CLUSTER_ID=${CLUSTER_ID:-$(cluster_id)}
+	e6_hosts
+	rec "wsrep status of every node (note wsrep_cluster_state_uuid)" e8_status3
+	rec "Swarm tasks of the slots" vm_docker "$M1" service ps --no-trunc --format '{{.Name}} {{.Node}} {{.DesiredState}} {{.CurrentState}} {{.Error}}' $(e6_services)
+	e9_slot_diag "pwrdiag"
+}
+
+# Guided recovery of the cluster that self-recovered with a zero UUID (the
+# operator scales the services to 0, then the manager's approval-gated
+# recovery runs); this is the first guided recovery after a VM power loss.
+e9_pwrrecover() {
+	phase_e8recover
+	wait_until 600 "Galera cluster back to 3 synced nodes" e8_synced3 || true
+	rec "wsrep status after the guided recovery (state UUID must be non-zero)" e8_status3
+	e8_sentinels_all "1,2,3" >/dev/null 2>&1 || true
+	rec "sentinels on every node (1,2,3 expected)" e8_sentinels_all "1,2,3"
 }
 
 e9_pwrb2() {

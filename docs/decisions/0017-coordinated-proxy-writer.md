@@ -1,6 +1,6 @@
 # ADR 0017: coordinated writer choice for redundant proxies
 
-Date: 2026-10-25. Status: Implemented with fakes and in-memory Raft only; no new VM evidence.
+Date: 2026-10-25. Status: Implemented; VM evidence from E9 (2026-10-26) in [the results](../../tests/p0/results/e9-ha-proxy-writer.md): both proxies agree, a controlled switch freezes writes about 1 s, a proxy that is unreachable blocks the switch (writes down 26-28 s), running proxies keep the choice through a manager outage, a restarted proxy has no writer until a manager answers, loss of the writer's VM leaves no writer for 62 s without an operator or `autoFailover` (not exercised). Sampling 100 ms.
 
 ## Context and decision
 

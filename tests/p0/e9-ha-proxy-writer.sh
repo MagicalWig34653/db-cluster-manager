@@ -99,7 +99,7 @@ step() { case " ${E9_PHASES:-all} " in *" all "* | *" $1 "*) return 0 ;; esac; r
 # shellcheck source=tests/p0/e9-phases.sh
 . "$REPO_ROOT/tests/p0/e9-phases.sh"
 
-ALL_STEPS="build vms swarm images prereqs hainit hastack hasetup hafwd hatls hakill hadrain agents cluster pxprep pxvip pxagree pxswitch pxdown pxmgrdown pxkill pxvmloss pxintegrity pwrb1 pwrb2 pwrb3"
+ALL_STEPS="build vms swarm images prereqs hainit hastack hasetup hafwd hatls hakill hadrain agents cluster pxprep pxvip pxagree pxswitch pxdown pxmgrdown pxkill pxvmloss pxintegrity pwrb1 pwrb2 pwrdiag pwrrecover pwrb3"
 for p in $ALL_STEPS; do
 	step "$p" || continue
 	case "$p" in vms | swarm) [ "${E9_REUSE_VMS:-0}" = 1 ] && continue ;; esac
