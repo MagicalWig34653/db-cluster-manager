@@ -45,3 +45,5 @@ Reading order for a first test: 1, 2, 3, then 10 before trusting anything.
 - [18 — Docker Engine update plans (fakes and mock only)](18-docker-engine-updates.md)
 
 - [19 — Cluster provisioning (experimental)](19-provisioning.md)
+
+- [20 — Operator CLI (fakes only)](20-cli.md)

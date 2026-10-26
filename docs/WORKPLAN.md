@@ -29,6 +29,8 @@ For the active task, maintain: objective, changed files/contracts, executed chec
 
 ## Current next action
 
+Operator CLI increment (2026-10-26, `cx-cli`, fakes only): REST commands, private session storage, contexts, digest approvals, inspection-result file, output formats, completion, tests and DE/EN guide 20 are implemented ([actual results](STATUS.md#operator-cli-increment-2026-10-26-cx-cli-fakes-only), [ADR 0020](decisions/0020-operator-cli.md)). The manager lacks general operator API tokens; CLI login validates an existing session cookie. The final full Go race suite was attempted and failed on sandbox-denied TCP/Unix listeners (26 pass, 20 fail, three without tests). Next: rerun listener-backed tests where binding is allowed and test against a real manager session in an owned environment. This increment does not close any release gate.
+
 UI coverage round 2 (2026-10-26, `w06-ui2`): the Galera operation planner, data-key rotation, metastore membership and proxy writer switch now have DE/EN UI with digest confirmation, mock data, vitest and mock screenshots; all checks passed locally (see [actual results](STATUS.md#ui-coverage-round-2-2026-10-26-w06-ui2-mock-only)). Next: verify these panels against a real manager with the opt-in backends enabled.
 
 Abort view-ordering fix (2026-10-25, `cx-abortfix`): a deterministic regression

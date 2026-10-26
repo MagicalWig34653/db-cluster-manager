@@ -45,3 +45,5 @@ Lesereihenfolge für einen ersten Test: 1, 2, 3, danach 10, bevor Sie irgendetwa
 - [18 — Docker-Engine-Update-Pläne (nur Fakes und Mock)](18-docker-engine-updates.md)
 
 - [19 — Cluster-Provisionierung (experimentell)](19-provisioning.md)
+
+- [20 — Operator-CLI (nur Fakes)](20-cli.md)

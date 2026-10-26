@@ -75,7 +75,7 @@ The user deploys the manager; it deploys agents and database services. Swarm com
 
 ## Development
 
-Backend: Go for manager, agent and CLI. Monorepo with separate SvelteKit frontend source, distributed with the manager. The application icon is an Icon Composer document in [assets/icon](assets/icon/AppIcon.icon/icon.json); see [docs/DESIGN.md](docs/DESIGN.md#icon-and-screenshots) for how icon files and screenshots are produced.
+Backend: Go for manager, agent and CLI. The [operator CLI guide](docs/guides/en/20-cli.md) ([Deutsch](docs/guides/de/20-cli.md)) covers contexts, session login and REST commands (fakes only). Monorepo with separate SvelteKit frontend source, distributed with the manager. The application icon is an Icon Composer document in [assets/icon](assets/icon/AppIcon.icon/icon.json); see [docs/DESIGN.md](docs/DESIGN.md#icon-and-screenshots) for how icon files and screenshots are produced.
 
 Start with the [documentation](docs/index.md), [current status](docs/STATUS.md), and [release plan](docs/RELEASES.md). Claude Code: read [the bootstrap handover](docs/handoffs/CLAUDE-START.md) and [execution workplan](docs/WORKPLAN.md). Git initialization and public publication by Claude are authorized.
 

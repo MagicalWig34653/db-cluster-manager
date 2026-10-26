@@ -4,6 +4,8 @@ Updated: 2026-10-22 (scope extension). [Requirements](KONZEPT.md) are the canoni
 
 ## Confirmed direction
 
+The operator CLI increment uses the existing session-cookie REST API, keeps tokens out of command arguments and context files, and requires explicit digest approval ([ADR 0020](decisions/0020-operator-cli.md), 2026-10-26, fakes only). General operator API tokens remain unavailable in the manager.
+
 Swarm-native deployment first; manager-deployed agent services; multiple Swarms; local storage; manager HA with at least three instances; MariaDB Galera first; small installations; staged releases; AGPLv3; English technical documentation/code and bilingual UI/user guides. The earlier external-Docker-first suggestion is superseded.
 
 Automatic single-node replacement is allowed by policy/capacity. Full-cluster recovery and major upgrades require explicit approval. Cross-cluster copies have one source and no automatic promotion. All detailed defaults are recorded in the requirements rather than duplicated here.
