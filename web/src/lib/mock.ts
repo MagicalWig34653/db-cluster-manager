@@ -376,7 +376,7 @@ function platformMock(method: string, path: string, query: URLSearchParams, body
 	m = path.match(/^\/api\/v1\/settings\/replicas\/([^/]+)\/revoke-certificates$/);
 	if (m && method === 'POST') return json(200, { replica: decodeURIComponent(m[1]), revoked: 2 });
 	if (path === P + '/settings/data-key/rotate' && method === 'POST') {
-		const want = digest('r');
+		const want = digest('e');
 		if (!body?.digest) return json(200, { digest: want, currentKey: keyring.currentKey, started: false });
 		if (body.digest !== want) return json(409, { error: 'conflict' });
 		keyring.currentKey = 'key-2026-11';
@@ -384,7 +384,7 @@ function platformMock(method: string, path: string, query: URLSearchParams, body
 	}
 	m = path.match(/^\/api\/v1\/settings\/replicas\/([^/]+)\/membership$/);
 	if (m && method === 'POST') {
-		const want = digest(body?.remove ? 'm' : 'n');
+		const want = digest(body?.remove ? '1' : '2');
 		if (!body?.digest) return json(200, { digest: want, complete: false });
 		return body.digest === want ? json(200, { digest: want, complete: true }) : json(409, { error: 'conflict' });
 	}
@@ -400,7 +400,7 @@ function platformMock(method: string, path: string, query: URLSearchParams, body
 			{ id: `s${i}-gate`, kind: 'gate-synced', slot: s, note: 'Require fresh Synced evidence in one Primary component', conditions: ['wsrep_local_state = Synced', 'No other operation running'] },
 			{ id: `s${i}-act`, kind: kind === 'scale-out' ? 'add-node' : kind === 'scale-in' ? 'remove-node' : kind === 'minor-upgrade' ? 'upgrade-node' : 'restart-node', slot: s }
 		]);
-		const op = pendingOp(`cluster/${kind}`, cluster, 'p', steps.length);
+		const op = pendingOp(`cluster/${kind}`, cluster, 'f', steps.length);
 		return json(202, {
 			id: op.id,
 			kind: op.kind,
