@@ -105,7 +105,10 @@ func TestInitHAWithBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 	mc := cfg.Manager
-	if !mc.Keyring || mc.PeerTLS == nil || mc.PeerTLS.KeyFile != containerPeerKey || mc.Bind != "192.0.2.11:7445" || mc.Advertise != mc.Bind || len(mc.Peers) != 3 {
+	if !mc.Keyring || mc.PeerTLS == nil || mc.PeerTLS.KeyFile != "/var/lib/dbcm/peer/peer-bundle.pem" ||
+		mc.PeerTLS.CertFile != mc.PeerTLS.KeyFile || mc.PeerTLS.Renewal == nil ||
+		mc.APIForwardBind != "192.0.2.11:7447" || mc.Peers[1].APIAddress != mc.APIForwardBind ||
+		mc.Bind != "192.0.2.11:7445" || mc.Advertise != mc.Bind || len(mc.Peers) != 3 {
 		t.Fatalf("HA section %+v", mc)
 	}
 	if mc.AgentTransport.ManagerURL != "https://mgr2.example.com:7444" || len(mc.AgentTransport.ServerDNS) != 1 {
@@ -136,7 +139,7 @@ func TestInitHAWithBackup(t *testing.T) {
 			t.Fatalf("recovery key leaked to %s", name)
 		}
 	}
-	if !strings.Contains(stderr.String(), "Three-replica variant") {
+	if !strings.Contains(stderr.String(), "stack-ha.yaml") || !strings.Contains(stderr.String(), "peer-bundle.pem") {
 		t.Fatal("HA instructions missing")
 	}
 	// Neither file is overwritten.

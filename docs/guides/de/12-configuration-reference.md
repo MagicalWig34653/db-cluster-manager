@@ -6,9 +6,9 @@ title: Konfigurationsreferenz
 
 [Übersicht](index.md) | Zurück: [Betriebshandbuch](11-operator-runbook.md)
 
-Abgeleitet aus `cmd/manager/main.go`, `cmd/manager/managed.go` und `cmd/manager/peers.go` (Stand 2026-10-23). Der Manager liest eine JSON-Datei, angegeben mit `-config <Datei>` oder der Umgebungsvariable `DCM_CONFIG`. **Unbekannte Felder werden abgelehnt**, der Manager startet dann nicht. Echtes JSON kennt keine Kommentare; die `//`-Hinweise unten dienen nur der Erklärung.
+Abgeleitet aus `cmd/manager/main.go`, `cmd/manager/managed.go` und `cmd/manager/peers.go` (Stand 2026-10-25). Der Manager liest eine JSON-Datei, angegeben mit `-config <Datei>` oder der Umgebungsvariable `DCM_CONFIG`. **Unbekannte Felder werden abgelehnt**, der Manager startet dann nicht. Echtes JSON kennt keine Kommentare; die `//`-Hinweise unten dienen nur der Erklärung.
 
-Prüfstufe: Parsen und Validierung sind unit-getestet [Fakes]. Die Abschnitte `auth`, `manager`, `manager.agentTransport`, `manager.backup` und `manager.settings` liefen in der Konfiguration von E4-E6 auf Lab-VMs (eine Instanz als Prozess auf einem Swarm-Manager-Knoten) [Lab-VMs]. `manager.keyring`, `manager.peerTLS`, mehrere `peers`, `-print-replica-key` und `-issue-peer-certs` wurden nur mit Fakes und Loopback-TLS getestet [Fakes]; ein Multi-Replika-Manager lief nie auf VMs.
+Prüfstufe: Parsen und Validierung sind unit-getestet [Fakes]. Die Abschnitte `auth`, `manager`, `manager.agentTransport`, `manager.backup` und `manager.settings` liefen in der Konfiguration von E4-E6 auf Lab-VMs (eine Instanz als Prozess auf einem Swarm-Manager-Knoten) [Lab-VMs]. Drei Manager-Prozesse mit `keyring` und `peerTLS` liefen auf Labor-VMs (E4 B2) [Lab-VMs]; die neuen Erneuerungs-/Weiterleitungsfelder und der Drei-Dienste-Stack haben nur Fake-/Statik-Nachweise [Fakes].
 
 ## Kommandozeile
 
@@ -55,11 +55,12 @@ Der Abschnitt wählt den verwalteten Modus. Pflicht: `dataDir` und `bind`.
 | `dataDir` | string | keiner, **Pflicht** | Metastore (`<dataDir>/metastore`), `data.key`, `replica.key` und der Standard-Monitoringspeicher. Sichern, siehe [Betriebshandbuch](11-operator-runbook.md). |
 | `bind` | string | keiner, **Pflicht** | TCP-Adresse des Metastores, zum Beispiel `127.0.0.1:7946`. Ohne `peerTLS` ist der Transport unverschlüsseltes TCP: nur Loopback oder isolierte Netze. |
 | `advertise` | string | leer | Adresse, die Peers anwählen, falls sie von `bind` abweicht. |
-| `peers` | Liste von `{id, address}` | leer | Anfängliche stimmberechtigte Mitgliedschaft **einschließlich dieses Replikats**; leer bedeutet Einzelinstanz. Danach gibt es keine Mitgliedschaftsänderung. |
+| `peers` | Liste von `{id, address, apiAddress?}` | leer | Anfängliche stimmberechtigte Mitgliedschaft **einschließlich dieses Replikats**; leer bedeutet Einzelinstanz. Im Standardbetrieb sind Mitgliedschaftsänderungen nicht verfügbar. |
 | `bootstrap` | bool | `false` | Schreibt beim ersten Start einer neuen Installation die Anfangsmitgliedschaft (`peers`); wird ignoriert, wenn das Replikat schon Zustand auf Platte hat. Alle bootstrappenden Replikate müssen dieselbe Liste übergeben, also bei einer neuen Installation auf jedem Replikat `true`. |
 | `keyFile` | string | `<dataDir>/data.key` | 32-Byte-Datenschlüssel für Geheimnisse im Ruhezustand. Ohne `keyring` wird er bei Bedarf angelegt und muss von Hand auf jedes Replikat kopiert werden. Mit `keyring` wird eine vorhandene Datei beim Bootstrap des Schlüsselrings als erster Schlüssel übernommen; eine neue wird nicht angelegt. |
 | `keyring` | bool | `false` | Replizierter, verpackter Datenschlüsselring ([ADR 0013](../../decisions/0013-replica-keys-peer-tls-and-revocation.md)). Jedes Replikat hält nur seine Identität in `<dataDir>/replica.key`. Empfohlen bei mehr als einem Replikat. |
 | `peerTLS` | Objekt | fehlt | Gegenseitiges TLS 1.3 zwischen Metastore-Replikaten, siehe unten. Empfohlen bei mehr als einem Replikat. |
+| `apiForwardBind` | Host:Port | fehlt | mTLS-Listener für die API-Weiterleitung von Followern. Benötigt `peerTLS`, mindestens drei Peers und je eine `apiAddress`. Nicht für Clients freigeben. |
 | `labAgents` | bool | `false` | Unauthentifizierte HTTP-Agentenendpunkte des Labors. **Nur Labor**; schließt `agentTransport` aus. Ohne beides werden Agentenbefehle abgelehnt. |
 | `autoResume` | bool | `false` | Ein neuer Leader setzt übernommene Operationen fort. |
 | `agentTransport` | Objekt | fehlt | Authentifizierter mTLS-Agententransport mit Einbindung ([ADR 0010](../../decisions/0010-agent-transport-and-enrollment.md)). Praktisch nötig für Hosts, Cluster und Backups. |
@@ -74,6 +75,7 @@ Der Abschnitt wählt den verwalteten Modus. Pflicht: `dataDir` und `bind`.
 | --- | --- |
 | `id` | Replikat-ID, gleich dem `nodeId` dieses Replikats. |
 | `address` | Metastore-Adresse dieses Replikats, wie die anderen sie anwählen. Mit `peerTLS` muss das Replikat unter dieser Adresse genau diese ID vorweisen. |
+| `apiAddress` | Separate Adresse für die Manager-API-Weiterleitung. Replikate erreichen den aktuellen Leader darüber mit Peer-mTLS. `manager init -peers` nutzt Port 7447. |
 
 ### `manager.peerTLS`
 
@@ -85,6 +87,7 @@ Existiert der Abschnitt, sind alle vier Felder Pflicht. Erzeugt von `manager -is
 | `caFile` | Zertifikat der Peer-CA (`ca.pem`). |
 | `certFile` | Kette dieses Replikats (`<id>/peer.pem`). |
 | `keyFile` | Privater Schlüssel dieses Replikats (`<id>/peer-key.pem`). |
+| `renew` | Optional `{caFile, passphraseFile, beforeDays?, validityDays?, intervalHours?}`. Versiegelte CA und Passphrase liegen als getrennte Online-Secrets vor. Standard: 30 Tage Vorlauf, 365 Tage neue Gültigkeit, Prüfung alle 12 Stunden. Dieselbe schreibbare PEM-Datei für `certFile` und `keyFile` ermöglicht atomaren Austausch. Fehler werden protokolliert und erneut versucht; ein abgelaufenes Zertifikat bleibt ungültig. |
 
 ### `manager.agentTransport`
 
@@ -202,7 +205,7 @@ Feeds werden in `manager.vuln.feeds` konfiguriert (oben); keiner hat eine Standa
 | Zustand, Ausfallereignisse | `agentTransport.monitorUser` und `monitorSecret`; `settings.accounts`. |
 | Cluster anlegen | Alles Obige plus `accounts`; Netzwerke und Secrets mit der Installations-ID als Label. |
 | Backups, Wiederherstellungen | `manager.backup.backendConfigFile`; `settings.backup` (Job-Image, Backend-Secret, Zugangs-Secret, Recipient-Key, Inspektionsnetz, Key-Secret). |
-| Mehrere Replikate | `peers` auf jedem Replikat, `keyring`, `peerTLS`; siehe Betriebshandbuch. Ein Mehrreplikat-Lauf auf VMs fand nicht statt [Ungetestet]. |
+| Mehrere Replikate | `peers` auf jedem Replikat, `keyring`, `peerTLS`; siehe Betriebshandbuch. Drei normale Manager-Prozesse liefen auf Labor-VMs (E4 B2); der HA-Stack nicht [Ungetestet]. |
 
 ## Beispiel: Einzelinstanz
 
@@ -240,21 +243,25 @@ Alle Namen oben sind Beispiele. Die Secrets und Netzwerke müssen im Swarm exist
 
 ## Beispiel: Replikat-Ausschnitt mit Schlüsselring und Peer-TLS
 
-Für Replikat `manager-2` von dreien, nach `manager -issue-peer-certs ./peers -installation inst-1 -peer-ids manager-1,manager-2,manager-3` und dem Kopieren von `./peers/manager-2/` auf diesen Host (die versiegelte CA `ca.sealed` und die Passphrase bleiben offline):
+Für Replikat `manager-2` von dreien: Nach `manager -issue-peer-certs ./peers -installation inst-1 -peer-ids manager-1,manager-2,manager-3` nur sein `peer-bundle.pem` ins lokale Daten-Volume kopieren und versiegelte CA und Passphrase als getrennte Online-Secrets einbinden. Siehe [HA-Installation](../../INSTALL.md#three-replica-ha-stack-static-checks-and-in-process-tests-only):
 
 ```json
 "manager": {
   "nodeId": "manager-2",
-  "dataDir": "/var/lib/dbcm-manager",
-  "bind": "0.0.0.0:7946",
-  "advertise": "10.0.0.5:7946",
-  "peers": [ {"id": "manager-1", "address": "10.0.0.4:7946"},
-             {"id": "manager-2", "address": "10.0.0.5:7946"},
-             {"id": "manager-3", "address": "10.0.0.6:7946"} ],
+  "dataDir": "/var/lib/dbcm",
+  "bind": "10.0.0.5:7445",
+  "advertise": "10.0.0.5:7445",
+  "apiForwardBind": "10.0.0.5:7447",
+  "peers": [ {"id": "manager-1", "address": "10.0.0.4:7445", "apiAddress": "10.0.0.4:7447"},
+             {"id": "manager-2", "address": "10.0.0.5:7445", "apiAddress": "10.0.0.5:7447"},
+             {"id": "manager-3", "address": "10.0.0.6:7445", "apiAddress": "10.0.0.6:7447"} ],
   "bootstrap": true,
   "keyring": true,
-  "peerTLS": { "installation": "inst-1", "caFile": "/etc/dbcm/peer/ca.pem",
-               "certFile": "/etc/dbcm/peer/peer.pem", "keyFile": "/etc/dbcm/peer/peer-key.pem" }
+  "peerTLS": { "installation": "inst-1", "caFile": "/run/secrets/dbcm-peer-ca.pem",
+               "certFile": "/var/lib/dbcm/peer/peer-bundle.pem",
+               "keyFile": "/var/lib/dbcm/peer/peer-bundle.pem",
+               "renew": { "caFile": "/run/secrets/dbcm-peer-ca-sealed",
+                          "passphraseFile": "/run/secrets/dbcm-peer-ca-passphrase" } }
 }
 ```
 

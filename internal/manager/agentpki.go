@@ -274,7 +274,7 @@ func (p *AgentPKI) RevokeReplicaCertificates(actor authz.Subject, az *authz.Auth
 		if s, ok := new(big.Int).SetString(r.Key, 16); ok && p.Revoked(s) {
 			continue
 		}
-		if err := p.revokeSerial(r.Key, reason); err != nil {
+		if err := p.revokeSerial(r.Key, reason, r.Value.NotAfter); err != nil {
 			return n, err
 		}
 		n++
@@ -481,11 +481,13 @@ func (p *AgentPKI) RecordIssued(_ context.Context, nodeID string, cert *x509.Cer
 		return mapEnrollStoreErr(err)
 	}
 	var previous string
+	var previousExpiry time.Time
 	_, _, err = Update(p.Store, CollHosts, h.Key, func(cur HostRecord, exists bool) (HostRecord, error) {
 		if !exists || cur.Enrollment != EnrollEnrolled {
 			return cur, fmt.Errorf("%w: host %s", enroll.ErrUnknownAgent, nodeID)
 		}
 		previous = cur.AgentSerial
+		previousExpiry = cur.AgentNotAfter
 		cur.AgentSerial = cert.SerialNumber.Text(16)
 		cur.AgentNotAfter = cert.NotAfter
 		cur.AgentIdentityAt = p.now()
@@ -495,13 +497,13 @@ func (p *AgentPKI) RecordIssued(_ context.Context, nodeID string, cert *x509.Cer
 		return mapEnrollStoreErr(err)
 	}
 	if previous != "" && previous != cert.SerialNumber.Text(16) {
-		return mapEnrollStoreErr(p.revokeSerial(previous, "superseded by renewal"))
+		return mapEnrollStoreErr(p.revokeSerial(previous, "superseded by renewal", previousExpiry))
 	}
 	return nil
 }
 
-func (p *AgentPKI) revokeSerial(serial, reason string) error {
-	_, err := Put(p.Store, CollRevocations, serial, certs.Revocation{Serial: serial, RevokedAt: p.now(), Reason: reason}, nil)
+func (p *AgentPKI) revokeSerial(serial, reason string, notAfter time.Time) error {
+	_, err := Put(p.Store, CollRevocations, serial, certs.Revocation{Serial: serial, RevokedAt: p.now(), NotAfter: notAfter, Reason: reason}, nil)
 	return err
 }
 
@@ -521,16 +523,18 @@ func (p *AgentPKI) RevokeAgent(actor authz.Subject, az *authz.Authorizer, swarmI
 		return &authz.DeniedError{Decision: d}
 	}
 	var serial string
+	var expiry time.Time
 	_, _, err := Update(p.Store, CollHosts, HostKey(swarmID, nodeID), func(cur HostRecord, exists bool) (HostRecord, error) {
 		if !exists {
 			return cur, ErrNotFound
 		}
 		serial = cur.AgentSerial
+		expiry = cur.AgentNotAfter
 		cur.AgentSerial, cur.AgentNotAfter = "", time.Time{}
 		return cur, nil
 	})
 	if err != nil || serial == "" {
 		return err
 	}
-	return p.revokeSerial(serial, reason)
+	return p.revokeSerial(serial, reason, expiry)
 }

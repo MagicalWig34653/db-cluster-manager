@@ -95,8 +95,10 @@
 //
 // Accounts, passkeys, sessions, recovery codes, roles and audit records then
 // survive a restart; the setup token is printed only while no administrator
-// exists. Only the metastore leader serves the API; other replicas answer
-// 503 with the X-DCM-Leader header (no forwarding). Without manager.peerTLS
+// exists. With manager.apiForwardBind and peers[].apiAddress, followers
+// forward API requests once to the current leader over peer mTLS; an
+// uncertain write returns 503 and is never replayed. Without forwarding,
+// followers answer 503 with X-DCM-Leader. Without manager.peerTLS
 // the metastore transport has no TLS, and without manager.keyring the data
 // key must be copied to every replica out of band (ADR 0013). A command-line hook to issue a recovery
 // URL (-print-recovery-url) does not exist: URL tokens live in the leader's

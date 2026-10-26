@@ -158,6 +158,7 @@ func (s *Swarms) SetEnrollment(actor authz.Subject, swarmID, nodeID string, enro
 		return HostRecord{}, err
 	}
 	var revokedSerial string
+	var revokedExpiry time.Time
 	h, _, err := Update(s.Svc.store, CollHosts, HostKey(swarmID, nodeID), func(h HostRecord, exists bool) (HostRecord, error) {
 		if !exists {
 			return h, fmt.Errorf("%w: host %s/%s (run Sync first)", api.ErrNotFound, swarmID, nodeID)
@@ -166,6 +167,7 @@ func (s *Swarms) SetEnrollment(actor authz.Subject, swarmID, nodeID string, enro
 			h.Enrollment, h.EnrolledAt, h.AgentURL = EnrollEnrolled, s.Svc.cfg.Now(), agentURL
 		} else {
 			revokedSerial = h.AgentSerial
+			revokedExpiry = h.AgentNotAfter
 			h.Enrollment, h.AgentURL, h.AgentSerial, h.AgentNotAfter = EnrollRevoked, "", "", time.Time{}
 		}
 		return h, nil
@@ -175,7 +177,7 @@ func (s *Swarms) SetEnrollment(actor authz.Subject, swarmID, nodeID string, enro
 	}
 	// The agent identity dies with the enrollment.
 	_, err = Put(s.Svc.store, CollRevocations, revokedSerial,
-		certs.Revocation{Serial: revokedSerial, RevokedAt: s.Svc.cfg.Now(), Reason: "host enrollment revoked by " + actor.ID}, nil)
+		certs.Revocation{Serial: revokedSerial, RevokedAt: s.Svc.cfg.Now(), NotAfter: revokedExpiry, Reason: "host enrollment revoked by " + actor.ID}, nil)
 	return h, err
 }
 

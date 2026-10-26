@@ -3,8 +3,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -24,10 +26,40 @@ import (
 // peerTLSConfig is the "manager.peerTLS" section: PEM files written by
 // `manager -issue-peer-certs` for this replica.
 type peerTLSConfig struct {
-	Installation string `json:"installation"`
-	CAFile       string `json:"caFile"`
-	CertFile     string `json:"certFile"`
-	KeyFile      string `json:"keyFile"`
+	Installation string             `json:"installation"`
+	CAFile       string             `json:"caFile"`
+	CertFile     string             `json:"certFile"`
+	KeyFile      string             `json:"keyFile"`
+	Renewal      *peerRenewalConfig `json:"renew,omitempty"`
+}
+
+// peerRenewalConfig opts in to online custody of the sealed peer CA. Both
+// the sealed CA and its passphrase must be provisioned as separate secrets.
+type peerRenewalConfig struct {
+	CAFile         string `json:"caFile"`
+	PassphraseFile string `json:"passphraseFile"`
+	BeforeDays     int    `json:"beforeDays,omitempty"`
+	ValidityDays   int    `json:"validityDays,omitempty"`
+	IntervalHours  int    `json:"intervalHours,omitempty"`
+}
+
+func (r *peerRenewalConfig) before() time.Duration {
+	if r.BeforeDays > 0 {
+		return time.Duration(r.BeforeDays) * 24 * time.Hour
+	}
+	return 30 * 24 * time.Hour
+}
+func (r *peerRenewalConfig) validity() time.Duration {
+	if r.ValidityDays > 0 {
+		return time.Duration(r.ValidityDays) * 24 * time.Hour
+	}
+	return 365 * 24 * time.Hour
+}
+func (r *peerRenewalConfig) interval() time.Duration {
+	if r.IntervalHours > 0 {
+		return time.Duration(r.IntervalHours) * time.Hour
+	}
+	return 12 * time.Hour
 }
 
 // load reads the files and returns the metastore peer TLS configuration.
@@ -50,6 +82,102 @@ func (p *peerTLSConfig) load() (*metastore.PeerTLS, error) {
 		return nil, err
 	}
 	return &metastore.PeerTLS{Installation: p.Installation, Roots: roots, Certificate: r.get}, nil
+}
+
+// renewOnce replaces the local key pair before expiry. It uses the identity
+// already present in the certificate, never a caller-supplied replica ID.
+// New HA configurations use a single bundle, atomically replaced so the
+// certificate callback observes either complete key pair.
+func (p *peerTLSConfig) renewOnce(ctx context.Context, now func() time.Time) (bool, error) {
+	if p.Renewal == nil {
+		return false, nil
+	}
+	r := p.Renewal
+	if r.CAFile == "" || r.PassphraseFile == "" || r.before() >= r.validity() || r.interval() <= 0 {
+		return false, errors.New("manager.peerTLS.renew needs caFile, passphraseFile and beforeDays less than validityDays")
+	}
+	current, err := tls.LoadX509KeyPair(p.CertFile, p.KeyFile)
+	if err != nil {
+		return false, err
+	}
+	leaf, err := x509.ParseCertificate(current.Certificate[0])
+	if err != nil {
+		return false, err
+	}
+	id, ok := metastore.PeerIDOf(leaf, p.Installation)
+	if !ok {
+		return false, metastore.ErrPeerIdentity
+	}
+	if now().Add(r.before()).Before(leaf.NotAfter) {
+		return false, nil
+	}
+	sealed, err := os.ReadFile(r.CAFile)
+	if err != nil {
+		return false, err
+	}
+	pass, err := os.ReadFile(r.PassphraseFile)
+	if err != nil {
+		return false, err
+	}
+	ca, err := certs.LoadCA(sealed, strings.TrimSuffix(strings.TrimSuffix(string(pass), "\n"), "\r"), now)
+	if err != nil {
+		return false, err
+	}
+	trusted, err := os.ReadFile(p.CAFile)
+	if err != nil {
+		return false, err
+	}
+	if !bytes.Equal(bytes.TrimSpace(ca.CertificatePEM()), bytes.TrimSpace(trusted)) {
+		return false, errors.New("manager.peerTLS.renew: sealed CA differs from trusted CA")
+	}
+	iss, err := ca.Issue(ctx, certs.Request{Kind: certs.KindPeer, CommonName: "dbcm metastore " + id,
+		URIs: []*url.URL{metastore.PeerURI(p.Installation, id)}, Validity: r.validity()})
+	if err != nil {
+		return false, err
+	}
+	key, err := iss.KeyPEM()
+	if err != nil {
+		return false, err
+	}
+	if p.CertFile == p.KeyFile {
+		bundle := append(append([]byte(nil), iss.ChainPEM...), key...)
+		if err := replacePrivateFile(p.CertFile, bundle); err != nil {
+			return false, err
+		}
+	} else {
+		// Existing separate-file configurations remain supported, but a
+		// crash between the two renames needs manual repair. New HA configs
+		// use one atomically replaced PEM bundle.
+		if err := replacePrivateFile(p.KeyFile, key); err != nil {
+			return false, err
+		}
+		if err := replacePrivateFile(p.CertFile, iss.ChainPEM); err != nil {
+			return false, err
+		}
+	}
+	return true, nil
+}
+
+func replacePrivateFile(path string, data []byte) error {
+	f, err := os.CreateTemp(filepath.Dir(path), ".peer-renew-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	defer f.Close()
+	if err := f.Chmod(0o600); err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), path)
 }
 
 // reloadingCert serves a key pair from files and reloads it when the
@@ -197,6 +325,9 @@ func issuePeerCerts(dir, installation, ids, passphrase string, validity time.Dur
 			return err
 		}
 		if err := os.WriteFile(filepath.Join(pd, "peer-key.pem"), key, 0o600); err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(pd, "peer-bundle.pem"), append(append([]byte(nil), iss.ChainPEM...), key...), 0o600); err != nil {
 			return err
 		}
 	}

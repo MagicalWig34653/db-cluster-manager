@@ -160,6 +160,23 @@ func (s *Service) IsLeader() bool {
 	return l != nil && s.node.IsLeader() && s.node.Term() == l.Term
 }
 
+// WriteBarrier proves a quorum still accepts this term before the HTTP layer
+// dispatches a mutating request. Raft may report Leader briefly after an
+// isolated leader loses contact; IsLeader alone is insufficient at that edge.
+func (s *Service) WriteBarrier() error {
+	l := s.Current()
+	if l == nil || !l.Valid() {
+		return ErrNotLeader
+	}
+	if err := s.node.Barrier(s.cfg.BarrierTimeout); err != nil {
+		return err
+	}
+	if !l.Valid() {
+		return ErrNotLeader
+	}
+	return nil
+}
+
 // LeaderAddress returns the ID and metastore address of the known leader.
 func (s *Service) LeaderAddress() (id, address string) { return s.node.Leader() }
 

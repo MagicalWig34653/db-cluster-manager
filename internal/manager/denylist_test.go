@@ -159,3 +159,38 @@ func TestDenyListReachesAgentAndBlocksRevokedManagerCertificate(t *testing.T) {
 		t.Fatalf("agent refused the reissued certificate: %v", err)
 	}
 }
+
+func TestDenyListCompactionSurvivesLeaderChange(t *testing.T) {
+	c := newCluster(t, 3, nil)
+	leader := c.leader()
+	now := time.Date(2030, 1, 2, 0, 0, 0, 0, time.UTC)
+	for serial, expiry := range map[string]time.Time{
+		"aa": now.Add(-time.Hour), "bb": now.Add(time.Hour), "cc": {},
+	} {
+		if _, err := Put(leader.Store(), CollRevocations, serial, certs.Revocation{
+			Serial: serial, RevokedAt: now.Add(-2 * time.Hour), NotAfter: expiry}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before, err := CurrentDenyList(leader.Store())
+	if err != nil {
+		t.Fatal(err)
+	}
+	compact := DenyListCompactor{Now: func() time.Time { return now }}
+	if n, err := compact.CompactOnce(leader.Store()); err != nil || n != 1 {
+		t.Fatalf("compact: %d %v", n, err)
+	}
+	after, err := CurrentDenyList(leader.Store())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Revision <= before.Revision || len(after.Serials) != 2 || after.Serials[0] != "bb" || after.Serials[1] != "cc" {
+		t.Fatalf("after compaction: %+v; before: %+v", after, before)
+	}
+	c.close(leader)
+	next := c.leader(leader.cfg.NodeID)
+	got, err := CurrentDenyList(next.Store())
+	if err != nil || got.Revision != after.Revision || got.Digest != after.Digest {
+		t.Fatalf("new leader lost compacted state: %+v %v", got, err)
+	}
+}
