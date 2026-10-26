@@ -4,7 +4,7 @@ title: Installation and packaging
 
 # Installation and packaging
 
-Technical guide for installing the manager. The arm64 manager image and single-instance stack ran on lab VMs in [E7](../tests/p0/results/e7-stack-deploy.md). Native amd64 deployment, Compose, the new three-service HA stack and the updated CI/release workflows remain unverified. Static deployment checks do not prove image builds or runtime compatibility. There are no signed images; manager configuration backup has no scheduler or API.
+Technical guide for installing the manager. The arm64 manager image and single-instance stack ran on lab VMs in [E7](../tests/p0/results/e7-stack-deploy.md). Native amd64 deployment, Compose, the new three-service HA stack and the updated CI/release workflows remain unverified. Static deployment checks do not prove image builds or runtime compatibility. No release image or signature exists yet; manager configuration backup has no scheduler or API.
 
 ## What the manager does today
 
@@ -140,7 +140,7 @@ Objects the manager created stay in the Swarm: the agent service `dbcm-agent-<in
 - Base images are pinned by tag and digest in `deploy/Dockerfile` (resolved from the registries on 2026-10-20) and `deploy/Dockerfile.jobs` (`mariadb:11.4.13`, resolved 2026-10-22); refresh them deliberately. The job image's MariaDB version must match the clusters' server image.
 - Go builds use `-trimpath`, CGO disabled, `-ldflags "-s -w -X ...Version -X ...Commit"`. Node dependencies come from `npm ci` and the lockfile.
 - Bit-for-bit reproducibility has not been verified.
-- Release workflow actions are pinned to commit SHAs. No secrets other than `GITHUB_TOKEN`; image signing/attestation and a formal SBOM format (SPDX/CycloneDX) are not done, only `go version -m` listings.
+- The [release policy](RELEASING.md) documents version tags, artifacts and verification. The workflow is configured to publish per-binary CycloneDX JSON SBOMs, SHA-256 checksums, BuildKit image SBOM/provenance attestations and keyless cosign signatures for both GHCR image indexes. It has **not run**; no published artifact, signature or attestation is verified. Binary archives have no independent signed provenance attestation. Existing Actions are pinned to commit SHAs and the workflow uses no secret besides `GITHUB_TOKEN`.
 
 ## Native manager HTTPS (fakes only)
 
@@ -156,12 +156,12 @@ HTTP; native TLS requires configuring listener ports, external forwarding,
 trust roots and startup grace period. No real deployment of this new mode was
 performed.
 
-- Build and release Actions reuse the repository's existing commit-SHA pins (not refreshed or independently verified in this task). The release image builds request BuildKit SBOM (`sbom: true`) and provenance (`mode=max`); their presence and contents must be inspected after a real tag build. These flags do not provide image signing or vulnerability scanning. Only the image publication job has `packages: write`; it uses `GITHUB_TOKEN` for GHCR on version-tag pushes after native CI passes.
+- Build and release Actions reuse the repository's existing commit-SHA pins (not refreshed or independently verified in this task). The release image builds request BuildKit SBOM (`sbom: true`) and provenance (`mode=max`), then keyless cosign signing of the pushed index digest. Their presence and contents must be inspected after a real tag build. No vulnerability scan runs in the release workflow. Only the image publication job has `packages: write` and `id-token: write`; it uses `GITHUB_TOKEN` for GHCR on version-tag pushes after native CI passes.
 
 ## Architecture validation and publication
 
 [Build and test](../.github/workflows/build.yml) runs Go builds, vet, race tests and frontend build/check/tests on native `ubuntu-24.04` (amd64) and `ubuntu-24.04-arm` (arm64) runners. Each runner builds both Dockerfiles for its own architecture with Buildx into temporary OCI archives with SBOM/provenance, without login or push. The archives are validation outputs discarded with the runner, not downloadable release artifacts.
 
-[Release](../.github/workflows/release.yml) calls the same checks before publishing archives or images. Only `v*` tag pushes can publish the multi-platform manager/agent image and `ghcr.io/<owner>/db-cluster-manager-jobs:<version>`; both target `linux/amd64,linux/arm64`. The tag publication build uses QEMU for foreign-platform build steps. A multi-platform build is not native P0 evidence. No workflow has been run for this change and no registry publication is claimed.
+[Release](../.github/workflows/release.yml) calls the same checks before publishing archives or images. Only exact stable `vMAJOR.MINOR.PATCH` tags pass the tag guard. The workflow would publish two Linux archives, six per-binary CycloneDX SBOMs, checksums and the multi-platform manager/agent and `ghcr.io/<owner>/db-cluster-manager-jobs:<version>` images. Both images target `linux/amd64,linux/arm64`; the tag publication build uses QEMU for foreign-platform build steps. A multi-platform build is not native P0 evidence. No workflow has been run for this change and no registry publication is claimed; see [release policy](RELEASING.md).
 
 See the [deployment architecture plan](../deploy/README.md) and [native amd64 P0 plan](TESTING.md#native-amd64-p0-evidence-plan). The owner must still choose an amd64 host or cloud VM for multi-node P0; no resource is provisioned by CI.

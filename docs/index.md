@@ -21,6 +21,7 @@ layout: landing
 [User guides (English)](guides/en/index.md)
 [Benutzerhandbuch (Deutsch)](guides/de/index.md)
 [Current status](STATUS.md)
+[Release policy](RELEASING.md)
 </div>
 
 <div class="shot" markdown="1">

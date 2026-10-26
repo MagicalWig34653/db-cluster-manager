@@ -425,8 +425,20 @@ def check_release_workflow(path: Path) -> None:
     require_text(path, text, (
         '    tags: ["v*"]', "permissions: {}",
         "  verify:\n    uses: ./.github/workflows/build.yml",
-        "  web:\n    needs: verify",
-        "  image:\n    needs: verify",
+        "  tag:\n    needs: verify", "  web:\n    needs: tag",
+        "  binaries:\n    needs: web", "  image:\n    needs: tag",
+        "  release:\n    needs: [binaries, image]",
+        'goarch: [amd64, arm64]', 'GOOS: linux',
+        'go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.9.0',
+        'cyclonedx-gomod" app -json -main',
+        'fetch-depth: 0', 'python3 scripts/release_notes.py --tag "$TAG"',
+        'python3 scripts/test_release_notes.py',
+        'sha256sum -- *.tar.gz *.bom.json > SHA256SUMS',
+        'sha256sum -c SHA256SUMS',
+        'go install github.com/sigstore/cosign/v3/cmd/cosign@v3.0.2',
+        'cosign" sign --yes "${IMAGE}@${DIGEST}"',
+        'id: push', 'DIGEST: ${{ steps.push.outputs.digest }}',
+        'notes-file RELEASE_NOTES.md', '--verify-tag',
         "    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')",
         '- dockerfile: deploy/Dockerfile\n            suffix: ""',
         '- dockerfile: deploy/Dockerfile.jobs\n            suffix: "-jobs"',
@@ -437,11 +449,11 @@ def check_release_workflow(path: Path) -> None:
     ))
     if not re.search(r'(?m)^on:\n  push:\n    tags: \["v\*"\]\npermissions: \{\}', text):
         err(f"{path.name}: expected only the version-tag push trigger")
-    # Only the image job needs registry writes; release creation needs contents.
+    # Only the image job needs registry and OIDC permissions; release creation needs contents.
     jobs = re.split(r"(?m)^  ([\w-]+):\n", text.split("jobs:\n", 1)[-1])
     for name, body in zip(jobs[1::2], jobs[2::2]):
         writes = re.findall(r"(?m)^\s+([\w-]+): write\s*$", body)
-        expected = {"image": ["packages"], "release": ["contents"]}.get(name, [])
+        expected = {"image": ["packages", "id-token"], "release": ["contents"]}.get(name, [])
         if writes != expected:
             err(f"{path.name}: unexpected write permissions in {name}: {writes}")
     if re.search(r"(?m)^  (?:pull_request|pull_request_target|workflow_dispatch|workflow_call|schedule):", text):
