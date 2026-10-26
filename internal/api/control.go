@@ -262,6 +262,9 @@ type RestoreVerifyPolicy struct {
 	Timezone string `json:"timezone,omitempty"`
 	// MaxMinutes bounds one verification (default 60, at most 240).
 	MaxMinutes int `json:"maxMinutes,omitempty"`
+	// Host is an explicitly approved Swarm node for the inspection
+	// instance; empty lets the manager select one.
+	Host string `json:"host,omitempty"`
 }
 
 // BackupRetention keeps the newest KeepLast sets plus the newest set of

@@ -90,11 +90,14 @@ func (b BackupSettings) backupReady() error {
 // BackupPolicyRecord is the stored policy of one cluster. Last is the
 // scheduled time of the newest due run (run or skipped).
 type BackupPolicyRecord struct {
-	Cluster   string           `json:"cluster"`
-	Policy    api.BackupPolicy `json:"policy"`
-	Last      time.Time        `json:"last"`
-	UpdatedBy string           `json:"updatedBy"`
-	UpdatedAt time.Time        `json:"updatedAt"`
+	Cluster string           `json:"cluster"`
+	Policy  api.BackupPolicy `json:"policy"`
+	Last    time.Time        `json:"last"`
+	// VerifyLast is the scheduled time of the newest due restore
+	// verification (verifyschedule.go).
+	VerifyLast time.Time `json:"verifyLast,omitzero"`
+	UpdatedBy  string    `json:"updatedBy"`
+	UpdatedAt  time.Time `json:"updatedAt"`
 }
 
 // BackupRecord is one started backup. Its outcome is the outcome of its
@@ -320,12 +323,30 @@ func (b *Backups) setBackupPolicy(_ context.Context, actor authz.Subject, cluste
 			return api.BackupSummary{}, err
 		}
 	}
+	if v := p.Verify; v != nil {
+		if v.MaxMinutes < 0 || v.MaxMinutes > maxVerifyMinutes {
+			return api.BackupSummary{}, fmt.Errorf("%w: verification maxMinutes must be 0..%d", dbbackup.ErrInvalidRequest, maxVerifyMinutes)
+		}
+		if v.Enabled {
+			if _, err := schedulePolicy(api.BackupPolicy{Schedule: v.Schedule, Timezone: v.Timezone}); err != nil {
+				return api.BackupSummary{}, err
+			}
+			// Enabling pre-approves the isolated inspections of the schedule,
+			// so it needs the restore permission as well.
+			if err := b.Ops.authorize(actor, authz.ActionRestore, backupRes(c.Swarm, c.ID)); err != nil {
+				return api.BackupSummary{}, err
+			}
+		}
+	}
 	now := b.now()
 	_, _, err = Update(b.store(), CollBackupPolicies, c.ID, func(cur BackupPolicyRecord, exists bool) (BackupPolicyRecord, error) {
 		// A new or changed schedule starts counting now: no catch-up runs
 		// for times before the change.
 		if !exists || cur.Policy.Schedule != p.Schedule || cur.Policy.Timezone != p.Timezone || (!cur.Policy.Enabled && p.Enabled) {
 			cur.Last = now
+		}
+		if v := p.Verify; v != nil && v.Enabled && (cur.Policy.Verify == nil || !cur.Policy.Verify.Enabled || cur.Policy.Verify.Schedule != v.Schedule || cur.Policy.Verify.Timezone != v.Timezone) {
+			cur.VerifyLast = now
 		}
 		cur.Cluster, cur.Policy, cur.UpdatedBy, cur.UpdatedAt = c.ID, p, actor.ID, now
 		return cur, nil
@@ -621,6 +642,14 @@ func (b *Backups) inspectionHost(c ClusterRecord, want string, res galera.Resour
 // approval is recorded. It needs the restore permission on the cluster's
 // backups (audited).
 func (b *Backups) startInspection(ctx context.Context, actor authz.Subject, in api.InspectionInput) (api.InspectionStarted, error) {
+	return b.startInspectionAs(ctx, actor, in, "")
+}
+
+// startInspectionAs is startInspection; a non-empty preApprovedBy records
+// the approval of the operation's digest at once (scheduled restore
+// verification, whose policy a person with the restore permission enabled),
+// so the isolated inspection runs without a person at the moment.
+func (b *Backups) startInspectionAs(ctx context.Context, actor authz.Subject, in api.InspectionInput, preApprovedBy string) (api.InspectionStarted, error) {
 	l, err := b.Ops.leadership()
 	if err != nil {
 		return api.InspectionStarted{}, err
@@ -717,6 +746,11 @@ func (b *Backups) startInspection(ctx context.Context, actor authz.Subject, in a
 	}
 	b.Ops.Svc.recordEvent(c.Swarm, c.ID, api.SeverityWarning, fmt.Sprintf("%s requested inspection %s of backup %s on host %s, operation %s (waits for approval)",
 		actor.ID, session, br.ID, host.ID, opID))
+	if preApprovedBy != "" {
+		if _, err := Put(b.store(), CollApprovals, approvalID, ApprovalRecord{ID: approvalID, OpID: opID, Digest: digest, By: preApprovedBy, Approved: now}, IfVersion(0)); err != nil {
+			return api.InspectionStarted{}, err
+		}
+	}
 	b.Ops.start(l, plan.Operation, nil)
 	return api.InspectionStarted{
 		ID: opID, Kind: plan.Operation.Kind, Session: session, Backup: br.ID, Host: host.ID, Service: plan.Session.ServiceName,
@@ -794,7 +828,7 @@ func (b *Backups) RunSchedules(actor authz.Subject) {
 		// Advance first (compare-and-set on the version read): two leaders
 		// in a row cannot both start the same scheduled run.
 		if _, err := Put(b.store(), CollBackupPolicies, p.Key, BackupPolicyRecord{Cluster: rec.Cluster, Policy: rec.Policy,
-			Last: d.ScheduledFor, UpdatedBy: rec.UpdatedBy, UpdatedAt: rec.UpdatedAt}, IfVersion(p.Version)); err != nil {
+			Last: d.ScheduledFor, VerifyLast: rec.VerifyLast, UpdatedBy: rec.UpdatedBy, UpdatedAt: rec.UpdatedAt}, IfVersion(p.Version)); err != nil {
 			continue
 		}
 		c, _, _ := Get[ClusterRecord](b.store(), CollClusters, rec.Cluster)
@@ -968,6 +1002,7 @@ func (s BackupScheduler) Run(ctx context.Context, _ *Leadership) error {
 		}
 		if b := s.Backups(); b != nil {
 			b.RunSchedules(actor)
+			b.RunVerifications(ctx, actor)
 			b.failInterruptedCopies(ctx)
 			b.TeardownExpired(actor)
 			if err := b.ApplyRetention(ctx); err != nil && ctx.Err() == nil {

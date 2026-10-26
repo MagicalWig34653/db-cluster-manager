@@ -3450,6 +3450,7 @@ components:
         schedule: { type: string, maxLength: 128 }
         timezone: { type: string, maxLength: 64 }
         maxMinutes: { type: integer, minimum: 0, maximum: 240, description: "Default 60" }
+        host: { type: string, description: Explicitly approved Swarm node ID for the instance; empty lets the manager select one }
     BackupSummary:
       type: object
       required: [cluster, swarm]
