@@ -14,6 +14,7 @@ import (
 	"slices"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/MagicalWig34653/db-cluster-manager/internal/fencing"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/restic"
@@ -53,6 +54,9 @@ type Config struct {
 	// list disables host-file backups. They are local policy, not command data.
 	ResticAllowedPaths []string
 	ResticRunner       restic.Runner
+	// ResticProbeTimeout bounds the repository-open probe before each restic
+	// command (default restic.DefaultProbeTimeout; negative disables it).
+	ResticProbeTimeout time.Duration
 }
 
 // StatusQuerier runs SHOW GLOBAL STATUS LIKE 'wsrep_%' against a local

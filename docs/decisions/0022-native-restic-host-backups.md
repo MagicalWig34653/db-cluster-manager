@@ -1,6 +1,6 @@
 # ADR 0022: Native restic host backups
 
-Status: **Partial implementation with fakes**, 2026-10-27. [X14](../KONZEPT.md#scope-extension) is the owner requirement. This decision extends [ADR 0021](0021-backup-targets-copies-and-metastore-backup.md) without changing database backup formats, cluster recovery or copy promotion rules.
+Status: **Partial implementation; fakes plus lab run E11 (real restic, 4 backends, SSH external host)**, 2026-10-27. [X14](../KONZEPT.md#scope-extension) is the owner requirement. This decision extends [ADR 0021](0021-backup-targets-copies-and-metastore-backup.md) without changing database backup formats, cluster recovery or copy promotion rules.
 
 ## Decision and alternatives
 
@@ -24,3 +24,7 @@ The manager stores host sources in `host-sources` and sealed credentials in `hos
 ## Current limits and next gate
 
 Tests used fake runners, fake agents, a fake SSH command runner, in-memory Raft and HTTP response recorders. No real restic executable, repository, host, SSH connection or restore was exercised. The current product agent image does not package restic. The manager's sealed secret copy is **not yet delivered** to a managed agent secret mount. Existing deployed global agents do not gain new host path mounts, restic allow-list flags or secrets through source creation; operators cannot assume a managed source is executable merely because it is stored. The external SSH adapter has not been validated on a real host and currently inherits ADR 0018's 64 KiB remote output cap; larger restic output fails closed. Independent external-agent enrollment remains unavailable. No UI exists. A repository initialization workflow, SFTP key and pinned-host-key lifecycle, target path mount/deployment workflow, streaming output limits and a real disposable restic matrix are still required before claiming end-to-end support. W12 stays in progress; W05/R1 gates are unchanged.
+
+## Lab evidence and amendments (E11, 2026-10-27)
+
+[E11](../../tests/p0/results/e11-restic.md) ran the wrappers against real restic 0.19.1 and found issues that change the contract: (1) every command is preceded by a bounded `restic cat config` probe (default 2 minutes) because restic retries rejected S3 credentials for more than ten minutes; (2) a cancelled context is reported as interrupted with a stale-lock hint, still without any automatic `unlock`; (3) the SSH runner offers only the host key types pinned in `known_hosts`; (4) the remote restore guard is an explicit `if ... exit`; (5) remote restic receives `HOME` and the child environment keeps `RESTIC_CACHE_DIR`/`XDG_CACHE_HOME`. The agent image now carries a pinned restic; deployment of allow-list flags, mounts and secrets is opt-in through `swarm.AgentMTLS.Restic`. Alternative considered: a Debian-based agent image with `ssh` for SFTP; not done, SFTP repositories are documented as needing a different image.

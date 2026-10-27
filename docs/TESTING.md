@@ -53,6 +53,8 @@ Retain sanitized test commands, versions, results and resource measurements in t
 
 The stop uses `--force` because a graceful `limactl stop` fails on an instance that is not running, which would otherwise abort cleanup before the delete. Exit codes: 0 success, 1 failure, 2 usage error.
 
+`tests/p0/e11-restic.sh` (restic lab, two Debian 12 VMs, pinned downloads from GitHub, MinIO cross-built with `go install` for linux/arm64) writes `tests/p0/results/e11-restic.{log,md}`; the in-VM harness is `cmd/resticlab`, the external-host case is the env-gated test `TestE11ExternalHostSSHPlanReal` in `internal/manager`. It needs outbound network access and about 10 minutes.
+
 The `cmd/lab` tests use a fake runner only. `lab apply --apply` and `lab cleanup --apply` have not been executed against a real host.
 
 ## Covered and open experiments
