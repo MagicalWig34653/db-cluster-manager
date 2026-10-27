@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"strings"
 	"sync"
@@ -27,6 +28,9 @@ const (
 	CmdSimulate = "simulate"
 	CmdApply    = "apply"
 	CmdReboot   = "reboot"
+	// CmdDenyList replaces the agent's certificate deny list. It is fenced
+	// by term like the mutating commands but works on report-only agents.
+	CmdDenyList = "deny-list"
 )
 
 // Errors of the agent side.
@@ -43,6 +47,10 @@ type AgentCommand struct {
 	Packages     []string `json:"packages,omitempty"`
 	SecurityOnly bool     `json:"securityOnly,omitempty"`
 	Refresh      bool     `json:"refresh,omitempty"`
+	// DenyRevision and DenySerials carry CmdDenyList: revoked certificate
+	// serials (lowercase hex) and a revision that grows with every change.
+	DenyRevision int64    `json:"denyRevision,omitempty"`
+	DenySerials  []string `json:"denySerials,omitempty"`
 }
 
 // AgentResult is the agent's answer.
@@ -68,8 +76,47 @@ type AgentService struct {
 	AllowApply bool
 	Now        func() time.Time
 
-	mu   sync.Mutex
-	done map[string]AgentResult // by step ID: a replayed step is not re-run
+	// State is the durable replay suppression and deny list (OpenAgentState).
+	// Nil keeps them in memory only.
+	State *AgentState
+
+	mu sync.Mutex
+}
+
+func (s *AgentService) state() *AgentState {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.State == nil {
+		s.State = NewMemoryAgentState()
+	}
+	return s.State
+}
+
+// Revoked reports whether a certificate serial is on the deny list the
+// manager distributed. Pass it as MTLSServerConfig.Revoked.
+func (s *AgentService) Revoked(serial *big.Int) bool { return s.state().Revoked(serial) }
+
+func (s *AgentService) denyList(c AgentCommand) (AgentResult, error) {
+	if s.Guard == nil {
+		return AgentResult{}, fmt.Errorf("%w: deny list needs term fencing on this agent", ErrInvalid)
+	}
+	if c.Term == 0 {
+		return AgentResult{}, fmt.Errorf("%w: deny list needs a term", ErrInvalid)
+	}
+	if err := checkDenyList(c.DenyRevision, c.DenySerials); err != nil {
+		return AgentResult{}, err
+	}
+	if err := s.Guard.Admit(c.Term); err != nil {
+		return AgentResult{}, err
+	}
+	kept, rev, err := s.state().SetDenyList(c.DenyRevision, c.DenySerials)
+	if err != nil {
+		return AgentResult{}, err
+	}
+	if kept {
+		return AgentResult{Output: fmt.Sprintf("kept revision %d", rev)}, nil
+	}
+	return AgentResult{}, nil
 }
 
 const maxTail = 4000
@@ -104,6 +151,8 @@ func (s *AgentService) Handle(ctx context.Context, c AgentCommand) (AgentResult,
 		return AgentResult{Simulation: &sim}, nil
 	case CmdApply, CmdReboot:
 		return s.mutate(ctx, c)
+	case CmdDenyList:
+		return s.denyList(c)
 	}
 	return AgentResult{}, fmt.Errorf("%w: command kind %q", ErrInvalid, c.Kind)
 }
@@ -131,12 +180,17 @@ func (s *AgentService) mutate(ctx context.Context, c AgentCommand) (AgentResult,
 	if err := s.Guard.Admit(c.Term); err != nil {
 		return AgentResult{}, err
 	}
-	s.mu.Lock()
-	if r, ok := s.done[c.StepID]; ok {
-		s.mu.Unlock()
-		return r, nil
+	st := s.state()
+	if r, done, known := st.Lookup(c.StepID); known {
+		if done {
+			return r, nil
+		}
+		return AgentResult{}, ErrStepInterrupted
 	}
-	s.mu.Unlock()
+	// The start is on disk before the command runs; without it nothing runs.
+	if err := st.Begin(c.StepID); err != nil {
+		return AgentResult{}, err
+	}
 	var res AgentResult
 	switch c.Kind {
 	case CmdApply:
@@ -145,29 +199,30 @@ func (s *AgentService) mutate(ctx context.Context, c AgentCommand) (AgentResult,
 		}
 		ad, ups, err := s.updates(ctx)
 		if err != nil {
+			_ = st.Abort(c.StepID)
 			return AgentResult{}, err
 		}
 		out, err := ad.Apply(ctx, s.Collector.Runner, ups, Selection{Packages: c.Packages, SecurityOnly: c.SecurityOnly})
 		res.Output = tail(out.Stdout + out.Stderr)
 		if err != nil {
+			_ = st.Abort(c.StepID)
 			return res, err
 		}
 	case CmdReboot:
 		out, err := s.Collector.Runner.Run(ctx, "systemctl", "reboot")
 		res.Output = tail(out.Stdout + out.Stderr)
 		if err != nil {
+			_ = st.Abort(c.StepID)
 			return res, err
 		}
 		if out.ExitCode != 0 {
+			_ = st.Abort(c.StepID)
 			return res, fmt.Errorf("patch: systemctl reboot exited %d", out.ExitCode)
 		}
 	}
-	s.mu.Lock()
-	if s.done == nil {
-		s.done = map[string]AgentResult{}
-	}
-	s.done[c.StepID] = res
-	s.mu.Unlock()
+	// A failed write leaves the step marked as started: a replay is then
+	// refused instead of repeating a command that did run.
+	_ = st.Finish(c.StepID, res)
 	return res, nil
 }
 
@@ -205,6 +260,8 @@ func (s *AgentService) Handler(peer func(*http.Request) string) http.Handler {
 				code = http.StatusForbidden
 			case errors.Is(err, ErrStale):
 				code = http.StatusConflict
+			case errors.Is(err, ErrStepInterrupted):
+				code = http.StatusUnprocessableEntity
 			case errors.Is(err, ErrInvalid):
 				code = http.StatusBadRequest
 			}
@@ -257,6 +314,8 @@ func (h HTTPHostAgent) Do(ctx context.Context, hostID string, c AgentCommand) (A
 		return out.AgentResult, fmt.Errorf("%w: %s", ErrReadOnly, out.Error)
 	case resp.StatusCode == http.StatusConflict:
 		return out.AgentResult, fmt.Errorf("%w: %s", ErrStale, out.Error)
+	case resp.StatusCode == http.StatusUnprocessableEntity:
+		return out.AgentResult, fmt.Errorf("%w: %s", ErrStepInterrupted, out.Error)
 	}
 	return out.AgentResult, fmt.Errorf("patch: agent answered %d: %s", resp.StatusCode, out.Error)
 }

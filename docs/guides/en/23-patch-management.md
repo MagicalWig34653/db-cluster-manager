@@ -1,6 +1,18 @@
 # OS patch management (experimental)
 
-**[Fakes + lab]** Patch management ([X15](../../KONZEPT.md#scope-extension), [ADR 0023](../../decisions/0023-os-patch-management.md)) is implemented and tested with fakes. The native agent and the package-manager handling also ran once on two real guest operating systems in the local lab (Debian 12 with apt, AlmaLinux 9 with dnf); see [E10 results](../../../tests/p0/results/e10-patch.md) for what was and was not verified. It is not wired into the managed manager runtime yet, so the endpoints answer 503 in a normal installation, and there is no UI for it. Do not use it on production hosts.
+**[Fakes + lab]** Patch management ([X15](../../KONZEPT.md#scope-extension), [ADR 0023](../../decisions/0023-os-patch-management.md)) is implemented and tested with fakes. The native agent and the package-manager handling also ran once on two real guest operating systems in the local lab (Debian 12 with apt, AlmaLinux 9 with dnf); see [E10 results](../../../tests/p0/results/e10-patch.md) for what was and was not verified. The managed manager runtime can run it behind an explicit switch (`manager.patch.enabled`, default off; see "Enabling it"), verified with fakes and a real mTLS listener on loopback only, not on lab hosts. With the switch off the endpoints answer 503. There is no UI for it. Do not use it on production hosts.
+
+## Enabling it
+
+Add the section to the manager configuration (the shipped `deploy/manager.example.json` carries it with `enabled: false`):
+
+```json
+"patch": { "enabled": true, "agentPort": 7445, "pollIntervalSeconds": 300 }
+```
+
+It needs `auth.enabled` and `manager.agentTransport` (the patch agents use the same CA and the manager's client certificate as the main agents); the manager refuses to start otherwise. `agentPort` is the patch agents' listen port (default 7445; the shipped metastore default also uses 7445 on loopback, so on a manager host start that host's patch agent on another port and set `agentPort` accordingly). `pollIntervalSeconds` (default 300, minimum 60) is how often the leader looks for hosts whose report interval elapsed and for a changed certificate deny list. Only the leader runs it; records live in the replicated metastore. The patch host ID is the Swarm node ID of the enrolled host, and the patch agent must be started with that `-host-id`: the manager pins the agent identity to it. When a new leader starts, plans that were `running` are marked failed with an unknown outcome (the apply journal is in memory), and nothing is sent to the host.
+
+Certificate revocation: the leader sends the deny list to every patch host that has not confirmed the current one (command `deny-list`, also to report-only agents). The patch agent stores it in `patch-state.json` in its state directory and rejects a presented certificate with a listed serial, even before it expires. A host that has not yet confirmed a list is only protected by certificate renewal.
 
 ## What it does
 
@@ -30,7 +42,7 @@ A reboot never happens unless the policy allows it. With `with_plan` the plan mu
 
 ## Galera members
 
-Applying packages to, or rebooting, a host that runs a Galera member is refused unless the cluster planner's rolling procedure coordinates exactly that action (`coordination` in the plan). If the membership cannot be determined, the action is refused. In this increment the guard works against an interface; the real planner is not connected yet. Patch Galera hosts only through a rolling procedure.
+Applying packages to, or rebooting, a host that runs a Galera member is refused unless the cluster planner's rolling procedure coordinates exactly that action (`coordination` in the plan). If the membership cannot be determined, the action is refused. With `manager.patch.enabled` the guard is connected to the planner's guided host maintenance (section "Host maintenance" of the [operator runbook](11-operator-runbook.md)): put the host into maintenance (`POST /api/v1/hosts/{id}/maintenance`, which gracefully stops its Galera nodes one at a time after checking that the rest of the cluster is Synced), wait until the host is ready, then propose the plan with `"coordination": "<maintenance operation ID>"` from the host's `maintenance.operations`. Apply and reboot are permitted only while the host is in maintenance, every operation listed on the host succeeded and every cluster with a node on the host is covered; otherwise they are refused. After the patch (and the reboot) leave maintenance yourself (`DELETE /api/v1/hosts/{id}/maintenance`) so the nodes start again. A host without cluster nodes is not treated as a member. The guard is verified with fake agents only, not against a real cluster.
 
 ## Installing the native agent
 
@@ -40,4 +52,6 @@ Run the agent by hand for a read-only look: `dbcm-agent patch -once` prints one 
 
 ## Limits
 
-Not verified on real hosts: SSH transport, enrollment and mTLS of the patch agent, yum, zypper, apk and pacman (parsers and fakes only), the real cluster planner integration, behaviour across a manager failover. Replays of a mutating step are suppressed in agent memory only. RPM version ordering in the CVE match is approximate. No UI exists; the API and this guide are the interface.
+Not verified on real hosts: SSH transport, enrollment and mTLS of the patch agent against a real manager, yum, zypper, apk and pacman (parsers and fakes only), the planner integration against a real cluster, behaviour across a real manager failover. The manager-to-agent mTLS path, the deny list, durable replay suppression and the maintenance-based guard were tested with fakes and loopback listeners.
+
+Replays of a mutating step are suppressed durably: the agent records a step before running it. If the agent or host died while a step ran, a replay is refused with "step interrupted", the plan is marked failed, and you check the host's report before proposing a new plan. The agent keeps the latest 1000 steps. The apply journal on the manager is in memory only (see "Enabling it"). CVE matching for RPM distributions (AlmaLinux, Rocky, Red Hat, CentOS, Fedora, Oracle Linux, SUSE) uses `rpmvercmp` ordering with epoch and release; advisories exist only if a configured feed has them (OSV is mapped for AlmaLinux and Rocky Linux). The SSH install routes answer 503 in the managed runtime for now (sealed draft store and token source are not wired); install the agent by hand as described below. No UI exists; the API and this guide are the interface.

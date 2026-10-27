@@ -46,6 +46,10 @@ var (
 	patchFS     patch.FS     = patch.OSFS{}
 )
 
+// patchStateFileName holds replay suppression and the deny list of the patch
+// mode (distinct from the main agent's stateFileName).
+const patchStateFileName = "patch-state.json"
+
 type patchOptions struct {
 	options
 	once       bool
@@ -128,7 +132,13 @@ func runPatch(ctx context.Context, args []string, stdout, logw io.Writer, ready 
 	if err != nil {
 		return err
 	}
-	svc := &patch.AgentService{Collector: col, Guard: guard, AllowApply: o.allowApply}
+	// Replay suppression and the certificate deny list live on disk, so a
+	// restart (for example after a patch reboot) forgets neither.
+	state, err := patch.OpenAgentState(filepath.Join(o.stateDir, patchStateFileName))
+	if err != nil {
+		return err
+	}
+	svc := &patch.AgentService{Collector: col, Guard: guard, AllowApply: o.allowApply, State: state}
 
 	var (
 		srv   *http.Server
@@ -159,7 +169,7 @@ func runPatch(ctx context.Context, args []string, stdout, logw io.Writer, ready 
 		if err != nil {
 			return err
 		}
-		tc, err := agent.ServerTLSConfig(agent.MTLSServerConfig{Certificate: holder.Certificate, ClientCAs: pool, ManagerIdentity: certs.ManagerURI(o.installation)})
+		tc, err := agent.ServerTLSConfig(agent.MTLSServerConfig{Certificate: holder.Certificate, ClientCAs: pool, ManagerIdentity: certs.ManagerURI(o.installation), Revoked: svc.Revoked})
 		if err != nil {
 			return err
 		}

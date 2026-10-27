@@ -194,6 +194,8 @@ func buildInitConfig(o initOptions) (fileConfig, error) {
 			Accounts: &accountsConfig{MonitorUser: galera.DefaultMonitorUser, MonitorSecret: n.Monitor,
 				BackupUser: galera.DefaultBackupUser, BackupSecret: n.Backup},
 		},
+		// OS patch management ships disabled and explicit; see patch.go.
+		Patch: &patchConfig{Enabled: false, AgentPort: defaultPatchPort, PollIntervalSeconds: defaultPatchInterval},
 	}
 	if net.ParseIP(host) == nil {
 		mc.AgentTransport.ServerDNS = []string{host}

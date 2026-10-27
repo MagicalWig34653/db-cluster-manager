@@ -17,8 +17,8 @@ import (
 // "-<letters>" as a pre-release, Alpine treats "_alpha", "_beta", "_pre"
 // and "_rc" as pre-releases. This covers the version strings in the test
 // corpus; it is not a full implementation of every ecosystem's rules
-// (PEP 440 normalisation, Maven qualifiers and RPM are not handled
-// separately).
+// (PEP 440 normalisation and Maven qualifiers are not handled
+// separately). RPM-based distributions use CompareRPM (version_rpm.go).
 
 // CompareVersions returns -1, 0 or 1.
 func CompareVersions(a, b string) int {
@@ -40,6 +40,9 @@ var (
 
 // CompareIn compares two versions with the pre-release rules of ecosystem.
 func CompareIn(ecosystem, a, b string) int {
+	if rpmEcosystems[ecosystem] {
+		return CompareRPM(a, b)
+	}
 	switch ecosystem {
 	case "npm", "go", "packagist", "pypi", "crates.io", "nuget", "rubygems", "docker", "cpe":
 		a, b = semverPre.ReplaceAllString(a, "~$1"), semverPre.ReplaceAllString(b, "~$1")

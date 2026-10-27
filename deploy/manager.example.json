@@ -44,6 +44,11 @@
         "backupSecret": "dbcm-example-backup-pw",
         "backupLogical": false
       }
+    },
+    "patch": {
+      "enabled": false,
+      "agentPort": 7445,
+      "pollIntervalSeconds": 300
     }
   }
 }

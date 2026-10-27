@@ -37,6 +37,7 @@ func osvEcosystem(e string) string {
 		"alpine": "Alpine", "debian": "Debian", "npm": "npm", "pypi": "PyPI", "pip": "PyPI", "go": "Go",
 		"golang": "Go", "maven": "Maven", "packagist": "Packagist", "composer": "Packagist",
 		"crates.io": "crates.io", "nuget": "NuGet", "rubygems": "RubyGems",
+		"almalinux": "AlmaLinux", "rocky linux": "Rocky Linux",
 	}
 	name, ok := m[strings.ToLower(base)]
 	if !ok {

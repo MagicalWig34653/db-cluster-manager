@@ -37,6 +37,7 @@ import (
 	"github.com/MagicalWig34653/db-cluster-manager/internal/metastore"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/notify"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/passkey"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/patch"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/provision"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/runner"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/vuln"
@@ -98,6 +99,9 @@ type managerConfig struct {
 	// Vuln enables the vulnerability response (X13, ADR 0015); see vuln.go.
 	// It needs auth.enabled and contacts nothing unless feeds are listed.
 	Vuln *vulnConfig `json:"vuln,omitempty"`
+	// Patch enables OS patch management (X15, ADR 0023); off unless
+	// "enabled" is true. See patch.go.
+	Patch *patchConfig `json:"patch,omitempty"`
 	// ProxyWriters enables the replicated writer-choice protocol.
 	ProxyWriters []proxyWriterConfig `json:"proxyWriters,omitempty"`
 	// ExperimentalProvisioning enables approval-gated SSH host provisioning.
@@ -496,8 +500,12 @@ type managedRuntime struct {
 
 	// vulnCfg is nil when the vulnerability response is disabled; vuln is
 	// the current leadership's service.
-	vulnCfg                *vulnConfig
-	vuln                   atomic.Pointer[vuln.Service]
+	vulnCfg *vulnConfig
+	vuln    atomic.Pointer[vuln.Service]
+	// patchCfg is nil when OS patch management is disabled; patch is the
+	// current leadership's service.
+	patchCfg               *patchConfig
+	patch                  atomic.Pointer[patch.Service]
 	provisioning           bool
 	kubernetesProvisioning bool
 
@@ -568,7 +576,14 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 	if mc.Vuln != nil && !cfg.Auth.Enabled {
 		return nil, errors.New("manager.vuln needs auth.enabled")
 	}
-	rt := &managedRuntime{proto: api.NewHandler(), keys: keys, backend: backend, targets: targets, backupCfg: mc.Backup, imageCfg: mc.ImageBuild, imageRunner: newImageRunner(), vulnCfg: mc.Vuln,
+	if err := mc.Patch.validate(mc, cfg.Auth.Enabled); err != nil {
+		return nil, err
+	}
+	var patchCfg *patchConfig
+	if mc.Patch.on() {
+		patchCfg = mc.Patch
+	}
+	rt := &managedRuntime{patchCfg: patchCfg, proto: api.NewHandler(), keys: keys, backend: backend, targets: targets, backupCfg: mc.Backup, imageCfg: mc.ImageBuild, imageRunner: newImageRunner(), vulnCfg: mc.Vuln,
 		proxyWriters: map[string]proxyWriterConfig{}, provisioning: mc.ExperimentalProvisioning, kubernetesProvisioning: mc.ExperimentalKubernetesProvisioning,
 		forwardTLS: scfg.PeerTLS, forwardPeers: map[string]peerConfig{}}
 	for _, w := range mc.ProxyWriters {
@@ -598,6 +613,9 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 	}
 	if mc.Vuln != nil {
 		scfg.Reconcilers = append(scfg.Reconcilers, manager.VulnScheduler{Poll: rt.pollVuln, Interval: mc.Vuln.pollInterval(), Logf: log.Warn})
+	}
+	if patchCfg != nil {
+		scfg.Reconcilers = append(scfg.Reconcilers, manager.PatchScheduler{Poll: rt.pollPatch, Interval: patchCfg.interval(), Logf: log.Warn})
 	}
 	if keyring != nil {
 		rt.keyring = keyring
@@ -711,6 +729,7 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 			rt.backups.Store(nil)
 			rt.hostSources.Store(nil)
 			rt.vuln.Store(nil)
+			rt.patch.Store(nil)
 			rt.setHandler(rt.notLeader())
 			return
 		}
@@ -918,6 +937,12 @@ func (rt *managedRuntime) leaderAPI(pk passkey.Config, keys manager.KeyProvider,
 	if svc.vuln != nil {
 		acfg.Vuln = &api.VulnBackend{Svc: svc.vuln}
 	}
+	// Without manager.patch the interface stays nil and the routes answer 503.
+	if svc.patch != nil {
+		// The SSH installer needs a sealed draft store and an enrollment token
+		// source that are not wired yet: its routes answer 503.
+		acfg.Patch = &api.PatchBackend{Svc: svc.patch}
+	}
 	// Without a keyring or the agent transport the respective endpoints
 	// answer settings_incomplete.
 	acfg.Replicas = &manager.ReplicaService{Svc: rt.svc, Ring: rt.keyring, PKI: rt.pki, Authorizer: st.Authorizer}
@@ -930,6 +955,14 @@ func (rt *managedRuntime) leaderAPI(pk passkey.Config, keys manager.KeyProvider,
 	if svc.vuln != nil {
 		rt.seedVuln(context.Background(), svc.vuln, log)
 		rt.vuln.Store(svc.vuln)
+	}
+	if svc.patch != nil {
+		if n, err := svc.patch.RecoverInterrupted(context.Background()); err != nil {
+			log.Warn("manager: interrupted patch runs not recovered", "err", err)
+		} else if n > 0 {
+			log.Warn("manager: marked patch runs interrupted by a restart or failover as failed", "count", n)
+		}
+		rt.patch.Store(svc.patch)
 	}
 	return h, st, nil
 }
@@ -948,7 +981,8 @@ type commandSet struct {
 	settings    *manager.SettingsService
 	services    *manager.Services
 	images      *api.ImageBuildBackend
-	vuln        *vuln.Service // nil without manager.vuln
+	vuln        *vuln.Service  // nil without manager.vuln
+	patch       *patch.Service // nil without manager.patch.enabled
 }
 
 // newBackups builds the backup service with copy targets, the metastore
@@ -1005,6 +1039,9 @@ func (rt *managedRuntime) commandServices(st *manager.AuthStack) (commandSet, er
 			return commandSet{}, err
 		}
 		set.vuln = v
+	}
+	if rt.patchCfg != nil {
+		set.patch = rt.newPatchService()
 	}
 	return set, nil
 }

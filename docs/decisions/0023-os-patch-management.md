@@ -87,8 +87,17 @@ product at their own risk.
    apply and before reboot. A host that is a Galera member is blocked unless
    the cluster planner's rolling procedure confirms the given coordination ID
    for exactly that cluster, host and action. An unknown membership blocks
-   (fail closed). In the current implementation the directory and the
-   coordinator are interfaces; wiring the real cluster planner is open work.
+   (fail closed). The managed runtime wires `manager.PatchGaleraGuard`
+   (2026-10-27, fakes): a host is a member when any cluster record has a node
+   on it; the coordination ID is the ID of a guided host maintenance
+   operation (A08, `galera/host-maintenance`) recorded on that host. It
+   permits apply and reboot only while the host is in maintenance, every
+   operation listed on the host succeeded (nodes stopped gracefully after the
+   Synced check of the rest of the cluster), and every cluster with a node on
+   the host is covered by one of them. Entering and leaving maintenance stay
+   explicit planner actions; the patch service never starts them. A running,
+   failed or unrelated operation, a cluster added after the maintenance
+   began, or an ambiguous host record blocks.
 6. **Native agent installation.** A reviewed `InstallPlan` (preflight, unit
    file, script, digest) delivered like ADR 0018: read-only preflight (OS,
    architecture, systemd, privilege, package manager, existing agent, disk),
@@ -120,16 +129,36 @@ product at their own risk.
   compromise of that host. Mitigations are mTLS with identity pinning, term
   fencing, explicit package lists, digest-bound approval and the hardened
   unit; there is no mitigation for a malicious approver.
-- The patch agent has no certificate deny-list client yet: revocation relies
-  on certificate renewal (no `Revoked` callback is wired in patch mode).
-- Replays of a mutating step are suppressed in memory only; an agent restart
-  forgets them. A reboot or crash during apply leaves the step `unknown`; the
-  plan is marked failed and an operator proposes a new plan.
-- Version comparison for RPM-based systems reuses the vuln package's
-  Debian-style ordering, which is not `rpmvercmp`; matches on RPM hosts may be
-  wrong at edge cases.
-- The module is not wired into the managed manager runtime; there is no UI.
-  yum, zypper, apk and pacman are covered by parsers and fakes only.
+- Revocation (2026-10-27, fakes): the patch agent's mTLS listener consults a
+  certificate deny list (`Revoked`). The list is stored in the agent's own
+  state file and delivered by the leader as the term-fenced command
+  `deny-list` (also to report-only agents; a lower revision never replaces a
+  newer list). The leader sends the list to each patch host whose confirmed
+  digest differs, from the patch scheduler; failures are retried. Until a
+  host confirmed a list, only certificate renewal protects it.
+- Replay suppression is durable (2026-10-27, fakes): the agent writes a step as
+  started (fsync, atomic rename, mode 0600) before it runs it and stores the
+  result afterwards; it keeps the latest 1000 steps. A replay of a finished
+  step returns the stored result. A replay of a step that has no result (agent
+  or host died during it) is refused with `step interrupted`: the outcome is
+  unknown and the manager marks the plan failed, so an operator checks the host
+  and proposes a new plan. A step that failed is forgotten and may be retried.
+  If the start record cannot be written, nothing runs. A corrupt state file
+  stops the agent.
+- The manager's apply journal (`opjournal`) is in memory. After a manager
+  restart or failover, plans left `running` are marked failed with an
+  unknown outcome when the new leader starts (no command is sent).
+- Version comparison for RPM-based ecosystems (AlmaLinux, Rocky, Red Hat,
+  CentOS, Fedora, Oracle Linux, SUSE, openSUSE) uses `rpmvercmp` with epoch,
+  version and release (`~` and `^` supported). Advisory data for these
+  distributions depends on the configured feeds; OSV is mapped for AlmaLinux
+  and Rocky Linux only.
+- Wiring (2026-10-27, fakes): `manager.patch.enabled` (default off) builds the
+  service per leadership on the replicated metastore and mTLS agent
+  transport; with it off, every `/patch/*` route answers 503. The SSH install
+  routes still answer 503 (sealed draft store and enrollment token source are
+  not wired). There is no UI. yum, zypper, apk and pacman are covered by
+  parsers and fakes only.
 
 ## Evidence
 

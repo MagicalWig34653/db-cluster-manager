@@ -47,6 +47,9 @@ type Host struct {
 	// LastPollAt and LastPollError record the latest pull attempt.
 	LastPollAt    time.Time `json:"lastPollAt,omitempty"`
 	LastPollError string    `json:"lastPollError,omitempty"`
+	// DenyDigest is the digest of the last certificate deny list the host's
+	// patch agent confirmed (see DistributeDenyList).
+	DenyDigest string `json:"denyDigest,omitempty"`
 }
 
 // Group is a host group with an optional policy.
@@ -129,6 +132,87 @@ type Service struct {
 	Term   func() (uint64, error)
 	Now    func() time.Time
 	Notify func(context.Context, notify.Event)
+	// DenyList returns the current certificate deny list for the patch
+	// agents. Nil disables distribution.
+	DenyList func() (DenyList, error)
+}
+
+// DenyList is the distributable certificate deny list (revoked serials in
+// lowercase hex). Digest changes whenever the content changes; Revision
+// grows with every change so an agent never takes an older list over a
+// newer one.
+type DenyList struct {
+	Revision int64
+	Serials  []string
+	Digest   string
+}
+
+// RecoverInterrupted marks plans that a previous leader left in "running"
+// (failover or restart during the run) as failed. The apply journal is held
+// in memory, so what ran on the host is unknown; the plan says so and the
+// operator checks the host report. Nothing is sent to any host.
+func (s *Service) RecoverInterrupted(ctx context.Context) (int, error) {
+	ps, err := s.Plans()
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, p := range ps {
+		if p.State != PlanRunning {
+			continue
+		}
+		_, _ = s.fail(ctx, p, "", errors.New("interrupted by a manager restart or failover; the outcome on the host is unknown, check its report"))
+		n++
+	}
+	return n, nil
+}
+
+// DistributeDenyList sends the current deny list to every patch host whose
+// agent has not confirmed it yet. It needs the leader term (the command is
+// fenced) and returns the joined per-host failures; a failed host is retried
+// on the next call.
+func (s *Service) DistributeDenyList(ctx context.Context) error {
+	if s.DenyList == nil {
+		return nil
+	}
+	term, err := s.Term()
+	if err != nil {
+		return err
+	}
+	dl, err := s.DenyList()
+	if err != nil {
+		return err
+	}
+	hs, err := s.Hosts()
+	if err != nil {
+		return err
+	}
+	step := "deny-list-" + dl.Digest
+	if len(step) > 40 {
+		step = step[:40]
+	}
+	var errs []error
+	for _, h := range hs {
+		if h.DenyDigest == dl.Digest {
+			continue
+		}
+		_, err := s.Agents.Do(ctx, h.ID, AgentCommand{Kind: CmdDenyList, Term: term, StepID: step + "/" + h.ID,
+			DenyRevision: dl.Revision, DenySerials: append([]string{}, dl.Serials...)})
+		if err != nil {
+			errs = append(errs, fmt.Errorf("host %s: %w", h.ID, err))
+			continue
+		}
+		cur, err := s.Host(h.ID)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("host %s: %w", h.ID, err))
+			continue
+		}
+		cur.DenyDigest = dl.Digest
+		if err := s.put(CollHosts, cur.ID, cur, nil); err != nil {
+			errs = append(errs, fmt.Errorf("host %s: %w", h.ID, err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func (s *Service) now() time.Time {
@@ -259,7 +343,7 @@ func (s *Service) UpsertHost(h Host) (Host, error) {
 	if _, ok, err := s.get(CollHosts, h.ID, &old); err != nil {
 		return Host{}, err
 	} else if ok {
-		h.LastPollAt, h.LastPollError = old.LastPollAt, old.LastPollError
+		h.LastPollAt, h.LastPollError, h.DenyDigest = old.LastPollAt, old.LastPollError, old.DenyDigest
 	}
 	return h, s.put(CollHosts, h.ID, h, nil)
 }

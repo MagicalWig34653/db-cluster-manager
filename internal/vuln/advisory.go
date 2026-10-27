@@ -284,7 +284,7 @@ func (a Advisory) FixedVersions(ecosystem, pkg string) []string {
 		}
 	}
 	out = sortedUnique(out)
-	sort.SliceStable(out, func(i, j int) bool { return CompareVersions(out[i], out[j]) < 0 })
+	sort.SliceStable(out, func(i, j int) bool { return CompareIn(ecosystem, out[i], out[j]) < 0 })
 	return out
 }
 
