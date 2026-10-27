@@ -80,9 +80,10 @@ type options struct {
 	tokenFile     string
 	hostID        string
 
-	monitorUser   string
-	monitorPWFile string
-	secretsDir    string
+	monitorUser      string
+	monitorPWFile    string
+	secretsDir       string
+	resticAllowPaths []string
 }
 
 func main() {
@@ -136,6 +137,10 @@ func parseFlags(args []string) (options, error) {
 	fs.StringVar(&o.monitorUser, "monitor-user", "", "database monitoring account for collect-health")
 	fs.StringVar(&o.monitorPWFile, "monitor-password-file", "", "file holding the monitoring password (a Swarm secret)")
 	fs.StringVar(&o.secretsDir, "db-secrets-dir", agent.SecretsDir, "directory of the agent's mounted Swarm secrets; exec-sql reads passwords from it by secret name")
+	fs.Func("restic-allow-path", "absolute host filesystem root allowed for restic backups and new-path restores; repeatable", func(p string) error {
+		o.resticAllowPaths = append(o.resticAllowPaths, p)
+		return nil
+	})
 	if err := fs.Parse(args); err != nil {
 		return o, err
 	}
@@ -243,8 +248,9 @@ func run(ctx context.Context, o options, logw io.Writer, ready func(addr string)
 		NodeID: o.hostID,
 		// exec-sql (bootstrap account templates, ADR 0011) connects through
 		// the node's socket with passwords from the agent's own secrets.
-		SQL:        galeraprobe.Admin{},
-		SecretsDir: o.secretsDir,
+		SQL:                galeraprobe.Admin{},
+		SecretsDir:         o.secretsDir,
+		ResticAllowedPaths: o.resticAllowPaths,
 	}
 	if o.monitorUser != "" {
 		p, err := galeraprobe.New(galeraprobe.Config{Credentials: galeraprobe.FileCredentials{User: o.monitorUser, Path: o.monitorPWFile}})

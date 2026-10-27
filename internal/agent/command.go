@@ -81,7 +81,13 @@ const (
 	// with CodeUpdatePending while Swarm still replaces the task. Lab E4: a
 	// wait-synced right after update-service otherwise observed the old
 	// task, before Swarm had stopped it.
-	KindAwaitService Kind = "await-service"
+	KindAwaitService    Kind = "await-service"
+	KindResticBackup    Kind = "restic-backup"
+	KindResticSnapshots Kind = "restic-snapshots"
+	KindResticForget    Kind = "restic-forget"
+	KindResticCheck     Kind = "restic-check"
+	KindResticRestore   Kind = "restic-restore"
+	KindResticStats     Kind = "restic-stats"
 )
 
 // AwaitServiceArgs are the arguments of KindAwaitService.
@@ -366,6 +372,8 @@ func decodeCommand(cmd Command, volumeBase string) (decoded, error) {
 		args = &UpdateServiceArgs{}
 	case KindRunBackup:
 		args = &RunBackupArgs{}
+	case KindResticBackup, KindResticSnapshots, KindResticForget, KindResticCheck, KindResticRestore, KindResticStats:
+		args = &ResticArgs{}
 	case KindRunRestore:
 		args = &RunRestoreArgs{}
 	case KindRemoveJob:
@@ -450,6 +458,8 @@ func checkArgs(args any, volumeBase string) error {
 		return checkSpec(*a)
 	case *RunBackupArgs:
 		return checkRunBackup(a, volumeBase)
+	case *ResticArgs:
+		return checkResticArgs(a)
 	case *RunRestoreArgs:
 		return checkRunRestore(a, volumeBase)
 	case *SetDenyListArgs:

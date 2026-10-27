@@ -77,6 +77,8 @@ type Config struct {
 	// Patch backs the OS patch management endpoints (X15, ADR 0023, fakes
 	// only); nil answers 503.
 	Patch Patch
+	// HostSources manages restic host filesystem sources; nil answers 503.
+	HostSources HostSources
 	// ExperimentalKubernetes gates metadata-only W10 registration.
 	ExperimentalKubernetes bool
 	Kubernetes             KubernetesRegistrations
@@ -191,7 +193,7 @@ type server struct {
 // endpoints is the route table. It is safe to call on a nil server: method
 // values are only bound, not invoked.
 func (s *server) endpoints() []endpoint {
-	return append(append(append(append(s.coreEndpoints(), s.vulnEndpoints()...), s.patchEndpoints()...), s.kubernetesEndpoints()...), s.provisioningEndpoints()...)
+	return append(append(append(append(append(s.coreEndpoints(), s.vulnEndpoints()...), s.patchEndpoints()...), s.kubernetesEndpoints()...), s.provisioningEndpoints()...), s.hostSourceEndpoints()...)
 }
 
 func (s *server) coreEndpoints() []endpoint {

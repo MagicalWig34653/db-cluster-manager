@@ -478,15 +478,16 @@ type managedRuntime struct {
 	proxyWriters map[string]proxyWriterConfig
 
 	// Command services of the current leadership's API.
-	keys       manager.KeyProvider
-	keyring    *manager.Keyring  // nil without manager.keyring
-	pki        *manager.AgentPKI // nil without manager.agentTransport
-	swarms     *manager.Swarms
-	monitoring *manager.Monitoring
-	backend    backup.Backend
-	targets    map[string]backup.Backend
-	backupCfg  *backupConfig
-	backups    atomic.Pointer[manager.Backups]
+	keys        manager.KeyProvider
+	keyring     *manager.Keyring  // nil without manager.keyring
+	pki         *manager.AgentPKI // nil without manager.agentTransport
+	swarms      *manager.Swarms
+	monitoring  *manager.Monitoring
+	backend     backup.Backend
+	targets     map[string]backup.Backend
+	backupCfg   *backupConfig
+	backups     atomic.Pointer[manager.Backups]
+	hostSources atomic.Pointer[manager.HostSources]
 
 	// imageRunner executes docker for image builds.
 	imageCfg    *imageBuildConfig // nil: builds disabled
@@ -584,6 +585,7 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 		manager.SyncReconciler{Swarms: swarms},
 		manager.DriftDetector{Swarms: swarms},
 		manager.BackupScheduler{Backups: rt.backups.Load, Interval: mc.scheduleInterval()},
+		manager.HostSourceScheduler{Sources: rt.hostSources.Load, Interval: mc.scheduleInterval()},
 		// Service health from the Swarm task state; transitions go to the
 		// monitoring dispatcher like node health (rt.monitoring is set
 		// before Start).
@@ -688,6 +690,7 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 	if mc.ExperimentalProvisioning {
 		agentClient = manager.ProvisionAgentClient{Next: agentClient, Store: svc.Store(), Keys: keys, Commands: provision.SSHRunner{}}
 	}
+	agentClient = manager.HostSourceSSHClient{Next: agentClient, Store: svc.Store(), Keys: keys, Commands: provision.SSHRunner{}}
 	if agentClient != nil {
 		svc.SetAgents(agentClient)
 	}
@@ -706,6 +709,7 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 		if l == nil {
 			rt.stack.Store(nil)
 			rt.backups.Store(nil)
+			rt.hostSources.Store(nil)
 			rt.vuln.Store(nil)
 			rt.setHandler(rt.notLeader())
 			return
@@ -890,7 +894,8 @@ func (rt *managedRuntime) leaderAPI(pk passkey.Config, keys manager.KeyProvider,
 		Codes: st.Codes, URLTokens: st.URLTokens, Limiter: st.Limiter, Authorizer: st.Authorizer, AuditSink: st.Audit,
 		SetupToken: token, AdministratorExists: st.AdministratorExists, Inventory: inv, Activity: inv, Logger: log,
 		Monitoring: rt.monitoring, Control: svc.control, Backups: svc.backups, Settings: svc.settings, Maintenance: svc.control, EngineUpdates: svc.control,
-		Services: svc.services,
+		Services:    svc.services,
+		HostSources: svc.hostSources,
 	}
 	if rt.provisioning {
 		acfg.ExperimentalProvisioning = true
@@ -921,6 +926,7 @@ func (rt *managedRuntime) leaderAPI(pk passkey.Config, keys manager.KeyProvider,
 		return nil, nil, err
 	}
 	rt.backups.Store(svc.backups)
+	rt.hostSources.Store(svc.hostSources)
 	if svc.vuln != nil {
 		rt.seedVuln(context.Background(), svc.vuln, log)
 		rt.vuln.Store(svc.vuln)
@@ -936,12 +942,13 @@ const operationRetries = 30
 
 // commandSet groups the command services of one leadership.
 type commandSet struct {
-	control  *manager.Control
-	backups  *manager.Backups
-	settings *manager.SettingsService
-	services *manager.Services
-	images   *api.ImageBuildBackend
-	vuln     *vuln.Service // nil without manager.vuln
+	control     *manager.Control
+	backups     *manager.Backups
+	hostSources *manager.HostSources
+	settings    *manager.SettingsService
+	services    *manager.Services
+	images      *api.ImageBuildBackend
+	vuln        *vuln.Service // nil without manager.vuln
 }
 
 // newBackups builds the backup service with copy targets, the metastore
@@ -980,9 +987,15 @@ func (rt *managedRuntime) commandServices(st *manager.AuthStack) (commandSet, er
 		images.Builds = builds
 	}
 	set := commandSet{
-		images:   images,
-		control:  &manager.Control{Ops: ops, Swarms: &sw},
-		backups:  rt.newBackups(ops, &sw),
+		images:  images,
+		control: &manager.Control{Ops: ops, Swarms: &sw},
+		backups: rt.newBackups(ops, &sw),
+		hostSources: &manager.HostSources{Ops: ops, Keys: rt.keys, Notify: func(ctx context.Context, e notify.Event) bool {
+			if rt.monitoring == nil {
+				return false
+			}
+			return rt.monitoring.Notify(ctx, e)
+		}},
 		settings: &manager.SettingsService{Svc: rt.svc, Authorizer: st.Authorizer, Keys: rt.keys, Monitoring: rt.monitoring},
 		services: &manager.Services{Ops: ops},
 	}
