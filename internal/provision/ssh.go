@@ -10,7 +10,10 @@ import (
 	"io"
 	"net"
 	"os"
+	"slices"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -32,7 +35,11 @@ type CommandRunner interface {
 
 // SSHRunner requires a pinned OpenSSH known_hosts entry for host:22. It
 // disables password and agent authentication and never accepts an unknown key.
-type SSHRunner struct{ Timeout time.Duration }
+type SSHRunner struct {
+	Timeout time.Duration
+	// Port defaults to 22 (tests only).
+	Port int
+}
 
 func (r SSHRunner) Run(ctx context.Context, h Host, cred Credential, command, stdin string) (string, error) {
 	if !safeName.MatchString(h.Address) || !safeName.MatchString(h.User) || strings.TrimSpace(cred.KnownHosts) == "" {
@@ -62,13 +69,21 @@ func (r SSHRunner) Run(ctx context.Context, h Host, cred Credential, command, st
 	if timeout <= 0 {
 		timeout = 20 * time.Second
 	}
-	address := net.JoinHostPort(h.Address, "22")
+	port := r.Port
+	if port <= 0 {
+		port = 22
+	}
+	address := net.JoinHostPort(h.Address, strconv.Itoa(port))
+	algos, err := hostKeyAlgorithms(cred.KnownHosts)
+	if err != nil {
+		return "", fmt.Errorf("provision: invalid known_hosts")
+	}
 	conn, err := (&net.Dialer{Timeout: timeout}).DialContext(ctx, "tcp", address)
 	if err != nil {
 		return "", fmt.Errorf("provision: SSH dial failed")
 	}
 	defer conn.Close()
-	config := &ssh.ClientConfig{User: h.User, Auth: []ssh.AuthMethod{ssh.PublicKeys(key)}, HostKeyCallback: callback, Timeout: timeout}
+	config := &ssh.ClientConfig{User: h.User, Auth: []ssh.AuthMethod{ssh.PublicKeys(key)}, HostKeyCallback: callback, HostKeyAlgorithms: algos, Timeout: timeout}
 	clientConn, chans, reqs, err := ssh.NewClientConn(conn, address, config)
 	if err != nil {
 		return "", fmt.Errorf("provision: SSH host-key or authentication failed")
@@ -100,19 +115,73 @@ func (r SSHRunner) Run(ctx context.Context, h Host, cred Credential, command, st
 	}
 }
 
+// limitedBuffer caps remote output at 64 KiB. It is shared by the stdout and
+// stderr copiers of ssh.Session, so it is mutex-guarded, and it does not
+// embed bytes.Buffer: io.Copy would otherwise use the promoted ReadFrom,
+// which bypasses Write (and with it the cap) and races (lab E11).
 type limitedBuffer struct {
-	bytes.Buffer
+	mu   sync.Mutex
+	buf  bytes.Buffer
 	full bool
 }
 
 func (b *limitedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	n := len(p)
-	if b.Len()+n > 64<<10 {
+	if b.buf.Len()+n > 64<<10 {
 		b.full = true
 		return n, nil
 	}
-	_, _ = b.Buffer.Write(p)
+	_, _ = b.buf.Write(p)
 	return n, nil
 }
 
+func (b *limitedBuffer) Len() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Len()
+}
+
+func (b *limitedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'" }
+
+// hostKeyAlgorithms returns the host key algorithms of the pinned known_hosts
+// entries. Without this the client offers its own default preference
+// (ecdsa first); a server with several host keys then answers with a key that
+// is not pinned and the connection fails although the pinned key is valid
+// (lab E11, OpenSSH on Debian 12).
+func hostKeyAlgorithms(knownHosts string) ([]string, error) {
+	var out []string
+	for _, line := range strings.Split(knownHosts, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		_, _, key, _, _, err := ssh.ParseKnownHosts([]byte(line))
+		if err != nil {
+			return nil, err
+		}
+		var algos []string
+		switch key.Type() {
+		case ssh.KeyAlgoRSA:
+			algos = []string{ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256}
+		default:
+			algos = []string{key.Type()}
+		}
+		for _, a := range algos {
+			if !slices.Contains(out, a) {
+				out = append(out, a)
+			}
+		}
+	}
+	if len(out) == 0 {
+		return nil, errors.New("no host key")
+	}
+	return out, nil
+}

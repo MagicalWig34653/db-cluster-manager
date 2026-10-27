@@ -150,9 +150,11 @@ func (r *sshResticRunner) Run(ctx context.Context, req restic.Request) (restic.R
 			return restic.Result{}, agent.ErrInvalidCommand
 		}
 		q := sshQuote(r.newTarget)
-		fmt.Fprintf(&script, "test ! -e %s && test ! -L %s && mkdir -m 700 -- %s\n", q, q, q)
+		// An explicit exit: `set -e` ignores a failing `test` inside an && list
+		// (lab E11: the restore ran into an existing directory).
+		fmt.Fprintf(&script, "if [ -e %s ] || [ -L %s ]; then echo 'restore target exists' >&2; exit 1; fi\nmkdir -m 700 -- %s\n", q, q, q)
 	}
-	script.WriteString("if env -i PATH=/usr/local/bin:/usr/bin:/bin RESTIC_PASSWORD_FILE=\"$DBCM_RESTIC_PW_FILE\"")
+	script.WriteString("if env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=\"${HOME:-/tmp}\" RESTIC_PASSWORD_FILE=\"$DBCM_RESTIC_PW_FILE\"")
 	for i, name := range names {
 		fmt.Fprintf(&script, " \"%s=$DBCM_RESTIC_C%d\"", name, i)
 	}

@@ -18,6 +18,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Backend string
@@ -36,6 +37,11 @@ var (
 	ErrAuthentication   = errors.New("restic: authentication failed")
 	ErrApprovalRequired = errors.New("restic: explicit restore approval required")
 	ErrTargetExists     = errors.New("restic: restore target already exists")
+	// ErrUnreachable: the repository did not answer the open probe in time.
+	// Lab E11: wrong S3 credentials made restic retry for over ten minutes.
+	ErrUnreachable = errors.New("restic: repository did not answer in time (credentials, network or backend)")
+	// ErrInterrupted: the command was cancelled or killed (context ended).
+	ErrInterrupted = errors.New("restic: command interrupted or cancelled; a stale repository lock may remain, inspect before any unlock")
 )
 
 // Request contains the exact child process arguments and environment additions.
@@ -67,7 +73,7 @@ func (r ExecRunner) Run(ctx context.Context, req Request) (Result, error) {
 	// Start from a small process environment. This prevents unrelated manager
 	// or agent secrets from leaking into a backend helper's environment.
 	baseEnv := map[string]bool{"PATH": true, "HOME": true, "TMPDIR": true, "LANG": true, "LC_ALL": true,
-		"SSL_CERT_FILE": true, "SSL_CERT_DIR": true}
+		"SSL_CERT_FILE": true, "SSL_CERT_DIR": true, "RESTIC_CACHE_DIR": true, "XDG_CACHE_HOME": true}
 	for _, item := range os.Environ() {
 		name, _, _ := strings.Cut(item, "=")
 		if baseEnv[name] {
@@ -90,7 +96,15 @@ type Config struct {
 	Repository   string
 	PasswordFile string
 	Credentials  map[string]string
+	// ProbeTimeout > 0 makes every command start with a bounded
+	// `restic cat config` so unreachable backends and rejected credentials
+	// fail fast instead of being retried by restic for many minutes. Zero
+	// disables the probe (unit tests with fake runners).
+	ProbeTimeout time.Duration
 }
+
+// DefaultProbeTimeout is what the agent uses.
+const DefaultProbeTimeout = 2 * time.Minute
 
 type Client struct {
 	cfg    Config
@@ -186,10 +200,28 @@ func (c *Client) run(ctx context.Context, args ...string) (Result, error) {
 	for k, v := range c.cfg.Credentials {
 		env[k] = v
 	}
+	if c.cfg.ProbeTimeout > 0 {
+		pctx, cancel := context.WithTimeout(ctx, c.cfg.ProbeTimeout)
+		pres, err := c.runner.Run(pctx, Request{Args: []string{"-r", c.cfg.Repository, "cat", "config"}, Env: env})
+		expired := pctx.Err() != nil
+		cancel()
+		if err != nil {
+			switch {
+			case ctx.Err() != nil:
+				return Result{}, ErrInterrupted
+			case expired:
+				return Result{}, ErrUnreachable
+			}
+			return Result{}, classify(err, pres.Stderr)
+		}
+	}
 	argv := []string{"-r", c.cfg.Repository, args[0], "--json"}
 	argv = append(argv, args[1:]...)
 	res, err := c.runner.Run(ctx, Request{Args: argv, Env: env})
 	if err != nil {
+		if ctx.Err() != nil {
+			return Result{}, ErrInterrupted
+		}
 		return Result{}, classify(err, res.Stderr)
 	}
 	return res, nil

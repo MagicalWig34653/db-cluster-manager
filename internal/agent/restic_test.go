@@ -38,6 +38,7 @@ func TestResticAgentAllowlistSecretsAndRestore(t *testing.T) {
 	f.exec.cfg.SecretsDir = secrets
 	f.exec.cfg.ResticAllowedPaths = []string{root}
 	f.exec.cfg.ResticRunner = runner
+	f.exec.cfg.ResticProbeTimeout = -1 // fake runner: no repository to probe
 	a := ResticArgs{Backend: restic.BackendLocal, Repository: filepath.Join(f.dir, "repo"), PasswordSecret: "restic-password", Paths: []string{root}, Excludes: []string{filepath.Join(root, "not-created-yet")}}
 	wantStatus(t, f.mustDo(1, "op", "backup", KindResticBackup, a), StatusSucceeded, "")
 	if len(runner.requests) != 1 || !strings.Contains(strings.Join(runner.requests[0].Args, " "), "backup") {

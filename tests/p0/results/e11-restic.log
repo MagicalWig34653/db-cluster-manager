@@ -1,0 +1,819 @@
+
+## Build
+
+### build bin/lab
+
+```
+$ go build -o bin/lab ./cmd/lab
+(exit 0)
+```
+
+### cross-build resticlab linux/arm64
+
+```
+$ go build -trimpath -o /var/folders/fv/g68cb08n70qg4kf8hl3tzl0c0000gn/T//dbcm-e11.18Ix3M/resticlab ./cmd/resticlab
+(exit 0)
+```
+
+### cross-build manager E11 test binary
+
+```
+$ go test -c -o /var/folders/fv/g68cb08n70qg4kf8hl3tzl0c0000gn/T//dbcm-e11.18Ix3M/manager.test ./internal/manager
+(exit 0)
+```
+
+### MinIO (github.com/minio/minio@v0.0.0-20260212201848-7aac2a2c5b7c) cross-build
+
+```
+$ sh -c GOOS=linux GOARCH=arm64 go install github.com/minio/minio@v0.0.0-20260212201848-7aac2a2c5b7c
+(exit 0)
+```
+
+### MinIO binary sha256
+
+```
+$ shasum -a 256 ~/go/bin/linux_arm64/minio
+6cfcdda509297b54dd813787f407bae30a81ec8178c1f47e9bf39732ff7bdf53  ~/go/bin/linux_arm64/minio
+(exit 0)
+```
+
+### pins
+
+```
+$ sh -c echo restic 0.19.1 arm64 sha256 a5f64aaab53d51e311fa3829124c5b703f2d14cf187d8640b6be3b2b49376465; echo rest-server 0.14.0 arm64 sha256 cef139cbe8b27b16bda731d17f093b0aa466b8c60b136c12d78b6f2bff3daf22
+restic 0.19.1 arm64 sha256 a5f64aaab53d51e311fa3829124c5b703f2d14cf187d8640b6be3b2b49376465
+rest-server 0.14.0 arm64 sha256 cef139cbe8b27b16bda731d17f093b0aa466b8c60b136c12d78b6f2bff3daf22
+(exit 0)
+```
+
+
+## Lab VMs
+
+### host free disk before apply
+
+```
+$ host_free_disk
+host free disk (/System/Volumes/Data): 17Gi of 926Gi
+(exit 0)
+```
+
+### bin/lab status before
+
+```
+$ <repo>/bin/lab status
+host:
+  logical CPUs: 14
+  RAM: 48.0 GiB
+budget:
+  lab CPU limit: 7
+  lab RAM limit: 16.0 GiB
+  lab disk limit: 100.0 GiB
+manifest .lab/manifest.json:
+  (empty)
+inventory:
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+unrelated (never touched):
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+(exit 0)
+```
+
+### bin/lab apply -vms 2 -templates debian-12,debian-12 -network lima:user-v2
+
+```
+$ <repo>/bin/lab apply -vms 2 -cpus 2 -ram 3 -disk 15 -templates debian-12,debian-12 -network lima:user-v2 --apply
+pre-snapshot:
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+executing actions:
+  # create Lima VM dbcm-lab-m1 (2 CPUs, 3 GiB RAM, 15 GiB disk, template debian-12, network lima:user-v2 (shared Lima state, not owned))
+  limactl create --name=dbcm-lab-m1 --cpus=2 --memory=3 --disk=15 --tty=false --network=lima:user-v2 template:debian-12
+  # start Lima VM dbcm-lab-m1
+  limactl start --tty=false dbcm-lab-m1
+  # create Lima VM dbcm-lab-m2 (2 CPUs, 3 GiB RAM, 15 GiB disk, template debian-12, network lima:user-v2 (shared Lima state, not owned))
+  limactl create --name=dbcm-lab-m2 --cpus=2 --memory=3 --disk=15 --tty=false --network=lima:user-v2 template:debian-12
+  # start Lima VM dbcm-lab-m2
+  limactl start --tty=false dbcm-lab-m2
+post-snapshot diff:
+  added: lima:dbcm-lab-m1, lima:dbcm-lab-m2
+  removed: (none)
+(exit 0)
+```
+
+### limactl list
+
+```
+$ limactl list
+NAME                         STATUS     SSH                VMTYPE    ARCH       CPUS    MEMORY    DISK     DIR
+dbcm-lab-m1                  Running    127.0.0.1:51780    vz        aarch64    2       3GiB      15GiB    ~/.lima/dbcm-lab-m1
+dbcm-lab-m2                  Running    127.0.0.1:52093    vz        aarch64    2       3GiB      15GiB    ~/.lima/dbcm-lab-m2
+thermoctl-e2e-basestation    Stopped    127.0.0.1:55325    vz        aarch64    2       3GiB      8GiB     ~/.lima/thermoctl-e2e-basestation
+thermoctl-test-vm            Stopped    127.0.0.1:50429    vz        aarch64    4       4GiB      20GiB    ~/.lima/thermoctl-test-vm
+(exit 0)
+```
+
+### facts dbcm-lab-m1
+
+```
+$ vm_sh dbcm-lab-m1 hostname; uname -m; grep PRETTY_NAME /etc/os-release; nproc; free -m | sed -n 2p; df -h / | tail -1; ip -4 -o addr show | awk "{print \$2, \$4}"
+lima-dbcm-lab-m1
+aarch64
+PRETTY_NAME="Debian GNU/Linux 12 (bookworm)"
+2
+Mem:            2923         342        1370           0        1359        2581
+/dev/vda1        15G  1.6G   13G  12% /
+lo 127.0.0.1/8
+eth0 192.168.104.1/24
+(exit 0)
+```
+
+### facts dbcm-lab-m2
+
+```
+$ vm_sh dbcm-lab-m2 hostname; uname -m; grep PRETTY_NAME /etc/os-release; nproc; free -m | sed -n 2p; df -h / | tail -1; ip -4 -o addr show | awk "{print \$2, \$4}"
+lima-dbcm-lab-m2
+aarch64
+PRETTY_NAME="Debian GNU/Linux 12 (bookworm)"
+2
+Mem:            2923         330        1380           0        1360        2592
+/dev/vda1        15G  1.6G   13G  12% /
+lo 127.0.0.1/8
+eth0 192.168.104.3/24
+(exit 0)
+```
+
+### VM-to-VM name resolution m1 -> m2
+
+```
+$ vm_sh dbcm-lab-m1 getent hosts lima-dbcm-lab-m2.internal; ping -c1 -W2 lima-dbcm-lab-m2.internal | tail -1
+192.168.104.3   lima-dbcm-lab-m2.internal
+rtt min/avg/max/mdev = 0.236/0.236/0.236/0.000 ms
+(exit 0)
+```
+
+
+## Install restic (0.19.1) with checksum verification
+
+### packages on dbcm-lab-m1
+
+```
+$ vm_sh dbcm-lab-m1 sudo apt-get update -qq >/dev/null 2>&1; sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq bzip2 openssl curl ca-certificates openssh-client openssh-server >/dev/null 2>&1; which bunzip2 openssl curl ssh sshd
+/usr/bin/bunzip2
+/usr/bin/openssl
+/usr/bin/curl
+/usr/bin/ssh
+/usr/sbin/sshd
+(exit 0)
+```
+
+### download restic on dbcm-lab-m1
+
+```
+$ vm_sh dbcm-lab-m1 cd /tmp && curl -fsSL -o restic.bz2 https://github.com/restic/restic/releases/download/v0.19.1/restic_0.19.1_linux_arm64.bz2 && ls -l restic.bz2
+-rw-r--r-- 1 <user> <user> 9044264 Oct 27 12:37 restic.bz2
+(exit 0)
+```
+
+restic.bz2: FAILED
+sha256sum: WARNING: 1 computed checksum did NOT match
+11:37:59Z VERIFIED: a wrong checksum is rejected on dbcm-lab-m1
+### verify and install restic on dbcm-lab-m1
+
+```
+$ vm_sh dbcm-lab-m1 cd /tmp && echo 'a5f64aaab53d51e311fa3829124c5b703f2d14cf187d8640b6be3b2b49376465  restic.bz2' | sha256sum -c - && bunzip2 -c restic.bz2 | sudo tee /usr/local/bin/restic >/dev/null && sudo chmod 0755 /usr/local/bin/restic && restic version
+restic.bz2: OK
+restic 0.19.1 compiled with go1.26.4 on linux/arm64
+(exit 0)
+```
+
+### packages on dbcm-lab-m2
+
+```
+$ vm_sh dbcm-lab-m2 sudo apt-get update -qq >/dev/null 2>&1; sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq bzip2 openssl curl ca-certificates openssh-client openssh-server >/dev/null 2>&1; which bunzip2 openssl curl ssh sshd
+/usr/bin/bunzip2
+/usr/bin/openssl
+/usr/bin/curl
+/usr/bin/ssh
+/usr/sbin/sshd
+(exit 0)
+```
+
+### download restic on dbcm-lab-m2
+
+```
+$ vm_sh dbcm-lab-m2 cd /tmp && curl -fsSL -o restic.bz2 https://github.com/restic/restic/releases/download/v0.19.1/restic_0.19.1_linux_arm64.bz2 && ls -l restic.bz2
+-rw-r--r-- 1 <user> <user> 9044264 Oct 27 12:38 restic.bz2
+(exit 0)
+```
+
+restic.bz2: FAILED
+sha256sum: WARNING: 1 computed checksum did NOT match
+11:38:10Z VERIFIED: a wrong checksum is rejected on dbcm-lab-m2
+### verify and install restic on dbcm-lab-m2
+
+```
+$ vm_sh dbcm-lab-m2 cd /tmp && echo 'a5f64aaab53d51e311fa3829124c5b703f2d14cf187d8640b6be3b2b49376465  restic.bz2' | sha256sum -c - && bunzip2 -c restic.bz2 | sudo tee /usr/local/bin/restic >/dev/null && sudo chmod 0755 /usr/local/bin/restic && restic version
+restic.bz2: OK
+restic 0.19.1 compiled with go1.26.4 on linux/arm64
+(exit 0)
+```
+
+
+## Backend host (m2): users, TLS, rest-server, MinIO
+
+### copy MinIO to m2
+
+```
+$ limactl cp ~/go/bin/linux_arm64/minio dbcm-lab-m2:/tmp/minio
+(exit 0)
+```
+
+### install MinIO on m2
+
+```
+$ m2x install -m 0755 /tmp/minio /usr/local/bin/minio && /usr/local/bin/minio --version | head -1
+minio version DEVELOPMENT.GOGET (commit-id=DEVELOPMENT.GOGET)
+(exit 0)
+```
+
+### rest-server on m2 (checksum verified)
+
+```
+$ m2x cd /tmp && curl -fsSL -o rs.tgz https://github.com/restic/rest-server/releases/download/v0.14.0/rest-server_0.14.0_linux_arm64.tar.gz && echo 'cef139cbe8b27b16bda731d17f093b0aa466b8c60b136c12d78b6f2bff3daf22  rs.tgz' | sha256sum -c - && tar -xzf rs.tgz --strip-components=1 -C /tmp rest-server_0.14.0_linux_arm64/rest-server && install -m 0755 /tmp/rest-server /usr/local/bin/rest-server && rest-server --version
+rs.tgz: OK
+rest-server version rest-server 0.14.0 compiled with go1.24.3 on linux/arm64
+
+(exit 0)
+```
+
+### users and directories on m2
+
+```
+$ m2x 
+	set -e
+	for u in e11backup e11ext; do id $u >/dev/null 2>&1 || useradd -m -s /bin/bash $u; install -d -m 700 -o $u -g $u /home/$u/.ssh; done
+	install -d -o e11backup -g e11backup /srv/e11-sftp
+	install -d -o e11ext -g e11ext /srv/e11ext /srv/e11ext/data /srv/e11ext/data/skip /srv/e11ext/repo
+	install -d /srv/e11-rest /srv/e11-minio /etc/e11-tls /etc/e11-tls/minio/certs
+	id e11backup e11ext
+uid=1000(e11backup) gid=1001(e11backup) groups=1001(e11backup)
+uid=1001(e11ext) gid=1002(e11ext) groups=1002(e11ext)
+(exit 0)
+```
+
+### TLS certificate on m2 (self-signed, SAN lima-dbcm-lab-m2.internal)
+
+```
+$ m2x 
+	set -e
+	openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 2 -subj /CN=lima-dbcm-lab-m2.internal 		-addext subjectAltName=DNS:lima-dbcm-lab-m2.internal -keyout /etc/e11-tls/key.pem -out /etc/e11-tls/cert.pem 2>/dev/null
+	cp /etc/e11-tls/cert.pem /etc/e11-tls/minio/certs/public.crt; cp /etc/e11-tls/key.pem /etc/e11-tls/minio/certs/private.key
+	openssl x509 -in /etc/e11-tls/cert.pem -noout -subject -ext subjectAltName -enddate
+subject=CN = lima-dbcm-lab-m2.internal
+X509v3 Subject Alternative Name: 
+    DNS:lima-dbcm-lab-m2.internal
+notAfter=Oct 29 11:38:13 2026 GMT
+(exit 0)
+```
+
+### apache2-utils on m2 (htpasswd)
+
+```
+$ vm_sh dbcm-lab-m2 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq apache2-utils >/dev/null 2>&1; which htpasswd
+/usr/bin/htpasswd
+(exit 0)
+```
+
+### start rest-server (TLS, htpasswd) on m2
+
+```
+$ m2x systemd-run --unit=e11-rest rest-server --path /srv/e11-rest --listen :8000 --tls --tls-cert /etc/e11-tls/cert.pem --tls-key /etc/e11-tls/key.pem --htpasswd-file /etc/e11-tls/htpasswd >/dev/null 2>&1; sleep 2; systemctl is-active e11-rest
+active
+(exit 0)
+```
+
+### start MinIO (TLS) on m2
+
+```
+$ m2x cat >/etc/systemd/system/e11-minio.service <<EOF
+[Service]
+EnvironmentFile=/etc/e11-tls/minio.env
+ExecStart=/usr/local/bin/minio server /srv/e11-minio --certs-dir /etc/e11-tls/minio/certs --address :9000 --console-address :9001
+EOF
+systemctl daemon-reload; systemctl start e11-minio; sleep 5; systemctl is-active e11-minio
+active
+(exit 0)
+```
+
+### TLS health of rest-server and MinIO from m2
+
+```
+$ m2x curl -sS --cacert /etc/e11-tls/cert.pem -o /dev/null -w 'rest %{http_code}\n' https://lima-dbcm-lab-m2.internal:8000/ ; curl -sS --cacert /etc/e11-tls/cert.pem -o /dev/null -w 'minio %{http_code}\n' https://lima-dbcm-lab-m2.internal:9000/minio/health/live
+rest 401
+minio 200
+(exit 0)
+```
+
+
+## Keys and trust (m1 -> m2)
+
+### m1 keys
+
+```
+$ m1x set -e; install -d -m 700 /root/.ssh; [ -f /root/.ssh/id_ed25519 ] || ssh-keygen -q -t ed25519 -N "" -f /root/.ssh/id_ed25519; [ -f /root/e11ext_key ] || ssh-keygen -q -t ed25519 -N "" -f /root/e11ext_key; ssh-keyscan -t ed25519 lima-dbcm-lab-m2.internal >/root/.ssh/known_hosts 2>/dev/null; cp /root/.ssh/known_hosts /root/e11_known_hosts; wc -l /root/.ssh/known_hosts
+1 /root/.ssh/known_hosts
+(exit 0)
+```
+
+### authorize keys on m2
+
+```
+$ m2x set -e
+	printf '%s\n' 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILz6ap2ph6RsFFDaMEWSIdQPlRX82j9Mwae0w9yswKTL root@lima-dbcm-lab-m1' >/home/e11backup/.ssh/authorized_keys; chown e11backup:e11backup /home/e11backup/.ssh/authorized_keys; chmod 600 /home/e11backup/.ssh/authorized_keys
+	printf '%s\n' 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGEABW1lmBTGAvlaWdfKl1qwVTZuX6MDBfKBiFbn48Ju root@lima-dbcm-lab-m1' >/home/e11ext/.ssh/authorized_keys; chown e11ext:e11ext /home/e11ext/.ssh/authorized_keys; chmod 600 /home/e11ext/.ssh/authorized_keys
+	echo ok
+ok
+(exit 0)
+```
+
+### ssh m1 -> m2 as e11backup
+
+```
+$ m1x ssh -o BatchMode=yes e11backup@lima-dbcm-lab-m2.internal 'id -un'
+e11backup
+(exit 0)
+```
+
+### CA copied to m1
+
+```
+$ m1x openssl x509 -in /root/e11-ca.pem -noout -subject
+subject=CN = lima-dbcm-lab-m2.internal
+(exit 0)
+```
+
+
+## resticlab on m1 (agent executor, real restic, real backends)
+
+### copy resticlab to m1
+
+```
+$ limactl cp /var/folders/fv/g68cb08n70qg4kf8hl3tzl0c0000gn/T//dbcm-e11.18Ix3M/resticlab dbcm-lab-m1:/tmp/resticlab
+(exit 0)
+```
+
+### install resticlab on m1
+
+```
+$ m1x install -m 0755 /tmp/resticlab /usr/local/bin/resticlab
+(exit 0)
+```
+
+### resticlab run
+
+```
+11:38:22Z restic 0.19.1 compiled with go1.26.4 on linux/arm64
+
+## Source data
+
+11:38:24Z source tree created below /srv/e11/src (12 x ~1 MiB, 1 GiB big file, excluded dirs, symlink)
+
+## Backends
+
+11:38:24Z synthetic secrets generated: 6 values (never printed)
+
+## Backend local
+
+11:38:24Z repository /var/lib/e11-repos/local
+11:38:27Z VERIFIED: local: restic init (operator step, not automated)
+11:38:29Z    restic-backup -> succeeded  ""
+11:38:29Z VERIFIED: local: backup #1 through the agent executor
+11:38:29Z VERIFIED: local: backup result carries a snapshot id
+11:38:31Z    restic-backup -> succeeded  ""
+11:38:31Z VERIFIED: local: backup #2 (incremental) succeeds
+11:38:32Z VERIFIED: local: raw restic snapshots shows 2 snapshots
+11:38:33Z    restic-snapshots -> succeeded  ""
+11:38:33Z VERIFIED: local: snapshots through the agent lists 2
+11:38:34Z VERIFIED: local: built-in (.ssh) and requested exclusions are not in the snapshot
+11:38:34Z    restic-restore -> refused invalid-path "restore needs approval and a new allowed target"
+11:38:34Z VERIFIED: local: restore without approval is refused
+11:38:35Z    restic-restore -> succeeded  ""
+11:38:35Z VERIFIED: local: approved restore into a new path succeeds
+11:38:35Z VERIFIED: local: restored docs is byte-identical to the source (sha256, links)
+11:38:35Z VERIFIED: local: restored home is byte-identical to the source (sha256, links)
+11:38:35Z    restic-restore -> refused invalid-path "restore needs approval and a new allowed target"
+11:38:35Z VERIFIED: local: restore onto the now existing target is refused
+11:38:36Z    restic-forget -> succeeded  ""
+11:38:36Z VERIFIED: local: forget --keep-last 1 --prune succeeds
+11:38:37Z VERIFIED: local: one snapshot remains after forget --prune
+11:38:39Z    restic-check -> succeeded  ""
+11:38:39Z VERIFIED: local: check --read-data-subset 25% succeeds
+11:38:40Z    restic-check -> succeeded  ""
+11:38:40Z VERIFIED: local: check --read-data-subset 100% succeeds
+11:38:41Z    restic-stats -> succeeded  ""
+11:38:41Z VERIFIED: local: stats reports files
+11:38:43Z    restic-restore -> succeeded  ""
+11:38:43Z VERIFIED: local: restore after prune is identical to the source
+
+## Backend sftp
+
+11:38:43Z repository sftp:e11backup@lima-dbcm-lab-m2.internal:/srv/e11-sftp/repo
+11:38:46Z VERIFIED: sftp: restic init (operator step, not automated)
+11:38:48Z    restic-backup -> succeeded  ""
+11:38:48Z VERIFIED: sftp: backup #1 through the agent executor
+11:38:48Z VERIFIED: sftp: backup result carries a snapshot id
+11:38:50Z    restic-backup -> succeeded  ""
+11:38:50Z VERIFIED: sftp: backup #2 (incremental) succeeds
+11:38:51Z VERIFIED: sftp: raw restic snapshots shows 2 snapshots
+11:38:52Z    restic-snapshots -> succeeded  ""
+11:38:52Z VERIFIED: sftp: snapshots through the agent lists 2
+11:38:53Z VERIFIED: sftp: built-in (.ssh) and requested exclusions are not in the snapshot
+11:38:53Z    restic-restore -> refused invalid-path "restore needs approval and a new allowed target"
+11:38:53Z VERIFIED: sftp: restore without approval is refused
+11:38:55Z    restic-restore -> succeeded  ""
+11:38:55Z VERIFIED: sftp: approved restore into a new path succeeds
+11:38:55Z VERIFIED: sftp: restored docs is byte-identical to the source (sha256, links)
+11:38:55Z VERIFIED: sftp: restored home is byte-identical to the source (sha256, links)
+11:38:55Z    restic-restore -> refused invalid-path "restore needs approval and a new allowed target"
+11:38:55Z VERIFIED: sftp: restore onto the now existing target is refused
+11:38:57Z    restic-forget -> succeeded  ""
+11:38:57Z VERIFIED: sftp: forget --keep-last 1 --prune succeeds
+11:38:58Z VERIFIED: sftp: one snapshot remains after forget --prune
+11:39:00Z    restic-check -> succeeded  ""
+11:39:00Z VERIFIED: sftp: check --read-data-subset 25% succeeds
+11:39:02Z    restic-check -> succeeded  ""
+11:39:02Z VERIFIED: sftp: check --read-data-subset 100% succeeds
+11:39:04Z    restic-stats -> succeeded  ""
+11:39:04Z VERIFIED: sftp: stats reports files
+11:39:05Z    restic-restore -> succeeded  ""
+11:39:05Z VERIFIED: sftp: restore after prune is identical to the source
+
+## Backend rest-server
+
+11:39:05Z repository rest:https://lima-dbcm-lab-m2.internal:8000/e11
+11:39:08Z VERIFIED: rest-server: restic init (operator step, not automated)
+11:39:10Z    restic-backup -> succeeded  ""
+11:39:10Z VERIFIED: rest-server: backup #1 through the agent executor
+11:39:10Z VERIFIED: rest-server: backup result carries a snapshot id
+11:39:11Z    restic-backup -> succeeded  ""
+11:39:11Z VERIFIED: rest-server: backup #2 (incremental) succeeds
+11:39:12Z VERIFIED: rest-server: raw restic snapshots shows 2 snapshots
+11:39:13Z    restic-snapshots -> succeeded  ""
+11:39:13Z VERIFIED: rest-server: snapshots through the agent lists 2
+11:39:14Z VERIFIED: rest-server: built-in (.ssh) and requested exclusions are not in the snapshot
+11:39:14Z    restic-restore -> refused invalid-path "restore needs approval and a new allowed target"
+11:39:14Z VERIFIED: rest-server: restore without approval is refused
+11:39:15Z    restic-restore -> succeeded  ""
+11:39:15Z VERIFIED: rest-server: approved restore into a new path succeeds
+11:39:15Z VERIFIED: rest-server: restored docs is byte-identical to the source (sha256, links)
+11:39:15Z VERIFIED: rest-server: restored home is byte-identical to the source (sha256, links)
+11:39:15Z    restic-restore -> refused invalid-path "restore needs approval and a new allowed target"
+11:39:15Z VERIFIED: rest-server: restore onto the now existing target is refused
+11:39:16Z    restic-forget -> succeeded  ""
+11:39:16Z VERIFIED: rest-server: forget --keep-last 1 --prune succeeds
+11:39:17Z VERIFIED: rest-server: one snapshot remains after forget --prune
+11:39:18Z    restic-check -> succeeded  ""
+11:39:18Z VERIFIED: rest-server: check --read-data-subset 25% succeeds
+11:39:19Z    restic-check -> succeeded  ""
+11:39:19Z VERIFIED: rest-server: check --read-data-subset 100% succeeds
+11:39:21Z    restic-stats -> succeeded  ""
+11:39:21Z VERIFIED: rest-server: stats reports files
+11:39:22Z    restic-restore -> succeeded  ""
+11:39:22Z VERIFIED: rest-server: restore after prune is identical to the source
+
+## Backend s3
+
+11:39:22Z repository s3:https://lima-dbcm-lab-m2.internal:9000/e11bucket/repo
+11:39:25Z VERIFIED: s3: restic init (operator step, not automated)
+11:39:27Z    restic-backup -> succeeded  ""
+11:39:27Z VERIFIED: s3: backup #1 through the agent executor
+11:39:27Z VERIFIED: s3: backup result carries a snapshot id
+11:39:29Z    restic-backup -> succeeded  ""
+11:39:29Z VERIFIED: s3: backup #2 (incremental) succeeds
+11:39:30Z VERIFIED: s3: raw restic snapshots shows 2 snapshots
+11:39:31Z    restic-snapshots -> succeeded  ""
+11:39:31Z VERIFIED: s3: snapshots through the agent lists 2
+11:39:32Z VERIFIED: s3: built-in (.ssh) and requested exclusions are not in the snapshot
+11:39:32Z    restic-restore -> refused invalid-path "restore needs approval and a new allowed target"
+11:39:32Z VERIFIED: s3: restore without approval is refused
+11:39:33Z    restic-restore -> succeeded  ""
+11:39:33Z VERIFIED: s3: approved restore into a new path succeeds
+11:39:33Z VERIFIED: s3: restored docs is byte-identical to the source (sha256, links)
+11:39:33Z VERIFIED: s3: restored home is byte-identical to the source (sha256, links)
+11:39:33Z    restic-restore -> refused invalid-path "restore needs approval and a new allowed target"
+11:39:33Z VERIFIED: s3: restore onto the now existing target is refused
+11:39:35Z    restic-forget -> succeeded  ""
+11:39:35Z VERIFIED: s3: forget --keep-last 1 --prune succeeds
+11:39:36Z VERIFIED: s3: one snapshot remains after forget --prune
+11:39:38Z    restic-check -> succeeded  ""
+11:39:38Z VERIFIED: s3: check --read-data-subset 25% succeeds
+11:39:39Z    restic-check -> succeeded  ""
+11:39:39Z VERIFIED: s3: check --read-data-subset 100% succeeds
+11:39:41Z    restic-stats -> succeeded  ""
+11:39:41Z VERIFIED: s3: stats reports files
+11:39:42Z    restic-restore -> succeeded  ""
+11:39:42Z VERIFIED: s3: restore after prune is identical to the source
+
+## Wrong password
+
+11:39:43Z    restic-backup -> failed io-error "restic: authentication failed"
+11:39:43Z VERIFIED: wrong password: backup fails
+11:39:43Z VERIFIED: wrong password: classified as authentication failure
+11:39:43Z    restic-snapshots -> failed io-error "restic: authentication failed"
+11:39:43Z VERIFIED: wrong password: snapshots classified as authentication failure
+11:39:43Z    restic-snapshots -> refused invalid-secret "restic password secret unavailable"
+11:39:43Z VERIFIED: missing password secret: refused without starting restic
+
+## Interrupted backup, stale lock
+
+11:39:45Z VERIFIED: interrupted: no lock before the test
+11:39:47Z    restic-backup -> failed io-error "restic: command interrupted or cancelled; a stale repository lock may remain, inspect before any unlock"
+11:39:47Z VERIFIED: interrupted: backup killed mid-run reports failure, not success
+11:39:48Z VERIFIED: interrupted: the killed backup created no snapshot
+11:39:49Z VERIFIED: stale lock: the killed restic left a lock in the repository
+11:39:50Z    restic-forget -> failed io-error "restic: repository locked; inspect possible stale lock and reconcile the owner"
+11:39:50Z VERIFIED: stale lock: forget --prune reports the repository as locked
+11:39:50Z VERIFIED: stale lock: the wrapper did not remove the lock
+11:39:50Z VERIFIED: stale lock: the wrapper never runs unlock (argv audit of all child starts)
+11:39:51Z VERIFIED: stale lock: operator unlock after confirming the owner is dead
+11:39:56Z    restic-backup -> succeeded  ""
+11:39:56Z VERIFIED: interrupted: the retried backup completes
+11:39:58Z    restic-check -> succeeded  ""
+11:39:58Z VERIFIED: interrupted: repository check passes after interrupted+retried backup
+11:39:59Z VERIFIED: interrupted: exactly one snapshot of the big path
+11:40:03Z    restic-restore -> succeeded  ""
+11:40:04Z VERIFIED: interrupted: restored 1 GiB file is byte-identical
+
+## Allow-list refusals
+
+11:40:04Z    restic-backup -> refused invalid-path "restic source is outside the host allow-list or protected"
+11:40:04Z VERIFIED: allow-list: backup of /srv/e11/src/escape/passwd refused (path through such a symlink)
+11:40:04Z    restic-backup -> refused invalid-path "restic source is outside the host allow-list or protected"
+11:40:04Z VERIFIED: allow-list: backup of /var/lib/e11/secrets refused (the agent's own secret directory)
+11:40:04Z    restic-backup -> refused invalid-path "restic source is outside the host allow-list or protected"
+11:40:04Z VERIFIED: allow-list: backup of /run/secrets refused (swarm secret mount)
+11:40:04Z    restic-backup -> refused invalid-path "restic source is outside the host allow-list or protected"
+11:40:04Z VERIFIED: allow-list: backup of /var/run/docker.sock refused (docker socket)
+11:40:04Z    restic-backup -> refused invalid-path "restic source is outside the host allow-list or protected"
+11:40:04Z VERIFIED: allow-list: backup of / refused (filesystem root)
+11:40:04Z    restic-backup -> refused invalid-path "restic source is outside the host allow-list or protected"
+11:40:04Z VERIFIED: allow-list: backup of /etc refused (system directory)
+11:40:04Z    restic-backup -> refused invalid-path "restic source is outside the host allow-list or protected"
+11:40:04Z VERIFIED: allow-list: backup of /srv refused (parent of the allowed root)
+11:40:04Z    restic-backup -> refused invalid-path "restic source is outside the host allow-list or protected"
+11:40:04Z VERIFIED: allow-list: backup of relative/path refused (relative path)
+11:40:04Z    restic-backup -> refused invalid-path "restic source is outside the host allow-list or protected"
+11:40:04Z VERIFIED: allow-list: backup of /srv/e11/does-not-exist refused (missing path)
+11:40:04Z    restic-backup -> refused invalid-path "restic source is outside the host allow-list or protected"
+11:40:04Z VERIFIED: allow-list: backup of /srv/e11x refused (sibling with the root as string prefix)
+11:40:04Z    restic-backup -> refused invalid-path "restic source is outside the host allow-list or protected"
+11:40:04Z VERIFIED: allow-list: backup of /srv/e11/../outside refused (unclean path with ..)
+11:40:04Z    restic-backup -> refused invalid-path "restic source is outside the host allow-list or protected"
+11:40:04Z VERIFIED: allow-list: backup of /srv/e11/src/escape refused (symlink inside the root pointing to /etc)
+11:40:04Z    restic-backup -> refused invalid-path "restic exclusion is outside the host allow-list"
+11:40:04Z VERIFIED: allow-list: exclusion outside the root refused
+11:40:04Z VERIFIED: allow-list: no refused request started a restic child
+11:40:05Z    restic-restore -> refused invalid-path "restore needs approval and a new allowed target"
+11:40:05Z VERIFIED: allow-list: restore target /srv/outside/new refused
+11:40:05Z    restic-restore -> refused invalid-path "restore needs approval and a new allowed target"
+11:40:05Z VERIFIED: allow-list: restore target /tmp/e11-new refused
+11:40:05Z    restic-restore -> refused invalid-path "restore needs approval and a new allowed target"
+11:40:05Z VERIFIED: allow-list: restore target /srv/e11/../outside/new2 refused
+11:40:05Z    restic-restore -> refused invalid-path "restore needs approval and a new allowed target"
+11:40:05Z VERIFIED: allow-list: restore target /srv/e11/src/escape/new refused
+11:40:05Z    restic-restore -> refused invalid-path "restore needs approval and a new allowed target"
+11:40:05Z VERIFIED: allow-list: restore target /srv/e11 refused
+11:40:05Z    restic-restore -> refused invalid-path "restore needs approval and a new allowed target"
+11:40:05Z VERIFIED: allow-list: restore target /srv/e11/src/docs refused
+11:40:05Z    restic-restore -> refused invalid-path "restore needs approval and a new allowed target"
+11:40:05Z VERIFIED: allow-list: restore target /var/lib/e11/secrets/new refused
+11:40:05Z VERIFIED: allow-list: no refused restore started a restic child
+11:40:05Z    restic-restore -> failed io-error "restic: invalid configuration or arguments"
+11:40:05Z VERIFIED: allow-list: snapshot argument "--help" rejected
+11:40:05Z    restic-restore -> failed io-error "restic: invalid configuration or arguments"
+11:40:05Z VERIFIED: allow-list: snapshot argument "abc;touch /tmp/pwned" rejected
+11:40:05Z    restic-restore -> failed io-error "restic: invalid configuration or arguments"
+11:40:05Z VERIFIED: allow-list: snapshot argument "../../x" rejected
+11:40:05Z    restic-restore -> failed io-error "restic: invalid configuration or arguments"
+11:40:05Z VERIFIED: allow-list: snapshot argument "" rejected
+
+## Backend credential errors
+
+11:40:05Z    restic-snapshots -> failed io-error "restic: authentication failed"
+11:40:05Z VERIFIED: rest-server: wrong backend credentials make snapshots fail
+11:40:05Z    classification for wrong rest-server credentials: "restic: authentication failed"
+11:40:05Z VERIFIED: rest-server: the failure message carries no secret value
+11:42:05Z    restic-snapshots -> failed io-error "restic: repository did not answer in time (credentials, network or backend)"
+11:42:05Z VERIFIED: s3: wrong backend credentials make snapshots fail
+11:42:05Z    classification for wrong s3 credentials: "restic: repository did not answer in time (credentials, network or backend)"
+11:42:05Z VERIFIED: s3: the failure message carries no secret value
+
+## Secret hygiene
+
+11:42:05Z observed 111 distinct restic child processes via /proc; sample argv: restic -r /var/lib/e11-repos/local init
+11:42:05Z VERIFIED: hygiene: restic children were observed in /proc
+11:42:05Z VERIFIED: hygiene: no secret value in the argv of ANY process during the run
+11:42:05Z VERIFIED: hygiene: unrelated canary variable of the agent process is not inherited by restic
+11:42:05Z VERIFIED: hygiene: password never passed as RESTIC_PASSWORD
+11:42:05Z VERIFIED: hygiene: password passed as RESTIC_PASSWORD_FILE
+11:42:05Z VERIFIED: hygiene: no secret in the argv recorded for all child starts
+11:42:05Z environment variable NAMES handed to restic children: AWS_ACCESS_KEY_ID,AWS_DEFAULT_REGION,AWS_SECRET_ACCESS_KEY,RESTIC_PASSWORD_FILE,RESTIC_REST_PASSWORD,RESTIC_REST_USERNAME
+11:42:05Z VERIFIED: hygiene: no secret value in any result, message or error the manager would receive
+11:42:05Z VERIFIED: hygiene: no secret value in the agent state or work directory outside the secret files
+11:42:05Z VERIFIED: hygiene: password file mode is 0600
+11:42:06Z VERIFIED: hygiene: no secret file path in any local snapshot listing
+
+## Summary
+
+11:42:06Z verified checks: 128
+(exit 0)
+```
+
+11:42:06Z resticlab exit 0
+### restic child processes and open repositories on m1 after the run
+
+```
+$ m1x pgrep -a restic || echo "no restic process left"; df -h / | tail -1
+no restic process left
+/dev/vda1        15G  5.0G  9.0G  36% /
+(exit 0)
+```
+
+11:42:06Z m2 process-list lines containing rest/S3 secrets: 0 (sampled every 50 ms during the run)
+
+## External host (m2 as host in no cluster): SSH plan via HostSourceSSHClient
+
+### copy manager test binary to m1
+
+```
+$ limactl cp /var/folders/fv/g68cb08n70qg4kf8hl3tzl0c0000gn/T//dbcm-e11.18Ix3M/manager.test dbcm-lab-m1:/tmp/manager.test
+(exit 0)
+```
+
+### install manager test binary on m1
+
+```
+$ m1x install -m 0755 /tmp/manager.test /usr/local/bin/manager.test
+(exit 0)
+```
+
+### prepare external host data and repository on m2
+
+```
+$ m2x 
+	set -e
+	i=0; while [ $i -lt 3000 ]; do echo "file $i" >/srv/e11ext/data/f$i.txt; i=$((i+1)); done
+	head -c 3000000 /dev/urandom >/srv/e11ext/data/blob.bin
+	echo skipped >/srv/e11ext/data/skip/s.txt
+	chown -R e11ext:e11ext /srv/e11ext
+	su e11ext -c 'RESTIC_PASSWORD_FILE=/srv/e11ext/pw restic -r /srv/e11ext/repo init' | head -2
+	ls /srv/e11ext/data | wc -l
+created restic repository 63eb2e38f6 at /srv/e11ext/repo
+
+3002
+(exit 0)
+```
+
+### external host test (go test, real SSH)
+
+```
+=== RUN   TestE11ExternalHostSSHPlanReal
+E11 remote output (restic JSON, no secrets): err=<nil> out="{\"message_type\":\"summary\",\"files_new\":3001,\"files_changed\":0,\"files_unmodified\":0,\"dirs_new\":3,\"dirs_changed\":0,\"dirs_unmodified\":0,\"data_blobs\":3002,\"tree_blobs\":4,\"data_added\":4140608,\"data_added_packed\":3409572,\"total_files_processed\":3001,\"total_bytes_processed\":3028890,\"total_duration\":0.763596..."
+    host_sources_e11_test.go:78: E11 backup1: status=succeeded code="" [{"message_type":"summary","snapshot_id":"42309fb5b27c17bfd25ba226fd82ded4e4b24f419bc31fdbc3ee58352c629f62","files_new":...
+    host_sources_e11_test.go:90: E11 backup2: status=succeeded code="" [{"message_type":"summary","snapshot_id":"6dbb88c5290840bd8b297e4537fc874666e9b00c1944af2329f9ae2697c30baa","files_new":...
+E11 remote output (restic JSON, no secrets): err=<nil> out="{\"message_type\":\"summary\",\"files_new\":1,\"files_changed\":0,\"files_unmodified\":3001,\"dirs_new\":0,\"dirs_changed\":3,\"dirs_unmodified\":0,\"data_blobs\":1,\"tree_blobs\":4,\"data_added\":1112119,\"data_added_packed\":134387,\"total_files_processed\":3002,\"total_bytes_processed\":3028916,\"total_duration\":0.743707609,..."
+    host_sources_e11_test.go:98: E11 snapshot_id=6dbb88c5290840bd8b297e4537fc874666e9b00c1944af2329f9ae2697c30baa
+    host_sources_e11_test.go:101: E11 forget: status=succeeded code="" [{"host":"lima-dbcm-lab-m2","paths":["/srv/e11ext/data"],"keep":[{"id":"6dbb88c5290840bd8b297e4537fc874666e9b00c1944af23...
+E11 remote output (restic JSON, no secrets): err=<nil> out="[{\"tags\":null,\"host\":\"lima-dbcm-lab-m2\",\"paths\":[\"/srv/e11ext/data\"],\"keep\":[{\"time\":\"2026-10-27T12:42:11.484616354+01:00\",\"parent\":\"42309fb5b27c17bfd25ba226fd82ded4e4b24f419bc31fdbc3ee58352c629f62\",\"tree\":\"b0dc3b3e8572ea21eea0ca97e54b6434d6362fd964b4a26fac536c10220a8aeb\",\"paths\":[\"/srv/e11ext/data\"..."
+    host_sources_e11_test.go:106: E11 check: status=succeeded code="" [{"message_type":"summary"}]
+E11 remote output (restic JSON, no secrets): err=<nil> out="{\"message_type\":\"summary\",\"num_errors\":0,\"broken_packs\":null,\"suggest_repair_index\":false,\"suggest_prune\":false}\n"
+    host_sources_e11_test.go:118: E11 restore: status=succeeded code="" 
+E11 remote output (restic JSON, no secrets): err=<nil> out="{\"message_type\":\"summary\",\"total_files\":3005,\"files_restored\":3005,\"total_bytes\":3028916,\"bytes_restored\":3028916}\n"
+    host_sources_e11_test.go:121: E11 restore-existing: status=failed code="io-error" restic: SSH command failed
+E11 remote output (restic JSON, no secrets): err=provision: remote command failed out=""
+    host_sources_e11_test.go:125: E11 restore-etc: status=failed code="io-error" restic: SSH command failed
+E11 remote output (restic JSON, no secrets): err=provision: remote command failed out=""
+--- PASS: TestE11ExternalHostSSHPlanReal (4.87s)
+PASS
+(exit 0)
+```
+
+11:42:15Z external host test exit 0
+### m2 remote restic stderr (lab-only capture; the product discards it)
+
+```
+$ m2x cat /tmp/e11-restic-stderr.txt 2>/dev/null || echo "(none)"
+(exit 0)
+```
+
+### m2 verification of external host results
+
+```
+$ m2x 
+	echo "snapshots in repository:"; su e11ext -c "RESTIC_PASSWORD_FILE=/srv/e11ext/pw restic -r /srv/e11ext/repo snapshots --compact" | tail -4
+	echo "restore diff (expect only the excluded skip/ directory to differ):"
+	diff -r -x skip /srv/e11ext/data /srv/e11ext/restore/srv/e11ext/data && echo "restored tree identical (excluding skip/)"
+	ls /srv/e11ext/restore/srv/e11ext/data | wc -l
+	stat -c "restore root mode %a owner %U" /srv/e11ext/restore
+	ls /srv/e11ext/restore/srv/e11ext/data/skip 2>&1 | head -1
+	echo "locks:"; su e11ext -c "RESTIC_PASSWORD_FILE=/srv/e11ext/pw restic -r /srv/e11ext/repo list locks" | wc -l
+snapshots in repository:
+6dbb88c5  2026-10-27 12:42:11  lima-dbcm-lab-m2          2.889 MiB
+------------------------------------------------------------------
+Timestamps shown in local time
+1 snapshots
+restore diff (expect only the excluded skip/ directory to differ):
+restored tree identical (excluding skip/)
+3002
+restore root mode 700 owner e11ext
+ls: cannot access '/srv/e11ext/restore/srv/e11ext/data/skip': No such file or directory
+locks:
+0
+(exit 0)
+```
+
+11:42:16Z m2 process-list lines containing the external-host restic password: 0 (sampled every 50 ms)
+11:42:16Z m2 journal lines containing the external-host restic password: 0
+
+## Result
+
+11:42:16Z overall: 0 (0 = no FAILED checks; see VERIFIED / NOT VERIFIED lines)
+
+## Scoped cleanup
+
+### bin/lab cleanup -apply
+
+```
+$ <repo>/bin/lab cleanup -apply
+pre-snapshot:
+  colima:default
+  lima:dbcm-lab-m1
+  lima:dbcm-lab-m2
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+unrelated (must survive):
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+executing actions:
+  # stop Lima VM dbcm-lab-m1
+  limactl stop --force dbcm-lab-m1
+  # delete Lima VM dbcm-lab-m1
+  limactl delete --force dbcm-lab-m1
+  # stop Lima VM dbcm-lab-m2
+  limactl stop --force dbcm-lab-m2
+  # delete Lima VM dbcm-lab-m2
+  limactl delete --force dbcm-lab-m2
+post-snapshot diff:
+  added: (none)
+  removed: lima:dbcm-lab-m1, lima:dbcm-lab-m2
+unrelated resources intact (3)
+(exit 0)
+```
+
+### bin/lab status after cleanup
+
+```
+$ <repo>/bin/lab status
+host:
+  logical CPUs: 14
+  RAM: 48.0 GiB
+budget:
+  lab CPU limit: 7
+  lab RAM limit: 16.0 GiB
+  lab disk limit: 100.0 GiB
+manifest .lab/manifest.json:
+  (empty)
+inventory:
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+unrelated (never touched):
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+(exit 0)
+```
+
+### limactl list after cleanup
+
+```
+$ limactl list
+NAME                         STATUS     SSH                VMTYPE    ARCH       CPUS    MEMORY    DISK     DIR
+thermoctl-e2e-basestation    Stopped    127.0.0.1:55325    vz        aarch64    2       3GiB      8GiB     ~/.lima/thermoctl-e2e-basestation
+thermoctl-test-vm            Stopped    127.0.0.1:50429    vz        aarch64    4       4GiB      20GiB    ~/.lima/thermoctl-test-vm
+(exit 0)
+```
+
+### host free disk after cleanup
+
+```
+$ host_free_disk
+host free disk (/System/Volumes/Data): 22Gi of 926Gi
+(exit 0)
+```
+

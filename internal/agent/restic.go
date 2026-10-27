@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/MagicalWig34653/db-cluster-manager/internal/restic"
 )
@@ -118,7 +119,7 @@ func (e *Executor) runRestic(ctx context.Context, kind Kind, a ResticArgs) Resul
 	if runner == nil {
 		runner = restic.ExecRunner{}
 	}
-	c, err := restic.New(restic.Config{Backend: a.Backend, Repository: a.Repository, PasswordFile: passwordFile, Credentials: credentials}, runner)
+	c, err := restic.New(restic.Config{Backend: a.Backend, Repository: a.Repository, PasswordFile: passwordFile, Credentials: credentials, ProbeTimeout: e.resticProbeTimeout()}, runner)
 	if err != nil {
 		return Result{Status: StatusRefused, Code: CodeInvalidSecret, Message: "restic configuration invalid"}
 	}
@@ -145,4 +146,16 @@ func (e *Executor) runRestic(ctx context.Context, kind Kind, a ResticArgs) Resul
 		return Result{Status: StatusFailed, Code: CodeIO, Message: err.Error()}
 	}
 	return succeeded(output)
+}
+
+// resticProbeTimeout is the repository-open bound. A negative configured
+// value disables the probe (tests with fake runners only).
+func (e *Executor) resticProbeTimeout() time.Duration {
+	switch {
+	case e.cfg.ResticProbeTimeout < 0:
+		return 0
+	case e.cfg.ResticProbeTimeout == 0:
+		return restic.DefaultProbeTimeout
+	}
+	return e.cfg.ResticProbeTimeout
 }

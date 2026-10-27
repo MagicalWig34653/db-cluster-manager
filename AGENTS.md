@@ -42,6 +42,7 @@ Automatic single-node replacement must not bypass quorum/recovery rules. Full-cl
 - `bin/lab cleanup` — preview of the manifest-scoped teardown; `bin/lab cleanup --apply` executes it and fails if an unrelated entry disappeared.
 
 - `bin/lab plan|apply -templates debian-12,almalinux-9` — per-VM Lima template (default `docker`); `tests/p0/e10-patch.sh` runs the patch management lab on two such VMs.
+- `tests/p0/e11-restic.sh` — restic host backup lab on two Debian 12 VMs (real restic, SFTP, rest-server, MinIO, SSH-plan external host); needs network access for the pinned downloads and a cross-built MinIO (`docs/TESTING.md`, results `tests/p0/results/e11-restic.md`).
 - `tests/p0/e1-swarm-galera.sh`, `tests/p0/e2-host-loss.sh`, `tests/p0/e3-manager-failover.sh`, `tests/p0/e4-manager-galera.sh`, `tests/p0/e5-e6-proxy-outage.sh` — recorded lab experiments; each creates and removes its own `dbcm-lab-` VMs (needs `bin/lab`, `jq`, Go).
 - `bin/metad` — unauthenticated lab test harness for one metastore node (`cmd/metad/README.md`); never ship it as product API.
 

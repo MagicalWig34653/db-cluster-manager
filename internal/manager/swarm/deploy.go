@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"path"
 	"regexp"
 	"slices"
 	"strconv"
@@ -101,7 +102,49 @@ type AgentMTLS struct {
 	// /run/secrets (exec-sql reads the cluster root and account passwords
 	// from there by secret name, ADR 0011).
 	DBSecrets []string
+	// Restic opts into restic host backups (X14); nil leaves them off.
+	Restic *AgentRestic
 }
+
+// AgentRestic is the opt-in restic configuration of the agent service. The
+// restic binary ships in the product image (deploy/Dockerfile). Every
+// AllowPaths root becomes a repeatable -restic-allow-path flag and a bind
+// mount at the same path (read-write, because new-path restores write
+// there). Secrets are existing Swarm secrets (repository password and
+// optional backend credential JSON) mounted below /run/secrets; the host
+// source refers to them by name.
+type AgentRestic struct {
+	AllowPaths []string
+	Secrets    []string
+}
+
+// resticCacheDir lies in the agent state directory because the distroless
+// home directory does not exist.
+const resticCacheDir = AgentStateDir + "/restic-cache"
+
+func (r *AgentRestic) validate() error {
+	if len(r.AllowPaths) == 0 {
+		return fmt.Errorf("%w: restic needs at least one allowed root", ErrInvalidDeployment)
+	}
+	for _, p := range r.AllowPaths {
+		if !strings.HasPrefix(p, "/") || path.Clean(p) != p || p == "/" || strings.ContainsAny(p, "\x00\r\n,=") {
+			return fmt.Errorf("%w: restic root %q must be a clean absolute path below /", ErrInvalidDeployment, p)
+		}
+		for _, blocked := range []string{"/run/secrets", DockerSocket, "/run/docker.sock", AgentStateDir} {
+			if within(blocked, p) || within(p, blocked) {
+				return fmt.Errorf("%w: restic root %q overlaps a protected path", ErrInvalidDeployment, p)
+			}
+		}
+	}
+	for _, sec := range r.Secrets {
+		if sec == "" || strings.ContainsAny(sec, "/\\ \t\r\n") {
+			return fmt.Errorf("%w: secret name %q", ErrInvalidDeployment, sec)
+		}
+	}
+	return nil
+}
+
+func within(root, p string) bool { return p == root || strings.HasPrefix(p, root+"/") }
 
 func (m *AgentMTLS) port() int {
 	if m.Port > 0 {
@@ -150,6 +193,18 @@ func AgentSpec(d AgentDeployment) agent.ServiceSpec {
 		}
 	}
 	spec.Env = []string{HostIDEnv + "={{.Node.ID}}"}
+	if r := m.Restic; r != nil {
+		for _, p := range r.AllowPaths {
+			spec.Args = append(spec.Args, "-restic-allow-path", p)
+			spec.Mounts = append(spec.Mounts, agent.Mount{Type: "bind", Source: p, Target: p})
+		}
+		for _, sec := range r.Secrets {
+			if !slices.Contains(spec.Secrets, sec) {
+				spec.Secrets = append(spec.Secrets, sec)
+			}
+		}
+		spec.Env = append(spec.Env, "RESTIC_CACHE_DIR="+resticCacheDir)
+	}
 	spec.Networks = []string{HostNetwork}
 	return spec
 }
@@ -178,6 +233,11 @@ func (d AgentDeployment) validate() error {
 		for _, sec := range m.DBSecrets {
 			if sec == "" || strings.ContainsAny(sec, "/\\ \t\r\n") {
 				return fmt.Errorf("%w: secret name %q", ErrInvalidDeployment, sec)
+			}
+		}
+		if m.Restic != nil {
+			if err := m.Restic.validate(); err != nil {
+				return err
 			}
 		}
 		if _, err := certs.NormalizeFingerprint(m.CAFingerprint); err != nil {

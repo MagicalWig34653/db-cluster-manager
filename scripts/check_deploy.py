@@ -466,7 +466,32 @@ def check_sh(path: Path) -> None:
         err(f"{path.name}: sh -n failed: {r.stderr.strip()}")
 
 
-check_dockerfile(ROOT / "deploy/Dockerfile")
+def check_restic_pin(parsed: list[tuple[str, str]]) -> None:
+    """The agent image carries a pinned, checksum-verified restic (X14)."""
+    args: dict[str, str] = {}
+    for op, rest in parsed:
+        if op == "ARG" and "=" in rest:
+            k, _, v = rest.partition("=")
+            args[k.strip()] = v.strip()
+    if not re.fullmatch(r"\d+\.\d+\.\d+", args.get("RESTIC_VERSION", "")):
+        err("Dockerfile: RESTIC_VERSION must be an exact x.y.z version")
+    for k in ("RESTIC_SHA256_AMD64", "RESTIC_SHA256_ARM64"):
+        if not re.fullmatch(r"[0-9a-f]{64}", args.get(k, "")):
+            err(f"Dockerfile: {k} must be a 64 hex digit SHA-256")
+    if args.get("RESTIC_SHA256_AMD64") == args.get("RESTIC_SHA256_ARM64"):
+        err("Dockerfile: restic amd64 and arm64 checksums must differ")
+    runs = " ".join(r for op, r in parsed if op == "RUN")
+    if "sha256sum -c" not in runs or "github.com/restic/restic/releases/download/v${RESTIC_VERSION}/" not in runs:
+        err("Dockerfile: the restic stage must download the pinned release and run sha256sum -c")
+    if not any(op == "COPY" and "--from=restic" in r and "/usr/local/bin/restic" in r for op, r in parsed):
+        err("Dockerfile: the runtime stage must COPY --from=restic to /usr/local/bin/restic")
+    swarm = (ROOT / "internal/manager/swarm/deploy.go").read_text()
+    for needle in ('"-restic-allow-path"', "RESTIC_CACHE_DIR="):
+        if needle not in swarm:
+            err(f"swarm/deploy.go: opt-in restic deployment lost {needle}")
+
+
+check_restic_pin(check_dockerfile(ROOT / "deploy/Dockerfile"))
 check_jobs_dockerfile(ROOT / "deploy/Dockerfile.jobs")
 example = check_example_config(ROOT / "deploy/manager.example.json")
 check_compose(ROOT / "deploy/compose.yaml", example)
