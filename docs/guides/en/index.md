@@ -51,3 +51,5 @@ Reading order for a first test: 1, 2, 3, then 10 before trusting anything.
 - [20 — Operator CLI (fakes only)](20-cli.md)
 
 - [21 — Disaster recovery and backup copies (fakes only)](21-disaster-recovery.md)
+
+- [23 — OS patch management (experimental)](23-patch-management.md)

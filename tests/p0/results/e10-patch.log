@@ -1,0 +1,523 @@
+
+## Build
+
+### build bin/lab
+
+```
+$ go build -o bin/lab ./cmd/lab
+(exit 0)
+```
+
+### build patchlab
+
+```
+$ go build -o /var/folders/fv/g68cb08n70qg4kf8hl3tzl0c0000gn/T//dbcm-e10.4AUlsp/patchlab ./cmd/patchlab
+(exit 0)
+```
+
+### cross-build agent linux/arm64
+
+```
+$ go build -trimpath -o /var/folders/fv/g68cb08n70qg4kf8hl3tzl0c0000gn/T//dbcm-e10.4AUlsp/dbcm-agent ./cmd/agent
+(exit 0)
+```
+
+### agent binary
+
+```
+$ sh -c ls -l '/var/folders/fv/g68cb08n70qg4kf8hl3tzl0c0000gn/T//dbcm-e10.4AUlsp/dbcm-agent' && shasum -a 256 '/var/folders/fv/g68cb08n70qg4kf8hl3tzl0c0000gn/T//dbcm-e10.4AUlsp/dbcm-agent'
+-rwxr-xr-x@ 1 <user>  staff  13731952 Oct 27 06:37 /var/folders/fv/g68cb08n70qg4kf8hl3tzl0c0000gn/T//dbcm-e10.4AUlsp/dbcm-agent
+3fef07fb44dc568e87fbf159ef9e4a23bec659dae2a318416569027fa91f3e2d  /var/folders/fv/g68cb08n70qg4kf8hl3tzl0c0000gn/T//dbcm-e10.4AUlsp/dbcm-agent
+(exit 0)
+```
+
+
+## Lab VMs
+
+### host free disk before apply
+
+```
+$ host_free_disk
+host free disk (/System/Volumes/Data): 29Gi of 926Gi
+(exit 0)
+```
+
+### bin/lab status before
+
+```
+$ <repo>/bin/lab status
+host:
+  logical CPUs: 14
+  RAM: 48.0 GiB
+budget:
+  lab CPU limit: 7
+  lab RAM limit: 16.0 GiB
+  lab disk limit: 100.0 GiB
+manifest .lab/manifest.json:
+  (empty)
+inventory:
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+unrelated (never touched):
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+(exit 0)
+```
+
+### bin/lab apply -vms 2 -templates debian-12,almalinux-9
+
+```
+$ <repo>/bin/lab apply -vms 2 -cpus 2 -ram 3 -disk 15 -templates debian-12,almalinux-9 --apply
+pre-snapshot:
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+executing actions:
+  # create Lima VM dbcm-lab-m1 (2 CPUs, 3 GiB RAM, 15 GiB disk, template debian-12)
+  limactl create --name=dbcm-lab-m1 --cpus=2 --memory=3 --disk=15 --tty=false template:debian-12
+  # start Lima VM dbcm-lab-m1
+  limactl start --tty=false dbcm-lab-m1
+  # create Lima VM dbcm-lab-m2 (2 CPUs, 3 GiB RAM, 15 GiB disk, template almalinux-9)
+  limactl create --name=dbcm-lab-m2 --cpus=2 --memory=3 --disk=15 --tty=false template:almalinux-9
+  # start Lima VM dbcm-lab-m2
+  limactl start --tty=false dbcm-lab-m2
+post-snapshot diff:
+  added: lima:dbcm-lab-m1, lima:dbcm-lab-m2
+  removed: (none)
+(exit 0)
+```
+
+### limactl list
+
+```
+$ limactl list
+NAME                         STATUS     SSH                VMTYPE    ARCH       CPUS    MEMORY    DISK     DIR
+dbcm-lab-m1                  Running    127.0.0.1:54239    vz        aarch64    2       3GiB      15GiB    ~/.lima/dbcm-lab-m1
+dbcm-lab-m2                  Running    127.0.0.1:62056    vz        aarch64    2       3GiB      15GiB    ~/.lima/dbcm-lab-m2
+thermoctl-e2e-basestation    Stopped    127.0.0.1:55325    vz        aarch64    2       3GiB      8GiB     ~/.lima/thermoctl-e2e-basestation
+thermoctl-test-vm            Stopped    127.0.0.1:50429    vz        aarch64    4       4GiB      20GiB    ~/.lima/thermoctl-test-vm
+(exit 0)
+```
+
+
+## Patch lab on dbcm-lab-m1
+
+### patchlab dbcm-lab-m1
+
+```
+
+## Lab VM facts: dbcm-lab-m1
+
+Debian GNU/Linux 12 (bookworm)
+6.1.0-50-cloud-arm64 aarch64
+<user>
+sudo=ok
+systemd
+mem_mb=2923
+disk_free_bytes=13294403584
+
+
+## Serve the agent binary over HTTPS (lab CA) and trust the CA in the VM
+
+05:44:47Z binary https://host.lima.internal:62707/dbcm-agent sha256 3fef07fb44dc568e87fbf159ef9e4a23bec659dae2a318416569027fa91f3e2d
+05:44:48Z VERIFIED: VM reaches host.lima.internal over verified HTTPS
+
+## Install plan: refusals
+
+05:44:48Z preflight: {OS:debian Arch:aarch64 Systemd:true Privilege:sudo Manager:apt AgentPresent:false DiskFreeBytes:13294395392}
+05:44:48Z plan digest: 0e19912098a9cba48d8ee03c222cf1f5bb4d28926fc5d227c58148f029b7963b
+05:44:48Z expected failure: patch: install script failed on host dbcm-lab-m1
+05:44:48Z VERIFIED: wrong binary checksum leaves no binary on the host
+05:44:48Z VERIFIED: wrong plan digest is refused before anything runs
+
+## Install plan: report mode (dedicated user, hardened unit)
+
+05:44:49Z preflight: {OS:debian Arch:aarch64 Systemd:true Privilege:sudo Manager:apt AgentPresent:false DiskFreeBytes:13294395392}
+05:44:49Z plan digest: d66d451b977254a6b1d7cb9a5dd7dcdb694c7bee71d9c41e33fc48307606ea6f
+binary_sha=3fef07fb44dc568e87fbf159ef9e4a23bec659dae2a318416569027fa91f3e2d
+unit_active=active
+unit_enabled=enabled
+uid=999(dbcm-patch) gid=994(dbcm-patch) groups=994(dbcm-patch)
+token=dbcm-patch:600
+state=dbcm-patch:700
+User=dbcm-patch ProtectSystem=strict NoNewPrivileges=yes MemoryDenyWriteExecute=yes 
+→ Overall exposure level for dbcm-patch-agent.service: 3.6 OK :-)
+
+05:44:50Z VERIFIED: installed binary matches the planned checksum
+05:44:50Z VERIFIED: unit is enabled and runs as dbcm-patch with strict sandboxing
+05:44:50Z VERIFIED: enrollment token file is 0600 and owned by the agent user (token never in the plan)
+05:44:50Z VERIFIED: a second install is refused by the preflight
+
+## Report mode on the real OS
+
+05:44:50Z VERIFIED: installed unit (user dbcm-patch, hardening unchanged) serves the loopback lab transport
+05:44:50Z report: os=debian 12 kernel=6.1.0-50-cloud-arm64 arch=aarch64 manager=apt installed=328 updates=20 security=20 securityKnown=true reboot=no
+05:44:50Z   update bind9-host 1:9.18.49-1~deb12u1 -> 1:9.18.49-1~deb12u2 security=true adv=[]
+05:44:50Z   update bind9-libs 1:9.18.49-1~deb12u1 -> 1:9.18.49-1~deb12u2 security=true adv=[]
+05:44:50Z   update ca-certificates 20230311+deb12u1 -> 20250419~deb12u2 security=true adv=[]
+05:44:50Z   update libbrotli1 1.0.9-2+b6 -> 1.0.9-2+deb12u1 security=true adv=[]
+05:44:50Z   update libexpat1 2.5.0-1+deb12u2 -> 2.5.0-1+deb12u5 security=true adv=[]
+05:44:50Z   update liblzma5 5.4.1-1+deb12u1 -> 5.4.1-1+deb12u2 security=true adv=[]
+05:44:50Z   update libpcre2-8-0 10.42-1 -> 10.42-1+deb12u2 security=true adv=[]
+05:44:50Z   update libpng16-16 1.6.39-2+deb12u5 -> 1.6.39-2+deb12u6 security=true adv=[]
+05:44:50Z   warning: index refresh failed: patch: apt-get update exited 100: E: Could not open lock file /var/lib/apt/lists/lock - open (13: Permission denied)
+E: Unable to lock directory /var/lib/apt/lists/
+W: Problem unlinking the file /var/cache/apt/pkgcache.bin - RemoveCaches (30: Read-only file system)
+W: Problem unlinking the file /var/cache/apt/srcpkgcache.bin - Remov
+05:44:50Z VERIFIED: report contains OS, kernel, package manager and installed packages
+05:44:50Z VERIFIED: package manager classifies security updates (apt)
+05:44:50Z pending updates=20 security=20; events=1
+05:44:50Z VERIFIED: new security updates raise one notification
+05:44:50Z vuln inventory entry: id=host-dbcm-lab-m1 coverage=sbom components=328 ecosystem=Debian:12
+05:44:50Z VERIFIED: installed packages convert to a valid vuln inventory entry
+
+## Report-only guarantees
+
+05:44:50Z VERIFIED: simulation (package manager dry run) works as the unprivileged user
+05:44:50Z simulation source=native changes=[{Name:bind9-host From:1:9.18.49-1~deb12u1 To:1:9.18.49-1~deb12u2} {Name:bind9-libs From:1:9.18.49-1~deb12u1 To:1:9.18.49-1~deb12u2}]
+05:44:50Z VERIFIED: report-mode agent refuses apply
+05:44:51Z VERIFIED: report-mode agent refuses reboot
+05:44:51Z VERIFIED: default policy (report-only) cannot be approved
+
+## Replace by the apply-mode agent
+
+05:44:52Z VERIFIED: agent removal leaves no unit, binary, directories or user
+05:44:52Z preflight: {OS:debian Arch:aarch64 Systemd:true Privilege:sudo Manager:apt AgentPresent:false DiskFreeBytes:13294395392}
+05:44:52Z plan digest: 1eef0f7a59677fca9a621a22b5be4ef44d852c99e8ea1d3ae8eb5277bce3d92b
+User=root ProtectKernelTunables=yes MemoryDenyWriteExecute=yes 
+→ Overall exposure level for dbcm-patch-agent.service: 7.7 EXPOSED :-(
+
+05:44:53Z VERIFIED: apply-mode unit (root, -allow-apply) serves the loopback lab transport
+
+## Approval, apply, verification
+
+05:44:54Z report: os=debian 12 kernel=6.1.0-50-cloud-arm64 arch=aarch64 manager=apt installed=328 updates=20 security=20 securityKnown=true reboot=no
+05:44:54Z   update bind9-host 1:9.18.49-1~deb12u1 -> 1:9.18.49-1~deb12u2 security=true adv=[]
+05:44:54Z   update bind9-libs 1:9.18.49-1~deb12u1 -> 1:9.18.49-1~deb12u2 security=true adv=[]
+05:44:54Z   update ca-certificates 20230311+deb12u1 -> 20250419~deb12u2 security=true adv=[]
+05:44:54Z   update libbrotli1 1.0.9-2+b6 -> 1.0.9-2+deb12u1 security=true adv=[]
+05:44:54Z   update libexpat1 2.5.0-1+deb12u2 -> 2.5.0-1+deb12u5 security=true adv=[]
+05:44:54Z   update liblzma5 5.4.1-1+deb12u1 -> 5.4.1-1+deb12u2 security=true adv=[]
+05:44:54Z   update libpcre2-8-0 10.42-1 -> 10.42-1+deb12u2 security=true adv=[]
+05:44:54Z   update libpng16-16 1.6.39-2+deb12u5 -> 1.6.39-2+deb12u6 security=true adv=[]
+05:44:54Z plan pp-3a96bb932d7b4b2f packages=[bind9-host bind9-libs] simulation=native changes=[{Name:bind9-host From:1:9.18.49-1~deb12u1 To:1:9.18.49-1~deb12u2} {Name:bind9-libs From:1:9.18.49-1~deb12u1 To:1:9.18.49-1~deb12u2}] digest=cea587863d3628b3
+05:44:54Z VERIFIED: an unapproved plan is not applied
+05:44:54Z VERIFIED: approval with a wrong digest is refused
+05:44:54Z VERIFIED: a Galera member without cluster planner coordination is not patched
+05:44:55Z VERIFIED: the blocked apply changed nothing on the host
+05:44:57Z VERIFIED: approved plan applies on the real package manager
+05:44:57Z plan result: state=succeeded remaining=[] op=op-c9486f8514228c7e
+05:44:57Z journal steps: [{ID:apply State:succeeded Attempts:1 AgentStep: Retry:false} {ID:verify State:succeeded Attempts:1 AgentStep: Retry:false}]
+05:44:57Z VERIFIED: apply and verify steps are journaled as succeeded
+05:44:57Z VERIFIED: no planned package still has an update afterwards
+05:44:57Z history 05:44:57 kind=apply result=succeeded pending=18 security=18 newUpdates=0 clearedUpdates=0 changed=0
+05:44:57Z history 05:44:57 kind=report result= pending=18 security=18 newUpdates=0 clearedUpdates=2 changed=2
+05:44:57Z history 05:44:54 kind=report result= pending=20 security=20 newUpdates=20 clearedUpdates=0 changed=0
+05:44:57Z report: os=debian 12 kernel=6.1.0-50-cloud-arm64 arch=aarch64 manager=apt installed=328 updates=18 security=18 securityKnown=true reboot=no
+05:44:57Z   update ca-certificates 20230311+deb12u1 -> 20250419~deb12u2 security=true adv=[]
+05:44:57Z   update libbrotli1 1.0.9-2+b6 -> 1.0.9-2+deb12u1 security=true adv=[]
+05:44:57Z   update libexpat1 2.5.0-1+deb12u2 -> 2.5.0-1+deb12u5 security=true adv=[]
+05:44:57Z   update liblzma5 5.4.1-1+deb12u1 -> 5.4.1-1+deb12u2 security=true adv=[]
+05:44:57Z   update libpcre2-8-0 10.42-1 -> 10.42-1+deb12u2 security=true adv=[]
+05:44:57Z   update libpng16-16 1.6.39-2+deb12u5 -> 1.6.39-2+deb12u6 security=true adv=[]
+05:44:57Z   update libpython3.11-minimal 3.11.2-6+deb12u8 -> 3.11.2-6+deb12u9 security=true adv=[]
+05:44:57Z   update libpython3.11-stdlib 3.11.2-6+deb12u8 -> 3.11.2-6+deb12u9 security=true adv=[]
+
+## Reboot-required detection and reboot policy
+
+05:44:57Z reboot required=yes reasons=[lab-package]
+05:44:57Z VERIFIED: reboot-required marker is detected
+05:44:57Z VERIFIED: a reboot plan is refused while the policy says never
+05:45:00Z reboot plan: state=succeeded reboot="requested" err=<nil>
+05:45:00Z VERIFIED: an approved reboot plan inside its window reboots the host
+05:45:13Z VERIFIED: host came back with a new boot ID after the reboot
+05:45:14Z VERIFIED: the agent restarted at boot and reports reboot-required=no again
+
+## Removal
+
+05:45:14Z VERIFIED: agent removal leaves no unit, binary, directories or user
+
+## Summary for dbcm-lab-m1
+
+VERIFIED: VM reaches host.lima.internal over verified HTTPS
+VERIFIED: wrong binary checksum leaves no binary on the host
+VERIFIED: wrong plan digest is refused before anything runs
+VERIFIED: installed binary matches the planned checksum
+VERIFIED: unit is enabled and runs as dbcm-patch with strict sandboxing
+VERIFIED: enrollment token file is 0600 and owned by the agent user (token never in the plan)
+VERIFIED: a second install is refused by the preflight
+VERIFIED: installed unit (user dbcm-patch, hardening unchanged) serves the loopback lab transport
+VERIFIED: report contains OS, kernel, package manager and installed packages
+VERIFIED: package manager classifies security updates (apt)
+VERIFIED: new security updates raise one notification
+VERIFIED: installed packages convert to a valid vuln inventory entry
+VERIFIED: simulation (package manager dry run) works as the unprivileged user
+VERIFIED: report-mode agent refuses apply
+VERIFIED: report-mode agent refuses reboot
+VERIFIED: default policy (report-only) cannot be approved
+VERIFIED: agent removal leaves no unit, binary, directories or user
+VERIFIED: apply-mode unit (root, -allow-apply) serves the loopback lab transport
+VERIFIED: an unapproved plan is not applied
+VERIFIED: approval with a wrong digest is refused
+VERIFIED: a Galera member without cluster planner coordination is not patched
+VERIFIED: the blocked apply changed nothing on the host
+VERIFIED: approved plan applies on the real package manager
+VERIFIED: apply and verify steps are journaled as succeeded
+VERIFIED: no planned package still has an update afterwards
+VERIFIED: reboot-required marker is detected
+VERIFIED: a reboot plan is refused while the policy says never
+VERIFIED: an approved reboot plan inside its window reboots the host
+VERIFIED: host came back with a new boot ID after the reboot
+VERIFIED: the agent restarted at boot and reports reboot-required=no again
+VERIFIED: agent removal leaves no unit, binary, directories or user
+(exit 0)
+```
+
+05:45:14Z patchlab on dbcm-lab-m1 exit 0
+
+## Patch lab on dbcm-lab-m2
+
+### patchlab dbcm-lab-m2
+
+```
+
+## Lab VM facts: dbcm-lab-m2
+
+AlmaLinux 9.8 (Olive Jaguar)
+5.14.0-687.5.3.el9_8.aarch64 aarch64
+<user>
+sudo=ok
+systemd
+mem_mb=2899
+disk_free_bytes=13024186368
+
+
+## Serve the agent binary over HTTPS (lab CA) and trust the CA in the VM
+
+05:45:14Z binary https://host.lima.internal:62884/dbcm-agent sha256 3fef07fb44dc568e87fbf159ef9e4a23bec659dae2a318416569027fa91f3e2d
+05:45:15Z VERIFIED: VM reaches host.lima.internal over verified HTTPS
+
+## Install plan: refusals
+
+05:45:15Z preflight: {OS:almalinux Arch:aarch64 Systemd:true Privilege:sudo Manager:dnf AgentPresent:false DiskFreeBytes:13020946432}
+05:45:15Z plan digest: 85661fdd197e69689624744ba5269d5542aaa6521094f85f03e8f312f56e434c
+05:45:15Z expected failure: patch: install script failed on host dbcm-lab-m2
+05:45:15Z VERIFIED: wrong binary checksum leaves no binary on the host
+05:45:15Z VERIFIED: wrong plan digest is refused before anything runs
+
+## Install plan: report mode (dedicated user, hardened unit)
+
+05:45:15Z preflight: {OS:almalinux Arch:aarch64 Systemd:true Privilege:sudo Manager:dnf AgentPresent:false DiskFreeBytes:13020942336}
+05:45:15Z plan digest: a918e4efa8862dde658705218cd317700a1571d18e31b2e468aaf8cf3250dcf9
+binary_sha=3fef07fb44dc568e87fbf159ef9e4a23bec659dae2a318416569027fa91f3e2d
+unit_active=active
+unit_enabled=enabled
+uid=500(dbcm-patch) gid=500(dbcm-patch) groups=500(dbcm-patch)
+token=dbcm-patch:600
+state=dbcm-patch:700
+User=dbcm-patch ProtectSystem=strict NoNewPrivileges=yes MemoryDenyWriteExecute=yes 
+→ Overall exposure level for dbcm-patch-agent.service: 3.6 OK 🙂
+
+05:45:16Z VERIFIED: installed binary matches the planned checksum
+05:45:16Z VERIFIED: unit is enabled and runs as dbcm-patch with strict sandboxing
+05:45:16Z VERIFIED: enrollment token file is 0600 and owned by the agent user (token never in the plan)
+05:45:16Z VERIFIED: a second install is refused by the preflight
+
+## Report mode on the real OS
+
+05:45:16Z VERIFIED: installed unit (user dbcm-patch, hardening unchanged) serves the loopback lab transport
+05:46:12Z report: os=almalinux 9.8 kernel=5.14.0-687.5.3.el9_8.aarch64 arch=aarch64 manager=dnf installed=390 updates=99 security=84 securityKnown=true reboot=no
+05:46:15Z   update NetworkManager  -> 1:1.54.3-5.el9_8 security=true adv=[ALSA-2026:58572]
+05:46:15Z   update NetworkManager-libnm  -> 1:1.54.3-5.el9_8 security=true adv=[ALSA-2026:58572]
+05:46:15Z   update NetworkManager-team  -> 1:1.54.3-5.el9_8 security=true adv=[ALSA-2026:58572]
+05:46:15Z   update NetworkManager-tui  -> 1:1.54.3-5.el9_8 security=true adv=[ALSA-2026:58572]
+05:46:15Z   update acl  -> 2.4.0-1.el9_8 security=true adv=[ALSA-2026:42736]
+05:46:15Z   update attr  -> 2.6.0-1.el9_8 security=true adv=[ALSA-2026:60226]
+05:46:15Z   update ca-certificates  -> 2026.2.92_v9.0.319-90.3.el9_8 security=true adv=[ALSA-2026:88459]
+05:46:15Z   update cloud-init  -> 24.4-8.el9_8.1.alma.1 security=false adv=[]
+05:46:15Z VERIFIED: report contains OS, kernel, package manager and installed packages
+05:46:15Z VERIFIED: package manager classifies security updates (dnf)
+05:46:15Z pending updates=99 security=84; events=1
+05:46:15Z VERIFIED: new security updates raise one notification
+05:46:15Z vuln inventory entry: id=host-dbcm-lab-m2 coverage=sbom components=390 ecosystem=AlmaLinux:9
+05:46:15Z VERIFIED: installed packages convert to a valid vuln inventory entry
+
+## Report-only guarantees
+
+05:46:16Z VERIFIED: simulation (package manager dry run) works as the unprivileged user
+05:46:16Z simulation source=update-list changes=[{Name:NetworkManager From: To:1:1.54.3-5.el9_8}]
+05:46:16Z VERIFIED: report-mode agent refuses apply
+05:46:16Z VERIFIED: report-mode agent refuses reboot
+05:46:17Z VERIFIED: default policy (report-only) cannot be approved
+
+## Replace by the apply-mode agent
+
+05:46:17Z VERIFIED: agent removal leaves no unit, binary, directories or user
+05:46:17Z preflight: {OS:almalinux Arch:aarch64 Systemd:true Privilege:sudo Manager:dnf AgentPresent:false DiskFreeBytes:13024112640}
+05:46:17Z plan digest: d6d0303424577f353aa23bc9e55cc90794bc0ed25f442f6629b88c68be635afd
+User=root ProtectKernelTunables=yes MemoryDenyWriteExecute=yes 
+→ Overall exposure level for dbcm-patch-agent.service: 7.7 EXPOSED 🙁
+
+05:46:18Z VERIFIED: apply-mode unit (root, -allow-apply) serves the loopback lab transport
+
+## Approval, apply, verification
+
+05:46:21Z report: os=almalinux 9.8 kernel=5.14.0-687.5.3.el9_8.aarch64 arch=aarch64 manager=dnf installed=390 updates=99 security=84 securityKnown=true reboot=no
+05:46:21Z   update NetworkManager  -> 1:1.54.3-5.el9_8 security=true adv=[ALSA-2026:58572]
+05:46:21Z   update NetworkManager-libnm  -> 1:1.54.3-5.el9_8 security=true adv=[ALSA-2026:58572]
+05:46:21Z   update NetworkManager-team  -> 1:1.54.3-5.el9_8 security=true adv=[ALSA-2026:58572]
+05:46:21Z   update NetworkManager-tui  -> 1:1.54.3-5.el9_8 security=true adv=[ALSA-2026:58572]
+05:46:21Z   update acl  -> 2.4.0-1.el9_8 security=true adv=[ALSA-2026:42736]
+05:46:21Z   update attr  -> 2.6.0-1.el9_8 security=true adv=[ALSA-2026:60226]
+05:46:21Z   update ca-certificates  -> 2026.2.92_v9.0.319-90.3.el9_8 security=true adv=[ALSA-2026:88459]
+05:46:21Z   update cloud-init  -> 24.4-8.el9_8.1.alma.1 security=false adv=[]
+05:46:22Z plan pp-89b0be8b34fa4fbd packages=[NetworkManager NetworkManager-libnm] simulation=update-list changes=[{Name:NetworkManager From: To:1:1.54.3-5.el9_8} {Name:NetworkManager-libnm From: To:1:1.54.3-5.el9_8}] digest=3b147fc05ddf9fd2
+05:46:22Z VERIFIED: an unapproved plan is not applied
+05:46:22Z VERIFIED: approval with a wrong digest is refused
+05:46:22Z VERIFIED: a Galera member without cluster planner coordination is not patched
+05:46:22Z VERIFIED: the blocked apply changed nothing on the host
+05:46:26Z VERIFIED: approved plan applies on the real package manager
+05:46:26Z plan result: state=succeeded remaining=[] op=op-ed660df16ca1614b
+05:46:26Z journal steps: [{ID:apply State:succeeded Attempts:1 AgentStep: Retry:false} {ID:verify State:succeeded Attempts:1 AgentStep: Retry:false}]
+05:46:26Z VERIFIED: apply and verify steps are journaled as succeeded
+05:46:26Z VERIFIED: no planned package still has an update afterwards
+05:46:26Z history 05:46:26 kind=apply result=succeeded pending=95 security=80 newUpdates=0 clearedUpdates=0 changed=0
+05:46:26Z history 05:46:26 kind=report result= pending=95 security=80 newUpdates=0 clearedUpdates=4 changed=4
+05:46:26Z history 05:46:21 kind=report result= pending=99 security=84 newUpdates=99 clearedUpdates=0 changed=0
+05:46:26Z report: os=almalinux 9.8 kernel=5.14.0-687.5.3.el9_8.aarch64 arch=aarch64 manager=dnf installed=390 updates=95 security=80 securityKnown=true reboot=no
+05:46:26Z   update acl  -> 2.4.0-1.el9_8 security=true adv=[ALSA-2026:42736]
+05:46:26Z   update attr  -> 2.6.0-1.el9_8 security=true adv=[ALSA-2026:60226]
+05:46:26Z   update ca-certificates  -> 2026.2.92_v9.0.319-90.3.el9_8 security=true adv=[ALSA-2026:88459]
+05:46:26Z   update cloud-init  -> 24.4-8.el9_8.1.alma.1 security=false adv=[]
+05:46:26Z   update coreutils  -> 8.32-41.el9_8.1 security=true adv=[ALSA-2026:66403 ALSA-2026:28911]
+05:46:26Z   update coreutils-common  -> 8.32-41.el9_8.1 security=true adv=[ALSA-2026:66403 ALSA-2026:28911]
+05:46:26Z   update curl  -> 7.76.1-40.el9_8.8 security=true adv=[ALSA-2026:55439 ALSA-2026:69126 ALSA-2026:80511]
+05:46:26Z   update dbus-broker  -> 28-9.el9_8 security=true adv=[ALSA-2026:61355]
+
+## Reboot-required detection and reboot policy
+
+05:46:26Z reboot required=no reasons=[]
+05:46:26Z VERIFIED: reboot-required state reported as no on dnf
+05:46:26Z VERIFIED: a reboot plan is refused while the policy says never
+05:46:26Z NOT VERIFIED: reboot execution (no apt host or no eligible update)
+
+## Removal
+
+05:46:27Z VERIFIED: agent removal leaves no unit, binary, directories or user
+
+## Summary for dbcm-lab-m2
+
+VERIFIED: VM reaches host.lima.internal over verified HTTPS
+VERIFIED: wrong binary checksum leaves no binary on the host
+VERIFIED: wrong plan digest is refused before anything runs
+VERIFIED: installed binary matches the planned checksum
+VERIFIED: unit is enabled and runs as dbcm-patch with strict sandboxing
+VERIFIED: enrollment token file is 0600 and owned by the agent user (token never in the plan)
+VERIFIED: a second install is refused by the preflight
+VERIFIED: installed unit (user dbcm-patch, hardening unchanged) serves the loopback lab transport
+VERIFIED: report contains OS, kernel, package manager and installed packages
+VERIFIED: package manager classifies security updates (dnf)
+VERIFIED: new security updates raise one notification
+VERIFIED: installed packages convert to a valid vuln inventory entry
+VERIFIED: simulation (package manager dry run) works as the unprivileged user
+VERIFIED: report-mode agent refuses apply
+VERIFIED: report-mode agent refuses reboot
+VERIFIED: default policy (report-only) cannot be approved
+VERIFIED: agent removal leaves no unit, binary, directories or user
+VERIFIED: apply-mode unit (root, -allow-apply) serves the loopback lab transport
+VERIFIED: an unapproved plan is not applied
+VERIFIED: approval with a wrong digest is refused
+VERIFIED: a Galera member without cluster planner coordination is not patched
+VERIFIED: the blocked apply changed nothing on the host
+VERIFIED: approved plan applies on the real package manager
+VERIFIED: apply and verify steps are journaled as succeeded
+VERIFIED: no planned package still has an update afterwards
+VERIFIED: reboot-required state reported as no on dnf
+VERIFIED: a reboot plan is refused while the policy says never
+VERIFIED: agent removal leaves no unit, binary, directories or user
+NOT VERIFIED / FAILED: reboot execution (no apt host or no eligible update)
+(exit 0)
+```
+
+05:46:27Z patchlab on dbcm-lab-m2 exit 0
+
+## Result
+
+05:46:27Z patchlab exit status overall: 0 (0 = no FAILED checks; see VERIFIED / NOT VERIFIED lines)
+
+## Scoped cleanup
+
+### bin/lab cleanup -apply
+
+```
+$ <repo>/bin/lab cleanup -apply
+pre-snapshot:
+  colima:default
+  lima:dbcm-lab-m1
+  lima:dbcm-lab-m2
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+unrelated (must survive):
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+executing actions:
+  # stop Lima VM dbcm-lab-m1
+  limactl stop --force dbcm-lab-m1
+  # delete Lima VM dbcm-lab-m1
+  limactl delete --force dbcm-lab-m1
+  # stop Lima VM dbcm-lab-m2
+  limactl stop --force dbcm-lab-m2
+  # delete Lima VM dbcm-lab-m2
+  limactl delete --force dbcm-lab-m2
+post-snapshot diff:
+  added: (none)
+  removed: lima:dbcm-lab-m1, lima:dbcm-lab-m2
+unrelated resources intact (3)
+(exit 0)
+```
+
+### bin/lab status after cleanup
+
+```
+$ <repo>/bin/lab status
+host:
+  logical CPUs: 14
+  RAM: 48.0 GiB
+budget:
+  lab CPU limit: 7
+  lab RAM limit: 16.0 GiB
+  lab disk limit: 100.0 GiB
+manifest .lab/manifest.json:
+  (empty)
+inventory:
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+unrelated (never touched):
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+(exit 0)
+```
+
+### limactl list after cleanup
+
+```
+$ limactl list
+NAME                         STATUS     SSH                VMTYPE    ARCH       CPUS    MEMORY    DISK     DIR
+thermoctl-e2e-basestation    Stopped    127.0.0.1:55325    vz        aarch64    2       3GiB      8GiB     ~/.lima/thermoctl-e2e-basestation
+thermoctl-test-vm            Stopped    127.0.0.1:50429    vz        aarch64    4       4GiB      20GiB    ~/.lima/thermoctl-test-vm
+(exit 0)
+```
+
+### host free disk after cleanup
+
+```
+$ host_free_disk
+host free disk (/System/Volumes/Data): 25Gi of 926Gi
+(exit 0)
+```
+

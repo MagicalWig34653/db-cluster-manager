@@ -1,6 +1,23 @@
 # Current status
 
-Updated: 2026-10-26.
+Updated: 2026-10-27.
+
+## OS patch management and native agent (2026-10-27, X15, ADR 0023: fakes first, then a two-VM lab run)
+
+[ADR 0023](decisions/0023-os-patch-management.md), owner decision in [ENTSCHEIDUNGEN.md](ENTSCHEIDUNGEN.md), guide [23](guides/en/23-patch-management.md) (EN/DE), lab results [e10-patch.md](../tests/p0/results/e10-patch.md).
+
+Implemented:
+
+- `internal/patch`: adapters for apt, dnf, yum, zypper, apk and pacman behind one interface with a fake runner/FS and parsers; collector and host report; diff and bounded history; policy (report-only default, security-only, windows with zones and overnight, reboot policy never/with_plan/auto_in_window, host > group > default resolution); Galera guard (fails closed, needs planner coordination); plan, digest approval and apply state machine journaled with `opjournal` and term-fenced agent commands; notifications (`patch.security_updates`, `patch.run_failed`, `patch.run_incomplete`, `patch.poll_failed`); vuln inventory bridge for OS packages; SSH install plan (preflight, sealed credential, checksum verified on the host, token on stdin, report/apply unit modes, uninstall script).
+- `cmd/agent patch` mode (`-once` read-only report, mTLS transport with the enrollment flow, `-allow-apply` off by default, loopback lab transport).
+- Manager side: metastore-backed service (hosts, groups, reports, history, plans, schedules via `PollDue`), `patch` resource in authz (viewer read; operator read/operate; administrator everything), 19 REST routes in `api/openapi.yaml` with route-contract, role-matrix, secrets and end-to-end API tests.
+- `bin/lab` gained `-templates` (debian-12, almalinux-9, docker) with tests; `cmd/patchlab` and `tests/p0/e10-patch.sh` drive the lab run.
+
+Actual lab results (E10, 2026-10-27, Debian 12 with apt and AlmaLinux 9.8 with dnf, both arm64, real package managers): reports, security classification (apt: 20 of 20; dnf: 84 of 99 with advisory IDs), real simulation, approval, apply of two packages each with verification and journal, refusal paths (report-only policy, wrong digest, Galera member), reboot-required marker detection and a policy-approved reboot with the agent back after boot (Debian), install from a plan with checksum failure, rerun refusal and removal. Cleanup removed only `dbcm-lab-m1` and `dbcm-lab-m2`; the three unrelated entries stayed.
+
+Findings and limits (details in the E10 results): report mode cannot refresh package indexes (read-only, unprivileged), so reports are as fresh as the host's own timers; the dnf report took about a minute; dnf's simulation is derived from the update list; reboot execution and kernel-update reboot detection were not exercised on AlmaLinux; the SSH transport, enrollment/mTLS of the patch agent, yum, zypper, apk, pacman, the real cluster planner coordination and manager failover were not verified on real hosts. The service is not wired into the managed manager runtime (the routes answer 503 until a backend is set), the patch agent does not consult the certificate deny list, and there is no UI (gap). Host free disk was 25 GiB after the run.
+
+Checks on this branch: `gofmt -l .` (no output), `go vet ./...` (no output), `go test -race -count=1 -p 4 ./...` (47 packages ok, no failures), `python3 scripts/check_docs.py` (92 files, 70 requirements, 0 errors), `python3 scripts/check_deploy.py` (passed). Web checks were not run.
 
 ## E9 zero-UUID Primary incident and outage conflict reasons (2026-10-26, fake tests only)
 

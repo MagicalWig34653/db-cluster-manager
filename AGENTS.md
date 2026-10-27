@@ -41,6 +41,7 @@ Automatic single-node replacement must not bypass quorum/recovery rules. Full-cl
 - `bin/lab apply [same flags] --apply` — creates the planned VMs with pre/post inventory snapshots; without `--apply` it is a dry run.
 - `bin/lab cleanup` — preview of the manifest-scoped teardown; `bin/lab cleanup --apply` executes it and fails if an unrelated entry disappeared.
 
+- `bin/lab plan|apply -templates debian-12,almalinux-9` — per-VM Lima template (default `docker`); `tests/p0/e10-patch.sh` runs the patch management lab on two such VMs.
 - `tests/p0/e1-swarm-galera.sh`, `tests/p0/e2-host-loss.sh`, `tests/p0/e3-manager-failover.sh`, `tests/p0/e4-manager-galera.sh`, `tests/p0/e5-e6-proxy-outage.sh` — recorded lab experiments; each creates and removes its own `dbcm-lab-` VMs (needs `bin/lab`, `jq`, Go).
 - `bin/metad` — unauthenticated lab test harness for one metastore node (`cmd/metad/README.md`); never ship it as product API.
 

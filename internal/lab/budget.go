@@ -42,7 +42,18 @@ type VMSpec struct {
 	// keeps Lima's default user-mode network only; the only other accepted
 	// value is UserV2Network.
 	Network string `json:",omitempty"`
+	// Template is the Lima template short name (one of Templates); empty
+	// means DefaultTemplate. Other distributions are used for the patch
+	// management lab (E10).
+	Template string `json:",omitempty"`
 }
+
+// DefaultTemplate is the Lima template of lab VMs.
+const DefaultTemplate = "docker"
+
+// Templates lists the accepted Lima template names (built-in templates only;
+// no URL or path is ever passed to limactl).
+var Templates = map[string]bool{"docker": true, "debian-12": true, "almalinux-9": true}
 
 // UserV2Network is Lima's documented user-mode network with VM-to-VM
 // connectivity. Its daemon and state directory are shared Lima state, not

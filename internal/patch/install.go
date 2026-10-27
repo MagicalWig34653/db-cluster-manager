@@ -275,3 +275,17 @@ func ApplyInstall(ctx context.Context, r provision.CommandRunner, p InstallPlan,
 	}
 	return nil
 }
+
+// UninstallScript removes a native agent installed by InstallScript: it
+// stops and disables the unit and deletes unit, binary, configuration, state
+// and the dedicated user. It touches nothing else. Run it like the install
+// script (as root or through sudo).
+func UninstallScript() string {
+	return "#!/bin/sh\nset -u\n" +
+		"systemctl disable --now " + AgentUnitName + " >/dev/null 2>&1\n" +
+		"rm -f " + AgentUnitPath + " " + AgentBinaryPath + "\n" +
+		"rm -rf " + AgentConfigDir + " " + AgentStateDir + "\n" +
+		"systemctl daemon-reload\n" +
+		"id " + agentUser + " >/dev/null 2>&1 && { userdel " + agentUser + " >/dev/null 2>&1 || deluser " + agentUser + " >/dev/null 2>&1; }\n" +
+		"exit 0\n"
+}

@@ -692,6 +692,20 @@ func TestInstallPlanAndExecution(t *testing.T) {
 	}
 }
 
+func TestUninstallScriptIsScoped(t *testing.T) {
+	s := UninstallScript()
+	for _, want := range []string{"systemctl disable --now " + AgentUnitName, "rm -f " + AgentUnitPath + " " + AgentBinaryPath, "rm -rf " + AgentConfigDir + " " + AgentStateDir, "userdel dbcm-patch"} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("missing %q", want)
+		}
+	}
+	for _, bad := range []string{"rm -rf /\n", "rm -rf /usr", "rm -rf /var/lib\n", "rm -rf /etc\n", "apt", "dnf"} {
+		if strings.Contains(s, bad) {
+			t.Fatalf("unscoped command %q", bad)
+		}
+	}
+}
+
 func TestInstallRefusals(t *testing.T) {
 	cred := provision.Credential{}
 	h := installReq(InstallReport).Host

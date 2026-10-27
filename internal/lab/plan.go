@@ -79,6 +79,9 @@ func PlanCreate(b Budget, m *Manifest, specs []VMSpec) ([]Action, error) {
 		if s.Network != "" && s.Network != UserV2Network {
 			return nil, fmt.Errorf("lab: VM %q: unsupported network %q (only %q)", s.Name, s.Network, UserV2Network)
 		}
+		if s.Template != "" && !Templates[s.Template] {
+			return nil, fmt.Errorf("lab: VM %q: unsupported template %q", s.Name, s.Template)
+		}
 		if _, ok := m.Find("lima-vm", s.Name); ok {
 			return nil, fmt.Errorf("lab: VM %q is already recorded in the manifest", s.Name)
 		}
@@ -107,10 +110,14 @@ func PlanCreate(b Budget, m *Manifest, specs []VMSpec) ([]Action, error) {
 			argv = append(argv, "--network="+s.Network)
 			net = ", network " + s.Network + " (shared Lima state, not owned)"
 		}
-		argv = append(argv, "template:docker")
+		tpl := s.Template
+		if tpl == "" {
+			tpl = DefaultTemplate
+		}
+		argv = append(argv, "template:"+tpl)
 		actions = append(actions,
 			Action{
-				Describe: fmt.Sprintf("create Lima VM %s (%d CPUs, %s GiB RAM, %s GiB disk, template docker%s)", s.Name, s.CPUs, gib(s.RAMBytes), gib(s.DiskBytes), net),
+				Describe: fmt.Sprintf("create Lima VM %s (%d CPUs, %s GiB RAM, %s GiB disk, template %s%s)", s.Name, s.CPUs, gib(s.RAMBytes), gib(s.DiskBytes), tpl, net),
 				Command:  argv,
 				Resource: &Resource{Kind: "lima-vm", Name: s.Name, Spec: &spec},
 			},

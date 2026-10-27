@@ -165,6 +165,7 @@ German interface: data-key rotation preview and explicit confirmation (mock capt
 - [User guides (English)](guides/en/index.md): installation, hosts and agents, clusters, health and alerts, backup and restore, node replacement, full-outage recovery, security model, troubleshooting, known limits, operator runbook, [configuration reference](guides/en/12-configuration-reference.md).
 - [Benutzerhandbuch (Deutsch)](guides/de/index.md): dieselben Themen auf Deutsch, einschließlich der [Konfigurationsreferenz](guides/de/12-configuration-reference.md).
 - Operator CLI: [English](guides/en/20-cli.md) · [Deutsch](guides/de/20-cli.md) (fakes only; existing session cookie required).
+- OS patch management (agent-based reports, approval-gated patching, Galera guard): [English](guides/en/23-patch-management.md) · [Deutsch](guides/de/23-patch-management.md) ([ADR 0023](decisions/0023-os-patch-management.md); fakes plus a two-VM lab run; no UI).
 - Docker Engine update plans: [English guide](guides/en/18-docker-engine-updates.md) · [Deutsche Anleitung](guides/de/18-docker-engine-updates.md) (fakes and mock only; no package source in the shipping manager).
 
 ## Project documentation

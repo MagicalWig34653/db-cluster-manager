@@ -149,6 +149,29 @@ func TestPlanDefaults(t *testing.T) {
 	}
 }
 
+func TestPlanTemplates(t *testing.T) {
+	withCPUs(t, 14)
+	f := newFake()
+	code, out, errOut := runLab(t, f, "plan", "-manifest", manifestPath(t), "-vms", "2", "-templates", "debian-12,almalinux-9")
+	if code != 0 {
+		t.Fatalf("exit %d, stderr %q", code, errOut)
+	}
+	lines := commandLines(out, "limactl ")
+	if len(lines) != 4 || !strings.HasSuffix(lines[0], "--tty=false template:debian-12") || !strings.HasSuffix(lines[2], "--tty=false template:almalinux-9") {
+		t.Fatalf("unexpected commands:\n%s", out)
+	}
+	for _, bad := range []string{"debian-12", "docker,evil", "docker,../x", "docker,https://x/y.yaml", "docker,", "template:docker,docker"} {
+		f := newFake()
+		code, _, _ := runLab(t, f, "plan", "-manifest", manifestPath(t), "-vms", "2", "-templates", bad)
+		if code != 2 {
+			t.Errorf("-templates %q: exit %d, want 2", bad, code)
+		}
+		if f.hasCallPrefix("limactl") {
+			t.Errorf("-templates %q caused limactl calls", bad)
+		}
+	}
+}
+
 func TestPlanUserV2Network(t *testing.T) {
 	withCPUs(t, 14)
 	f := newFake()

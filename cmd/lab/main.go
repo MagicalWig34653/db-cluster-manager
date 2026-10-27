@@ -25,8 +25,8 @@ var cpuCount = runtime.NumCPU
 
 const usage = `usage:
   lab status  [-manifest PATH]
-  lab plan    [-manifest PATH] [-vms N] [-cpus C] [-ram GiB] [-disk GiB] [-network lima:user-v2]
-  lab apply   [-manifest PATH] [-vms N] [-cpus C] [-ram GiB] [-disk GiB] [-network lima:user-v2] [--apply]
+  lab plan    [-manifest PATH] [-vms N] [-cpus C] [-ram GiB] [-disk GiB] [-network lima:user-v2] [-templates T1,T2,...]
+  lab apply   [-manifest PATH] [-vms N] [-cpus C] [-ram GiB] [-disk GiB] [-network lima:user-v2] [-templates T1,T2,...] [--apply]
   lab cleanup [-manifest PATH] [--apply]
 
 Without --apply, apply and cleanup only print what they would do.`
@@ -141,6 +141,7 @@ func cmdCreate(ctx context.Context, name string, args []string, stdout, stderr i
 	ram := fs.Int("ram", 4, "RAM per VM in GiB")
 	disk := fs.Int("disk", 20, "disk per VM in GiB")
 	network := fs.String("network", "", "additional Lima network attached at creation; only "+lab.UserV2Network+" (shared Lima state, never removed by lab)")
+	templates := fs.String("templates", "", "comma separated Lima template per VM (docker, debian-12, almalinux-9); empty: docker for all")
 	var apply *bool
 	if name == "apply" {
 		apply = fs.Bool("apply", false, "execute the plan (otherwise dry run)")
@@ -155,6 +156,20 @@ func cmdCreate(ctx context.Context, name string, args []string, stdout, stderr i
 	if *network != "" && *network != lab.UserV2Network {
 		fmt.Fprintf(stderr, "lab: -network %q is not supported (only %q)\n", *network, lab.UserV2Network)
 		return 2
+	}
+	var tpls []string
+	if *templates != "" {
+		tpls = strings.Split(*templates, ",")
+		if len(tpls) != *vms {
+			fmt.Fprintf(stderr, "lab: -templates needs exactly %d entries\n", *vms)
+			return 2
+		}
+		for _, t := range tpls {
+			if !lab.Templates[t] {
+				fmt.Fprintf(stderr, "lab: -templates entry %q is not supported\n", t)
+				return 2
+			}
+		}
 	}
 	host, err := detectHost(ctx, r)
 	if err != nil {
@@ -174,6 +189,9 @@ func cmdCreate(ctx context.Context, name string, args []string, stdout, stderr i
 			RAMBytes:  uint64(*ram) << 30,
 			DiskBytes: uint64(*disk) << 30,
 			Network:   *network,
+		}
+		if tpls != nil {
+			specs[i].Template = tpls[i]
 		}
 	}
 	actions, err := lab.PlanCreate(lab.Budget{Host: host}, m, specs)
