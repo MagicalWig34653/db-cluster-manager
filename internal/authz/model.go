@@ -94,6 +94,9 @@ const (
 	// global resource that no preset except the administrator holds, so it
 	// is denied by default.
 	ResourceVuln ResourceType = "vuln"
+	// ResourcePatch is OS patch management (X15): host patch state, policies,
+	// groups, plans and native agent installation. Global resource.
+	ResourcePatch ResourceType = "patch"
 	// ResourceKubernetes protects experimental cluster registrations globally.
 	ResourceKubernetes ResourceType = "kubernetes_cluster"
 	// ResourceAny is a wildcard usable in permissions only, never in a check.
@@ -105,7 +108,7 @@ var knownResourceTypes = map[ResourceType]bool{
 	ResourceDatabase: true, ResourceDatabaseUser: true, ResourceBackup: true,
 	ResourceSettings: true, ResourceDashboard: true, ResourceUserAccount: true,
 	ResourceRole: true, ResourceAuditLog: true, ResourceService: true,
-	ResourceImageBuild: true, ResourceRegistry: true, ResourceVuln: true, ResourceKubernetes: true,
+	ResourceImageBuild: true, ResourceRegistry: true, ResourceVuln: true, ResourcePatch: true, ResourceKubernetes: true,
 }
 
 // Valid reports whether t is a concrete, known resource type.

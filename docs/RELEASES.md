@@ -126,6 +126,17 @@ Exit gates:
 - Approved patched rebuild rolled out on a lab Swarm with canary and rollback on a deliberately failing image; auto-apply refused for database services.
 - Mitigations expire and re-alert; the audit log lets an admin reconstruct each decision.
 
+### R11 — OS patch management (proposal, X15)
+
+Proposed 2026-10-27 ([ADR 0023](decisions/0023-os-patch-management.md)). Groundwork (`internal/patch`, native agent mode, REST API) exists, fakes first and a two-VM lab run; no exit gate is met. Not wired into the managed manager runtime; no UI.
+
+Exit gates:
+
+- Reports and security classification verified on every supported package manager family on real hosts (apt and dnf were exercised in the lab; yum, zypper, apk and pacman only against recorded output).
+- Apply after approval, reboot-required detection and refusal outside a window verified on real hosts.
+- A Galera member is demonstrably refused without cluster planner coordination, and coordinated patching works inside a rolling procedure.
+- Agent installation over SSH including checksum failure, rerun and removal verified on a clean host.
+
 ## Requirement coverage
 
 | Requirements | Earliest planned delivery / expansion |
@@ -159,5 +170,6 @@ Exit gates:
 | X10 | Generic containers R6; per-type update strategies R7–R8 |
 | X11 | P0 and R1 unchanged; constrains R6–R10 ordering |
 | X13 | R10 (proposal; after R6 and R7) |
+| X15 | R11 (proposal; groundwork with fakes and a lab run) |
 
 R1 is still substantial. Re-slice its internal work packages after P0 rather than skipping its safety/recovery gates. Run test suites sequentially when simultaneous topology sizes would exceed the Mac budget.

@@ -86,6 +86,19 @@ type options struct {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "patch" {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		err := runPatch(ctx, os.Args[2:], os.Stdout, os.Stderr, nil)
+		if errors.Is(err, flag.ErrHelp) {
+			os.Exit(0)
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "agent patch:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	o, err := parseFlags(os.Args[1:])
 	if errors.Is(err, flag.ErrHelp) {
 		os.Exit(0)

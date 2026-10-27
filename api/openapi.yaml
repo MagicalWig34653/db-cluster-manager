@@ -2189,6 +2189,394 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
+  /patch/hosts:
+    get:
+      summary: Patch state of all hosts (X15, fakes only)
+      description: >-
+        Per-host dashboard rows: effective policy, OS, pending and security update
+        counts, reboot-required and staleness. A host without a recent report is
+        stale and reboot-required unknown, never reported as up to date.
+        Needs patch read permission (viewer and above); audited.
+      operationId: listPatchHosts
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/PatchHostSummary" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /patch/hosts/{id}:
+    get:
+      summary: One host with its pending updates
+      description: >-
+        Needs patch read permission (viewer and above); audited.
+      operationId: getPatchHost
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PatchHostView" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+    put:
+      summary: Create or update the patch record of a host
+      description: >-
+        Sets name, group and an optional policy override. Needs patch update
+        permission (administrator preset only); audited.
+      operationId: putPatchHost
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PatchHostInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PatchHost" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /patch/hosts/{id}/poll:
+    post:
+      summary: Pull a fresh report from the host agent
+      description: >-
+        Asks the host's patch agent for a report (with package index refresh) over
+        mTLS. Read-only on the host. Needs patch operate permission (operator and
+        above); audited.
+      operationId: pollPatchHost
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PatchHostView" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /patch/hosts/{id}/history:
+    get:
+      summary: Report and patch history of a host
+      description: >-
+        Newest first; bounded to 200 entries per host. Needs patch read permission (viewer and above); audited.
+      operationId: listPatchHistory
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/PatchHistoryEntry" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /patch/hosts/{id}/plans:
+    post:
+      summary: Propose a patch plan for a host
+      description: >-
+        Builds an explicit package list from the latest report and runs the
+        package manager's simulation (read-only). Report-only hosts get a
+        proposal that cannot be approved. Needs patch operate permission; audited.
+      operationId: proposePatchPlan
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PatchProposeInput" }
+      responses:
+        "201":
+          description: Plan proposed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PatchPlan" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /patch/packages:
+    get:
+      summary: Pending updates per package across hosts
+      description: >-
+        Needs patch read permission (viewer and above); audited.
+      operationId: listPatchPackages
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/PatchPackageView" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /patch/groups:
+    get:
+      summary: Host groups
+      description: >-
+        Needs patch read permission (viewer and above); audited.
+      operationId: listPatchGroups
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/PatchGroup" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /patch/groups/{id}:
+    put:
+      summary: Create or update a host group
+      description: >-
+        Needs patch update permission (administrator preset only); audited.
+      operationId: putPatchGroup
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PatchGroupInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PatchGroup" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+    delete:
+      summary: Delete an empty host group
+      description: >-
+        409 while hosts still belong to the group. Needs patch update permission;
+        audited.
+      operationId: deletePatchGroup
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      responses:
+        "204":
+          description: Deleted
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /patch/policy:
+    get:
+      summary: Default patch policy
+      description: >-
+        Report-only unless changed. Needs patch read permission (viewer and above); audited.
+      operationId: getPatchPolicy
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PatchPolicy" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+    put:
+      summary: Replace the default patch policy
+      description: >-
+        Needs patch update permission (administrator preset only); audited.
+      operationId: putPatchPolicy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PatchPolicy" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PatchPolicy" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /patch/plans:
+    get:
+      summary: Patch plans, newest first
+      description: >-
+        Needs patch read permission (viewer and above); audited.
+      operationId: listPatchPlans
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/PatchPlan" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /patch/plans/{id}:
+    get:
+      summary: One patch plan
+      description: >-
+        Needs patch read permission (viewer and above); audited.
+      operationId: getPatchPlan
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PatchPlan" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /patch/plans/{id}/approve:
+    post:
+      summary: Approve the plan with this digest
+      description: >-
+        409 approval_mismatch when the digest differs; 409 policy_conflict for a
+        report-only host. Needs patch update permission (administrator preset
+        only); audited.
+      operationId: approvePatchPlan
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PatchApproveInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PatchPlan" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /patch/plans/{id}/decline:
+    post:
+      summary: Decline a plan
+      description: >-
+        Needs patch update permission; audited.
+      operationId: declinePatchPlan
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PatchPlan" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /patch/plans/{id}/apply:
+    post:
+      summary: Apply an approved plan
+      description: >-
+        Runs the plan on the host: policy mode and maintenance window are checked,
+        the Galera guard blocks members the cluster planner does not coordinate
+        (409), the steps are journaled and carry the leader term. A run that
+        failed after it started returns the plan with state failed. Reboots only
+        as the policy allows. Needs patch update permission; audited.
+      operationId: applyPatchPlan
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      responses:
+        "202":
+          description: Applied (see state)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PatchPlan" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /patch/install/plans:
+    post:
+      summary: Plan a native agent installation over SSH
+      description: >-
+        Runs a read-only SSH preflight and returns the reviewed script, unit
+        file and digest. The SSH credential is write-only and sealed; the
+        enrollment token is created at execution and never part of the plan.
+        Needs patch create permission (administrator preset only); audited.
+      operationId: createPatchInstallPlan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PatchInstallInput" }
+      responses:
+        "201":
+          description: Install plan
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PatchInstallPlan" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /patch/install/plans/{id}/execute:
+    post:
+      summary: Execute an install plan
+      description: >-
+        Repeats the preflight, verifies the binary checksum on the host and
+        installs the unit. 409 approval_mismatch when the digest differs. Needs
+        patch create permission; audited.
+      operationId: executePatchInstall
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PatchApproveInput" }
+      responses:
+        "202":
+          description: Installed
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
   /vuln/findings:
     get:
       summary: Vulnerability findings (proposal, fakes only)
@@ -3697,6 +4085,153 @@ components:
         lastSeen: { type: string, format: date-time }
         resolvedAt: { type: string, format: date-time }
         sources: { type: array, items: { type: string } }
+    PatchPolicy:
+      type: object
+      additionalProperties: false
+      properties:
+        mode: { type: string, enum: [report_only, approval_required], description: "Empty means report_only" }
+        securityOnly: { type: boolean }
+        windows: { type: array, maxItems: 16, items: { $ref: "#/components/schemas/PatchWindow" } }
+        reboot: { type: string, enum: [never, with_plan, auto_in_window], description: "Anything but never needs a window" }
+        reportEveryMinutes: { type: integer, minimum: 0, maximum: 10080 }
+    PatchWindow:
+      type: object
+      additionalProperties: false
+      required: [start, durationMinutes]
+      properties:
+        days: { type: array, items: { type: string, enum: [mon, tue, wed, thu, fri, sat, sun] } }
+        start: { type: string, pattern: "^[0-2][0-9]:[0-5][0-9]$" }
+        durationMinutes: { type: integer, minimum: 1, maximum: 1440 }
+        zone: { type: string, description: "IANA zone, default UTC" }
+    PatchHost:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        group: { type: string }
+        policy: { $ref: "#/components/schemas/PatchPolicy" }
+        lastPollAt: { type: string, format: date-time }
+        lastPollError: { type: string }
+    PatchHostInput:
+      type: object
+      additionalProperties: false
+      properties:
+        name: { type: string, maxLength: 200 }
+        group: { type: string }
+        policy: { $ref: "#/components/schemas/PatchPolicy" }
+    PatchGroup:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        policy: { $ref: "#/components/schemas/PatchPolicy" }
+    PatchGroupInput:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, maxLength: 200 }
+        policy: { $ref: "#/components/schemas/PatchPolicy" }
+    PatchUpdate:
+      type: object
+      properties:
+        name: { type: string }
+        installed: { type: string }
+        available: { type: string }
+        arch: { type: string }
+        source: { type: string }
+        security: { type: boolean }
+        advisories: { type: array, items: { type: string } }
+    PatchHostSummary:
+      type: object
+      properties:
+        host: { $ref: "#/components/schemas/PatchHost" }
+        policy: { $ref: "#/components/schemas/PatchPolicy" }
+        os: { type: object, additionalProperties: true }
+        manager: { type: string }
+        collectedAt: { type: string, format: date-time }
+        stale: { type: boolean }
+        updatesPending: { type: integer }
+        securityPending: { type: integer }
+        rebootRequired: { type: string, enum: [yes, no, unknown] }
+        securityKnown: { type: boolean, description: "false: the package manager cannot classify security updates" }
+    PatchHostView:
+      type: object
+      properties:
+        summary: { $ref: "#/components/schemas/PatchHostSummary" }
+        updates: { type: array, items: { $ref: "#/components/schemas/PatchUpdate" } }
+        rebootReasons: { type: array, items: { type: string } }
+        warnings: { type: array, items: { type: string } }
+    PatchHistoryEntry:
+      type: object
+      properties:
+        hostId: { type: string }
+        at: { type: string, format: date-time }
+        kind: { type: string, enum: [report, apply, reboot] }
+        planId: { type: string }
+        result: { type: string }
+        diff: { type: object, additionalProperties: true }
+        updatesPending: { type: integer }
+        securityPending: { type: integer }
+        rebootRequired: { type: string }
+    PatchPackageView:
+      type: object
+      properties:
+        name: { type: string }
+        hosts: { type: array, items: { type: string } }
+        security: { type: boolean }
+        versions: { type: array, items: { type: string } }
+    PatchProposeInput:
+      type: object
+      additionalProperties: false
+      properties:
+        packages: { type: array, items: { type: string }, description: "Empty means all (security only when selected or required by policy)" }
+        securityOnly: { type: boolean }
+        reboot: { type: boolean, description: "Include a reboot step; only if the policy allows reboots" }
+        coordination: { type: string, description: "Cluster planner procedure that coordinates this action on a Galera member" }
+    PatchApproveInput:
+      type: object
+      additionalProperties: false
+      required: [digest]
+      properties:
+        digest: { type: string, minLength: 64, maxLength: 64 }
+    PatchPlan:
+      type: object
+      properties:
+        id: { type: string }
+        hostId: { type: string }
+        manager: { type: string }
+        packages: { type: array, items: { type: string } }
+        securityOnly: { type: boolean }
+        reboot: { type: boolean }
+        coordination: { type: string }
+        simulation: { type: object, additionalProperties: true }
+        digest: { type: string }
+        state: { type: string, enum: [proposed, approved, running, succeeded, failed, declined] }
+        createdBy: { type: string }
+        createdAt: { type: string, format: date-time }
+        approvedBy: { type: string }
+        approvedAt: { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time }
+        opId: { type: string }
+        error: { type: string }
+        remaining: { type: array, items: { type: string } }
+        rebootStatus: { type: string }
+    PatchInstallInput:
+      type: object
+      additionalProperties: false
+      required: [request, credential]
+      properties:
+        request: { type: object, additionalProperties: true, description: "id, host, mode (report|apply), binaryUrl, binarySha256, version, managerUrl, caFingerprint, installation, listen" }
+        credential: { type: object, additionalProperties: false, properties: { privateKey: { type: string, writeOnly: true }, knownHosts: { type: string, writeOnly: true } } }
+    PatchInstallPlan:
+      type: object
+      properties:
+        request: { type: object, additionalProperties: true }
+        check: { type: object, additionalProperties: true }
+        unit: { type: string }
+        script: { type: string }
+        digest: { type: string }
     VulnStatusInput:
       type: object
       additionalProperties: false
