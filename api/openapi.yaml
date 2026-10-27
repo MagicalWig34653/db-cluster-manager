@@ -2597,6 +2597,113 @@ paths:
         '403': { $ref: '#/components/responses/Error' }
         '409': { $ref: '#/components/responses/Error' }
         '503': { $ref: '#/components/responses/Error' }
+  /host-sources:
+    get:
+      summary: List visible restic host filesystem sources
+      responses:
+        '200':
+          description: Sources with credential values omitted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/HostSource' } }
+        '503': { $ref: '#/components/responses/Error' }
+    post:
+      summary: Create a managed or external host restic source
+      description: Requires backup create permission. Password and backend credentials are write-only and sealed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/HostSourceInput' }
+      responses:
+        '201':
+          description: Source without secret values
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HostSource' }
+        '400': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /host-sources/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      summary: Get one restic host source
+      responses:
+        '200':
+          description: Source without secret values
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HostSource' }
+        '404': { $ref: '#/components/responses/Error' }
+    put:
+      summary: Update one restic host source
+      description: Kind, Swarm and host identity cannot change through an update.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/HostSourceInput' }
+      responses:
+        '200':
+          description: Updated source
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HostSource' }
+        '400': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+    delete:
+      summary: Delete one restic source and its sealed manager credential copy
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /host-sources/{id}/backups:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      summary: Start a host filesystem backup, retention and subset check
+      description: Managed hosts use the enrolled agent. External SSH sources use a pinned-host-key plan; external agent execution remains unavailable.
+      responses:
+        '202':
+          description: Runner operation reference
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OperationRef' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /host-sources/{id}/restore:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      summary: Plan a restic restore into a new path
+      description: Requires restore permission and separate digest approval through /operations/{id}/approve. The agent refuses an existing target.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [snapshot, target]
+              properties:
+                snapshot: { type: string }
+                target: { type: string }
+      responses:
+        '202':
+          description: Approval-gated runner operation
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OperationRef' }
+        '400': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
 security:
   - sessionCookie: []
 components:
@@ -3178,6 +3285,38 @@ components:
         acked: { type: boolean }
         acknowledged: { type: boolean, description: Same as acked (UI name) }
         ackedAt: { type: string, format: date-time }
+    HostSource:
+      type: object
+      required: [id, name, kind, transport, hostId, paths, backend, repository, passwordSecret]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        kind: { type: string, enum: [managed-host, external-host] }
+        transport: { type: string, enum: [agent, ssh-plan] }
+        swarm: { type: string }
+        hostId: { type: string }
+        sshAddress: { type: string, description: Address of an external SSH host. }
+        sshUser: { type: string, description: Unprivileged SSH account on an external host. }
+        paths: { type: array, items: { type: string } }
+        excludes: { type: array, items: { type: string } }
+        backend: { type: string, enum: [local, sftp, s3, rest-server] }
+        repository: { type: string }
+        passwordSecret: { type: string }
+        credentialSecret: { type: string }
+        schedule: { type: string, description: Five-field cron expression in UTC. }
+        retention: { type: object, description: Restic keep-last/daily/weekly/monthly/yearly and prune policy. }
+        checkSubset: { type: string, description: Percentage passed to check --read-data-subset. }
+        lastRunAt: { type: string, format: date-time }
+        lastRunStatus: { type: string }
+    HostSourceInput:
+      allOf:
+        - $ref: '#/components/schemas/HostSource'
+        - type: object
+          properties:
+            password: { type: string, writeOnly: true }
+            credentials: { type: object, additionalProperties: { type: string }, writeOnly: true }
+            sshPrivateKey: { type: string, writeOnly: true }
+            sshKnownHosts: { type: string, writeOnly: true }
     OperationRef:
       type: object
       required: [id]

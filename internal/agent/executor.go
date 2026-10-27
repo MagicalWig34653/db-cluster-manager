@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 
 	"github.com/MagicalWig34653/db-cluster-manager/internal/fencing"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/restic"
 )
 
 // Handler is the transport-agnostic entry point for manager commands.
@@ -48,6 +49,10 @@ type Config struct {
 	// SecretsDir is where the agent's own Swarm secrets are mounted
 	// (default SecretsDir). exec-sql reads passwords from it by secret name.
 	SecretsDir string
+	// ResticAllowedPaths are operator-owned absolute source roots. An empty
+	// list disables host-file backups. They are local policy, not command data.
+	ResticAllowedPaths []string
+	ResticRunner       restic.Runner
 }
 
 // StatusQuerier runs SHOW GLOBAL STATUS LIKE 'wsrep_%' against a local
@@ -94,6 +99,11 @@ func NewExecutor(cfg Config) (*Executor, error) {
 	}
 	if !filepath.IsAbs(cfg.SecretsDir) || filepath.Clean(cfg.SecretsDir) != cfg.SecretsDir {
 		return nil, fmt.Errorf("agent: SecretsDir %q must be a clean absolute path", cfg.SecretsDir)
+	}
+	for _, p := range cfg.ResticAllowedPaths {
+		if !filepath.IsAbs(p) || filepath.Clean(p) != p || p == "/" {
+			return nil, fmt.Errorf("agent: invalid restic allowed path")
+		}
 	}
 	resolvedBase, err := filepath.EvalSymlinks(cfg.VolumeBase)
 	if err != nil {
@@ -240,6 +250,8 @@ func (e *Executor) execute(ctx context.Context, d decoded) Result {
 		return e.updateService(ctx, *a)
 	case *RunBackupArgs:
 		return e.runBackup(ctx, d.cmd, *a)
+	case *ResticArgs:
+		return e.runRestic(ctx, d.cmd.Kind, *a)
 	case *RunRestoreArgs:
 		return e.runRestore(ctx, d.cmd, *a)
 	case *RemoveJobArgs:

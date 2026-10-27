@@ -4,6 +4,8 @@ Updated: 2026-10-26. [Requirements](KONZEPT.md) are the canonical detailed recor
 
 ## Confirmed direction
 
+**Native host backups (X14, 2026-10-27):** The owner requested restic for individual managed hosts and external hosts without cluster membership. [ADR 0022](decisions/0022-native-restic-host-backups.md) records the CLI JSON, secret handling, host transport and restore mechanisms, plus the fake-only implementation limits. External SSH has a fake-tested adapter; real SSH/restic evidence, external agent enrollment, managed-agent secret delivery and UI remain open, not a support claim.
+
 **E9 zero-UUID response (2026-10-26, implementation verified with fakes):** A reported Primary component with the zero Galera state UUID is a critical incident and unsafe as donor/quorum evidence. It still blocks full-outage recovery and does not trigger automatic repair. The outage API returns a stable 409 reason. Alternatives considered: treat the node as healthy (misses the SST/IST failure) or treat the component as absent (could enable recovery while it still serves writes). E9 provides the real failure observation; the new behavior has unit tests only, with no repair verified on VMs.
 
 The operator CLI increment uses the existing session-cookie REST API, keeps tokens out of command arguments and context files, and requires explicit digest approval ([ADR 0020](decisions/0020-operator-cli.md), 2026-10-26, fakes only). General operator API tokens remain unavailable in the manager.

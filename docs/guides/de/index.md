@@ -51,3 +51,5 @@ Lesereihenfolge für einen ersten Test: 1, 2, 3, danach 10, bevor Sie irgendetwa
 - [20 — Operator-CLI (nur Fakes)](20-cli.md)
 
 - [21 — Notfallwiederherstellung und Backup-Kopien (nur Fakes)](21-disaster-recovery.md)
+
+- [22 — Restic-Backups einzelner Hosts (nur Fakes)](22-restic.md)

@@ -1,6 +1,16 @@
 # Current status
 
-Updated: 2026-10-26.
+Updated: 2026-10-27.
+
+## X14/W12 native restic host backup increment (2026-10-27, fakes only)
+
+The owner added [X14](KONZEPT.md#scope-extension). [ADR 0022](decisions/0022-native-restic-host-backups.md) records the CLI JSON, placement, sealed credential, lock, retention and approval decisions. `internal/restic` has a replaceable runner and backup/snapshots/forget/check/restore/stats wrappers. Its fake tests cover JSON forms, per-command `--json`, credential-free argv, child-only credentials, error classification, no automatic unlock, a fresh restore target and `--overwrite never`. The agent has fenced Restic command kinds with a local path allow-list and protected Docker socket/secret paths. The manager stores source records and separately sealed credentials in the replicated metastore, runs managed-host backups through the existing operation journal, authorizes and audits viewer/operator/admin actions through the REST API, schedules UTC cron runs and routes failed runs through `notify`. External SSH sources use the same operation journal with a sealed private key, pinned host key and secret transfer over SSH stdin; tests use a fake SSH runner. The OpenAPI contract and [English](guides/en/22-restic.md)/[German](guides/de/22-restic.md) guides describe the current paths.
+
+**Limits:** No real restic binary or repository was used. The product agent image does not package restic. The manager does not yet deliver its sealed credential copy as mounted agent secrets, does not update an existing global agent service with source mounts or `-restic-allow-path`, and does not initialize repositories. External-host SSH execution is implemented only against a fake command runner and inherits a 64 KiB output cap; external `agent` transport returns 503 pending independent enrollment. SFTP key/known-host lifecycle, long-output streaming limits, real restore evidence and UI are open. This code must not be treated as end-to-end host backup support. W05/R1 gates are unaffected.
+
+Actual final-tree checks with `GOCACHE=/private/tmp/dbcm-restic-go-cache`: `gofmt` and `git diff --check` passed; `go vet` on the six touched Go packages exited 0. `python3 scripts/check_docs.py` reported 92 Markdown files, 70 requirements and zero errors. The full `go test -race -count=1 -p 4` on those packages exited 1: `internal/restic` passed, but existing listener-backed tests in `internal/agent`, `internal/api`, `internal/manager`, `cmd/agent` and `cmd/manager` failed because this sandbox denies local TCP/Unix binds. A focused race run of the new Restic/host-source tests and OpenAPI route contract across those packages exited 0. A separate test first reproduced an SSH destination redirection through source edits; it passed after the source identity and repository fields became immutable. No infrastructure or real Restic test was run. Next: implement reviewed agent secret/mount delivery and independent external-host enrollment, then run a disposable local/SFTP/S3/rest-server and SSH matrix with restore/check tests before adding UI and claiming support.
+
+Git staging and staged whitespace review succeeded. The local commit `feat: add restic host backup foundation` was created; no push was attempted.
 
 ## E9 zero-UUID Primary incident and outage conflict reasons (2026-10-26, fake tests only)
 

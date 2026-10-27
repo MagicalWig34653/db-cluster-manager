@@ -159,5 +159,6 @@ Exit gates:
 | X10 | Generic containers R6; per-type update strategies R7–R8 |
 | X11 | P0 and R1 unchanged; constrains R6–R10 ordering |
 | X13 | R10 (proposal; after R6 and R7) |
+| X14 | Host backup increment W12; full release gate and UI timing remain open |
 
 R1 is still substantial. Re-slice its internal work packages after P0 rather than skipping its safety/recovery gates. Run test suites sequentially when simultaneous topology sizes would exceed the Mac budget.
