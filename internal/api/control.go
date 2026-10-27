@@ -47,6 +47,10 @@ var (
 	ErrApprovalMismatch = errors.New("api: approval does not match the operation")
 	// ErrNotLeader: this replica cannot run commands (503 not_leader).
 	ErrNotLeader = errors.New("api: not leader")
+	// ErrRuntimeUnavailable: the agent runtime the operation requires is not
+	// reported by the host (ADR 0024). Nothing was started and nothing falls
+	// back to another runtime.
+	ErrRuntimeUnavailable = errors.New("api: required agent runtime unavailable")
 	// Outage-specific conflicts retain a stable, machine-readable reason.
 	ErrZeroUUIDPrimary           = errors.New("api: zero UUID Primary component")
 	ErrPrimaryComponent          = errors.New("api: Primary component exists")
@@ -77,8 +81,20 @@ type Host struct {
 	// Both are empty until the manager has talked to the agent.
 	AgentVersion string    `json:"agentVersion,omitempty"`
 	AgentSeenAt  time.Time `json:"agentSeenAt,omitzero"`
+	// Agents lists the runtime reports of the host's agents (ADR 0024):
+	// "container" (Docker agent) and/or "native" (systemd agent), each with
+	// its capability list. Empty until an agent reported.
+	Agents []HostAgentRuntime `json:"agents,omitempty"`
+	// AgentReportError is set when an agent sent an inconsistent report.
+	AgentReportError string `json:"agentReportError,omitempty"`
 	// Maintenance is set while the host is in guided maintenance.
 	Maintenance *HostMaintenance `json:"maintenance,omitempty"`
+}
+
+// HostAgentRuntime is one agent's runtime report.
+type HostAgentRuntime struct {
+	Runtime      string   `json:"runtime"` // native or container
+	Capabilities []string `json:"capabilities"`
 }
 
 // Enrollment states of a host.

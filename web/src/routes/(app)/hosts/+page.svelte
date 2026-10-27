@@ -67,6 +67,7 @@
 					<Table.Head>{t('colAgentIdentity')}</Table.Head>
 					<Table.Head>{t('dockerLabel')}</Table.Head>
 					<Table.Head>{t('colAgentVersion')}</Table.Head>
+					<Table.Head>{t('colAgentRuntime')}</Table.Head>
 					<Table.Head>{t('colAgentSeen')}</Table.Head>
 					<Table.Head>{t('colLastObserved')}</Table.Head>
 					<Table.Head>{t('colActions')}</Table.Head>
@@ -88,6 +89,14 @@
 						<Table.Cell>{h.agentIdentity ? t('identityRecorded') : t('identityNone')}</Table.Cell>
 						<Table.Cell class="font-mono text-xs">{h.engineVersion ?? t('stateUnknown')}</Table.Cell>
 						<Table.Cell class="font-mono text-xs">{h.agentVersion ?? t('stateUnknown')}</Table.Cell>
+						<Table.Cell>
+							{#each h.agents ?? [] as a (a.runtime)}
+								<span class="mr-1 inline-block rounded border px-1.5 py-0.5 text-xs" title={a.capabilities.join(', ')} data-testid="runtime-badge">{t(a.runtime === 'native' ? 'runtimeNative' : 'runtimeContainer')}: {a.capabilities.join(', ')}</span>
+							{:else}
+								<span class="text-xs text-muted-foreground">{t('runtimeNone')}</span>
+							{/each}
+							{#if h.agentReportError}<p class="mt-1 text-xs font-medium text-destructive">{t('runtimeMismatch', { error: h.agentReportError })}</p>{/if}
+						</Table.Cell>
 						<Table.Cell>{#if h.agentSeenAt}<time class="text-xs" datetime={h.agentSeenAt} title={dateTime(h.agentSeenAt, locale.value)}>{relativeAge(h.agentSeenAt, locale.value)}</time>{:else}<span class="text-xs text-muted-foreground">{t('agentNeverSeen')}</span>{/if}</Table.Cell>
 						<Table.Cell><Freshness at={h.observedAt} /></Table.Cell>
 						<Table.Cell>
@@ -124,5 +133,5 @@
 		{@const mh = hosts.state.value.find((x) => x.nodeId === maintHost)}
 		{#if mh}<div class="mt-4">{#key mh.nodeId + String(!!mh.maintenance)}<MaintenancePanel host={mh} onchange={hosts.refresh} />{/key}</div>{/if}
 	{/if}
-	<p class="mt-3 text-xs text-muted-foreground">{t('hostsHint')} {t('hostsAgentNote')}</p>
+	<p class="mt-3 text-xs text-muted-foreground">{t('hostsHint')} {t('hostsAgentNote')} {t('hostsRuntimeNote')}</p>
 {/if}

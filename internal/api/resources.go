@@ -160,6 +160,20 @@ type Operation struct {
 	// Progress is the step progress as last stored by the leader (absent
 	// before the operation started).
 	Progress *OperationProgress `json:"progress,omitempty"`
+	// ExecutedBy names, per step an agent answered, the runtime (native or
+	// container) and the agent identity that executed it (ADR 0024).
+	ExecutedBy []OperationExecution `json:"executedBy,omitempty"`
+}
+
+// OperationExecution is the executing runtime of one step.
+type OperationExecution struct {
+	Step    string `json:"step"`
+	Command string `json:"command"`
+	Host    string `json:"host"`
+	Runtime string `json:"runtime"` // native or container
+	// Agent is the identity of the answering agent (host-bound URI SAN
+	// subject of its mTLS certificate).
+	Agent string `json:"agent"`
 }
 
 // OperationProgress shows where an operation is, also while a step polls

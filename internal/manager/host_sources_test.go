@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/agentrt"
 	"strings"
 	"testing"
 
@@ -19,6 +20,7 @@ import (
 
 func TestHostSourcesSealedModelAndPermissions(t *testing.T) {
 	l, svcs, _ := serviceFixture(t)
+	setReports(t, l, "sw1", "h1", agentrt.ContainerInfo(true))
 	s := &HostSources{Ops: svcs.Ops, Keys: testKey}
 	ctx := context.Background()
 	in := api.HostSourceInput{HostSource: api.HostSource{ID: "home", Name: "Home", Kind: "managed-host", Transport: "agent",
@@ -165,6 +167,7 @@ func TestExternalResticSSHAdapterKeepsSecretsOffCommand(t *testing.T) {
 
 func TestHostBackupFailureNotificationUsesRunnerOutcome(t *testing.T) {
 	l, svcs, agents := serviceFixture(t)
+	setReports(t, l, "sw1", "h1", agentrt.ContainerInfo(true))
 	agents.refuse = func(cmd agent.Command) bool { return cmd.Kind == agent.KindResticBackup }
 	var got []notify.Event
 	s := &HostSources{Ops: svcs.Ops, Keys: testKey, Notify: func(_ context.Context, e notify.Event) bool {

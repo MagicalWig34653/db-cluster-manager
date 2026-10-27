@@ -71,3 +71,40 @@ func TestHostSourceRoutesAuthzAndAudit(t *testing.T) {
 		t.Fatal("audit outage reached backend")
 	}
 }
+
+type runtimeHostSources struct {
+	fakeHostSources
+	err error
+}
+
+func (f *runtimeHostSources) Run(ctx context.Context, a authz.Subject, id string) (OperationRef, error) {
+	if f.err != nil {
+		return OperationRef{}, f.err
+	}
+	return f.fakeHostSources.Run(ctx, a, id)
+}
+
+// A missing required runtime answers 409 with a stable code, only after
+// authorization; the per-source runtime is part of the read view.
+func TestHostSourceRuntimeRefusalAndView(t *testing.T) {
+	f := newFixture(t)
+	store := &runtimeHostSources{fakeHostSources: fakeHostSources{items: []HostSource{
+		{ID: "m1", Name: "Managed", Kind: "managed-host", Swarm: "s1", HostID: "n1", Runtime: "native"},
+		{ID: "m2", Name: "NoAgent", Kind: "managed-host", Swarm: "s1", HostID: "n2", RuntimeNote: "capability restic needs a native or container agent"},
+	}}, err: ErrRuntimeUnavailable}
+	f.srv.cfg.HostSources = store
+	viewer := f.loggedIn("viewer", authz.RoleViewer, authz.SwarmScope("s1"))
+	op := f.loggedIn("operator", authz.RoleOperator, authz.SwarmScope("s1"))
+	var got HostSource
+	r := viewer.do("GET", "/api/v1/host-sources/m1", nil)
+	wantStatus(t, r, http.StatusOK)
+	r.decode(t, &got)
+	if got.Runtime != "native" {
+		t.Fatalf("runtime missing in view: %+v", got)
+	}
+	wantError(t, viewer.do("POST", "/api/v1/host-sources/m2/backups", map[string]any{}), http.StatusForbidden, errForbidden)
+	wantError(t, op.do("POST", "/api/v1/host-sources/m2/backups", map[string]any{}), http.StatusConflict, errRuntimeUnavailable)
+	if store.runs != 0 {
+		t.Fatal("refused run reached the backend")
+	}
+}

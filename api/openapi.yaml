@@ -3056,7 +3056,7 @@ paths:
       - $ref: '#/components/parameters/Id'
     post:
       summary: Start a host filesystem backup, retention and subset check
-      description: Managed hosts use the enrolled agent. External SSH sources use a pinned-host-key plan; external agent execution remains unavailable.
+      description: Managed hosts use the enrolled agent, the native agent when it reports the restic capability, else the container agent (ADR 0024). 409 agent_runtime_unavailable when no agent of the host offers restic; nothing is started. External SSH sources use a pinned-host-key plan; external agent execution remains unavailable.
       responses:
         '202':
           description: Runner operation reference
@@ -3064,6 +3064,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/OperationRef' }
         '403': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
         '503': { $ref: '#/components/responses/Error' }
   /host-sources/{id}/restore:
@@ -3137,8 +3138,9 @@ components:
         unavailable, setup_unavailable, internal_error, conflict,
         request_too_large, unsupported_media_type; on command endpoints also
         requires_guided_recovery, no_capacity, policy_conflict,
-        settings_incomplete, cluster_exists, busy, approval_mismatch and
-        not_leader (503).
+        settings_incomplete, cluster_exists, busy, approval_mismatch,
+        agent_runtime_unavailable (409: the agent runtime the operation needs
+        is not reported by the host, ADR 0024) and not_leader (503).
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
@@ -3414,6 +3416,19 @@ components:
         approval: { $ref: "#/components/schemas/OperationApproval" }
         reason: { type: string, description: Short runner status reason, for example an unmet precondition }
         progress: { $ref: "#/components/schemas/OperationProgress" }
+        executedBy:
+          type: array
+          description: Per step that an agent answered, the agent runtime (native or container) and agent identity that executed it (ADR 0024).
+          items: { $ref: "#/components/schemas/OperationExecution" }
+    OperationExecution:
+      type: object
+      required: [step, command, host, runtime, agent]
+      properties:
+        step: { type: string }
+        command: { type: string }
+        host: { type: string }
+        runtime: { type: string, enum: [native, container] }
+        agent: { type: string, description: "Identity of the answering agent (host-bound subject of its mTLS certificate)" }
     OperationProgress:
       type: object
       description: >-
@@ -3696,6 +3711,8 @@ components:
         checkSubset: { type: string, description: Percentage passed to check --read-data-subset. }
         lastRunAt: { type: string, format: date-time }
         lastRunStatus: { type: string }
+        runtime: { type: string, enum: [native, container], description: "Computed on read, never stored: the agent runtime that would execute this source now (native preferred over container, ADR 0024). Absent for ssh-plan sources and when no suitable agent is reported." }
+        runtimeNote: { type: string, description: "Why no runtime is available (the refusal reason); POST .../backups then answers 409 agent_runtime_unavailable." }
     HostSourceInput:
       allOf:
         - $ref: '#/components/schemas/HostSource'
@@ -3744,6 +3761,11 @@ components:
         agentIdentity: { type: boolean, description: An agent certificate is recorded (not a reachability claim) }
         agentVersion: { type: string, description: Build version the agent reported in its last answer to the manager; absent until the manager has contacted the agent }
         agentSeenAt: { type: string, format: date-time, description: When the manager last received an HTTP answer from the agent (best effort, at most about one write a minute) }
+        agents:
+          type: array
+          description: "Runtime reports of the host's agents (ADR 0024): container (Docker agent) and/or native (systemd agent) with capability lists. Empty until an agent reported."
+          items: { $ref: "#/components/schemas/HostAgentRuntime" }
+        agentReportError: { type: string, description: "Set when an agent sent an inconsistent report (for example a container agent claiming a native capability); the host is then refused for routing." }
         maintenance:
           type: object
           description: Set while the host is in guided maintenance (replacement on it is paused)
@@ -3754,6 +3776,14 @@ components:
             reason: { type: string }
             operations: { type: array, items: { type: string } }
             ready: { type: boolean, description: Every maintenance operation succeeded; the operator may reboot the host }
+    HostAgentRuntime:
+      type: object
+      required: [runtime, capabilities]
+      properties:
+        runtime: { type: string, enum: [native, container] }
+        capabilities:
+          type: array
+          items: { type: string, enum: [docker-objects, galera-steps, restic, patch, host-maintenance, diagnostics] }
     PlanStep:
       type: object
       required: [id, kind]
@@ -4251,6 +4281,7 @@ components:
         policy: { $ref: "#/components/schemas/PatchPolicy" }
         lastPollAt: { type: string, format: date-time }
         lastPollError: { type: string }
+        agentRuntime: { type: string, enum: [native], description: "Runtime that answered the latest poll, set by the manager from the verified response (ADR 0024)." }
     PatchHostInput:
       type: object
       additionalProperties: false
@@ -4356,6 +4387,7 @@ components:
         error: { type: string }
         remaining: { type: array, items: { type: string } }
         rebootStatus: { type: string }
+        executedBy: { type: string, enum: [native], description: "Agent runtime that applied the plan (ADR 0024)." }
     PatchInstallInput:
       type: object
       additionalProperties: false

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/agentrt"
 	"net"
 	"sync"
 	"testing"
@@ -187,6 +188,8 @@ type fakeAgents struct {
 	refuse func(cmd agent.Command) bool
 	// answer, if set and returning true, replaces the default answer.
 	answer func(target string, cmd agent.Command) (agent.Result, bool)
+	// runtime, if set, stamps default answers with the runtime it returns.
+	runtime func(cmd agent.Command) agentrt.Runtime
 }
 
 func newFakeAgents() *fakeAgents { return &fakeAgents{results: map[string]agent.Result{}} }
@@ -214,6 +217,9 @@ func (f *fakeAgents) Send(ctx context.Context, target string, cmd agent.Command)
 		}
 	}
 	r := agent.Result{OpID: cmd.OpID, StepID: cmd.StepID, Kind: cmd.Kind, Status: agent.StatusSucceeded}
+	if f.runtime != nil {
+		r.Runtime = f.runtime(cmd)
+	}
 	if f.refuse != nil && f.refuse(cmd) {
 		r.Status, r.Code, r.Message = agent.StatusRefused, agent.CodeNotOwned, "refused by the test"
 	}

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/agentrt"
 	"slices"
 
 	"github.com/MagicalWig34653/db-cluster-manager/internal/api"
@@ -41,7 +42,23 @@ func toAPIHost(h HostRecord) api.Host {
 	return api.Host{Swarm: h.Swarm, NodeID: h.NodeID, Hostname: h.Hostname, Role: h.Role, Availability: h.Availability,
 		State: h.State, EngineVersion: h.EngineVersion, Enrollment: string(h.Enrollment), Spare: h.Spare,
 		NanoCPUs: h.NanoCPUs, MemoryBytes: h.MemoryBytes, ObservedAt: h.ObservedAt, AgentIdentity: h.AgentSerial != "",
-		AgentVersion: h.AgentVersion, AgentSeenAt: h.AgentSeenAt}
+		AgentVersion: h.AgentVersion, AgentSeenAt: h.AgentSeenAt, Agents: apiAgents(h), AgentReportError: h.AgentReportError}
+}
+
+func apiAgents(h HostRecord) []api.HostAgentRuntime {
+	var out []api.HostAgentRuntime
+	for _, rt := range []agentrt.Runtime{agentrt.Container, agentrt.Native} {
+		info, ok := h.AgentReports[rt]
+		if !ok {
+			continue
+		}
+		caps := make([]string, len(info.Capabilities))
+		for i, c := range info.Capabilities {
+			caps[i] = string(c)
+		}
+		out = append(out, api.HostAgentRuntime{Runtime: string(rt), Capabilities: caps})
+	}
+	return out
 }
 
 // Hosts implements api.Control (local read).

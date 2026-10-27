@@ -12,6 +12,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/agentrt"
 	"io"
 	"net/http"
 	"net/url"
@@ -63,6 +64,8 @@ type AgentConfig struct {
 	CAFingerprint string
 	// Token is the plain enrollment token (from the Swarm secret).
 	Token string
+	// Info is the agent's runtime report (ADR 0024).
+	Info agentrt.Info
 	// Timeout bounds each request (default 30s).
 	Timeout time.Duration
 	Now     func() time.Time
@@ -220,7 +223,7 @@ func Enroll(ctx context.Context, c AgentConfig) (*Credentials, error) {
 		return nil, err
 	}
 	var resp Response
-	if err := post(ctx, tc, c.ManagerURL, PathEnroll, c.Timeout, EnrollRequest{Token: c.Token, HostID: c.HostID, CSR: string(csr)}, &resp); err != nil {
+	if err := post(ctx, tc, c.ManagerURL, PathEnroll, c.Timeout, EnrollRequest{Token: c.Token, HostID: c.HostID, CSR: string(csr), Runtime: c.Info.Runtime, Capabilities: c.Info.Capabilities}, &resp); err != nil {
 		return nil, err
 	}
 	pin, _ := certs.NormalizeFingerprint(c.CAFingerprint)
@@ -237,6 +240,8 @@ type RenewConfig struct {
 	// Current are the credentials to authenticate with and whose CA bundle
 	// the manager must chain to.
 	Current *Credentials
+	// Info is the agent's runtime report, resent on every renewal.
+	Info    agentrt.Info
 	Timeout time.Duration
 	Now     func() time.Time
 }
@@ -272,7 +277,7 @@ func Renew(ctx context.Context, c RenewConfig) (*Credentials, error) {
 		return nil, err
 	}
 	var resp Response
-	if err := post(ctx, tc, c.ManagerURL, PathRenew, c.Timeout, RenewRequest{CSR: string(csr)}, &resp); err != nil {
+	if err := post(ctx, tc, c.ManagerURL, PathRenew, c.Timeout, RenewRequest{CSR: string(csr), Runtime: c.Info.Runtime, Capabilities: c.Info.Capabilities}, &resp); err != nil {
 		return nil, err
 	}
 	return checkResponse(resp, key, c.Installation, c.HostID, func(x *x509.Certificate) bool {

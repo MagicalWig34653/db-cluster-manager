@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/agentrt"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -66,7 +67,7 @@ func (s *HostSources) List(_ context.Context) ([]api.HostSource, error) {
 	}
 	out := make([]api.HostSource, 0, len(recs))
 	for _, r := range recs {
-		out = append(out, r.Value)
+		out = append(out, s.withRuntime(r.Value))
 	}
 	return out, nil
 }
@@ -79,7 +80,38 @@ func (s *HostSources) Get(_ context.Context, id string) (api.HostSource, error) 
 	if !ok {
 		return api.HostSource{}, api.ErrNotFound
 	}
-	return r.Value, nil
+	return s.withRuntime(r.Value), nil
+}
+
+// withRuntime fills the computed Runtime/RuntimeNote of a managed source from
+// the host's stored agent reports (ADR 0024). SSH-plan sources run over the
+// manager's SSH adapter and have no agent runtime.
+func (s *HostSources) withRuntime(h api.HostSource) api.HostSource {
+	h.Runtime, h.RuntimeNote = "", ""
+	if h.Kind != "managed-host" || h.Transport != "agent" {
+		return h
+	}
+	rt, err := s.route(h)
+	if err != nil {
+		h.RuntimeNote = err.Error()
+		return h
+	}
+	h.Runtime = string(rt)
+	return h
+}
+
+func (s *HostSources) route(h api.HostSource) (agentrt.Runtime, error) {
+	req, _ := agentrt.RequirementFor(string(agent.KindResticBackup))
+	hosts, err := List[HostRecord](s.Ops.Svc.store, CollHosts)
+	if err != nil {
+		return "", err
+	}
+	for _, rec := range hosts {
+		if rec.Value.NodeID == h.HostID && (h.Swarm == "" || rec.Value.Swarm == h.Swarm) {
+			return routeHost(rec.Value, req)
+		}
+	}
+	return "", errors.New("host is not inventoried")
 }
 
 var hostSourceID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
@@ -162,6 +194,7 @@ func (s *HostSources) Put(_ context.Context, actor authz.Subject, in api.HostSou
 		return api.HostSource{}, MapCommandError(err)
 	}
 	h := in.HostSource
+	h.Runtime, h.RuntimeNote = "", "" // computed on read, never stored
 	old, exists, err := Get[api.HostSource](s.Ops.Svc.store, CollHostSources, h.ID, Consistent())
 	if err != nil {
 		return api.HostSource{}, MapCommandError(err)
@@ -271,6 +304,13 @@ func (s *HostSources) start(ctx context.Context, actor authz.Subject, id string,
 	ssh := h.Kind == "external-host" && h.Transport == "ssh-plan"
 	if !ssh && (h.Kind != "managed-host" || h.Transport != "agent") {
 		return api.OperationRef{}, api.ErrUnavailable
+	}
+	// Refuse early and visibly when no suitable agent runtime is reported;
+	// there is no fallback (ADR 0024).
+	if !ssh {
+		if _, err := s.route(h); err != nil {
+			return api.OperationRef{}, fmt.Errorf("%w: %v", api.ErrRuntimeUnavailable, err)
+		}
 	}
 	a := agent.ResticArgs{Backend: h.Backend, Repository: h.Repository, PasswordSecret: h.PasswordSecret,
 		CredentialSecret: h.CredentialSecret, Paths: h.Paths, Excludes: h.Excludes,

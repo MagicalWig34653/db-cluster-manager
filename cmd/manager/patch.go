@@ -81,7 +81,7 @@ func (rt *managedRuntime) newPatchService() *patch.Service {
 	return &patch.Service{
 		KV:      vuln.MetastoreKV{Node: store.Node()},
 		Journal: opjournal.New(),
-		Agents:  &manager.PatchAgentDirectory{Dir: &manager.AgentDirectory{Store: store, PKI: rt.pki, Port: rt.patchCfg.port()}},
+		Agents:  &manager.PatchAgentDirectory{Dir: &manager.AgentDirectory{Store: store, PKI: rt.pki, NativePort: rt.patchCfg.port()}},
 		Guard:   patch.GaleraGuard{Directory: pg, Coordinator: pg},
 		Term: func() (uint64, error) {
 			l := rt.svc.Current()

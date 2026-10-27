@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/agentrt"
 	"math/big"
 	"net"
 	"net/url"
@@ -500,6 +501,32 @@ func (p *AgentPKI) RecordIssued(_ context.Context, nodeID string, cert *x509.Cer
 		return mapEnrollStoreErr(p.revokeSerial(previous, "superseded by renewal", previousExpiry))
 	}
 	return nil
+}
+
+// RecordReport implements enroll.ReportRegistry: the validated runtime report
+// of the agent that enrolled or renewed for nodeID. The enrollment endpoint
+// carries the identity shared by both runtimes, so the report is stored under
+// its runtime; the other runtime's report is kept.
+func (p *AgentPKI) RecordReport(_ context.Context, nodeID string, info agentrt.Info) error {
+	if err := info.Validate(); err != nil {
+		return err
+	}
+	h, err := p.hostByNode(nodeID, Consistent())
+	if err != nil {
+		return mapEnrollStoreErr(err)
+	}
+	_, _, err = Update(p.Store, CollHosts, h.Key, func(cur HostRecord, exists bool) (HostRecord, error) {
+		if !exists || cur.Enrollment != EnrollEnrolled {
+			return cur, fmt.Errorf("%w: host %s", enroll.ErrUnknownAgent, nodeID)
+		}
+		if cur.AgentReports == nil {
+			cur.AgentReports = map[agentrt.Runtime]agentrt.Info{}
+		}
+		cur.AgentReports[info.Runtime] = info
+		cur.AgentReportError = ""
+		return cur, nil
+	})
+	return mapEnrollStoreErr(err)
 }
 
 func (p *AgentPKI) revokeSerial(serial, reason string, notAfter time.Time) error {

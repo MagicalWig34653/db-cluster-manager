@@ -5,6 +5,7 @@ package manager
 import (
 	"context"
 	"errors"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/agentrt"
 	"io"
 	"log"
 	"math/big"
@@ -35,6 +36,9 @@ func TestPatchAgentDirectoryOverMTLS(t *testing.T) {
 	}
 	creds, err := f.enroll(t, plain, "n1")
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.pki.RecordReport(context.Background(), "n1", agentrt.NativeInfo(false)); err != nil {
 		t.Fatal(err)
 	}
 	holder, err := enroll.NewHolder(creds)
@@ -72,11 +76,14 @@ func TestPatchAgentDirectoryOverMTLS(t *testing.T) {
 	t.Cleanup(func() { _ = srv.Close() })
 	port := ln.Addr().(*net.TCPAddr).Port
 
-	d := &PatchAgentDirectory{Dir: &AgentDirectory{Store: s.Store(), PKI: f.pki, Port: port, Timeout: 5 * time.Second}}
+	d := &PatchAgentDirectory{Dir: &AgentDirectory{Store: s.Store(), PKI: f.pki, NativePort: port, Timeout: 5 * time.Second}}
 	ctx := context.Background()
 	res, err := d.Do(ctx, "n1", patch.AgentCommand{Kind: patch.CmdReport})
-	if err != nil || res.Report == nil || res.Report.Manager != patch.APT {
+	if err != nil || res.Report == nil || res.Report.Manager != patch.APT || res.Runtime != agentrt.Native {
 		t.Fatal(res, err)
+	}
+	if h, _, _ := Get[HostRecord](s.Store(), CollHosts, HostKey("sw1", "n1")); h.Value.AgentReports[agentrt.Native].Runtime != agentrt.Native {
+		t.Fatalf("native report not stored: %+v", h.Value.AgentReports)
 	}
 	if _, err := d.Do(ctx, "n1", patch.AgentCommand{Kind: patch.CmdDenyList, Term: 4, DenyRevision: 2, DenySerials: []string{"ff"}}); err != nil {
 		t.Fatal(err)

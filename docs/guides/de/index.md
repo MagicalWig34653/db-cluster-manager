@@ -54,3 +54,4 @@ Lesereihenfolge für einen ersten Test: 1, 2, 3, danach 10, bevor Sie irgendetwa
 
 - [23 — Betriebssystem-Patch-Management (experimentell)](23-patch-management.md)
 - [22 — Restic-Backups einzelner Hosts (nur Fakes)](22-restic.md)
+- [24 — Agent-Laufzeiten und Fähigkeiten (nur Fakes)](24-agent-runtimes.md)

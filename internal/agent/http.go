@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/MagicalWig34653/db-cluster-manager/internal/agentrt"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/fencing"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/version"
 )
@@ -101,6 +102,12 @@ func NewLabHTTPHandler(h Handler) http.Handler {
 	})
 }
 
+// NewCommandHandler serves POST LabCommandPath for h behind the peer check.
+// The native agent mounts it next to its patch endpoint (ADR 0024).
+func NewCommandHandler(h Handler, peer func(*http.Request) string) http.Handler {
+	return newCommandHandler(h, peer)
+}
+
 // newCommandHandler serves POST LabCommandPath. peer returns a non-empty
 // reason to refuse the request with 403 before anything is decoded.
 func newCommandHandler(h Handler, peer func(*http.Request) string) http.Handler {
@@ -109,6 +116,9 @@ func newCommandHandler(h Handler, peer func(*http.Request) string) http.Handler 
 		// Every answer (also a refusal) names the agent build so the manager
 		// can show the version of a host's agent.
 		w.Header().Set(VersionHeader, version.Version)
+		if rt, ok := h.(interface{ RuntimeInfo() agentrt.Info }); ok {
+			rt.RuntimeInfo().SetHeaders(w.Header())
+		}
 		if reason := peer(r); reason != "" {
 			writeLab(w, http.StatusForbidden, labResponse{Error: &labError{httpCodeForbidden, reason}})
 			return
@@ -180,6 +190,10 @@ type Client struct {
 	// agent (also an error answer) with the version the agent reported
 	// ("" when it sent none). It is not called on transport errors.
 	OnResponse func(agentVersion string)
+	// OnInfo, when set, is called after every HTTP response with the
+	// runtime report in its headers. present is false when the agent sent
+	// none; err is non-nil (ErrMismatch) when the report is inconsistent.
+	OnInfo func(info agentrt.Info, present bool, err error)
 }
 
 // VersionHeader is the response header that carries the agent build version.
@@ -213,6 +227,10 @@ func (c *Client) Handle(ctx context.Context, cmd Command) (Result, error) {
 	defer resp.Body.Close()
 	if c.OnResponse != nil {
 		c.OnResponse(resp.Header.Get(VersionHeader))
+	}
+	if c.OnInfo != nil {
+		info, present, err := agentrt.InfoFromHeaders(resp.Header)
+		c.OnInfo(info, present, err)
 	}
 	var lr labResponse
 	if err := json.NewDecoder(io.LimitReader(resp.Body, maxLabRequestBody)).Decode(&lr); err != nil {

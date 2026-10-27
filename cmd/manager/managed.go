@@ -696,7 +696,11 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 		pki := &manager.AgentPKI{Store: svc.Store(), Keys: keys, ReplicaID: nodeID, ServerDNS: at.ServerDNS, ServerIPs: serverIPs,
 			RequireSourceAddr: !at.AllowAnySource}
 		rt.pki = pki
-		agentClient = &manager.AgentDirectory{Store: svc.Store(), PKI: pki, Port: at.AgentPort}
+		dir := &manager.AgentDirectory{Store: svc.Store(), PKI: pki, Port: at.AgentPort}
+		if patchCfg != nil {
+			dir.NativePort = patchCfg.port() // restic may run on the native agent (ADR 0024)
+		}
+		agentClient = dir
 		swarms.Transport = &manager.AgentTransport{PKI: pki, ManagerURL: at.ManagerURL, Port: at.AgentPort,
 			MonitorUser: at.MonitorUser, MonitorSecret: at.MonitorSecret, DBSecrets: at.DBSecrets}
 		es := &enroll.Server{Authority: pki, Registry: pki, Log: log, Installation: ""}

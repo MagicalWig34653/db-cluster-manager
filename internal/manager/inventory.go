@@ -216,6 +216,7 @@ func (inv Inventory) Operations(context.Context) ([]api.Operation, error) {
 		if v.View != nil {
 			op.Reason = v.View.Reason
 			op.Progress = operationProgress(*v.View, v.UpdatedAt)
+			op.ExecutedBy = executedBy(*v.View)
 		}
 		if v.ApprovalID != "" {
 			op.Approval = &api.OperationApproval{Digest: v.ApprovalDigest}

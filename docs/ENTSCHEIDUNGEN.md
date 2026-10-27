@@ -32,6 +32,8 @@ Automatic single-node replacement is allowed by policy/capacity. Full-cluster re
 
 **Native agent for further features (owner, 2026-10-27):** Besides patch management, other host-level features may run through the native (systemd) agent instead of the Docker container agent, where that fits better (for example restic with host paths and an SSH client, host maintenance, node diagnostics). Binding constraint: it must always be clearly visible whether a function runs through the native agent or the container agent: each agent reports its runtime kind (`native` or `container`) and capability list, the API and later the UI show it per host and per function, and operations record which runtime executed them. The Docker container agent stays the default for Swarm objects. Moving a function needs an explicit mapping, tests and docs; nothing moves silently.
 
+Implementation of the native-agent decision: [ADR 0024](decisions/0024-agent-runtimes.md) (explicit runtimes, capability table, no silent fallback; fakes only).
+
 ## Remaining product decisions
 
 - Final project name/GitHub owner, release naming and Pages setup. Public visibility and Git initialization/public push by Claude are explicitly authorized.

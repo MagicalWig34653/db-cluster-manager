@@ -18,11 +18,13 @@ package main
 // term. It runs no Docker code and needs no Docker socket.
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/agentrt"
 	"io"
 	"log/slog"
 	"net"
@@ -38,17 +40,31 @@ import (
 	"github.com/MagicalWig34653/db-cluster-manager/internal/enroll"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/fencing"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/patch"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/restic"
 )
 
 // Seams for tests: the production defaults execute real commands.
 var (
 	patchRunner patch.Runner = patch.ExecRunner{}
 	patchFS     patch.FS     = patch.OSFS{}
+	// resticRunner is nil in production (the real restic binary).
+	resticRunner restic.Runner
 )
 
 // patchStateFileName holds replay suppression and the deny list of the patch
 // mode (distinct from the main agent's stateFileName).
+// resticProbe is the repository-open bound; tests with a fake runner set it
+// negative to disable the probe.
+var resticProbe time.Duration
+
 const patchStateFileName = "patch-state.json"
+
+// resticStateFileName is the step record of the restic capability, and
+// defaultNativeSecretsDir the secret files directory of the native agent.
+const (
+	resticStateFileName     = "restic-state.json"
+	defaultNativeSecretsDir = "/etc/dbcm-patch/secrets"
+)
 
 type patchOptions struct {
 	options
@@ -69,6 +85,11 @@ func parsePatchFlags(args []string) (patchOptions, error) {
 	fs.StringVar(&o.caFingerprint, "ca-fingerprint", "", "SHA-256 fingerprint of the manager's internal CA")
 	fs.StringVar(&o.tokenFile, "enroll-token-file", "", "file with the one-time enrollment token (first start; removed after enrollment)")
 	fs.StringVar(&o.hostID, "host-id", os.Getenv(hostIDEnv), "host ID")
+	fs.StringVar(&o.secretsDir, "restic-secrets-dir", defaultNativeSecretsDir, "directory of restic password/credential secret files (regular files, mode 0600, owned by the agent user)")
+	fs.Func("restic-allow-path", "absolute host filesystem root allowed for restic backups and new-path restores; repeatable; enables the restic capability", func(p string) error {
+		o.resticAllowPaths = append(o.resticAllowPaths, p)
+		return nil
+	})
 	if err := fs.Parse(args); err != nil {
 		return o, err
 	}
@@ -138,7 +159,32 @@ func runPatch(ctx context.Context, args []string, stdout, logw io.Writer, ready 
 	if err != nil {
 		return err
 	}
-	svc := &patch.AgentService{Collector: col, Guard: guard, AllowApply: o.allowApply, State: state}
+	// The native agent reports its runtime and capabilities (ADR 0024). The
+	// restic capability is on only with at least one allowed root (ADR 0022
+	// rules: allow-list, secret files, no secrets in argv).
+	o.info = agentrt.NativeInfo(len(o.resticAllowPaths) > 0)
+	svc := &patch.AgentService{Collector: col, Guard: guard, AllowApply: o.allowApply, State: state, Info: o.info}
+	var resticHandler agent.Handler
+	if o.info.Has(agentrt.Restic) {
+		ex, err := agent.NewExecutor(agent.Config{
+			InstallationID: cmp.Or(o.installation, "native-lab"), StatePath: filepath.Join(o.stateDir, resticStateFileName), VolumeBase: o.stateDir,
+			Guard: guard, Info: o.info, ResticRunner: resticRunner, ResticProbeTimeout: resticProbe, SecretsDir: o.secretsDir, ResticAllowedPaths: o.resticAllowPaths, NodeID: o.hostID,
+		})
+		if err != nil {
+			return err
+		}
+		resticHandler = ex
+	}
+	withRestic := func(peer func(*http.Request) string) http.Handler {
+		h := svc.Handler(peer)
+		if resticHandler == nil {
+			return h
+		}
+		mux := http.NewServeMux()
+		mux.Handle(patch.CommandPath, h)
+		mux.Handle(agent.LabCommandPath, agent.NewCommandHandler(resticHandler, peer))
+		return mux
+	}
 
 	var (
 		srv   *http.Server
@@ -149,7 +195,7 @@ func runPatch(ctx context.Context, args []string, stdout, logw io.Writer, ready 
 		if l, err = agent.ListenLoopback(o.listen); err != nil {
 			return err
 		}
-		srv = &http.Server{Handler: svc.Handler(func(r *http.Request) string {
+		srv = &http.Server{Handler: withRestic(func(r *http.Request) string {
 			if ip, _, err := net.SplitHostPort(r.RemoteAddr); err != nil || net.ParseIP(ip) == nil || !net.ParseIP(ip).IsLoopback() {
 				return "peer is not loopback"
 			}
@@ -173,7 +219,7 @@ func runPatch(ctx context.Context, args []string, stdout, logw io.Writer, ready 
 		if err != nil {
 			return err
 		}
-		srv = &http.Server{Handler: svc.Handler(func(r *http.Request) string {
+		srv = &http.Server{Handler: withRestic(func(r *http.Request) string {
 			if r.TLS == nil || len(r.TLS.VerifiedChains) == 0 {
 				return "no verified client certificate"
 			}
@@ -184,7 +230,7 @@ func runPatch(ctx context.Context, args []string, stdout, logw io.Writer, ready 
 		}
 		serve = func() error { return srv.ServeTLS(l, "", "") }
 		renewer := &enroll.Renewer{
-			Config: enroll.RenewConfig{ManagerURL: o.managerURL, Installation: o.installation, HostID: o.hostID},
+			Config: enroll.RenewConfig{ManagerURL: o.managerURL, Installation: o.installation, HostID: o.hostID, Info: o.info},
 			Holder: holder, Store: enroll.FileStore{Dir: filepath.Join(o.stateDir, tlsDirName)},
 			Policy: certs.Policy{Fraction: 0.3, Floor: 24 * time.Hour}, Log: log,
 		}

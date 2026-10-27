@@ -40,6 +40,13 @@ describe('host maintenance', () => {
 		expect(isHost({ ...h, agentVersion: 3 })).toBe(false);
 		expect(isHost({ ...h, agentSeenAt: 'yesterday' })).toBe(false);
 	});
+	it('accepts the agent runtime reports of a host and rejects bad ones', () => {
+		const h = { swarm: 's', nodeId: 'n', enrollment: 'enrolled' };
+		expect(isHost({ ...h, agents: [{ runtime: 'container', capabilities: ['docker-objects'] }, { runtime: 'native', capabilities: ['patch', 'restic'] }] })).toBe(true);
+		expect(isHost({ ...h, agents: [{ runtime: 'vm', capabilities: [] }] })).toBe(false);
+		expect(isHost({ ...h, agents: [{ runtime: 'native' }] })).toBe(false);
+		expect(isHost({ ...h, agentReportError: 5 })).toBe(false);
+	});
 	const preview = (o: Partial<MaintenancePreview> = {}): MaintenancePreview => ({
 		host: 'n1',
 		end: false,

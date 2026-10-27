@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/agentrt"
 	"time"
 
 	"github.com/MagicalWig34653/db-cluster-manager/internal/api"
@@ -123,6 +124,13 @@ type HostRecord struct {
 	// Written best-effort by AgentDirectory, at most about once a minute.
 	AgentVersion string    `json:"agentVersion,omitempty"`
 	AgentSeenAt  time.Time `json:"agentSeenAt,omitzero"`
+	// AgentReports are the validated runtime reports of the host's agents
+	// (ADR 0024), keyed by runtime ("container", "native"). Written from
+	// enrollment and from the headers of every agent answer.
+	AgentReports map[agentrt.Runtime]agentrt.Info `json:"agentReports,omitempty"`
+	// AgentReportError is set when an agent sent an inconsistent report;
+	// the host is then refused for routing until it reports correctly.
+	AgentReportError string `json:"agentReportError,omitempty"`
 	// AgentServiceID is the agent global service that serves this host.
 	AgentServiceID string `json:"agentServiceId,omitempty"`
 	// DenyListDigest is the deny list the host's agent last confirmed

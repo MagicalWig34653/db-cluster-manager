@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/agentrt"
 	"io"
 	"log/slog"
 	"math/big"
@@ -34,11 +35,40 @@ type EnrollRequest struct {
 	Token  string `json:"token"`
 	HostID string `json:"host_id"`
 	CSR    string `json:"csr"` // PEM
+	// Runtime and Capabilities are the agent's runtime report (ADR 0024).
+	// Omitted by agents built before it.
+	Runtime      agentrt.Runtime      `json:"runtime,omitempty"`
+	Capabilities []agentrt.Capability `json:"capabilities,omitempty"`
 }
 
 // RenewRequest is the body of PathRenew (sent with the current certificate).
 type RenewRequest struct {
-	CSR string `json:"csr"`
+	CSR          string               `json:"csr"`
+	Runtime      agentrt.Runtime      `json:"runtime,omitempty"`
+	Capabilities []agentrt.Capability `json:"capabilities,omitempty"`
+}
+
+// ReportRegistry is an optional Registry extension that stores the validated
+// runtime report of an agent.
+type ReportRegistry interface {
+	RecordReport(ctx context.Context, hostID string, info agentrt.Info) error
+}
+
+// reportOf validates a request's report. present is false when none was sent.
+func reportOf(rt agentrt.Runtime, caps []agentrt.Capability) (info agentrt.Info, present bool, err error) {
+	if rt == "" && len(caps) == 0 {
+		return agentrt.Info{}, false, nil
+	}
+	info = agentrt.Info{Runtime: rt, Capabilities: caps}
+	return info, true, info.Validate()
+}
+
+func (s *Server) recordReport(ctx context.Context, host string, info agentrt.Info, present bool) {
+	if rr, ok := s.Registry.(ReportRegistry); ok && present {
+		if err := rr.RecordReport(ctx, host, info); err != nil {
+			s.log().Warn("enroll: runtime report not recorded", "host", host, "err", err)
+		}
+	}
 }
 
 // Response is the answer to both requests.
@@ -181,6 +211,13 @@ func (s *Server) enroll(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "bad-csr", err.Error())
 		return
 	}
+	info, present, err := reportOf(req.Runtime, req.Capabilities)
+	if err != nil {
+		// A mismatched report is refused before the token is consumed.
+		s.log().Warn("enroll: runtime report refused", "host", req.HostID, "err", err)
+		fail(w, http.StatusBadRequest, "runtime-mismatch", err.Error())
+		return
+	}
 	// Parse before consuming: a malformed request does not burn the token.
 	if err := s.Registry.ConsumeToken(r.Context(), req.Token, req.HostID, peerIP(r)); err != nil {
 		s.log().Warn("enroll: enrollment refused", "host", req.HostID, "peer", r.RemoteAddr, "err", err)
@@ -195,10 +232,10 @@ func (s *Server) enroll(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	s.issue(w, r, req.HostID, csr, "enrolled")
+	s.issue(w, r, req.HostID, csr, "enrolled", info, present)
 }
 
-func (s *Server) issue(w http.ResponseWriter, r *http.Request, host string, csr *x509.CertificateRequest, what string) {
+func (s *Server) issue(w http.ResponseWriter, r *http.Request, host string, csr *x509.CertificateRequest, what string, info agentrt.Info, present bool) {
 	signed, err := s.Authority.SignAgent(r.Context(), host, csr)
 	if err != nil {
 		s.log().Error("enroll: signing failed", "host", host, "err", err)
@@ -214,6 +251,7 @@ func (s *Server) issue(w http.ResponseWriter, r *http.Request, host string, csr 
 		fail(w, status, "record-failed", "agent identity could not be recorded")
 		return
 	}
+	s.recordReport(r.Context(), host, info, present)
 	s.log().Info("enroll: agent "+what, "host", host, "serial", signed.Cert.SerialNumber.Text(16),
 		"not_after", signed.Cert.NotAfter.Format(time.RFC3339))
 	writeJSON(w, http.StatusOK, Response{Certificate: string(signed.ChainPEM), CA: string(s.Authority.CABundlePEM())})
@@ -273,5 +311,10 @@ func (s *Server) renew(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "bad-csr", err.Error())
 		return
 	}
-	s.issue(w, r, host, csr, "renewed")
+	info, present, err := reportOf(req.Runtime, req.Capabilities)
+	if err != nil {
+		fail(w, http.StatusBadRequest, "runtime-mismatch", err.Error())
+		return
+	}
+	s.issue(w, r, host, csr, "renewed", info, present)
 }

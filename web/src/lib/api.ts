@@ -416,8 +416,21 @@ export interface Host {
 	agentVersion?: string;
 	/** When the manager last received an answer from the agent (best effort). */
 	agentSeenAt?: string;
+	/** Runtime reports of the host's agents (ADR 0024): container (Docker agent) and/or native (systemd agent). */
+	agents?: HostAgentRuntime[];
+	/** Set when an agent sent an inconsistent runtime report. */
+	agentReportError?: string;
 	/** Set while the host is in guided maintenance. */
 	maintenance?: HostMaintenance;
+}
+
+export const agentRuntimes = ['native', 'container'] as const;
+export type AgentRuntime = (typeof agentRuntimes)[number];
+
+/** Mirrors api.HostAgentRuntime. */
+export interface HostAgentRuntime {
+	runtime: AgentRuntime;
+	capabilities: string[];
 }
 
 /** Mirrors Host.maintenance: replacement on the host is paused while it is set. */
@@ -690,6 +703,10 @@ export const isHost: Guard<Host> = (v): v is Host =>
 	(v.agentIdentity === undefined || isBool(v.agentIdentity)) &&
 	optStr(v.agentVersion) &&
 	optDate(v.agentSeenAt) &&
+	(v.agents === undefined ||
+		(Array.isArray(v.agents) &&
+			v.agents.every((a) => isObj(a) && oneOf(agentRuntimes)(a.runtime) && strArray(a.capabilities)))) &&
+	optStr(v.agentReportError) &&
 	(v.maintenance === undefined ||
 		(isObj(v.maintenance) &&
 			isStr(v.maintenance.since) &&

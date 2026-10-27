@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/agentrt"
 	"regexp"
 	"sort"
 	"strings"
@@ -50,6 +51,9 @@ type Host struct {
 	// DenyDigest is the digest of the last certificate deny list the host's
 	// patch agent confirmed (see DistributeDenyList).
 	DenyDigest string `json:"denyDigest,omitempty"`
+	// AgentRuntime is the runtime that answered the latest poll (ADR 0024),
+	// set by the manager from the verified response.
+	AgentRuntime agentrt.Runtime `json:"agentRuntime,omitempty"`
 }
 
 // Group is a host group with an optional policy.
@@ -97,6 +101,9 @@ type Plan struct {
 	Remaining []string `json:"remaining,omitempty"`
 	// RebootStatus: "", "requested", or "skipped: <reason>".
 	RebootStatus string `json:"rebootStatus,omitempty"`
+	// ExecutedBy is the agent runtime that applied the plan (always
+	// "native"; recorded from the verified answer, ADR 0024).
+	ExecutedBy agentrt.Runtime `json:"executedBy,omitempty"`
 }
 
 func (p Plan) computeDigest() string {
@@ -343,7 +350,7 @@ func (s *Service) UpsertHost(h Host) (Host, error) {
 	if _, ok, err := s.get(CollHosts, h.ID, &old); err != nil {
 		return Host{}, err
 	} else if ok {
-		h.LastPollAt, h.LastPollError, h.DenyDigest = old.LastPollAt, old.LastPollError, old.DenyDigest
+		h.LastPollAt, h.LastPollError, h.DenyDigest, h.AgentRuntime = old.LastPollAt, old.LastPollError, old.DenyDigest, old.AgentRuntime
 	}
 	return h, s.put(CollHosts, h.ID, h, nil)
 }
@@ -646,6 +653,7 @@ func (s *Service) Poll(ctx context.Context, hostID string, refresh bool) (HostRe
 		return HostReport{}, err
 	}
 	h.LastPollError = ""
+	h.AgentRuntime = res.Runtime
 	if err := s.put(CollHosts, h.ID, h, nil); err != nil {
 		return HostReport{}, err
 	}
@@ -854,9 +862,11 @@ func (s *Service) Apply(ctx context.Context, planID string) (Plan, error) {
 	if err := s.Journal.StartStep(p.OpID, "apply", term); err != nil {
 		return s.fail(ctx, p, "", err)
 	}
-	if _, err := s.Agents.Do(ctx, p.HostID, AgentCommand{Kind: CmdApply, Term: term, StepID: p.OpID + "/apply", Packages: p.Packages, SecurityOnly: p.SecurityOnly}); err != nil {
+	applied, err := s.Agents.Do(ctx, p.HostID, AgentCommand{Kind: CmdApply, Term: term, StepID: p.OpID + "/apply", Packages: p.Packages, SecurityOnly: p.SecurityOnly})
+	if err != nil {
 		return s.fail(ctx, p, "apply", err)
 	}
+	p.ExecutedBy = applied.Runtime
 	_ = s.Journal.FinishStep(p.OpID, "apply", opjournal.Succeeded, term)
 	if err := s.Journal.StartStep(p.OpID, "verify", term); err != nil {
 		return s.fail(ctx, p, "", err)

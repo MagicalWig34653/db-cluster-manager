@@ -130,6 +130,7 @@ const (
 	errBusy                   = "busy"
 	errApprovalMismatch       = "approval_mismatch"
 	errNotLeader              = "not_leader"
+	errRuntimeUnavailable     = "agent_runtime_unavailable"
 )
 
 // ErrorBody is the JSON body of every error response.

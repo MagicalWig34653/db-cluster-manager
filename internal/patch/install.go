@@ -54,6 +54,10 @@ const (
 	AgentConfigDir  = "/etc/dbcm-patch"
 	AgentUnitPath   = "/etc/systemd/system/dbcm-patch-agent.service"
 	AgentUnitName   = "dbcm-patch-agent.service"
+	// AgentSecretsDir holds the restic password and backend credential files
+	// of the native agent's restic capability (ADR 0022 secret-file rules:
+	// regular files, mode 0600, never in argv or the plan).
+	AgentSecretsDir = AgentConfigDir + "/secrets"
 	agentUser       = "dbcm-patch"
 	// DefaultListen is the agent's mTLS port in patch mode.
 	DefaultListen = "0.0.0.0:7445"
@@ -71,6 +75,30 @@ type InstallRequest struct {
 	CAFingerprint string         `json:"caFingerprint"`
 	Installation  string         `json:"installation"`
 	Listen        string         `json:"listen,omitempty"`
+	// ResticPaths enables the native agent's restic capability (ADR 0024):
+	// the absolute host roots the agent may back up or restore into. Empty
+	// installs the patch capability only. The host needs the restic binary
+	// on its PATH; it is not installed by this plan.
+	ResticPaths []string `json:"resticPaths,omitempty"`
+}
+
+var resticPathRe = regexp.MustCompile(`^/[A-Za-z0-9._+/-]*[A-Za-z0-9._+-]$`)
+
+func (r InstallRequest) validateRestic() error {
+	if len(r.ResticPaths) > 16 {
+		return fmt.Errorf("%w: too many restic paths", ErrInstallInvalid)
+	}
+	for _, p := range r.ResticPaths {
+		if !resticPathRe.MatchString(p) || strings.Contains(p, "//") || strings.Contains(p, "/../") || strings.HasSuffix(p, "/..") || strings.Contains(p, "/./") {
+			return fmt.Errorf("%w: restic path %q", ErrInstallInvalid, p)
+		}
+		for _, blocked := range []string{AgentConfigDir, AgentStateDir, "/run/secrets", "/var/run/docker.sock", "/run/docker.sock", "/proc", "/sys", "/dev"} {
+			if p == blocked || strings.HasPrefix(p, blocked+"/") || strings.HasPrefix(blocked, p+"/") {
+				return fmt.Errorf("%w: restic path %q overlaps a protected path", ErrInstallInvalid, p)
+			}
+		}
+	}
+	return nil
 }
 
 var safeVersion = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.+_-]{0,63}$`)
@@ -99,7 +127,7 @@ func (r InstallRequest) Validate() error {
 	if r.Listen != "" && !listenRe.MatchString(r.Listen) {
 		return fmt.Errorf("%w: listen", ErrInstallInvalid)
 	}
-	return nil
+	return r.validateRestic()
 }
 
 func (r InstallRequest) listen() string {
@@ -118,6 +146,10 @@ type InstallCheck struct {
 	Manager       Manager `json:"manager"`
 	AgentPresent  bool    `json:"agentPresent"`
 	DiskFreeBytes uint64  `json:"diskFreeBytes"`
+	// Restic and SSHClient say whether the restic binary and an ssh client
+	// (for SFTP repositories) are on the host's PATH.
+	Restic    bool `json:"restic"`
+	SSHClient bool `json:"sshClient"`
 }
 
 // InstallPlan is the reviewed document. Digest covers all of it.
@@ -139,6 +171,8 @@ m=none
 for c in apt-get dnf yum zypper apk pacman; do if command -v "$c" >/dev/null 2>&1; then m=$c; break; fi; done
 printf 'manager=%s\n' "$m"
 if [ -e ` + AgentBinaryPath + ` ] || [ -e ` + AgentUnitPath + ` ]; then echo agent=present; else echo agent=absent; fi
+if command -v restic >/dev/null 2>&1; then echo restic=yes; else echo restic=no; fi
+if command -v ssh >/dev/null 2>&1; then echo ssh=yes; else echo ssh=no; fi
 printf 'disk=%s\n' "$(df -PB1 /usr/local 2>/dev/null | awk 'NR==2 {print $4}')"`
 
 // InstallPreflight runs the fixed read-only preflight.
@@ -164,7 +198,7 @@ func InstallPreflight(ctx context.Context, r provision.CommandRunner, h provisio
 		m = APT
 	}
 	chk := InstallCheck{OS: v["os"], Arch: v["arch"], Systemd: v["systemd"] == "yes", Privilege: v["priv"], Manager: m,
-		AgentPresent: v["agent"] == "present", DiskFreeBytes: disk}
+		AgentPresent: v["agent"] == "present", DiskFreeBytes: disk, Restic: v["restic"] == "yes", SSHClient: v["ssh"] == "yes"}
 	if _, err := NewAdapter(m); err != nil || chk.OS == "" {
 		return chk, ErrInstallPreflight
 	}
@@ -186,6 +220,16 @@ func q(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" 
 func UnitFile(r InstallRequest) string {
 	args := fmt.Sprintf("%s patch -listen %s -state %s -installation %s -host-id %s -manager-url %s -ca-fingerprint %s -enroll-token-file %s/enroll-token",
 		AgentBinaryPath, r.listen(), AgentStateDir, r.Installation, r.Host.ID, r.ManagerURL, r.CAFingerprint, AgentConfigDir)
+	for _, p := range r.ResticPaths {
+		args += " -restic-allow-path " + p
+	}
+	if len(r.ResticPaths) > 0 {
+		args += " -restic-secrets-dir " + AgentSecretsDir
+	}
+	home := "true"
+	if len(r.ResticPaths) > 0 {
+		home = "read-only" // allow-listed roots may lie below /home
+	}
 	var b strings.Builder
 	b.WriteString("[Unit]\nDescription=Cluster manager patch agent (" + string(r.Mode) + " mode)\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\n")
 	if r.Mode == InstallApply {
@@ -195,7 +239,7 @@ func UnitFile(r InstallRequest) string {
 	} else {
 		b.WriteString("ExecStart=" + args + "\n")
 		b.WriteString("User=" + agentUser + "\nGroup=" + agentUser + "\nEnvironment=HOME=" + AgentStateDir + "\n")
-		b.WriteString("NoNewPrivileges=true\nProtectSystem=strict\nProtectHome=true\nPrivateTmp=true\nPrivateDevices=true\nProtectKernelTunables=true\nProtectKernelModules=true\nProtectControlGroups=true\nProtectClock=true\nRestrictRealtime=true\nRestrictSUIDSGID=true\nLockPersonality=true\nMemoryDenyWriteExecute=true\nRestrictNamespaces=true\nCapabilityBoundingSet=\nAmbientCapabilities=\nSystemCallArchitectures=native\nReadWritePaths=" + AgentStateDir + "\n")
+		b.WriteString("NoNewPrivileges=true\nProtectSystem=strict\nProtectHome=" + home + "\nPrivateTmp=true\nPrivateDevices=true\nProtectKernelTunables=true\nProtectKernelModules=true\nProtectControlGroups=true\nProtectClock=true\nRestrictRealtime=true\nRestrictSUIDSGID=true\nLockPersonality=true\nMemoryDenyWriteExecute=true\nRestrictNamespaces=true\nCapabilityBoundingSet=\nAmbientCapabilities=\nSystemCallArchitectures=native\nReadWritePaths=" + strings.Join(append([]string{AgentStateDir}, r.ResticPaths...), " ") + "\n")
 	}
 	b.WriteString("StateDirectory=dbcm-patch\nStateDirectoryMode=0700\nRestart=on-failure\nRestartSec=10\n\n[Install]\nWantedBy=multi-user.target\n")
 	return b.String()
@@ -214,9 +258,16 @@ func InstallScript(r InstallRequest, unit string) string {
 	b.WriteString("[ \"$(sha256sum \"$tmp/agent\" | cut -d' ' -f1)\" = " + q(r.BinarySHA256) + " ] || { echo 'binary checksum mismatch' >&2; exit 1; }\n")
 	b.WriteString("install -m 0755 -o root -g root \"$tmp/agent\" " + AgentBinaryPath + "\n")
 	b.WriteString("install -d -m 0755 " + AgentConfigDir + "\ninstall -d -m 0700 " + AgentStateDir + "\n")
+	if len(r.ResticPaths) > 0 {
+		b.WriteString("command -v restic >/dev/null 2>&1 || { echo 'restic is not installed on this host' >&2; exit 1; }\n")
+		b.WriteString("install -d -m 0700 " + AgentSecretsDir + "\n")
+	}
 	if r.Mode == InstallReport {
 		b.WriteString("id " + agentUser + " >/dev/null 2>&1 || useradd --system --no-create-home --home-dir " + AgentStateDir + " --shell /usr/sbin/nologin " + agentUser + " 2>/dev/null || adduser -S -D -H -h " + AgentStateDir + " -s /sbin/nologin " + agentUser + "\n")
 		b.WriteString("chown " + agentUser + " " + AgentStateDir + "\n")
+		if len(r.ResticPaths) > 0 {
+			b.WriteString("chown " + agentUser + " " + AgentSecretsDir + "\n")
+		}
 	}
 	b.WriteString("printf '%s\\n' \"$TOKEN\" > " + AgentConfigDir + "/enroll-token\n")
 	if r.Mode == InstallReport {
@@ -236,6 +287,9 @@ func BuildInstallPlan(r InstallRequest, chk InstallCheck) (InstallPlan, error) {
 	}
 	if !chk.Systemd || chk.AgentPresent || (chk.Privilege != "root" && chk.Privilege != "sudo") {
 		return InstallPlan{}, ErrInstallPreflight
+	}
+	if len(r.ResticPaths) > 0 && !chk.Restic {
+		return InstallPlan{}, fmt.Errorf("%w: the restic capability needs the restic binary on the host", ErrInstallPreflight)
 	}
 	unit := UnitFile(r)
 	p := InstallPlan{Request: r, Check: chk, Unit: unit, Script: InstallScript(r, unit)}

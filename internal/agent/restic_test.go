@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MagicalWig34653/db-cluster-manager/internal/agentrt"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/restic"
 )
 
@@ -37,6 +38,7 @@ func TestResticAgentAllowlistSecretsAndRestore(t *testing.T) {
 	}
 	f.exec.cfg.SecretsDir = secrets
 	f.exec.cfg.ResticAllowedPaths = []string{root}
+	f.exec.cfg.Info = agentrt.ContainerInfo(true)
 	f.exec.cfg.ResticRunner = runner
 	f.exec.cfg.ResticProbeTimeout = -1 // fake runner: no repository to probe
 	a := ResticArgs{Backend: restic.BackendLocal, Repository: filepath.Join(f.dir, "repo"), PasswordSecret: "restic-password", Paths: []string{root}, Excludes: []string{filepath.Join(root, "not-created-yet")}}

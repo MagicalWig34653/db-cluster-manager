@@ -955,6 +955,15 @@ func Redact(s string) string {
 
 func (r *Runner) recordResult(st *opState, stepID string, res agent.Result, err error) {
 	detail := describe(res, err)
+	if res.Runtime != "" {
+		target := ""
+		for _, sp := range st.def.Steps {
+			if sp.ID == stepID {
+				target = sp.Target
+			}
+		}
+		detail += " [executed by runtime=" + string(res.Runtime) + " host=" + target + "]"
+	}
 	if err == nil && res.Replayed {
 		detail += " [replayed]"
 	}
@@ -1095,6 +1104,7 @@ func (r *Runner) view(st *opState) View {
 		if lr := st.lastResult[s.ID]; lr != nil {
 			c := *lr
 			sv.LastResult = &c
+			sv.Runtime = lr.Runtime
 		}
 		v.Steps = append(v.Steps, sv)
 	}

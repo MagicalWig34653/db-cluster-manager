@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/agentrt"
 	"io"
 	"math/big"
 	"net/http"
@@ -59,6 +60,10 @@ type AgentResult struct {
 	Simulation *Simulation `json:"simulation,omitempty"`
 	// Output is a bounded tail of the package manager's output.
 	Output string `json:"output,omitempty"`
+	// Runtime is the runtime of the agent that answered (ADR 0024). The
+	// manager sets it from the verified response; it is not trusted from the
+	// body.
+	Runtime agentrt.Runtime `json:"runtime,omitempty"`
 }
 
 // HostAgent is the manager's view of the patch agent of one host.
@@ -75,6 +80,10 @@ type AgentService struct {
 	// and simulates only.
 	AllowApply bool
 	Now        func() time.Time
+
+	// Info is the runtime report sent with every answer (ADR 0024). Zero
+	// means a native agent with the patch capability only.
+	Info agentrt.Info
 
 	// State is the durable replay suppression and deny list (OpenAgentState).
 	// Nil keeps them in memory only.
@@ -230,7 +239,12 @@ func (s *AgentService) mutate(ctx context.Context, c AgentCommand) (AgentResult,
 // example when the TLS layer did not verify a client certificate).
 func (s *AgentService) Handler(peer func(*http.Request) string) http.Handler {
 	mux := http.NewServeMux()
+	info := s.Info
+	if info.Runtime == "" {
+		info = agentrt.NativeInfo(false)
+	}
 	mux.HandleFunc(CommandPath, func(w http.ResponseWriter, r *http.Request) {
+		info.SetHeaders(w.Header())
 		if peer != nil {
 			if why := peer(r); why != "" {
 				http.Error(w, why, http.StatusForbidden)
@@ -281,6 +295,8 @@ func (s *AgentService) Handler(peer func(*http.Request) string) http.Handler {
 type HTTPHostAgent struct {
 	Client *http.Client
 	URL    func(hostID string) (string, bool)
+	// OnInfo, when set, receives the runtime report of every answer.
+	OnInfo func(hostID string, info agentrt.Info, present bool, err error)
 }
 
 // Do implements HostAgent.
@@ -300,6 +316,16 @@ func (h HTTPHostAgent) Do(ctx context.Context, hostID string, c AgentCommand) (A
 		return AgentResult{}, err
 	}
 	defer resp.Body.Close()
+	info, present, ierr := agentrt.InfoFromHeaders(resp.Header)
+	if h.OnInfo != nil {
+		h.OnInfo(hostID, info, present, ierr)
+	}
+	if ierr != nil {
+		return AgentResult{}, ierr
+	}
+	if present && info.Runtime != agentrt.Native {
+		return AgentResult{}, fmt.Errorf("%w: the patch endpoint answered as a %s agent", agentrt.ErrMismatch, info.Runtime)
+	}
 	var out struct {
 		AgentResult
 		Error string `json:"error"`
@@ -309,6 +335,7 @@ func (h HTTPHostAgent) Do(ctx context.Context, hostID string, c AgentCommand) (A
 	}
 	switch {
 	case resp.StatusCode == http.StatusOK:
+		out.AgentResult.Runtime = agentrt.Native
 		return out.AgentResult, nil
 	case resp.StatusCode == http.StatusForbidden:
 		return out.AgentResult, fmt.Errorf("%w: %s", ErrReadOnly, out.Error)

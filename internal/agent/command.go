@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/MagicalWig34653/db-cluster-manager/internal/agentrt"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/galera"
 )
 
@@ -89,6 +90,20 @@ const (
 	KindResticRestore   Kind = "restic-restore"
 	KindResticStats     Kind = "restic-stats"
 )
+
+// AllKinds lists every command kind the executor decodes. A test keeps it
+// equal to the routing table of internal/agentrt (ADR 0024).
+func AllKinds() []Kind {
+	return []Kind{
+		KindCreateService, KindRemoveService, KindStartDB, KindStopDB, KindRemoveVolume, KindInitIdentity,
+		KindVerifyIdentity, KindInspect, KindListOwned, KindCreateVolume, KindUpdateService, KindAllowObjects,
+		KindCollectHealth, KindReadGrastate, KindInitVolumeDirs, KindExecSQL, KindAwaitService,
+		KindResticBackup, KindResticSnapshots, KindResticForget, KindResticCheck, KindResticRestore, KindResticStats,
+		KindCreateConfig, KindRemoveConfig, KindWsrepRecover, KindSetDenyList, KindRunBackup, KindRunRestore,
+		KindRemoveJob, KindAwaitStopped, KindStartService, KindMarkSafeToBootstrap, KindRemoveClusterService,
+		KindRemoveSecret, KindCheckRestoreTarget,
+	}
+}
 
 // AwaitServiceArgs are the arguments of KindAwaitService.
 type AwaitServiceArgs struct {
@@ -307,6 +322,9 @@ type Result struct {
 	Message  string          `json:"message,omitempty"`
 	Output   json.RawMessage `json:"output,omitempty"`
 	Replayed bool            `json:"replayed,omitempty"` // true when returned from the record
+	// Runtime is the runtime of the agent that executed (or recorded) the
+	// step, "native" or "container" (ADR 0024).
+	Runtime agentrt.Runtime `json:"runtime,omitempty"`
 }
 
 // Errors returned by Handle when a command is not executed and not recorded.

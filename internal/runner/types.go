@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/agentrt"
 	"strings"
 	"time"
 
@@ -268,6 +269,9 @@ type StepView struct {
 	Attempts    int             `json:"attempts"`
 	AgentStepID string          `json:"agent_step_id,omitempty"`
 	LastResult  *agent.Result   `json:"last_result,omitempty"`
+	// Runtime is the agent runtime that executed the latest attempt
+	// ("native" or "container", ADR 0024); empty before any answer.
+	Runtime agentrt.Runtime `json:"runtime,omitempty"`
 }
 
 // View is a snapshot of an operation for the UI and the audit log.

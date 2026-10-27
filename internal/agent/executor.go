@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/MagicalWig34653/db-cluster-manager/internal/agentrt"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/fencing"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/restic"
 )
@@ -57,6 +58,11 @@ type Config struct {
 	// ResticProbeTimeout bounds the repository-open probe before each restic
 	// command (default restic.DefaultProbeTimeout; negative disables it).
 	ResticProbeTimeout time.Duration
+	// Info is the agent's runtime report (ADR 0024). Zero means the Docker
+	// container agent, which offers restic only with ResticAllowedPaths.
+	// A native agent (agentrt.Native) needs no Docker API; the executor
+	// refuses every command whose capability Info does not list.
+	Info agentrt.Info
 }
 
 // StatusQuerier runs SHOW GLOBAL STATUS LIKE 'wsrep_%' against a local
@@ -84,6 +90,9 @@ type Executor struct {
 
 var _ Handler = (*Executor)(nil)
 
+// RuntimeInfo is the agent's runtime report (served as response headers).
+func (e *Executor) RuntimeInfo() agentrt.Info { return e.cfg.Info }
+
 // NewExecutor loads the state file and returns an Executor.
 func NewExecutor(cfg Config) (*Executor, error) {
 	switch {
@@ -93,10 +102,22 @@ func NewExecutor(cfg Config) (*Executor, error) {
 		return nil, errors.New("agent: StatePath required")
 	case cfg.Guard == nil:
 		return nil, errors.New("agent: fencing Guard required")
-	case cfg.Docker == nil:
+	case cfg.Docker == nil && cfg.Info.Runtime != agentrt.Native:
 		return nil, errors.New("agent: DockerAPI required")
 	case !filepath.IsAbs(cfg.VolumeBase) || filepath.Clean(cfg.VolumeBase) != cfg.VolumeBase:
 		return nil, fmt.Errorf("agent: VolumeBase %q must be a clean absolute path", cfg.VolumeBase)
+	}
+	if cfg.Info.Runtime == "" {
+		cfg.Info = agentrt.ContainerInfo(len(cfg.ResticAllowedPaths) > 0)
+	}
+	if err := cfg.Info.Validate(); err != nil {
+		return nil, err
+	}
+	if cfg.Info.Has(agentrt.Restic) && len(cfg.ResticAllowedPaths) == 0 {
+		return nil, errors.New("agent: the restic capability needs at least one allowed path")
+	}
+	if cfg.Docker == nil {
+		cfg.Docker = noDocker{}
 	}
 	if cfg.SecretsDir == "" {
 		cfg.SecretsDir = SecretsDir
@@ -136,9 +157,18 @@ func NewExecutor(cfg Config) (*Executor, error) {
 // before execution, or a failure to write the intent record (ErrPersist).
 // Every executed step returns a Result whose Status tells the outcome.
 func (e *Executor) Handle(ctx context.Context, cmd Command) (Result, error) {
+	// The agent enforces its own report: a step type it does not offer is
+	// refused without effect, whatever the manager's routing decided.
+	req, mapped := agentrt.RequirementFor(string(cmd.Kind))
+	if mapped && !e.cfg.Info.Has(req.Capability) {
+		return Result{}, invalid("command %q needs capability %q, which this %s agent does not offer", cmd.Kind, req.Capability, e.cfg.Info.Runtime)
+	}
 	d, err := decodeCommand(cmd, e.cfg.VolumeBase)
 	if err != nil {
 		return Result{}, err
+	}
+	if !mapped {
+		return Result{}, invalid("command %q has no runtime mapping", cmd.Kind)
 	}
 	if ReadOnly(cmd.Kind) {
 		return e.handleRead(ctx, d)
@@ -157,10 +187,11 @@ func (e *Executor) Handle(ctx context.Context, cmd Command) (Result, error) {
 		if rec.Result == nil {
 			return Result{OpID: cmd.OpID, StepID: cmd.StepID, Kind: cmd.Kind, Status: StatusUnknown,
 				Code: CodeInDoubt, Message: "step started earlier but its outcome was not recorded; reconcile and use a new step ID",
-				Replayed: true}, nil
+				Replayed: true, Runtime: e.cfg.Info.Runtime}, nil
 		}
 		r := *rec.Result
 		r.Replayed = true
+		r.Runtime = e.cfg.Info.Runtime
 		return r, nil
 	}
 	if err := ctx.Err(); err != nil {
@@ -178,6 +209,7 @@ func (e *Executor) Handle(ctx context.Context, cmd Command) (Result, error) {
 
 	res := e.execute(ctx, d)
 	res.OpID, res.StepID, res.Kind = cmd.OpID, cmd.StepID, cmd.Kind
+	res.Runtime = e.cfg.Info.Runtime
 	rec.Result = &res
 	if err := e.state.save(e.cfg.StatePath); err != nil {
 		rec.Result = nil
@@ -209,6 +241,7 @@ func (e *Executor) handleRead(ctx context.Context, d decoded) (Result, error) {
 		res = Result{Status: StatusFailed, Code: CodeIO, Message: "internal: unhandled read-only args type"}
 	}
 	res.OpID, res.StepID, res.Kind = d.cmd.OpID, d.cmd.StepID, d.cmd.Kind
+	res.Runtime = e.cfg.Info.Runtime
 	return res, nil
 }
 

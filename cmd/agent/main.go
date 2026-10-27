@@ -37,6 +37,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/agentrt"
 	"io"
 	"log/slog"
 	"net"
@@ -84,6 +85,9 @@ type options struct {
 	monitorPWFile    string
 	secretsDir       string
 	resticAllowPaths []string
+
+	// info is the runtime report sent at enrollment and renewal (ADR 0024).
+	info agentrt.Info
 }
 
 func main() {
@@ -263,6 +267,7 @@ func run(ctx context.Context, o options, logw io.Writer, ready func(addr string)
 	if err != nil {
 		return err
 	}
+	o.info = ex.RuntimeInfo()
 
 	var (
 		srv   *http.Server
@@ -296,7 +301,7 @@ func run(ctx context.Context, o options, logw io.Writer, ready func(addr string)
 		}
 		serve = func() error { return srv.ServeTLS(l, "", "") }
 		renewer := &enroll.Renewer{
-			Config: enroll.RenewConfig{ManagerURL: o.managerURL, Installation: o.installation, HostID: o.hostID},
+			Config: enroll.RenewConfig{ManagerURL: o.managerURL, Installation: o.installation, HostID: o.hostID, Info: o.info},
 			Holder: holder, Store: enroll.FileStore{Dir: filepath.Join(o.stateDir, tlsDirName)},
 			Policy: certs.Policy{Fraction: 0.3, Floor: 24 * time.Hour}, Log: log,
 		}
@@ -348,7 +353,7 @@ func credentials(ctx context.Context, o options, log *slog.Logger) (*enroll.Hold
 		return nil, fmt.Errorf("enrollment token: %w", err)
 	}
 	cfg := enroll.AgentConfig{ManagerURL: o.managerURL, Installation: o.installation, HostID: o.hostID,
-		CAFingerprint: o.caFingerprint, Token: strings.TrimSpace(string(tok))}
+		CAFingerprint: o.caFingerprint, Token: strings.TrimSpace(string(tok)), Info: o.info}
 	wait := time.Second
 	for {
 		cr, err = enroll.Enroll(ctx, cfg)

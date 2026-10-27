@@ -2,6 +2,23 @@
 
 Updated: 2026-10-27.
 
+## Agent runtimes and capability routing (2026-10-27, ADR 0024, fakes and loopback only; no VM used)
+
+[ADR 0024](decisions/0024-agent-runtimes.md), guide [24](guides/en/24-agent-runtimes.md) (EN/DE), implements the owner decision "Native agent for further features".
+
+Implemented:
+
+- `internal/agentrt`: runtime (`native`/`container`), capabilities, validation of which runtime may claim which capability, report headers, the explicit step-type to capability to ordered-runtime table and `Select` without silent fallback.
+- Agents report runtime and capabilities at enrollment/renewal (mismatch: 400 `runtime-mismatch`, token not consumed) and as headers on every answer; the executor refuses commands outside its own capabilities; native agents have no Docker client; results carry `runtime`.
+- Manager: reports stored per host (`AgentReports`, `AgentReportError`); `AgentDirectory.Route/Send` select the runtime from the table and the host's reports, check the answering runtime, refuse a host with an inconsistent report; the patch directory routes only to a native agent; hosts without any report count as a legacy container agent (no restic/patch).
+- Recording: runner step view `runtime`, journal timeline text, API `executedBy`, one audit record per executed step, patch `agentRuntime`/`executedBy`, host-source `runtime`/`runtimeNote`; 409 `agent_runtime_unavailable` before any operation starts. OpenAPI updated (hosts `agents`, operations `executedBy`, host sources, patch hosts and plans).
+- Restic on the native agent: `agent patch -restic-allow-path ... -restic-secrets-dir ...` serves the existing `restic-*` executor (same allow-list and secret-file rules) at `/v1/commands` next to the patch endpoint; install plan `resticPaths`, unit flags, secrets directory, restic/ssh preflight.
+- UI: runtime badge and gap note on the Hosts page (DE/EN), `isHost` validation and test.
+
+Actual checks (final tree): `gofmt -l .` (no output), `go vet ./...` (no output), `go test -race -count=1 -p 4 ./...` (48 packages ok), `python3 scripts/check_docs.py` (98 Markdown files, 71 requirements, 0 errors), `python3 scripts/check_deploy.py` (passed, static only), web `npm run check` (0 errors), `npm test` (213 passed), `npm run build` ok. One unrelated timing-sensitive manager test (`TestOutageRecoveryRefusesZeroUUIDPrimaryBeforeAgentRecovery`) failed once in a loaded non-race run and passed alone and in the final race run.
+
+Limits: no VM, no real restic on the native agent, no real systemd install of the new flags. **One identity slot per host**: container and native agent of the same host supersede each other's certificate, so running both on one host is not supported end to end yet (per-runtime identity is future work). The manager does not fill the native agent's secrets directory. `host-maintenance`/`diagnostics` are reserved names only. Report-mode native agents are unprivileged and read only what `dbcm-patch` can read. UI shows a host badge only (per-function/operation view missing). API errors carry only the stable code; the reason is in `runtimeNote` and the log.
+
 ## Patch management wiring, revocation, durable replay, RPM ordering (2026-10-27, X15/W12, fakes and loopback only; no VM used)
 
 Closes four of the open items of the E10 increment below. Tests were written before the code.

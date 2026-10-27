@@ -697,6 +697,8 @@ func (s *server) writeServiceError(w http.ResponseWriter, r *http.Request, err e
 		writeError(w, http.StatusConflict, errConflict)
 	case errors.Is(err, ErrNotLeader):
 		writeError(w, http.StatusServiceUnavailable, errNotLeader)
+	case errors.Is(err, ErrRuntimeUnavailable):
+		writeError(w, http.StatusConflict, errRuntimeUnavailable)
 	default:
 		s.log.Error("api: resource service failed", "path", r.URL.Path, "err", err)
 		writeError(w, http.StatusServiceUnavailable, errUnavailable)

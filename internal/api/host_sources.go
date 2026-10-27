@@ -32,6 +32,11 @@ type HostSource struct {
 	CheckSubset      string           `json:"checkSubset,omitempty"`
 	LastRunAt        string           `json:"lastRunAt,omitempty"`
 	LastRunStatus    string           `json:"lastRunStatus,omitempty"`
+	// Runtime is the agent runtime that would execute this source now
+	// ("native" preferred, else "container"; ADR 0024), computed on read.
+	// RuntimeNote is the refusal reason when no suitable agent is reported.
+	Runtime     string `json:"runtime,omitempty"`
+	RuntimeNote string `json:"runtimeNote,omitempty"`
 }
 
 type HostSourceInput struct {

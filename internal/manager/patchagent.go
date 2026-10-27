@@ -5,6 +5,7 @@ package manager
 import (
 	"context"
 	"fmt"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/agentrt"
 	"net/http"
 	"sync"
 	"time"
@@ -71,7 +72,12 @@ func (d *PatchAgentDirectory) client(nodeID, base string) (*http.Client, error) 
 
 // Do implements patch.HostAgent.
 func (d *PatchAgentDirectory) Do(ctx context.Context, hostID string, c patch.AgentCommand) (patch.AgentResult, error) {
-	base, err := d.Dir.Resolve(hostID)
+	// Patch needs a native agent (ADR 0024). A host whose reports name no
+	// native patch capability is refused here, never routed elsewhere.
+	if _, err := d.Dir.Route(hostID, agentrt.PatchKindPrefix+c.Kind); err != nil {
+		return patch.AgentResult{}, fmt.Errorf("%w: %v", patch.ErrNotFound, err)
+	}
+	base, err := d.Dir.resolve(hostID, agentrt.Native)
 	if err != nil {
 		return patch.AgentResult{}, fmt.Errorf("%w: %v", patch.ErrNotFound, err)
 	}
@@ -79,5 +85,8 @@ func (d *PatchAgentDirectory) Do(ctx context.Context, hostID string, c patch.Age
 	if err != nil {
 		return patch.AgentResult{}, fmt.Errorf("patch: agent transport for %s: %w", hostID, err)
 	}
-	return patch.HTTPHostAgent{Client: cl, URL: func(string) (string, bool) { return base, true }}.Do(ctx, hostID, c)
+	return patch.HTTPHostAgent{Client: cl, URL: func(string) (string, bool) { return base, true },
+		OnInfo: func(id string, info agentrt.Info, present bool, err error) {
+			d.Dir.NoteReport(id, agentrt.Native, info, present, err)
+		}}.Do(ctx, hostID, c)
 }
