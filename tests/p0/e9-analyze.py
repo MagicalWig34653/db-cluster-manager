@@ -87,7 +87,7 @@ def splits(pa, pb):
         print("   not enough samples")
         return
     j = 0
-    compared = split = 0
+    compared = split = conflicts = 0
     first = []
     for t, ts, code, writer, has, epoch, pend in pa:
         while j + 1 < len(pb) and pb[j + 1][0] <= t:
@@ -100,11 +100,14 @@ def splits(pa, pb):
         compared += 1
         if writer != o[3]:
             split += 1
+            if writer != "none" and o[3] != "none":
+                conflicts += 1
             if len(first) < 5:
                 first.append(f"{ts} a={writer}/e{epoch} b={o[3]}/e{o[5]}")
     print(f"   compared {compared} aligned samples with a writer on both: {split} with different writers")
     for f in first:
         print(f"   split: {f}")
+    print(f"   conflicts (two different writers, neither empty): {conflicts}")
 
 
 def vip(da):
