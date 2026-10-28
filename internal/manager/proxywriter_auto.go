@@ -74,6 +74,20 @@ func (r ProxyWriterReconciler) ReconcileOnce(l *Leadership) error {
 		if err != nil {
 			return err
 		}
+		if !ok {
+			// Cluster record IDs are generated, but the route is configured
+			// before the cluster exists: also accept the cluster name.
+			all, err := List[ClusterRecord](l.svc.Store(), CollClusters, Consistent())
+			if err != nil {
+				return err
+			}
+			for _, c := range all {
+				if c.Value.Name == route.Cluster {
+					rec, ok = c, true
+					break
+				}
+			}
+		}
 		if !ok || len(rec.Value.Nodes) == 0 {
 			continue
 		}
