@@ -1,6 +1,19 @@
 # Current status
 
-Updated: 2026-10-27.
+Updated: 2026-10-29.
+
+## E12: zero-UUID incident, recovery, autoFailover, rolling update, renewal (2026-10-28/29, lab VMs)
+
+Results: [`tests/p0/results/e12-recovery-autofailover-rolling.md`](../tests/p0/results/e12-recovery-autofailover-rolling.md) and `.log` (several stages on kept VMs, failed assertions of earlier stages are real events), script `tests/p0/e12-recovery-autofailover-rolling.sh`. Three arm64 Lima VMs, HA stack, `autoFailover: true`; removed by `bin/lab cleanup --apply` (unrelated resources intact).
+
+- **autoFailover works** after one fix: writer VM hard-stopped, both proxies had writer n1 (epoch 4) 10 s later, 0 conflicting-writer samples at 100 ms, 0 interleavings in 22917 rows, no acknowledged write lost, no switch back. Bug (test first): the route matched only generated cluster record IDs, never the configured cluster name, so it could not fire on a real cluster; fixed in `ProxyWriterReconciler`.
+- **Zero-UUID Primary incident and 409 reason verified on the real cluster** (critical events for all three nodes; `409 reason zero_cluster_uuid_primary`). All three nodes (not two) re-formed the zero-UUID Primary after a full power loss, three times, also after the staggered B3.
+- **The product has no recovery path from that state:** wsrep-recover yields zero-UUID positions, the diagnosis answers `no_candidate`. The manual bootstrap procedure (documented in guide 07) restored three Synced nodes with a new UUID and all data in three runs; the scripted version picked the highest seqno (stale n3 was not chosen). Needs an owner decision whether the product should offer it (approval-gated, new UUID).
+- **B3 valid result:** the stale node never joined the zero-UUID component (E9 signature); the highest seqno bootstrapped; data written while it was down survived.
+- **HA stack:** redeploy of all three services 47 s, API gap 1.9 s; one replica at a time 166 s, gap 1.2-1.7 s, no quorum loss; peer certificate renewal through new configs renewed all three bundles (serials changed, 400-day validity, quorum fine, gap about 2 s); an invalid configuration was rolled back by Swarm. Not verified: renewal of a running replica without restart.
+- Lab-client counter defect and script defects are listed in the results file. Final-tree checks: gofmt empty, go vet clean, `go test -race -count=1 -p 4 ./...` all packages ok, check_docs 98 files / 71 requirements / 0 errors, check_deploy passed.
+
+Next: decide on a product recovery for the zero-UUID state, find out whether a Galera setting avoids it, then the remaining W05 items (resource exhaustion/capacity denial, restart during cleanup, native amd64).
 
 ## Agent runtimes and capability routing (2026-10-27, ADR 0024, fakes and loopback only; no VM used)
 

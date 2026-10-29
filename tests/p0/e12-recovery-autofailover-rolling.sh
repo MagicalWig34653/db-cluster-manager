@@ -26,6 +26,7 @@
 #   E12_KEEP_VMS=1   keep the VMs (run `bin/lab cleanup --apply` yourself)
 #   E12_REUSE_VMS=1  skip vms/swarm
 #   E12_PHASES="..." run only these phases (default: all, in order)
+#   E12_SENTINELS=1,2,3,900  sentinel ids expected after pwrrecover (B3 adds 5,6)
 #   E12_LOG=FILE     log file (default tests/p0/results/e12-recovery-autofailover-rolling.log)
 #   E12_APPEND_LOG=1 append to the log instead of truncating it
 #
@@ -99,6 +100,17 @@ step() { case " ${E12_PHASES:-all} " in *" all "* | *" $1 "*) return 0 ;; esac; 
 
 # shellcheck source=tests/p0/e9-phases.sh
 . "$REPO_ROOT/tests/p0/e9-phases.sh"
+
+# e8_login: the lab client's passkey signature counter lives in a file that a
+# power loss can roll back behind the server's stored counter (clone detection
+# then refuses the login: E12 saw "authentication_failed" after the second
+# power loss). The counter is raised by 50 before every login; it only has to
+# grow.
+e8_login() {
+	rec "manager login for the lab client (signature counter raised first)" vm_args "$M1" '
+		sudo sh -c "jq \".counter += 50\" \"$1/client.json\" >\"$1/client.json.new\" && mv \"$1/client.json.new\" \"$1/client.json\"" || true
+		sudo /usr/local/bin/dbcm-e4-client -state "$1/client.json" -base http://127.0.0.1:'"$API_PORT"' -origin http://localhost:'"$API_PORT"' login' "$STATE" || true
+}
 
 # ---------------------------------------------------------------- helpers
 # Proxy placement of part 2: the Galera writer's VM (m3) must not host a
@@ -309,6 +321,7 @@ e12_af() {
 # --------------------------------------------------------- Part 3: roll
 e12_roll() {
 	section "Phase roll (part 3): rolling update of the three manager services"
+	e8_login
 	hostload
 	local vm n t0 i order
 	for v in b c; do
@@ -368,19 +381,20 @@ e12_roll() {
 
 # -------------------------------------------------------- Part 3: renew
 e12_renew() {
-	section "Phase renew (part 3): peer certificate renewal through a new configuration (beforeDays 400, validityDays 500)"
+	section "Phase renew (part 3): peer certificate renewal through a new configuration (beforeDays 365, validityDays 400)"
+	e8_login
 	hostload
 	local n order serial_before serial_after
 	e12_healthy_ha || { assert_fail renew "HA stack not healthy before the renewal"; return 1; }
 	for n in $HA_IDS; do rec "peer bundle before, replica $n" e12_cert_info "$n"; done
 	for n in $HA_IDS; do rec "certificate served on the metastore port before, replica $n" e12_served_cert "$n" || true; done
 	serial_before=$(e12_cert_info 2 | grep -o 'serial=[0-9A-F]*')
-	rec "new Swarm configs: renew window 400 days (more than the 365-day validity: renewal is due at every start), validity 500 days" vm_root "$M1" '
+	rec "new Swarm configs: renew window 365 days (the maximum; the certificates have 364 days left, so renewal is due at the start), validity 400 days" vm_root "$M1" '
 		set -e
 		for i in 1 2 3; do
-			jq ".manager.peerTLS.renew.beforeDays = 400 | .manager.peerTLS.renew.validityDays = 500" "$1/manager-$i.json" >"$1/manager-$i.renew.json"
+			jq ".manager.peerTLS.renew.beforeDays = 365 | .manager.peerTLS.renew.validityDays = 400" "$1/manager-$i.json" >"$1/manager-$i.renew.json"
 			chmod 0600 "$1/manager-$i.renew.json"
-			docker config inspect "dbcm-e12-config-$i" >/dev/null 2>&1 && echo "config $i exists" || { docker config create "dbcm-e12-config-$i" "$1/manager-$i.renew.json" >/dev/null && echo "config $i"; }
+			docker config inspect "dbcm-e12r-config-$i" >/dev/null 2>&1 && echo "config $i exists" || { docker config create "dbcm-e12r-config-$i" "$1/manager-$i.renew.json" >/dev/null && echo "config $i"; }
 		done
 		jq -c ".manager.peerTLS" "$1/manager-1.renew.json" | sed "s/\"installation\":\"[^\"]*\"/\"installation\":\"<inst>\"/"' "$STATE"
 	order=$(e12_leader_last_order | tr '\n' ' ')
@@ -389,7 +403,7 @@ e12_renew() {
 	sleep 5
 	for n in $order; do
 		rec "replace the config of $(mgr_svc "$n") (docker service update --config-rm/--config-add)" vm_docker "$M1" service update --detach=true \
-			--config-rm "dbcm-e9-config-$n" --config-add "source=dbcm-e12-config-$n,target=/etc/dbcm/manager.json,uid=65532,gid=65532,mode=0440" "$(mgr_svc "$n")"
+			--config-rm "dbcm-e9-config-$n" --config-add "source=dbcm-e12r-config-$n,target=/etc/dbcm/manager.json,uid=65532,gid=65532,mode=0440" "$(mgr_svc "$n")"
 		wait_until 240 "replica $n update completed" e12_update_done "$n" || assert_fail renew "update of replica $n did not complete"
 		wait_until 120 "all three replicas running with a leader and a valid session" e12_healthy_ha || assert_fail renew "stack not healthy after replica $n"
 		rec "peer bundle after the start, replica $n" e12_cert_info "$n"
@@ -435,8 +449,8 @@ e12_incident() {
 	local zero=0 out code reason n
 	rec "wsrep status of every node" e8_status3
 	e12_zero_state && zero=1
-	n=$(apij GET /api/v1/events | jq -r '[.items[] | select(.message | test("zero_cluster_uuid_primary"))] | length')
-	apij GET /api/v1/events | jq -c '.items[] | select(.message | test("zero_cluster_uuid_primary")) | {severity, message}' >>"$LOG" || true
+	n=$(apij GET /api/v1/events | jq -r '[.items[] | select(.message | test("zero_cluster_uuid_primary"))] | length' 2>/dev/null || echo 0)
+	apij GET /api/v1/events | jq -c '.items[] | select(.message | test("zero_cluster_uuid_primary")) | {time, severity, message}' >>"$LOG" 2>&1 || true
 	say "incident events recorded: $n"
 	rec "cluster view (node health incl. reason code)" api GET "/api/v1/clusters/$CLUSTER_ID"
 	out=$(api GET "/api/v1/clusters/$CLUSTER_ID/outage-diagnosis" || true)
@@ -456,17 +470,90 @@ e12_incident() {
 	e9_slot_diag "incident phase"
 }
 
+# node_vm N — the slot's host is fixed by its node constraint: the newest task
+# (also of a service scaled to 0) names it. Replaces the library function,
+# which returned an empty name for stopped services.
+node_vm() {
+	local host
+	host=$(vm_docker "$M1" service ps --format '{{.Node}}' "$(svc "$1")" | head -1)
+	echo "${host#lima-}"
+}
+
+# e12_manual_args KIND — the container arguments of a slot as the product
+# sets them (KIND normal or bootstrap).
+e12_manual_args() {
+	local common='--datadir=/dbcm/data --socket=/dbcm/run/mysqld.sock --wsrep_on=ON --wsrep_provider=/usr/lib/galera/libgalera_smm.so --wsrep_cluster_name='"$CLUSTER_NAME"' --wsrep_sst_method=mariabackup --binlog_format=ROW --innodb_autoinc_lock_mode=2 --skip_name_resolve=ON --wsrep_provider_options=gcache.size=128M'
+	case "$1" in
+	bootstrap) echo "$common --wsrep_cluster_address=gcomm://" ;;
+	*) echo "$common --wsrep_cluster_address=gcomm://$(svc 1),$(svc 2),$(svc 3)" ;;
+	esac
+}
+e12_wsrep_recover() { # N — position of node N from its volume (service scaled to 0)
+	local vm vol
+	vm=$(node_vm "$1")
+	vol=$(vm_docker "$M1" service inspect -f '{{(index .Spec.TaskTemplate.ContainerSpec.Mounts 0).Source}}' "$(svc "$1")")
+	vm_docker "$vm" run --rm --user mysql -v "$vol:/dbcm" --entrypoint mariadbd "$MARIADB_IMAGE" --datadir=/dbcm/data --wsrep_on=ON \
+		--wsrep_provider=/usr/lib/galera/libgalera_smm.so --wsrep_cluster_address=gcomm:// --wsrep_sst_method=mariabackup --binlog_format=ROW \
+		--innodb_autoinc_lock_mode=2 --wsrep-recover 2>&1 | grep -E "Recovered position|ERROR" | head -3
+}
+e12_primary_on() { rsql "$1" "SHOW GLOBAL STATUS LIKE 'wsrep_cluster_status'" | grep -q Primary; }
+e12_synced_on() { rsql "$1" "SHOW GLOBAL STATUS LIKE 'wsrep_local_state_comment'" | grep -q Synced; }
+
 e12_pwrrecover() {
-	section "Phase pwrrecover (part 1): guided recovery (operator stops the services, the manager diagnoses, approval-gated bootstrap from the highest seqno)"
+	section "Phase pwrrecover (part 1): guided recovery; the product path first, then the operator steps it lacks"
 	CLUSTER_ID=${CLUSTER_ID:-$(cluster_id)}
-	E8_ROW=106
-	e9_pwrrecover || true
+	e8_login
+	e6_hosts
+	local i out cand best="" bestn="" pos
+	rec "operator: scale all three to 0" vm_docker "$M1" service scale -d $(for s in $(e6_services); do printf '%s=0 ' "$s"; done)
+	wait_until 180 "no database task running" e6_none_running || true
+	# The diagnosis keeps answering 409 until the health observation of the
+	# stopped nodes is no longer Primary (refresh interval); poll it.
+	for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+		out=$(api POST "/api/v1/clusters/$CLUSTER_ID/outage-diagnosis" '{}' || true)
+		say "diagnosis POST t+$((i * 5))s: $(printf '%s\n' "$out" | head -1) $(printf '%s\n' "$out" | tail -n +2 | jq -c '{reason, candidate, reasons}' 2>/dev/null | cut -c1-200)"
+		case "$(printf '%s\n' "$out" | head -1)" in "HTTP 200"*) break ;; esac
+		sleep 5
+	done
+	printf '### diagnosis with position recovery (POST) after the operator stopped the services\n\n```\n%s\n```\n\n' "$out" >>"$LOG"
+	cand=$(printf '%s\n' "$out" | tail -n +2 | jq -r '.candidate // ""' 2>/dev/null || true)
+	if [ -n "$cand" ]; then
+		E8_ROW=106
+		e6_recover "$cand" || true
+		e6_verify_recovered pwrrecover "$E8_ROW"
+	else
+		result "pwrrecover: the product offers no bootstrap candidate (all positions carry the zero UUID); operator steps follow (manual, not a product path)"
+		rec "grastate.dat per node" e6_grastate
+		for i in 1 2 3; do
+			pos=$(e12_wsrep_recover "$i" | grep -o 'position: [^ ]*' | sed 's/.*://')
+			say "recovered seqno n$i: ${pos:-unknown}"
+			printf 'mariadbd --wsrep-recover n%s: %s\n' "$i" "${pos:-unknown}" >>"$LOG"
+			if [ -n "$pos" ] && { [ -z "$best" ] || [ "$pos" -gt "$best" ]; }; then best=$pos bestn=$i; fi
+		done
+		[ -n "$bestn" ] || { assert_fail pwrrecover "no recoverable position"; return 1; }
+		say "bootstrap node: n$bestn (seqno $best, first node with the highest seqno)"
+		rec "operator: set safe_to_bootstrap: 1 in n$bestn's grastate.dat (the node that holds the highest position is chosen by the operator)" vm_root "$(node_vm "$bestn")" \
+			'f=$(ls "$1"/dbcm-'"$CLUSTER_NAME"'-n'"$bestn"'-*/data/grastate.dat); sed -i "s/^safe_to_bootstrap:.*/safe_to_bootstrap: 1/" "$f"; cat "$f"' "$VOLBASE"
+		rec "n$bestn: bootstrap arguments" vm_docker "$M1" service update --detach=true --args "$(e12_manual_args bootstrap)" "$(svc "$bestn")"
+		rec "n$bestn: scale to 1" vm_docker "$M1" service scale -d "$(svc "$bestn")=1"
+		wait_until 180 "n$bestn reports a Primary component" e12_primary_on "$bestn" || true
+		for i in 1 2 3; do
+			[ "$i" = "$bestn" ] && continue
+			rec "scale n$i to 1 (state transfer from the bootstrapped node)" vm_docker "$M1" service scale -d "$(svc "$i")=1"
+			wait_until 300 "n$i Synced" e12_synced_on "$i" || true
+		done
+		rec "n$bestn: back to the normal arguments (restarts the bootstrap node as a member)" vm_docker "$M1" service update --detach=true --args "$(e12_manual_args normal)" "$(svc "$bestn")"
+		e9_wait_synced 600 || true
+	fi
 	local u
 	u=$(e6_uuid 1 2>/dev/null || true)
-	say "cluster state UUID after the recovery: ${u:-unknown} (before the power loss: ${E6_UUID:-unknown})"
+	rec "wsrep status after the recovery" e8_status3
+	rec "sentinels on every node (${E12_SENTINELS:-1,2,3,900} expected: nothing committed before the power loss is lost)" e8_sentinels_all "${E12_SENTINELS:-1,2,3,900}"
+	say "cluster state UUID after the recovery: ${u:-unknown}"
 	if [ -n "$u" ] && [ "$u" != 00000000-0000-0000-0000-000000000000 ]; then ok pwrrecover "cluster has a non-zero state UUID again ($u)"; else assert_fail pwrrecover "cluster state UUID is zero or unknown after the recovery"; fi
-	e8_synced3 && ok pwrrecover "three nodes Synced after the guided recovery" || assert_fail pwrrecover "not three Synced nodes after the guided recovery"
-	rec "events after the recovery" e6_events
+	wait_until 300 "Galera cluster back to 3 synced nodes" e8_synced3 || true
+	e8_synced3 && ok pwrrecover "three nodes Synced after the recovery" || assert_fail pwrrecover "not three Synced nodes after the recovery"
+	rec "events after the recovery" api GET /api/v1/events
 	rec "operations" e6_ops
 }
 
