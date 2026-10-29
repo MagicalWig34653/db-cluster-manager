@@ -25,6 +25,10 @@ import (
 type Credential struct {
 	PrivateKey string `json:"privateKey"`
 	KnownHosts string `json:"knownHosts"`
+	// Password is accepted only for the one-time bootstrap login of a fresh
+	// server (ADR 0027). It is write-only, never in argv or logs, and wiped
+	// after the run. Existing plan flows keep using keys only.
+	Password string `json:"password,omitempty"`
 }
 
 // CommandRunner is the only host execution boundary. Fakes implement it
@@ -45,9 +49,15 @@ func (r SSHRunner) Run(ctx context.Context, h Host, cred Credential, command, st
 	if !safeName.MatchString(h.Address) || !safeName.MatchString(h.User) || strings.TrimSpace(cred.KnownHosts) == "" {
 		return "", ErrInvalid
 	}
-	key, err := ssh.ParsePrivateKey([]byte(cred.PrivateKey))
-	if err != nil {
-		return "", fmt.Errorf("provision: invalid SSH private key")
+	var auth ssh.AuthMethod
+	if cred.PrivateKey == "" && cred.Password != "" {
+		auth = ssh.Password(cred.Password)
+	} else {
+		key, err := ssh.ParsePrivateKey([]byte(cred.PrivateKey))
+		if err != nil {
+			return "", fmt.Errorf("provision: invalid SSH private key")
+		}
+		auth = ssh.PublicKeys(key)
 	}
 	f, err := os.CreateTemp("", "cluster-manager-known-hosts-*")
 	if err != nil {
@@ -83,7 +93,7 @@ func (r SSHRunner) Run(ctx context.Context, h Host, cred Credential, command, st
 		return "", fmt.Errorf("provision: SSH dial failed")
 	}
 	defer conn.Close()
-	config := &ssh.ClientConfig{User: h.User, Auth: []ssh.AuthMethod{ssh.PublicKeys(key)}, HostKeyCallback: callback, HostKeyAlgorithms: algos, Timeout: timeout}
+	config := &ssh.ClientConfig{User: h.User, Auth: []ssh.AuthMethod{auth}, HostKeyCallback: callback, HostKeyAlgorithms: algos, Timeout: timeout}
 	clientConn, chans, reqs, err := ssh.NewClientConn(conn, address, config)
 	if err != nil {
 		return "", fmt.Errorf("provision: SSH host-key or authentication failed")

@@ -8,6 +8,7 @@
 // and never rendered verbatim.
 
 import type { CredentialJSON } from './webauthn';
+import { isBootstrapOSList, isBootstrapPlan, isBootstrapView, isBootstrapViewList } from './bootstrap';
 
 const BASE = '/api/v1';
 
@@ -1932,6 +1933,17 @@ export function createClient(fetchFn: FetchFn) {
 		clusterDrift: (id: string) => call('GET', `/clusters/${encodeURIComponent(id)}/drift`, isDriftReport),
 		kubernetesRegistrations: () => call('GET', '/kubernetes-clusters', listOfArray(isKubernetesRegistration)),
 		planProvision: (input: ProvisionPlanInput) => call('POST', '/provision/plans', isProvisionPlan, input),
+		bootstrapSupport: () => call('GET', '/bootstrap/support', isBootstrapOSList),
+		bootstrapList: () => call('GET', '/bootstrap/drafts', isBootstrapViewList),
+		bootstrapDraft: (body: unknown) => call('POST', '/bootstrap/drafts', isBootstrapView, body),
+		bootstrapGet: (id: string) => call('GET', `/bootstrap/drafts/${encodeURIComponent(id)}`, isBootstrapView),
+		bootstrapPlan: (id: string) => call('GET', `/bootstrap/drafts/${encodeURIComponent(id)}/plan`, isBootstrapPlan),
+		bootstrapFingerprint: (id: string, fingerprint: string) => call('POST', `/bootstrap/drafts/${encodeURIComponent(id)}/fingerprint`, isBootstrapView, { fingerprint }),
+		bootstrapApprove: (id: string, digest: string) => call('POST', `/bootstrap/drafts/${encodeURIComponent(id)}/approve`, isBootstrapView, { digest }),
+		bootstrapApproveLockdown: (id: string, digest: string) => call('POST', `/bootstrap/drafts/${encodeURIComponent(id)}/approve-lockdown`, isBootstrapView, { digest }),
+		bootstrapCredentials: (id: string, credential: { password?: string; privateKey?: string }) => call('POST', `/bootstrap/drafts/${encodeURIComponent(id)}/credentials`, isBootstrapView, credential),
+		bootstrapRun: (id: string) => call('POST', `/bootstrap/drafts/${encodeURIComponent(id)}/run`, isBootstrapView),
+		bootstrapCancel: (id: string) => call('POST', `/bootstrap/drafts/${encodeURIComponent(id)}/cancel`, isBootstrapView),
 		startProvision: (id: string, digest: string) => call('POST', `/provision/plans/${encodeURIComponent(id)}/execute`, isOperationRef, { digest }),
 		registerKubernetes: (input: KubernetesRegistrationInput) => call('POST', '/kubernetes-clusters', isKubernetesRegistration, input),
 		/** Plans only; the returned operation waits for approveOperation with the displayed digest. */

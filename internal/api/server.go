@@ -92,6 +92,9 @@ type Config struct {
 	// are write-only and the routes return 503 by default.
 	ExperimentalProvisioning bool
 	Provisioning             Provisioning
+	// Bootstrap backs the fresh-server bootstrap endpoints (X18, ADR 0027,
+	// fakes only); nil answers 503.
+	Bootstrap Bootstrap
 	// RecoveryCodeIterations is passed to recovery.GenerateCodes; 0 selects
 	// the default.
 	RecoveryCodeIterations int
@@ -199,7 +202,7 @@ type server struct {
 // endpoints is the route table. It is safe to call on a nil server: method
 // values are only bound, not invoked.
 func (s *server) endpoints() []endpoint {
-	return append(append(append(append(append(append(s.coreEndpoints(), s.vulnEndpoints()...), s.patchEndpoints()...), s.imageUpdateEndpoints()...), s.kubernetesEndpoints()...), s.provisioningEndpoints()...), s.hostSourceEndpoints()...)
+	return append(append(append(append(append(append(append(s.coreEndpoints(), s.vulnEndpoints()...), s.patchEndpoints()...), s.imageUpdateEndpoints()...), s.kubernetesEndpoints()...), s.provisioningEndpoints()...), s.hostSourceEndpoints()...), s.bootstrapEndpoints()...)
 }
 
 func (s *server) coreEndpoints() []endpoint {
