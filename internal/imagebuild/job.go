@@ -5,6 +5,7 @@ package imagebuild
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"regexp"
 	"sort"
@@ -25,18 +26,22 @@ const (
 // Job records one approved build: its inputs, the digests that identify the
 // result, and the redacted log. It contains no secret.
 type Job struct {
-	ID          string        `json:"id"`
-	Name        string        `json:"name"`
-	Status      JobStatus     `json:"status"`
-	Spec        WebServerSpec `json:"spec"`
-	SpecHash    string        `json:"specHash"`
-	ContextHash string        `json:"contextHash"`
-	PlanDigest  string        `json:"planDigest"`
-	Reference   string        `json:"reference"`
-	Platforms   []string      `json:"platforms"`
-	BaseDigests []string      `json:"baseDigests,omitempty"`
-	ImageDigest string        `json:"imageDigest,omitempty"`
-	SBOM        SBOMRef       `json:"sbom"`
+	ID     string        `json:"id"`
+	Name   string        `json:"name"`
+	Status JobStatus     `json:"status"`
+	Spec   WebServerSpec `json:"spec"`
+	// Source is empty for the typed web server spec and "composer" for jobs
+	// from the image composer; Recipe then holds the normalized recipe.
+	Source      string          `json:"source,omitempty"`
+	Recipe      json.RawMessage `json:"recipe,omitempty"`
+	SpecHash    string          `json:"specHash"`
+	ContextHash string          `json:"contextHash"`
+	PlanDigest  string          `json:"planDigest"`
+	Reference   string          `json:"reference"`
+	Platforms   []string        `json:"platforms"`
+	BaseDigests []string        `json:"baseDigests,omitempty"`
+	ImageDigest string          `json:"imageDigest,omitempty"`
+	SBOM        SBOMRef         `json:"sbom"`
 	// Error is the redacted failure text.
 	Error string `json:"error,omitempty"`
 	// Log is the redacted build log, capped at the service's limit; it is

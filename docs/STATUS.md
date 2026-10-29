@@ -2,6 +2,23 @@
 
 Updated: 2026-10-29.
 
+## Image composer (2026-10-29, X17, ADR 0026, fakes only; no VM, registry or network used)
+
+[ADR 0026](decisions/0026-image-composer.md), guide [26](guides/en/26-image-composer.md) (EN/DE). Implements the owner addition "image composer" on top of the image build service (X08). Tests were written before the code for the catalog, validator, generator and API.
+
+Implemented:
+
+- `internal/imagecompose`: embedded, schema-validated component catalog (`catalog.json`: Alpine 3.20, Debian 12, Ubuntu 24.04, AlmaLinux 9; nginx, PHP-FPM with 16 extensions, Composer, utilities; matrix of component version x release x architecture; 31 typed settings with ranges, enums and mandatory patterns; DE/EN labels), recipe model, validator (all findings with field paths, unknown settings refused, preconditions, PHP size and FPM cross-field rules, single-main-process rule, requirements), recipe digest (normalized recipe + catalog version + generator version), variants per release, deterministic generator (Dockerfile, nginx/php/pool configuration, entrypoint for nginx plus PHP-FPM, package list, warnings and notes). Seven golden-file recipes (four distribution families, ondemand pool, static site, FPM-only) plus rejection, canonicalization, determinism and hardening-invariant tests.
+- `internal/imagebuild`: `RenderedRequest`, `PlanFromRendered`/`StartRendered` reuse the existing job store, approval digest and idempotency (shared `begin`); the context hash is re-verified so a tampered context is refused; jobs record `source: composer` and the normalized recipe.
+- API: `GET /image-composer/catalog` (viewer), `POST /image-composer/preview` (operator), `POST /image-composer/builds` (administrator, plan then digest-approved start), `api/openapi.yaml` and route-contract/field-list tests, authz tests (viewer denied preview and audited, operator denied build, anonymous 401, unwired 503, changed recipe after review gives 409).
+- Web: page `/image-composer` (component picker, versions limited by the matrix, extension checkboxes, settings forms generated from the catalog schema, live debounced preview of Dockerfile and every generated file, variant switcher, plan/approval/build), DE/EN strings, navigation entry, development mock server (`mock-composer.ts`, every generated text says MOCK; a Go test keeps the catalog copy equal to the embedded one), 15 vitest tests (reconcile, recipe building, mock client round trip). `scripts/screenshots/capture.mjs` has the new view; no screenshots were captured (Playwright is not installed here).
+
+Actual checks (final tree): `gofmt -l .` (no output), `go vet ./...` (no output), `go test -race -count=1 -p 4 ./...` (all packages ok), `python3 scripts/check_docs.py` (104 Markdown files, 73 requirements, 0 errors), `python3 scripts/check_deploy.py` (passed, static only), in `web/`: `npm run check` (0 errors, 0 warnings), `npm run check:i18n` (passed), `npm test` (23 files, 228 tests ok, including the 15 composer tests), `npm run build` (ok). The page was not opened in a browser and not checked at 360 px by eye; layout is a single column below the `xl` breakpoint by construction only.
+
+Limits: the catalog is unverified (package names, versions and dnf module streams were never checked against live repositories); no image has been built from a generated recipe, so the Dockerfile, `nginx -t`/`php-fpm -t` lines and the entrypoint have never run in a container. `ImageComposerBackend` is not wired into the manager (endpoints answer 503). The SBOM stays `not_generated` and no scan runs; package patch versions float. No PECL/source builds, no custom nginx snippet, one FPM pool, one site. The UI works against the mock server only.
+
+Next action: wire `ImageComposerBackend` in the manager behind the existing image build configuration, then verify the catalog with a real build per distribution family in a lab VM (needs the lab budget), and connect the SBOM/scan step.
+
 ## Image update service (2026-10-28/29, X16, ADR 0025, fakes only; no VM used)
 
 [ADR 0025](decisions/0025-image-update-service.md), guide [25](guides/en/25-image-updates.md) (EN/DE). Implements the owner decision "Docker updates in the manner of Watchtower" for image/service updates of managed objects; engine upgrades stay reviewed plans (ADR 0019). Tests were written before the code.

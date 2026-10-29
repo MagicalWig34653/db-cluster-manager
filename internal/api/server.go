@@ -69,6 +69,9 @@ type Config struct {
 	// fakes only); nil answers 503.
 	ImageBuilds ImageBuilds
 	Registries  Registries
+	// ImageComposer backs the image composer endpoints (X17, ADR 0026,
+	// fakes only); nil answers 503.
+	ImageComposer ImageComposer
 	// Services backs the managed service endpoints (W07); nil answers 503.
 	Services Services
 	// Vuln backs the vulnerability response endpoints (X13, proposal,
@@ -450,6 +453,18 @@ func (s *server) coreEndpoints() []endpoint {
 		{
 			method: "POST", path: "/image-builds", access: accessPermission,
 			action: authz.ActionCreate, resolve: s.resolveImageBuild, handle: s.handleImageBuildCreate,
+		},
+		{
+			method: "GET", path: "/image-composer/catalog", access: accessPermission,
+			action: authz.ActionRead, resolve: s.resolveImageBuild, handle: s.handleComposerCatalog,
+		},
+		{
+			method: "POST", path: "/image-composer/preview", access: accessPermission,
+			action: authz.ActionCreate, resolve: s.resolveImageBuild, handle: s.handleComposerPreview,
+		},
+		{
+			method: "POST", path: "/image-composer/builds", access: accessPermission,
+			action: authz.ActionUpdate, resolve: s.resolveImageBuild, handle: s.handleComposerBuild,
 		},
 		{
 			method: "GET", path: "/registries", access: accessPermission,

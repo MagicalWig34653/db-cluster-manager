@@ -1116,6 +1116,97 @@ export interface ImageBuildResult {
 }
 
 // ---------------------------------------------------------------------------
+// Image composer (X17, ADR 0026; api/openapi.yaml /image-composer/*)
+
+export interface ComposerText {
+	en: string;
+	de: string;
+}
+
+export interface ComposerField {
+	key: string;
+	type: 'bool' | 'int' | 'enum' | 'string';
+	group?: string;
+	label: ComposerText;
+	help?: ComposerText;
+	default: string | number | boolean;
+	min?: number;
+	max?: number;
+	enum?: { value: string }[];
+	pattern?: string;
+	maxLength?: number;
+	target?: 'ini' | 'pool';
+	needs?: string;
+	needsFeature?: string;
+}
+
+export interface ComposerComponent {
+	id: string;
+	name: ComposerText;
+	description: ComposerText;
+	kind: 'server' | 'runtime' | 'tool' | 'utility';
+	process: 'main' | 'companion' | 'none';
+	requires?: string[];
+	conflicts?: string[];
+	versions: { version: string; support: { distro: string; release: string; architectures: string[] }[] }[];
+	featureLabel?: ComposerText;
+	features?: { id: string; packages: Record<string, string[]> }[];
+	settings?: ComposerField[];
+}
+
+export interface ComposerCatalog {
+	schemaVersion: number;
+	version: string;
+	evidence: 'unverified';
+	distros: { id: string; name: string; family: string; releases: { id: string; name: string; image: string; tag: string; architectures: string[] }[] }[];
+	components: ComposerComponent[];
+}
+
+export interface ComposerRecipe {
+	name: string;
+	base: { distro: string; release: string; digest: string };
+	platforms?: string[];
+	components: { id: string; version: string; features?: string[]; settings?: Record<string, unknown> }[];
+}
+
+export interface ComposerIssue {
+	path: string;
+	message: string;
+}
+
+export interface ComposerVariant {
+	distro: string;
+	release: string;
+	name: string;
+	compatible: boolean;
+	problems?: string[];
+	versions?: Record<string, string>;
+}
+
+export interface ComposerPreview {
+	valid: boolean;
+	issues: ComposerIssue[];
+	variants: ComposerVariant[];
+	recipe?: ComposerRecipe;
+	digest?: string;
+	role?: 'web' | 'fpm';
+	baseImage?: string;
+	contextHash?: string;
+	dockerfile?: string;
+	files?: { path: string; mode: number; content: string }[];
+	packages?: { component: string; name: string; constraint?: string }[];
+	modules?: string[];
+	warnings?: string[];
+	notes?: string[];
+}
+
+export interface ComposerBuildRequest {
+	recipe: ComposerRecipe;
+	target: { registry: string; repository: string; tag: string };
+	approvalDigest?: string;
+}
+
+// ---------------------------------------------------------------------------
 // Vulnerability response (X13, ADR 0015; api/openapi.yaml /vuln/*)
 
 export const vulnSeverities = ['unknown', 'low', 'medium', 'high', 'critical'] as const;
@@ -1462,6 +1553,38 @@ export const isImageBuildJob: Guard<ImageBuildJob> = (v): v is ImageBuildJob =>
 export const isImageBuildResult = (v: unknown): v is ImageBuildResult =>
 	isObj(v) && (v.plan === undefined || isImageBuildPlan(v.plan)) && (v.job === undefined || isImageBuildJob(v.job));
 
+const isComposerText = (v: unknown): v is ComposerText => isObj(v) && isStr(v.en) && isStr(v.de);
+
+export const isComposerCatalog = (v: unknown): v is ComposerCatalog =>
+	isObj(v) &&
+	isNum(v.schemaVersion) &&
+	isStr(v.version) &&
+	Array.isArray(v.distros) &&
+	v.distros.every((d) => isObj(d) && isStr(d.id) && isStr(d.name) && isStr(d.family) && Array.isArray(d.releases) && d.releases.every((r) => isObj(r) && isStr(r.id) && isStr(r.name) && strArray(r.architectures))) &&
+	Array.isArray(v.components) &&
+	v.components.every(
+		(c) =>
+			isObj(c) &&
+			isStr(c.id) &&
+			isComposerText(c.name) &&
+			isComposerText(c.description) &&
+			Array.isArray(c.versions) &&
+			c.versions.every((x) => isObj(x) && isStr(x.version) && Array.isArray(x.support)) &&
+			(c.settings === undefined || (Array.isArray(c.settings) && c.settings.every((f) => isObj(f) && isStr(f.key) && isStr(f.type) && isComposerText(f.label))))
+	);
+
+export const isComposerPreview = (v: unknown): v is ComposerPreview =>
+	isObj(v) &&
+	isBool(v.valid) &&
+	Array.isArray(v.issues) &&
+	v.issues.every((i) => isObj(i) && isStr(i.path) && isStr(i.message)) &&
+	Array.isArray(v.variants) &&
+	optStr(v.digest) &&
+	optStr(v.dockerfile) &&
+	(v.files === undefined || (Array.isArray(v.files) && v.files.every((f) => isObj(f) && isStr(f.path) && isStr(f.content)))) &&
+	(v.warnings === undefined || strArray(v.warnings)) &&
+	(v.notes === undefined || strArray(v.notes));
+
 export const isRegistry: Guard<Registry> = (v): v is Registry =>
 	isObj(v) && isStr(v.id) && isStr(v.name) && oneOf(registryKinds)(v.kind) && optStr(v.endpoint) && optStr(v.username) && isBool(v.credentialSet) && optStr(v.createdBy);
 
@@ -1787,6 +1910,12 @@ export function createClient(fetchFn: FetchFn) {
 		planImageBuild: (req: ImageBuildRequest) => call('POST', '/image-builds', isImageBuildResult, req),
 		startImageBuild: (req: ImageBuildRequest, approvalDigest: string) =>
 			call('POST', '/image-builds', isImageBuildResult, { ...req, approvalDigest }),
+		composerCatalog: () => call('GET', '/image-composer/catalog', isComposerCatalog),
+		/** Invalid recipes answer valid=false with issues; nothing is built. */
+		composerPreview: (recipe: ComposerRecipe) => call('POST', '/image-composer/preview', isComposerPreview, { recipe }),
+		/** Without approvalDigest the answer carries the build plan only. */
+		composerPlan: (req: ComposerBuildRequest) => call('POST', '/image-composer/builds', isImageBuildResult, req),
+		composerBuild: (req: ComposerBuildRequest, approvalDigest: string) => call('POST', '/image-composer/builds', isImageBuildResult, { ...req, approvalDigest }),
 		registries: () => call('GET', '/registries', listOfArray(isRegistry)),
 		createRegistry: (input: ExternalRegistryInput) => call('POST', '/registries', isRegistry, input),
 		maintenancePlan: (nodeId: string, end: boolean) =>

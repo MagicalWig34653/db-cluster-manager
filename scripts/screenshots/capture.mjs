@@ -27,7 +27,8 @@ const views = [
 	['backups', '/backups'],
 	['operations', '/operations'],
 	['notification-settings', '/notifications/settings'],
-	['hosts', '/hosts']
+	['hosts', '/hosts'],
+	['image-composer', '/image-composer']
 ];
 
 const runs = [

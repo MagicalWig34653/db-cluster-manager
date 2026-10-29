@@ -123,33 +123,39 @@ func (s *Service) Start(ctx context.Context, actor string, req Request) (Job, er
 		return Job{}, err
 	}
 	n := req.Spec.Normalize()
-	jobID := s.newID()
-	if req.ExecutionID != "" {
-		jobID = req.ExecutionID
-	}
 	job := Job{
-		ID: jobID, Name: n.Name, Status: JobRunning, Spec: n, SpecHash: p.SpecHash, ContextHash: p.ContextHash,
+		Name: n.Name, Status: JobRunning, Spec: n, SpecHash: p.SpecHash, ContextHash: p.ContextHash,
 		PlanDigest: p.Digest, Reference: p.Reference, Platforms: p.Platforms, SBOM: SBOMNotGenerated,
-		RequestedBy: actor, CreatedAt: s.now(),
+		RequestedBy: actor,
 	}
+	rendered, err := Render(req.Spec, s.Catalog)
+	if err != nil {
+		return Job{}, err
+	}
+	return s.begin(ctx, job, rendered, req.ExecutionID, cfg, sec, server)
+}
+
+// begin records the running job (idempotent on executionID) and builds.
+func (s *Service) begin(ctx context.Context, job Job, rendered Rendered, executionID string, cfg registry.Config, sec registry.Secret, server string) (Job, error) {
+	job.ID = s.newID()
+	if executionID != "" {
+		job.ID = executionID
+	}
+	job.CreatedAt = s.now()
 	if err := s.Jobs.Create(ctx, job); err != nil {
-		if errors.Is(err, ErrJobExists) && req.ExecutionID != "" {
-			old, getErr := s.Jobs.Get(ctx, req.ExecutionID)
+		if errors.Is(err, ErrJobExists) && executionID != "" {
+			old, getErr := s.Jobs.Get(ctx, executionID)
 			if getErr != nil {
 				return Job{}, getErr
 			}
-			if old.PlanDigest != p.Digest {
+			if old.PlanDigest != job.PlanDigest {
 				return Job{}, ErrJobExists
 			}
 			return old, nil
 		}
 		return Job{}, err
 	}
-	rendered, err := Render(req.Spec, s.Catalog)
-	if err != nil {
-		return Job{}, err
-	}
-	in := BuildInput{Rendered: rendered, Platforms: p.Platforms, Reference: p.Reference, Push: true}
+	in := BuildInput{Rendered: rendered, Platforms: job.Platforms, Reference: job.Reference, Push: true}
 	red := NewRedactor()
 	if !sec.IsZero() {
 		in.Auth = &RegistryAuth{Server: server, Username: cfg.Username, Password: sec}

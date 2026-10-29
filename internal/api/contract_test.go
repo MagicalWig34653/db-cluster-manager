@@ -157,7 +157,7 @@ func TestServiceSchemasListEveryField(t *testing.T) {
 		"ClusterOperationInput": galera.OperationRequest{}, "ClusterOperationPlan": ClusterOperationPlan{},
 		"ServiceInfo": ServiceInfo{}, "ServicePlan": ServicePlan{}, "ServiceStarted": ServiceStarted{},
 		"ServiceHealth": ServiceHealth{}, "ServiceUpdateInput": ServiceUpdateInput{},
-		"ServiceUpdateStrategy": ServiceUpdateStrategy{}, "AgentStep": AgentStep{}, "ServiceInput": ServiceInput{},
+		"ServiceUpdateStrategy": ServiceUpdateStrategy{}, "ComposerPreview": ComposerPreview{}, "ComposerBuildRequest": ComposerBuildRequest{}, "AgentStep": AgentStep{}, "ServiceInput": ServiceInput{},
 	} {
 		start := slices.Index(lines, "    "+schema+":")
 		if start < 0 {
