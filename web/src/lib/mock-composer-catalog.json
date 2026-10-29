@@ -1,0 +1,179 @@
+{
+  "schemaVersion": 1,
+  "version": "2026.10.29-1",
+  "evidence": "unverified",
+  "distros": [
+    {"id": "alpine", "name": "Alpine Linux", "family": "alpine", "releases": [
+      {"id": "3.20", "name": "Alpine 3.20", "image": "docker.io/library/alpine", "tag": "3.20", "architectures": ["amd64", "arm64"]}
+    ]},
+    {"id": "debian", "name": "Debian", "family": "debian", "releases": [
+      {"id": "12", "name": "Debian 12 (bookworm)", "image": "docker.io/library/debian", "tag": "bookworm-slim", "architectures": ["amd64", "arm64"]}
+    ]},
+    {"id": "ubuntu", "name": "Ubuntu", "family": "debian", "releases": [
+      {"id": "24.04", "name": "Ubuntu 24.04 LTS", "image": "docker.io/library/ubuntu", "tag": "24.04", "architectures": ["amd64", "arm64"]}
+    ]},
+    {"id": "almalinux", "name": "AlmaLinux", "family": "rhel", "releases": [
+      {"id": "9", "name": "AlmaLinux 9", "image": "docker.io/library/almalinux", "tag": "9", "architectures": ["amd64", "arm64"]}
+    ]}
+  ],
+  "components": [
+    {
+      "id": "nginx", "name": {"en": "nginx web server", "de": "nginx-Webserver"},
+      "kind": "server", "process": "main",
+      "description": {"en": "HTTP server listening on unprivileged port 8080, running as a non-root user.", "de": "HTTP-Server auf dem unprivilegierten Port 8080, läuft ohne Root-Rechte."},
+      "versions": [
+        {"version": "1.26", "support": [
+          {"distro": "alpine", "release": "3.20", "architectures": ["amd64", "arm64"], "packages": [{"name": "nginx", "constraint": "1.26"}]},
+          {"distro": "almalinux", "release": "9", "architectures": ["amd64", "arm64"], "modules": ["nginx:1.26"], "packages": [{"name": "nginx"}]}
+        ]},
+        {"version": "1.24", "support": [
+          {"distro": "ubuntu", "release": "24.04", "architectures": ["amd64", "arm64"], "packages": [{"name": "nginx", "constraint": "1.24"}]},
+          {"distro": "almalinux", "release": "9", "architectures": ["amd64", "arm64"], "modules": ["nginx:1.24"], "packages": [{"name": "nginx"}]}
+        ]},
+        {"version": "1.22", "support": [
+          {"distro": "debian", "release": "12", "architectures": ["amd64", "arm64"], "packages": [{"name": "nginx", "constraint": "1.22"}]}
+        ]}
+      ],
+      "settings": [
+        {"key": "workerProcesses", "type": "enum", "group": "nginx", "default": "auto",
+         "enum": [{"value": "auto"}, {"value": "1"}, {"value": "2"}, {"value": "4"}, {"value": "8"}],
+         "label": {"en": "Worker processes", "de": "Worker-Prozesse"}, "help": {"en": "auto follows the CPU limit of the container.", "de": "auto folgt dem CPU-Limit des Containers."}},
+        {"key": "workerConnections", "type": "int", "group": "nginx", "default": 1024, "min": 64, "max": 65535,
+         "label": {"en": "Worker connections", "de": "Worker-Verbindungen"}, "help": {"en": "Connections per worker process.", "de": "Verbindungen pro Worker-Prozess."}},
+        {"key": "serverName", "type": "string", "group": "nginx", "default": "_", "pattern": "^(_|[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?)$", "maxLength": 253,
+         "label": {"en": "Server name", "de": "Servername"}, "help": {"en": "Host name, or _ for any.", "de": "Hostname oder _ für beliebig."}},
+        {"key": "documentRoot", "type": "string", "group": "nginx", "default": "/var/www/html", "pattern": "^/var/www(/[A-Za-z0-9._-]+)*$", "maxLength": 200,
+         "label": {"en": "Document root", "de": "Dokumentenwurzel"}, "help": {"en": "Must be below /var/www.", "de": "Muss unterhalb von /var/www liegen."}},
+        {"key": "clientMaxBodySize", "type": "string", "group": "nginx", "default": "1m", "pattern": "^[1-9][0-9]{0,5}[kKmMgG]?$", "maxLength": 8,
+         "label": {"en": "Maximum request body", "de": "Maximale Request-Größe"}, "help": {"en": "For example 1m or 64M. Keep it in line with upload_max_filesize.", "de": "Zum Beispiel 1m oder 64M. Passend zu upload_max_filesize wählen."}},
+        {"key": "keepaliveTimeout", "type": "int", "group": "nginx", "default": 65, "min": 0, "max": 600,
+         "label": {"en": "Keep-alive timeout (s)", "de": "Keep-alive-Timeout (s)"}},
+        {"key": "gzip", "type": "bool", "group": "nginx", "default": true,
+         "label": {"en": "Compress responses (gzip)", "de": "Antworten komprimieren (gzip)"}},
+        {"key": "serverTokens", "type": "bool", "group": "nginx", "default": false,
+         "label": {"en": "Show nginx version in headers", "de": "nginx-Version in Headern zeigen"}, "help": {"en": "Off is the hardening default.", "de": "Aus ist der Härtungsstandard."}},
+        {"key": "securityHeaders", "type": "bool", "group": "nginx", "default": true,
+         "label": {"en": "Send security headers", "de": "Sicherheits-Header senden"}, "help": {"en": "X-Content-Type-Options, X-Frame-Options, Referrer-Policy.", "de": "X-Content-Type-Options, X-Frame-Options, Referrer-Policy."}},
+        {"key": "fastcgiReadTimeout", "type": "int", "group": "nginx", "default": 60, "min": 1, "max": 3600, "needs": "php",
+         "label": {"en": "FastCGI read timeout (s)", "de": "FastCGI-Lese-Timeout (s)"}, "help": {"en": "Only used together with PHP.", "de": "Nur zusammen mit PHP wirksam."}}
+      ]
+    },
+    {
+      "id": "php", "name": {"en": "PHP", "de": "PHP"},
+      "kind": "runtime", "process": "companion",
+      "description": {"en": "PHP-FPM (CLI included). Together with nginx it runs as a companion process; alone the image runs PHP-FPM as its single main process.", "de": "PHP-FPM (inklusive CLI). Zusammen mit nginx läuft es als Begleitprozess; allein ist PHP-FPM der einzige Hauptprozess."},
+      "versions": [
+        {"version": "8.3", "support": [
+          {"distro": "alpine", "release": "3.20", "architectures": ["amd64", "arm64"], "prefix": "php83", "binary": "php-fpm83", "cli": "php83", "packages": [{"name": "php83"}, {"name": "php83-fpm"}]},
+          {"distro": "ubuntu", "release": "24.04", "architectures": ["amd64", "arm64"], "prefix": "php8.3", "binary": "php-fpm8.3", "packages": [{"name": "php8.3-cli", "constraint": "8.3"}, {"name": "php8.3-fpm", "constraint": "8.3"}]},
+          {"distro": "almalinux", "release": "9", "architectures": ["amd64", "arm64"], "prefix": "php", "binary": "php-fpm", "modules": ["php:8.3"], "packages": [{"name": "php-cli"}, {"name": "php-fpm"}]}
+        ]},
+        {"version": "8.2", "support": [
+          {"distro": "alpine", "release": "3.20", "architectures": ["amd64", "arm64"], "prefix": "php82", "binary": "php-fpm82", "cli": "php82", "packages": [{"name": "php82"}, {"name": "php82-fpm"}]},
+          {"distro": "debian", "release": "12", "architectures": ["amd64", "arm64"], "prefix": "php8.2", "binary": "php-fpm8.2", "packages": [{"name": "php8.2-cli", "constraint": "8.2"}, {"name": "php8.2-fpm", "constraint": "8.2"}]},
+          {"distro": "almalinux", "release": "9", "architectures": ["amd64", "arm64"], "prefix": "php", "binary": "php-fpm", "modules": ["php:8.2"], "packages": [{"name": "php-cli"}, {"name": "php-fpm"}]}
+        ]}
+      ],
+      "featureLabel": {"en": "PHP extensions", "de": "PHP-Erweiterungen"},
+      "features": [
+        {"id": "bcmath", "packages": {"alpine": ["{php}-bcmath"], "debian": ["{php}-bcmath"], "rhel": ["php-bcmath"]}},
+        {"id": "curl", "packages": {"alpine": ["{php}-curl"], "debian": ["{php}-curl"], "rhel": []}},
+        {"id": "exif", "packages": {"alpine": ["{php}-exif"], "debian": [], "rhel": []}},
+        {"id": "gd", "packages": {"alpine": ["{php}-gd"], "debian": ["{php}-gd"], "rhel": ["php-gd"]}},
+        {"id": "gmp", "packages": {"alpine": ["{php}-gmp"], "debian": ["{php}-gmp"], "rhel": ["php-gmp"]}},
+        {"id": "intl", "packages": {"alpine": ["{php}-intl"], "debian": ["{php}-intl"], "rhel": ["php-intl"]}},
+        {"id": "mbstring", "packages": {"alpine": ["{php}-mbstring"], "debian": ["{php}-mbstring"], "rhel": ["php-mbstring"]}},
+        {"id": "mysqli", "packages": {"alpine": ["{php}-mysqli"], "debian": ["{php}-mysql"], "rhel": ["php-mysqlnd"]}},
+        {"id": "opcache", "packages": {"alpine": ["{php}-opcache"], "debian": ["{php}-opcache"], "rhel": ["php-opcache"]}},
+        {"id": "pdo_mysql", "packages": {"alpine": ["{php}-pdo_mysql"], "debian": ["{php}-mysql"], "rhel": ["php-mysqlnd"]}},
+        {"id": "pdo_pgsql", "packages": {"alpine": ["{php}-pdo_pgsql"], "debian": ["{php}-pgsql"], "rhel": ["php-pgsql"]}},
+        {"id": "pgsql", "packages": {"alpine": ["{php}-pgsql"], "debian": ["{php}-pgsql"], "rhel": ["php-pgsql"]}},
+        {"id": "redis", "packages": {"alpine": ["{php}-pecl-redis"], "debian": ["php-redis"]}},
+        {"id": "sodium", "packages": {"alpine": ["{php}-sodium"], "debian": [], "rhel": []}},
+        {"id": "xml", "packages": {"alpine": ["{php}-xml", "{php}-dom", "{php}-simplexml"], "debian": ["{php}-xml"], "rhel": ["php-xml"]}},
+        {"id": "zip", "packages": {"alpine": ["{php}-zip"], "debian": ["{php}-zip"], "rhel": ["php-pecl-zip"]}}
+      ],
+      "settings": [
+        {"key": "memory_limit", "type": "string", "group": "php.ini", "default": "128M", "pattern": "^(-1|[1-9][0-9]{0,5}[KMG]?)$", "maxLength": 8, "target": "ini",
+         "label": {"en": "memory_limit", "de": "memory_limit"}, "help": {"en": "Per request, for example 256M. -1 (unlimited) is not recommended.", "de": "Pro Request, zum Beispiel 256M. -1 (unbegrenzt) wird nicht empfohlen."}},
+        {"key": "upload_max_filesize", "type": "string", "group": "php.ini", "default": "2M", "pattern": "^[1-9][0-9]{0,5}[KMG]?$", "maxLength": 8, "target": "ini",
+         "label": {"en": "upload_max_filesize", "de": "upload_max_filesize"}},
+        {"key": "post_max_size", "type": "string", "group": "php.ini", "default": "8M", "pattern": "^[1-9][0-9]{0,5}[KMG]?$", "maxLength": 8, "target": "ini",
+         "label": {"en": "post_max_size", "de": "post_max_size"}},
+        {"key": "max_execution_time", "type": "int", "group": "php.ini", "default": 30, "min": 0, "max": 3600, "target": "ini",
+         "label": {"en": "max_execution_time (s)", "de": "max_execution_time (s)"}},
+        {"key": "max_input_vars", "type": "int", "group": "php.ini", "default": 1000, "min": 100, "max": 100000, "target": "ini",
+         "label": {"en": "max_input_vars", "de": "max_input_vars"}},
+        {"key": "date.timezone", "type": "string", "group": "php.ini", "default": "UTC", "pattern": "^(UTC|[A-Z][A-Za-z_]+(/[A-Za-z_+-]+){1,2})$", "maxLength": 40, "target": "ini",
+         "label": {"en": "date.timezone", "de": "date.timezone"}, "help": {"en": "For example UTC or Europe/Berlin.", "de": "Zum Beispiel UTC oder Europe/Berlin."}},
+        {"key": "display_errors", "type": "bool", "group": "php.ini", "default": false, "target": "ini",
+         "label": {"en": "display_errors", "de": "display_errors"}, "help": {"en": "Off is the hardening default; errors go to the log.", "de": "Aus ist der Härtungsstandard; Fehler gehen ins Log."}},
+        {"key": "expose_php", "type": "bool", "group": "php.ini", "default": false, "target": "ini",
+         "label": {"en": "expose_php", "de": "expose_php"}, "help": {"en": "Adds the PHP version to response headers.", "de": "Fügt die PHP-Version in Antwort-Header ein."}},
+        {"key": "allow_url_fopen", "type": "bool", "group": "php.ini", "default": false, "target": "ini",
+         "label": {"en": "allow_url_fopen", "de": "allow_url_fopen"}, "help": {"en": "Off is the hardening default; some applications need it.", "de": "Aus ist der Härtungsstandard; manche Anwendungen brauchen es."}},
+        {"key": "session.cookie_httponly", "type": "bool", "group": "php.ini", "default": true, "target": "ini",
+         "label": {"en": "session.cookie_httponly", "de": "session.cookie_httponly"}},
+        {"key": "session.cookie_secure", "type": "bool", "group": "php.ini", "default": false, "target": "ini",
+         "label": {"en": "session.cookie_secure", "de": "session.cookie_secure"}, "help": {"en": "Enable when the site is served over HTTPS.", "de": "Aktivieren, wenn die Seite über HTTPS ausgeliefert wird."}},
+        {"key": "session.use_strict_mode", "type": "bool", "group": "php.ini", "default": true, "target": "ini",
+         "label": {"en": "session.use_strict_mode", "de": "session.use_strict_mode"}},
+        {"key": "opcache.enable", "type": "bool", "group": "opcache", "default": true, "target": "ini", "needsFeature": "opcache",
+         "label": {"en": "opcache.enable", "de": "opcache.enable"}},
+        {"key": "opcache.memory_consumption", "type": "int", "group": "opcache", "default": 128, "min": 8, "max": 4096, "target": "ini", "needsFeature": "opcache",
+         "label": {"en": "opcache.memory_consumption (MB)", "de": "opcache.memory_consumption (MB)"}},
+        {"key": "pm", "type": "enum", "group": "php-fpm pool", "default": "dynamic", "target": "pool",
+         "enum": [{"value": "dynamic"}, {"value": "static"}, {"value": "ondemand"}],
+         "label": {"en": "Process manager (pm)", "de": "Prozessmanager (pm)"}},
+        {"key": "pm.max_children", "type": "int", "group": "php-fpm pool", "default": 10, "min": 1, "max": 1000, "target": "pool",
+         "label": {"en": "pm.max_children", "de": "pm.max_children"}},
+        {"key": "pm.start_servers", "type": "int", "group": "php-fpm pool", "default": 2, "min": 1, "max": 1000, "target": "pool",
+         "label": {"en": "pm.start_servers", "de": "pm.start_servers"}, "help": {"en": "Only for dynamic.", "de": "Nur für dynamic."}},
+        {"key": "pm.min_spare_servers", "type": "int", "group": "php-fpm pool", "default": 1, "min": 1, "max": 1000, "target": "pool",
+         "label": {"en": "pm.min_spare_servers", "de": "pm.min_spare_servers"}, "help": {"en": "Only for dynamic.", "de": "Nur für dynamic."}},
+        {"key": "pm.max_spare_servers", "type": "int", "group": "php-fpm pool", "default": 3, "min": 1, "max": 1000, "target": "pool",
+         "label": {"en": "pm.max_spare_servers", "de": "pm.max_spare_servers"}, "help": {"en": "Only for dynamic.", "de": "Nur für dynamic."}},
+        {"key": "pm.max_requests", "type": "int", "group": "php-fpm pool", "default": 500, "min": 0, "max": 100000, "target": "pool",
+         "label": {"en": "pm.max_requests", "de": "pm.max_requests"}, "help": {"en": "0 never recycles workers.", "de": "0 recycelt Worker nie."}},
+        {"key": "request_terminate_timeout", "type": "int", "group": "php-fpm pool", "default": 60, "min": 0, "max": 3600, "target": "pool",
+         "label": {"en": "request_terminate_timeout (s)", "de": "request_terminate_timeout (s)"}},
+        {"key": "catch_workers_output", "type": "bool", "group": "php-fpm pool", "default": true, "target": "pool",
+         "label": {"en": "catch_workers_output", "de": "catch_workers_output"}, "help": {"en": "Send worker stderr to the container log.", "de": "Worker-stderr ins Container-Log leiten."}}
+      ]
+    },
+    {
+      "id": "composer", "name": {"en": "Composer", "de": "Composer"},
+      "kind": "tool", "process": "none", "requires": ["php"],
+      "description": {"en": "PHP dependency manager from the distribution package, no download script.", "de": "PHP-Abhängigkeitsverwaltung aus dem Distributionspaket, kein Download-Skript."},
+      "versions": [
+        {"version": "2", "support": [
+          {"distro": "alpine", "release": "3.20", "architectures": ["amd64", "arm64"], "packages": [{"name": "composer"}]},
+          {"distro": "debian", "release": "12", "architectures": ["amd64", "arm64"], "packages": [{"name": "composer"}]},
+          {"distro": "ubuntu", "release": "24.04", "architectures": ["amd64", "arm64"], "packages": [{"name": "composer"}]}
+        ]}
+      ]
+    },
+    {
+      "id": "utilities", "name": {"en": "Utilities", "de": "Hilfsprogramme"},
+      "kind": "utility", "process": "none",
+      "description": {"en": "Selected distribution packages without a process of their own.", "de": "Ausgewählte Distributionspakete ohne eigenen Prozess."},
+      "versions": [
+        {"version": "distro", "support": [
+          {"distro": "alpine", "release": "3.20", "architectures": ["amd64", "arm64"]},
+          {"distro": "debian", "release": "12", "architectures": ["amd64", "arm64"]},
+          {"distro": "ubuntu", "release": "24.04", "architectures": ["amd64", "arm64"]},
+          {"distro": "almalinux", "release": "9", "architectures": ["amd64", "arm64"]}
+        ]}
+      ],
+      "featureLabel": {"en": "Packages", "de": "Pakete"},
+      "features": [
+        {"id": "ca-certificates", "packages": {"alpine": ["ca-certificates"], "debian": ["ca-certificates"], "rhel": ["ca-certificates"]}},
+        {"id": "curl", "packages": {"alpine": ["curl"], "debian": ["curl"], "rhel": ["curl"]}},
+        {"id": "ghostscript", "packages": {"alpine": ["ghostscript"], "debian": ["ghostscript"], "rhel": ["ghostscript"]}},
+        {"id": "imagemagick", "packages": {"alpine": ["imagemagick"], "debian": ["imagemagick"], "rhel": ["ImageMagick"]}},
+        {"id": "msmtp", "packages": {"alpine": ["msmtp"], "debian": ["msmtp"], "rhel": ["msmtp"]}},
+        {"id": "tzdata", "packages": {"alpine": ["tzdata"], "debian": ["tzdata"], "rhel": ["tzdata"]}}
+      ]
+    }
+  ]
+}

@@ -200,6 +200,11 @@ func renderDockerfile(n WebServerSpec, r Rendered) string {
 	return b.String()
 }
 
+// ComputeContextHash hashes a rendered context (Dockerfile and files) the
+// way Render does, so other generators (internal/imagecompose) produce hashes
+// the build service can verify.
+func ComputeContextHash(r Rendered) string { return contextHash(r) }
+
 // contextHash hashes the Dockerfile and all files in sorted order with
 // length prefixes, so no two different contexts collide by concatenation.
 func contextHash(r Rendered) string {

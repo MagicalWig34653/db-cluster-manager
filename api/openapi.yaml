@@ -2174,6 +2174,99 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
+  /image-composer/catalog:
+    get:
+      summary: Image composer component catalog (X17, proposal, fakes only)
+      description: >-
+        The versioned catalog the composer offers: base distributions and
+        releases with architectures, components (nginx, PHP, Composer,
+        utilities) with the compatibility matrix (component version x
+        distribution release x architecture), selectable features such as
+        PHP extensions, and the typed settings schema per component (type,
+        range, enum, pattern, defaults, German and English labels). Only
+        what is listed can be selected or set. `evidence` is `unverified`
+        until upstream documents or real builds confirm the data. Needs
+        image_build read permission (viewer).
+      operationId: getImageComposerCatalog
+      responses:
+        "200":
+          description: Catalog
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ComposerCatalog" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /image-composer/preview:
+    post:
+      summary: Validate a recipe and preview the generated Dockerfile and files
+      description: >-
+        Validates the recipe against the catalog and, when valid, returns the
+        normalized recipe, the recipe digest, the generated Dockerfile and
+        configuration files, the package list (input for SBOM and vulnerability
+        inventory), warnings, hardening and reproducibility notes and the
+        base-release variants. An invalid recipe is answered with 200 and
+        `valid: false` plus `issues` (path and message), so a form can show
+        the findings while the user edits. Nothing is built. Needs image_build
+        create permission (operator, administrator); denials are audited.
+      operationId: previewImageComposerRecipe
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [recipe]
+              properties:
+                recipe: { $ref: "#/components/schemas/ComposerRecipe" }
+      responses:
+        "200":
+          description: Preview or findings
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ComposerPreview" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /image-composer/builds:
+    post:
+      summary: Plan a build of a recipe, then start it with the plan's approval digest
+      description: >-
+        Without `approvalDigest` the recipe is validated, rendered server side
+        and answered with the build plan (200, nothing built). With
+        `approvalDigest` equal to the `digest` of the reviewed plan the build
+        starts through the image build service and the job is returned (202);
+        a recipe, target or platform that changed after the review gives a
+        different plan digest and is refused with 409 approval_mismatch. The
+        client never supplies a Dockerfile. The base image must be pinned by
+        digest. Needs image_build update permission (administrator only);
+        denials are audited. Fakes only: no image has been built by a real
+        builder.
+      operationId: buildImageComposerRecipe
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ComposerBuildRequest" }
+      responses:
+        "200":
+          description: Plan preview
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ImageBuildResult" }
+        "202":
+          description: Build started (or finished, with the fake builder)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ImageBuildResult" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
   /registries:
     get:
       summary: Configured container registries (proposal, fakes only)
@@ -4442,6 +4535,203 @@ components:
               detail: { type: string }
         warnings: { type: array, items: { type: string } }
         explanation: { type: string }
+    ComposerRecipe:
+      type: object
+      additionalProperties: false
+      required: [name, base, components]
+      properties:
+        name: { type: string }
+        base:
+          type: object
+          additionalProperties: false
+          required: [distro, release, digest]
+          properties:
+            distro: { type: string }
+            release: { type: string }
+            digest: { type: string, description: "sha256:<64 hex>; floating tags are not built" }
+        platforms: { type: array, items: { type: string, enum: [linux/amd64, linux/arm64] } }
+        components:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, version]
+            properties:
+              id: { type: string }
+              version: { type: string }
+              features: { type: array, items: { type: string } }
+              settings:
+                type: object
+                description: Only keys of the catalog settings schema; typed and range-checked.
+                additionalProperties: true
+    ComposerBuildRequest:
+      type: object
+      additionalProperties: false
+      required: [recipe, target]
+      properties:
+        recipe: { $ref: "#/components/schemas/ComposerRecipe" }
+        target:
+          type: object
+          required: [registry, repository, tag]
+          properties:
+            registry: { type: string }
+            repository: { type: string }
+            tag: { type: string }
+        approvalDigest: { type: string }
+    ComposerIssue:
+      type: object
+      required: [path, message]
+      properties:
+        path: { type: string, description: "For example components[php].settings.pm" }
+        message: { type: string }
+    ComposerPreview:
+      type: object
+      required: [valid, issues, variants]
+      properties:
+        valid: { type: boolean }
+        issues: { type: array, items: { $ref: "#/components/schemas/ComposerIssue" } }
+        variants:
+          type: array
+          items:
+            type: object
+            required: [distro, release, name, compatible]
+            properties:
+              distro: { type: string }
+              release: { type: string }
+              name: { type: string }
+              compatible: { type: boolean }
+              problems: { type: array, items: { type: string } }
+              versions: { type: object, additionalProperties: { type: string }, description: Newest version per component on that release }
+        recipe: { $ref: "#/components/schemas/ComposerRecipe" }
+        digest: { type: string }
+        role: { type: string, enum: [web, fpm] }
+        baseImage: { type: string }
+        contextHash: { type: string }
+        dockerfile: { type: string }
+        files:
+          type: array
+          items:
+            type: object
+            required: [path, mode, content]
+            properties:
+              path: { type: string }
+              mode: { type: integer }
+              content: { type: string }
+        packages:
+          type: array
+          items:
+            type: object
+            required: [component, name]
+            properties:
+              component: { type: string }
+              name: { type: string }
+              constraint: { type: string }
+        modules: { type: array, items: { type: string } }
+        warnings: { type: array, items: { type: string } }
+        notes: { type: array, items: { type: string } }
+    ComposerCatalog:
+      type: object
+      required: [schemaVersion, version, evidence, distros, components]
+      properties:
+        schemaVersion: { type: integer }
+        version: { type: string }
+        evidence: { type: string, enum: [unverified] }
+        distros:
+          type: array
+          items:
+            type: object
+            required: [id, name, family, releases]
+            properties:
+              id: { type: string }
+              name: { type: string }
+              family: { type: string, enum: [alpine, debian, rhel] }
+              releases:
+                type: array
+                items:
+                  type: object
+                  required: [id, name, image, tag, architectures]
+                  properties:
+                    id: { type: string }
+                    name: { type: string }
+                    image: { type: string }
+                    tag: { type: string }
+                    architectures: { type: array, items: { type: string } }
+        components:
+          type: array
+          items:
+            type: object
+            required: [id, name, description, kind, process, versions]
+            properties:
+              id: { type: string }
+              name: { $ref: "#/components/schemas/ComposerText" }
+              description: { $ref: "#/components/schemas/ComposerText" }
+              kind: { type: string, enum: [server, runtime, tool, utility] }
+              process: { type: string, enum: [main, companion, none] }
+              requires: { type: array, items: { type: string } }
+              conflicts: { type: array, items: { type: string } }
+              versions:
+                type: array
+                items:
+                  type: object
+                  required: [version, support]
+                  properties:
+                    version: { type: string }
+                    support:
+                      type: array
+                      items:
+                        type: object
+                        required: [distro, release, architectures]
+                        properties:
+                          distro: { type: string }
+                          release: { type: string }
+                          architectures: { type: array, items: { type: string } }
+                          packages:
+                            type: array
+                            items:
+                              type: object
+                              required: [name]
+                              properties:
+                                name: { type: string }
+                                constraint: { type: string }
+                          modules: { type: array, items: { type: string } }
+                          prefix: { type: string }
+                          binary: { type: string }
+                          cli: { type: string }
+              featureLabel: { $ref: "#/components/schemas/ComposerText" }
+              features:
+                type: array
+                items:
+                  type: object
+                  required: [id, packages]
+                  properties:
+                    id: { type: string }
+                    packages: { type: object, additionalProperties: { type: array, items: { type: string } } }
+              settings:
+                type: array
+                items:
+                  type: object
+                  required: [key, type, label, default]
+                  properties:
+                    key: { type: string }
+                    type: { type: string, enum: [bool, int, enum, string] }
+                    group: { type: string }
+                    label: { $ref: "#/components/schemas/ComposerText" }
+                    help: { $ref: "#/components/schemas/ComposerText" }
+                    default: {}
+                    min: { type: integer }
+                    max: { type: integer }
+                    enum: { type: array, items: { type: object, properties: { value: { type: string } } } }
+                    pattern: { type: string }
+                    maxLength: { type: integer }
+                    target: { type: string, enum: [ini, pool] }
+                    needs: { type: string }
+                    needsFeature: { type: string }
+    ComposerText:
+      type: object
+      required: [en, de]
+      properties:
+        en: { type: string }
+        de: { type: string }
     ImageBuildJob:
       type: object
       required: [id, status, specHash, contextHash, planDigest, reference, sbom]
@@ -4450,6 +4740,8 @@ components:
         name: { type: string }
         status: { type: string, enum: [running, succeeded, failed] }
         spec: { type: object }
+        source: { type: string, enum: [composer], description: "Set for jobs from the image composer; `specHash` is then the recipe digest" }
+        recipe: { type: object, description: Normalized composer recipe }
         specHash: { type: string }
         contextHash: { type: string }
         planDigest: { type: string }
