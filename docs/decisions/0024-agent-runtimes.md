@@ -20,8 +20,18 @@ Status: **Implemented with fakes and loopback listeners; not run on VMs**, 2026-
 
 ## Known limits
 
-- **One identity slot per host.** The enrollment record holds one agent serial per host. The container agent and the native agent of one host share the host ID and URI SAN; enrolling the second one supersedes (and revokes) the certificate of the first. Running both on one host is therefore **not yet supported end to end**; the routing, reports and tests treat them as two runtimes, but a per-runtime identity (one serial and one URI SAN per runtime) is future work. Until then each host should run one of them, or the second must use a different `-host-id` mapping decided by the operator.
+- The identity-slot limitation is superseded by the addendum below.
 - Fakes and loopback only: no VM, no real restic on the native agent, no real systemd install. `host-maintenance` and `diagnostics` are names only.
 - Report-mode native agents run unprivileged and cannot read root-owned data; use the apply-mode (root) install for whole-host backups or grant the `dbcm-patch` user read access to the allow-listed paths.
 - The UI shows a runtime badge per host and a gap note; per-function and per-operation display is missing (the API has it).
 - API error bodies carry only the stable code; the reason is in `runtimeNote` of the host source and in the manager log.
+
+## Addendum: independent identities per runtime (2026-10-28)
+
+The container and native agents now use separate certificate slots on the same host. The legacy URI `dbcm://<installation>/agent/<host>` and legacy host-record fields remain the container identity. The native URI is `dbcm://<installation>/agent/<host>/native`; its serial, expiry and issue time are stored under `AgentIdentities[native]`. A new container certificate is also written to `AgentIdentities[container]` and mirrored to the legacy fields. Existing single-slot hosts therefore need no migration. A token can be consumed once for each host/runtime pair; the legacy host-only token-use key is the container slot. Renewal derives its slot from the authenticated URI, checks that the request reports the same runtime, rotates only that slot and revokes only its previous serial. The manager transport verifies the runtime URI **and** current serial before accepting a peer; the replicated deny list rejects superseded serials. Each command gets a new TLS handshake, so a cached connection cannot keep an old certificate valid. The leader records separate deny-list acknowledgements for container and native agents and retries either runtime independently. Host unenrollment revokes both; the host-update-authorized `POST /hosts/{id}/agents/{runtime}/revoke` revokes only one runtime without removing host enrollment.
+
+Alternatives: a second host ID for the native agent would split scheduling, audit and host protection across two records; reusing one certificate would let either runtime impersonate the other. Distinct URI SANs and slots keep the routing table tied to one physical host while preserving legacy container trust. The token remains scoped to the enrolled host and installation; native installation still depends on the existing reviewed SSH install path.
+
+Evidence: in-memory PKI and mTLS-verifier tests check simultaneous certificates, independent rotation and pinning; fake tests check per-runtime deny-list retries, revocation authorization and the API route. Existing loopback enrollment and patch-agent tests are available for the HTTP path, but this sandbox denied their local listeners. No VM or real systemd/Swarm coexistence run was performed in this increment.
+
+Migration: an agent enrolled as native by the old build still carries the legacy container URI. It cannot renew into a native URI; enroll it anew with a fresh token after upgrading. The manager intentionally treats its old record as container until that happens.

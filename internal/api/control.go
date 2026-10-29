@@ -93,8 +93,10 @@ type Host struct {
 
 // HostAgentRuntime is one agent's runtime report.
 type HostAgentRuntime struct {
-	Runtime      string   `json:"runtime"` // native or container
-	Capabilities []string `json:"capabilities"`
+	Runtime              string    `json:"runtime"` // native or container
+	Capabilities         []string  `json:"capabilities"`
+	Identity             bool      `json:"identity"` // a current certificate is recorded for this runtime
+	CertificateExpiresAt time.Time `json:"certificateExpiresAt,omitzero"`
 }
 
 // Enrollment states of a host.
@@ -232,6 +234,7 @@ type Control interface {
 	SyncSwarm(ctx context.Context, actor authz.Subject, swarmID string) error
 	DeployAgents(ctx context.Context, actor authz.Subject, swarmID string) (AgentDeployment, error)
 	SetEnrollment(ctx context.Context, actor authz.Subject, swarmID, nodeID string, enroll bool) (Host, error)
+	RevokeAgent(ctx context.Context, actor authz.Subject, swarmID, nodeID, runtime string) (Host, error)
 	CreateCluster(ctx context.Context, actor authz.Subject, req CreateClusterRequest) (OperationRef, error)
 	ReplaceNode(ctx context.Context, actor authz.Subject, clusterID, slot string) (OperationRef, error)
 	// DeleteCluster starts the deletion of a cluster (also a failed
@@ -442,6 +445,9 @@ func (Unavailable) DeployAgents(context.Context, authz.Subject, string) (AgentDe
 	return AgentDeployment{}, ErrUnavailable
 }
 func (Unavailable) SetEnrollment(context.Context, authz.Subject, string, string, bool) (Host, error) {
+	return Host{}, ErrUnavailable
+}
+func (Unavailable) RevokeAgent(context.Context, authz.Subject, string, string, string) (Host, error) {
 	return Host{}, ErrUnavailable
 }
 func (Unavailable) CreateCluster(context.Context, authz.Subject, CreateClusterRequest) (OperationRef, error) {

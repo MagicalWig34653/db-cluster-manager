@@ -1,6 +1,18 @@
 # Current status
 
-Updated: 2026-10-27.
+Updated: 2026-10-28.
+
+## Per-runtime agent identities and outage-test stabilization (2026-10-28, ADR 0024 addendum; fakes only, no VM)
+
+The host now has independent `container` and `native` certificate slots. The old URI and `AgentSerial` fields are the container slot for existing hosts; native uses a `/native` URI SAN and its own serial, expiry, renewal and revocation. An enrollment token is usable once per host and runtime. The manager checks both URI and current serial at each new TLS handshake, and disables command-connection reuse so a rotated certificate cannot stay valid through an idle connection. Host unenrollment denies both serials; the new host-update-authorized `POST /hosts/{id}/agents/{runtime}/revoke` revokes one runtime while leaving the other enrolled. The leader tracks deny-list acknowledgements per runtime and retries failures separately. The native patch transport uses its native identity; the routing table retains an unreported legacy container agent when a native report appears. `GET /hosts` exposes each slot's certificate presence and expiry through `agents`; OpenAPI, DE/EN guide 24 and ADR 0024 were updated.
+
+The previously intermittent `TestOutageRecoveryRefusesZeroUUIDPrimaryBeforeAgentRecovery` had two Primary observations. Iteration over the health map could return the ordinary Primary error before the Zero-UUID error. Its fixture now has exactly one Primary (the Zero-UUID node), preserving the intended early-refusal assertion. Before the fix the test failed repeatedly in a 50-count run under a parallel race-test build; after the fix the 50-count run passed under the same style of load. No sleep or timeout was increased.
+
+Actual checks: focused fake tests for PKI pins/rotation, enrollment and renewal runtime isolation, token use, revocation authorization, deny-list retries, legacy routing and the new API route/OpenAPI contract passed under `-race`; `go test -count=50 ./internal/manager -run '^TestOutageRecoveryRefusesZeroUUIDPrimaryBeforeAgentRecovery$'` passed under concurrent `go test -race -count=1 -p 8 ./...` load. That stress suite exited 1: local TCP/Unix bind was denied and one listener-dependent `cmd/agent` test timed out after 10 minutes. The requested `go test -race -count=1 -p 4 ./...` also exited 1 for the same sandbox restrictions (147 bind-denied messages and the listener-dependent timeout); it began before the final API addition, which passed the focused race tests separately. `gofmt -l .` was empty, `go vet ./...` passed, `python3 scripts/check_docs.py` passed (98 files, 71 requirements), and `python3 scripts/check_deploy.py` passed (static text-level checks; PyYAML absent). Frontend `npm run check` could not start because `web/node_modules` is absent (`svelte-kit: command not found`).
+
+Limits: no VM, Swarm or real systemd coexistence run. This sandbox refuses local TCP binds, so listener-backed integration tests cannot pass here. The native agent's secrets directory still needs manager provisioning, and the UI still lacks a per-function runtime view. An old native agent with the legacy container URI must enroll anew with a native certificate.
+
+Git handover: no push. Staging/commit could not run because the shared worktree Git metadata is outside the writable sandbox (`.git/worktrees/cx-ident/index.lock`: operation not permitted). The changes remain unstaged in this worktree.
 
 ## Agent runtimes and capability routing (2026-10-27, ADR 0024, fakes and loopback only; no VM used)
 
@@ -17,7 +29,7 @@ Implemented:
 
 Actual checks (final tree): `gofmt -l .` (no output), `go vet ./...` (no output), `go test -race -count=1 -p 4 ./...` (48 packages ok), `python3 scripts/check_docs.py` (98 Markdown files, 71 requirements, 0 errors), `python3 scripts/check_deploy.py` (passed, static only), web `npm run check` (0 errors), `npm test` (213 passed), `npm run build` ok. One unrelated timing-sensitive manager test (`TestOutageRecoveryRefusesZeroUUIDPrimaryBeforeAgentRecovery`) failed once in a loaded non-race run and passed alone and in the final race run.
 
-Limits: no VM, no real restic on the native agent, no real systemd install of the new flags. **One identity slot per host**: container and native agent of the same host supersede each other's certificate, so running both on one host is not supported end to end yet (per-runtime identity is future work). The manager does not fill the native agent's secrets directory. `host-maintenance`/`diagnostics` are reserved names only. Report-mode native agents are unprivileged and read only what `dbcm-patch` can read. UI shows a host badge only (per-function/operation view missing). API errors carry only the stable code; the reason is in `runtimeNote` and the log.
+Limits at the time of this increment: no VM, no real restic on the native agent, no real systemd install of the new flags. The one-identity-slot limit was closed by the 2026-10-28 increment above. The manager does not fill the native agent's secrets directory. `host-maintenance`/`diagnostics` are reserved names only. Report-mode native agents are unprivileged and read only what `dbcm-patch` can read. UI shows a host badge only (per-function/operation view missing). API errors carry only the stable code; the reason is in `runtimeNote` and the log.
 
 ## Patch management wiring, revocation, durable replay, RPM ordering (2026-10-27, X15/W12, fakes and loopback only; no VM used)
 

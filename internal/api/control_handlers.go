@@ -89,6 +89,25 @@ func (s *server) handleHostEnrollment(enroll bool) func(http.ResponseWriter, *ht
 	}
 }
 
+func (s *server) handleRuntimeAgentRevocation(w http.ResponseWriter, r *http.Request, c *caller) {
+	var empty struct{}
+	if !decodeJSON(w, r, &empty, true) {
+		return
+	}
+	runtime := r.PathValue("runtime")
+	if runtime != "container" && runtime != "native" {
+		s.writeServiceError(w, r, ErrInvalidInput)
+		return
+	}
+	h := c.target.(Host)
+	out, err := s.control().RevokeAgent(r.Context(), c.subject, h.Swarm, h.NodeID, runtime)
+	if err != nil {
+		s.writeServiceError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, normalizeHost(out))
+}
+
 func (s *server) resolveNewSwarm(*http.Request) (authz.Resource, any, error) {
 	return authz.Resource{Type: authz.ResourceSwarm, Scope: authz.Global}, nil, nil
 }

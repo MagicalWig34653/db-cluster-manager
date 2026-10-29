@@ -91,7 +91,7 @@
 						<Table.Cell class="font-mono text-xs">{h.agentVersion ?? t('stateUnknown')}</Table.Cell>
 						<Table.Cell>
 							{#each h.agents ?? [] as a (a.runtime)}
-								<span class="mr-1 inline-block rounded border px-1.5 py-0.5 text-xs" title={a.capabilities.join(', ')} data-testid="runtime-badge">{t(a.runtime === 'native' ? 'runtimeNative' : 'runtimeContainer')}: {a.capabilities.join(', ')}</span>
+								<span class="mr-1 inline-block rounded border px-1.5 py-0.5 text-xs" title={a.capabilities.join(', ')} data-testid="runtime-badge">{t(a.runtime === 'native' ? 'runtimeNative' : 'runtimeContainer')}{#if a.capabilities.length > 0}: {a.capabilities.join(', ')}{/if}</span>
 							{:else}
 								<span class="text-xs text-muted-foreground">{t('runtimeNone')}</span>
 							{/each}

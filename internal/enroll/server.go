@@ -99,7 +99,7 @@ var (
 // Authority signs agent certificates. Every identity in the certificate
 // comes from the manager's records for hostID, never from the CSR.
 type Authority interface {
-	SignAgent(ctx context.Context, hostID string, csr *x509.CertificateRequest) (*certs.Signed, error)
+	SignAgent(ctx context.Context, hostID string, runtime agentrt.Runtime, csr *x509.CertificateRequest) (*certs.Signed, error)
 	// CABundlePEM is sent to the agent; it must contain the pinned CA.
 	CABundlePEM() []byte
 	// ClientCAs verifies agent certificates presented for renewal.
@@ -110,12 +110,12 @@ type Authority interface {
 type Registry interface {
 	// ConsumeToken validates the plain token for hostID and marks it used,
 	// atomically. source is the request's peer IP.
-	ConsumeToken(ctx context.Context, plain, hostID string, source net.IP) error
+	ConsumeToken(ctx context.Context, plain, hostID string, runtime agentrt.Runtime, source net.IP) error
 	// CurrentSerial returns the serial (hex) recorded for hostID; ok is
 	// false when the host is not enrolled.
-	CurrentSerial(ctx context.Context, hostID string) (serial string, ok bool, err error)
+	CurrentSerial(ctx context.Context, hostID string, runtime agentrt.Runtime) (serial string, ok bool, err error)
 	// RecordIssued stores cert as hostID's current agent identity.
-	RecordIssued(ctx context.Context, hostID string, cert *x509.Certificate) error
+	RecordIssued(ctx context.Context, hostID string, runtime agentrt.Runtime, cert *x509.Certificate) error
 	// Revoked reports a denied serial.
 	Revoked(serial *big.Int) bool
 }
@@ -219,7 +219,11 @@ func (s *Server) enroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Parse before consuming: a malformed request does not burn the token.
-	if err := s.Registry.ConsumeToken(r.Context(), req.Token, req.HostID, peerIP(r)); err != nil {
+	runtime := info.Runtime
+	if runtime == "" {
+		runtime = agentrt.Container
+	}
+	if err := s.Registry.ConsumeToken(r.Context(), req.Token, req.HostID, runtime, peerIP(r)); err != nil {
 		s.log().Warn("enroll: enrollment refused", "host", req.HostID, "peer", r.RemoteAddr, "err", err)
 		switch {
 		case errors.Is(err, ErrUnavailable):
@@ -236,13 +240,17 @@ func (s *Server) enroll(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) issue(w http.ResponseWriter, r *http.Request, host string, csr *x509.CertificateRequest, what string, info agentrt.Info, present bool) {
-	signed, err := s.Authority.SignAgent(r.Context(), host, csr)
+	runtime := info.Runtime
+	if runtime == "" {
+		runtime = agentrt.Container
+	}
+	signed, err := s.Authority.SignAgent(r.Context(), host, runtime, csr)
 	if err != nil {
 		s.log().Error("enroll: signing failed", "host", host, "err", err)
 		fail(w, http.StatusInternalServerError, "sign-failed", "certificate could not be issued")
 		return
 	}
-	if err := s.Registry.RecordIssued(r.Context(), host, signed.Cert); err != nil {
+	if err := s.Registry.RecordIssued(r.Context(), host, runtime, signed.Cert); err != nil {
 		s.log().Error("enroll: identity not recorded; certificate discarded", "host", host, "err", err)
 		status := http.StatusInternalServerError
 		if errors.Is(err, ErrUnavailable) {
@@ -260,17 +268,32 @@ func (s *Server) issue(w http.ResponseWriter, r *http.Request, host string, csr 
 // HostFromAgentURI extracts the host ID from an agent identity of the
 // installation; ok is false for anything else.
 func HostFromAgentURI(cert *x509.Certificate, installation string) (string, bool) {
+	host, _, ok := RuntimeFromAgentURI(cert, installation)
+	return host, ok
+}
+
+// RuntimeFromAgentURI returns the host and runtime of exactly one agent URI.
+// The historical URI without a runtime suffix is the container slot.
+func RuntimeFromAgentURI(cert *x509.Certificate, installation string) (string, agentrt.Runtime, bool) {
 	prefix := certs.AgentURI(installation, "").String()
 	host := ""
+	runtime := agentrt.Container
 	for _, u := range cert.URIs {
 		if s := u.String(); strings.HasPrefix(s, prefix) && len(s) > len(prefix) {
 			if host != "" {
-				return "", false // ambiguous
+				return "", "", false // ambiguous
 			}
-			host = s[len(prefix):]
+			parts := strings.Split(s[len(prefix):], "/")
+			if len(parts) == 1 {
+				host = parts[0]
+			} else if len(parts) == 2 && parts[1] == string(agentrt.Native) {
+				host, runtime = parts[0], agentrt.Native
+			} else {
+				return "", "", false
+			}
 		}
 	}
-	return host, host != "" && !strings.Contains(host, "/")
+	return host, runtime, host != ""
 }
 
 func (s *Server) renew(w http.ResponseWriter, r *http.Request) {
@@ -291,12 +314,12 @@ func (s *Server) renew(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	host, ok := HostFromAgentURI(leaf, s.Installation)
+	host, runtime, ok := RuntimeFromAgentURI(leaf, s.Installation)
 	if !ok {
 		fail(w, http.StatusForbidden, "forbidden", "not an agent certificate of this installation")
 		return
 	}
-	cur, ok, err := s.Registry.CurrentSerial(r.Context(), host)
+	cur, ok, err := s.Registry.CurrentSerial(r.Context(), host, runtime)
 	if err != nil {
 		fail(w, http.StatusServiceUnavailable, "unavailable", "registry unavailable")
 		return
@@ -315,6 +338,13 @@ func (s *Server) renew(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		fail(w, http.StatusBadRequest, "runtime-mismatch", err.Error())
 		return
+	}
+	if present && info.Runtime != runtime {
+		fail(w, http.StatusBadRequest, "runtime-mismatch", "renewal runtime differs from certificate identity")
+		return
+	}
+	if !present {
+		info.Runtime = runtime
 	}
 	s.issue(w, r, host, csr, "renewed", info, present)
 }

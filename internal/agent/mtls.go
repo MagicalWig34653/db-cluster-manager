@@ -62,6 +62,9 @@ type MTLSClientConfig struct {
 	RootCAs *x509.CertPool
 	// AgentIdentity is the URI SAN the agent must present.
 	AgentIdentity *url.URL
+	// CurrentSerial returns the pinned current serial for this host/runtime.
+	// Empty or unavailable means the peer is not enrolled.
+	CurrentSerial func() (string, error)
 	Revoked       func(serial *big.Int) bool
 	Now           func() time.Time
 	// Timeout bounds one request; default 5 minutes (commands may scale
@@ -157,7 +160,19 @@ func ClientTLSConfig(c MTLSClientConfig) (*tls.Config, error) {
 		// VerifyConnection below performs the complete verification.
 		InsecureSkipVerify: true, //nolint:gosec // replaced by VerifyConnection
 		VerifyConnection: func(cs tls.ConnectionState) error {
-			return VerifyPeer(cs.PeerCertificates, c.RootCAs, x509.ExtKeyUsageServerAuth, want, now(), c.Revoked)
+			if err := VerifyPeer(cs.PeerCertificates, c.RootCAs, x509.ExtKeyUsageServerAuth, want, now(), c.Revoked); err != nil {
+				return err
+			}
+			if c.CurrentSerial != nil {
+				serial, err := c.CurrentSerial()
+				if err != nil {
+					return err
+				}
+				if serial == "" || len(cs.PeerCertificates) == 0 || cs.PeerCertificates[0].SerialNumber.Text(16) != serial {
+					return fmt.Errorf("%w: agent certificate is not current", ErrPeerIdentity)
+				}
+			}
+			return nil
 		},
 		Time: now,
 	}, nil
@@ -200,7 +215,9 @@ func NewMTLSClient(baseURL string, c MTLSClientConfig) (*Client, error) {
 	if timeout <= 0 {
 		timeout = 5 * time.Minute
 	}
-	tr := &http.Transport{TLSClientConfig: tc, ForceAttemptHTTP2: false, MaxIdleConnsPerHost: 2,
-		IdleConnTimeout: time.Minute, TLSHandshakeTimeout: 10 * time.Second}
+	// Recheck the current serial on every command. A reused TLS connection
+	// could otherwise keep accepting a certificate after renewal or revocation.
+	tr := &http.Transport{TLSClientConfig: tc, ForceAttemptHTTP2: false, DisableKeepAlives: true,
+		TLSHandshakeTimeout: 10 * time.Second}
 	return &Client{BaseURL: baseURL, HTTP: &http.Client{Transport: tr, Timeout: timeout}}, nil
 }

@@ -19,7 +19,7 @@ import (
 // native patch agent of an enrolled host over the same mTLS transport and
 // CA as the main agent, on the patch agent's own port. The host ID of the
 // patch service is the node ID of the enrolled host record; the agent must
-// present its identity (URI SAN) and a non-revoked certificate.
+// present its native identity (URI SAN) and current, non-revoked certificate.
 type PatchAgentDirectory struct {
 	// Dir resolves host addresses and supplies the PKI; its Port is the patch
 	// agent's listen port (default 7445 is applied by the caller).
@@ -49,7 +49,8 @@ func (d *PatchAgentDirectory) client(nodeID, base string) (*http.Client, error) 
 	tc, err := agent.ClientTLSConfig(agent.MTLSClientConfig{
 		Certificate:   d.Dir.PKI.ManagerClientCertificate,
 		RootCAs:       ca.Pool(),
-		AgentIdentity: certs.AgentURI(inst, nodeID),
+		AgentIdentity: certs.RuntimeAgentURI(inst, nodeID, string(agentrt.Native)),
+		CurrentSerial: func() (string, error) { return d.Dir.currentSerial(nodeID, agentrt.Native) },
 		Revoked:       d.Dir.PKI.Revoked,
 		Now:           d.Dir.PKI.Now,
 	})
@@ -60,8 +61,8 @@ func (d *PatchAgentDirectory) client(nodeID, base string) (*http.Client, error) 
 	if timeout <= 0 {
 		timeout = 15 * time.Minute // package installations are slow
 	}
-	c := &http.Client{Timeout: timeout, Transport: &http.Transport{TLSClientConfig: tc.Clone(), MaxIdleConnsPerHost: 2,
-		IdleConnTimeout: time.Minute, TLSHandshakeTimeout: 10 * time.Second},
+	c := &http.Client{Timeout: timeout, Transport: &http.Transport{TLSClientConfig: tc.Clone(), DisableKeepAlives: true,
+		TLSHandshakeTimeout: 10 * time.Second},
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	if d.clients == nil {
 		d.clients = map[string]*http.Client{}

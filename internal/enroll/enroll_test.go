@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MagicalWig34653/db-cluster-manager/internal/agentrt"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/certs"
 )
 
@@ -30,9 +31,9 @@ type authority struct {
 	validity time.Duration
 }
 
-func (a *authority) SignAgent(ctx context.Context, host string, csr *x509.CertificateRequest) (*certs.Signed, error) {
+func (a *authority) SignAgent(ctx context.Context, host string, rt agentrt.Runtime, csr *x509.CertificateRequest) (*certs.Signed, error) {
 	return a.ca.SignCSR(ctx, csr, certs.Request{Kind: certs.KindPeer, CommonName: "dbcm agent " + host,
-		IPs: []net.IP{net.IPv4(127, 0, 0, 1)}, URIs: []*url.URL{certs.AgentURI(inst, host)}, Validity: a.validity})
+		IPs: []net.IP{net.IPv4(127, 0, 0, 1)}, URIs: []*url.URL{certs.RuntimeAgentURI(inst, host, string(rt))}, Validity: a.validity})
 }
 func (a *authority) CABundlePEM() []byte       { return a.ca.CertificatePEM() }
 func (a *authority) ClientCAs() *x509.CertPool { return a.ca.Pool() }
@@ -46,7 +47,7 @@ type registry struct {
 	now      time.Time
 }
 
-func (r *registry) ConsumeToken(_ context.Context, plain, host string, src net.IP) error {
+func (r *registry) ConsumeToken(_ context.Context, plain, host string, rt agentrt.Runtime, src net.IP) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	id, secret, err := ParseToken(plain)
@@ -61,24 +62,32 @@ func (r *registry) ConsumeToken(_ context.Context, plain, host string, src net.I
 		return ErrSourceMismatch
 	}
 	c := *t
-	if err := c.Consume(secret, host, r.now); err != nil {
+	if err := c.ConsumeRuntime(secret, host, rt, r.now); err != nil {
 		return err
 	}
 	r.tokens[id] = &c
 	return nil
 }
 
-func (r *registry) CurrentSerial(_ context.Context, host string) (string, bool, error) {
+func (r *registry) CurrentSerial(_ context.Context, host string, rt agentrt.Runtime) (string, bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	s, ok := r.serials[host]
+	key := host
+	if rt == agentrt.Native {
+		key += "/native"
+	}
+	s, ok := r.serials[key]
 	return s, ok, nil
 }
 
-func (r *registry) RecordIssued(_ context.Context, host string, c *x509.Certificate) error {
+func (r *registry) RecordIssued(_ context.Context, host string, rt agentrt.Runtime, c *x509.Certificate) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.serials[host] = c.SerialNumber.Text(16)
+	key := host
+	if rt == agentrt.Native {
+		key += "/native"
+	}
+	r.serials[key] = c.SerialNumber.Text(16)
 	return nil
 }
 
@@ -383,6 +392,30 @@ func TestTokenConsume(t *testing.T) {
 	}
 	if _, _, err := NewToken("", nil, now, time.Minute); err == nil {
 		t.Fatal("token without installation")
+	}
+}
+
+func TestTokenCanBeConsumedOncePerRuntime(t *testing.T) {
+	now := time.Now()
+	tok, plain, err := NewToken(inst, []string{"node1"}, now, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, secret, err := ParseToken(plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tok.ConsumeRuntime(secret, "node1", agentrt.Container, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := tok.ConsumeRuntime(secret, "node1", agentrt.Native, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := tok.ConsumeRuntime(secret, "node1", agentrt.Native, now); !errors.Is(err, ErrTokenReplayed) {
+		t.Fatalf("native replay: %v", err)
+	}
+	if len(tok.Used) != 2 || tok.Used["node1"].IsZero() || tok.Used["node1/native"].IsZero() {
+		t.Fatalf("used slots: %+v", tok.Used)
 	}
 }
 

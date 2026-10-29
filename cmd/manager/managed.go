@@ -621,10 +621,12 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 		rt.keyring = keyring
 		scfg.Reconcilers = append(scfg.Reconcilers, manager.KeyringReconciler{Keyring: keyring})
 	}
+	var denyDistributor *manager.DenyListDistributor
 	if mc.AgentTransport != nil {
 		// Revoked serials (renewals, revoked hosts and manager
 		// certificates) reach every enrolled agent.
-		scfg.Reconcilers = append(scfg.Reconcilers, manager.DenyListDistributor{})
+		denyDistributor = &manager.DenyListDistributor{}
+		scfg.Reconcilers = append(scfg.Reconcilers, denyDistributor)
 	}
 	// Every condition goes through the routing checker: approvals from the
 	// replicated store, backup conditions through the backend, cluster
@@ -700,6 +702,7 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 		if patchCfg != nil {
 			dir.NativePort = patchCfg.port() // restic may run on the native agent (ADR 0024)
 		}
+		denyDistributor.Native = &manager.PatchAgentDirectory{Dir: dir}
 		agentClient = dir
 		swarms.Transport = &manager.AgentTransport{PKI: pki, ManagerURL: at.ManagerURL, Port: at.AgentPort,
 			MonitorUser: at.MonitorUser, MonitorSecret: at.MonitorSecret, DBSecrets: at.DBSecrets}

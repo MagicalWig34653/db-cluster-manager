@@ -78,6 +78,20 @@ func TestRouteUsesTableAndNeverFallsBack(t *testing.T) {
 	}
 }
 
+func TestNativeReportKeepsLegacyContainerRoute(t *testing.T) {
+	h := HostRecord{AgentSerial: "ab", AgentIdentities: map[agentrt.Runtime]AgentIdentityRecord{agentrt.Native: {Serial: "cd"}}, AgentReports: map[agentrt.Runtime]agentrt.Info{agentrt.Native: agentrt.NativeInfo(false)}}
+	for kind, want := range map[string]agentrt.Runtime{"create-service": agentrt.Container, "patch/report": agentrt.Native} {
+		req, _ := agentrt.RequirementFor(kind)
+		if got, err := routeHost(h, req); err != nil || got != want {
+			t.Fatalf("%s: %s %v", kind, got, err)
+		}
+	}
+	req, _ := agentrt.RequirementFor("restic-backup")
+	if _, err := routeHost(h, req); err == nil {
+		t.Fatal("legacy container gained restic")
+	}
+}
+
 func TestNoteReportRejectsMismatchAndRefusesHost(t *testing.T) {
 	f := newPKIFixture(t, "127.0.0.1")
 	d := &AgentDirectory{Store: f.svc.Store(), PKI: f.pki}

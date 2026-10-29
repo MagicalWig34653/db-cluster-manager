@@ -34,11 +34,8 @@ func TestPatchAgentDirectoryOverMTLS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	creds, err := f.enroll(t, plain, "n1")
+	creds, err := f.enrollInfo(t, plain, "n1", agentrt.NativeInfo(false))
 	if err != nil {
-		t.Fatal(err)
-	}
-	if err := f.pki.RecordReport(context.Background(), "n1", agentrt.NativeInfo(false)); err != nil {
 		t.Fatal(err)
 	}
 	holder, err := enroll.NewHolder(creds)

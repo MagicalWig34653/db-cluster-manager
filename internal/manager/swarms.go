@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/MagicalWig34653/db-cluster-manager/internal/agent"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/agentrt"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/api"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/authz"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/certs"
@@ -157,28 +158,38 @@ func (s *Swarms) SetEnrollment(actor authz.Subject, swarmID, nodeID string, enro
 	if err := s.authorize(actor, authz.ActionUpdate, authz.Resource{Type: authz.ResourceHost, Scope: authz.SwarmScope(swarmID), ID: nodeID}); err != nil {
 		return HostRecord{}, err
 	}
-	var revokedSerial string
-	var revokedExpiry time.Time
+	var revoked []AgentIdentityRecord
 	h, _, err := Update(s.Svc.store, CollHosts, HostKey(swarmID, nodeID), func(h HostRecord, exists bool) (HostRecord, error) {
 		if !exists {
 			return h, fmt.Errorf("%w: host %s/%s (run Sync first)", api.ErrNotFound, swarmID, nodeID)
 		}
+		revoked = revoked[:0]
 		if enroll {
 			h.Enrollment, h.EnrolledAt, h.AgentURL = EnrollEnrolled, s.Svc.cfg.Now(), agentURL
 		} else {
-			revokedSerial = h.AgentSerial
-			revokedExpiry = h.AgentNotAfter
+			for _, rt := range []agentrt.Runtime{agentrt.Container, agentrt.Native} {
+				if id := h.identity(rt); id.Serial != "" {
+					revoked = append(revoked, id)
+				}
+			}
 			h.Enrollment, h.AgentURL, h.AgentSerial, h.AgentNotAfter = EnrollRevoked, "", "", time.Time{}
+			h.AgentIdentityAt = time.Time{}
+			h.AgentIdentities, h.AgentReports, h.DenyListDigests = nil, nil, nil
+			h.DenyListDigest = ""
 		}
 		return h, nil
 	})
-	if err != nil || revokedSerial == "" {
+	if err != nil {
 		return h, err
 	}
 	// The agent identity dies with the enrollment.
-	_, err = Put(s.Svc.store, CollRevocations, revokedSerial,
-		certs.Revocation{Serial: revokedSerial, RevokedAt: s.Svc.cfg.Now(), NotAfter: revokedExpiry, Reason: "host enrollment revoked by " + actor.ID}, nil)
-	return h, err
+	for _, id := range revoked {
+		if _, err = Put(s.Svc.store, CollRevocations, id.Serial,
+			certs.Revocation{Serial: id.Serial, RevokedAt: s.Svc.cfg.Now(), NotAfter: id.NotAfter, Reason: "host enrollment revoked by " + actor.ID}, nil); err != nil {
+			return h, err
+		}
+	}
+	return h, nil
 }
 
 // DeployAgents creates the agent global service of the installation in the

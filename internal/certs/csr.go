@@ -151,6 +151,15 @@ func AgentURI(installation, hostID string) *url.URL {
 	return &url.URL{Scheme: URIScheme, Host: installation, Path: "/agent/" + hostID}
 }
 
+// RuntimeAgentURI keeps the original container identity and gives native
+// agents a distinct URI SAN on the same host.
+func RuntimeAgentURI(installation, hostID, runtime string) *url.URL {
+	if runtime == "" || runtime == "container" {
+		return AgentURI(installation, hostID)
+	}
+	return &url.URL{Scheme: URIScheme, Host: installation, Path: "/agent/" + hostID + "/" + runtime}
+}
+
 // ManagerURI is the identity of the manager of an installation:
 // dbcm://<installation>/manager.
 func ManagerURI(installation string) *url.URL {

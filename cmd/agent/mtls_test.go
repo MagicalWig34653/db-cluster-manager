@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/MagicalWig34653/db-cluster-manager/internal/agent"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/agentrt"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/certs"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/enroll"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/galeraprobe/fakemysql"
@@ -79,34 +80,35 @@ type enrollServer struct {
 	serials map[string]string
 }
 
-func (e *enrollServer) SignAgent(ctx context.Context, host string, csr *x509.CertificateRequest) (*certs.Signed, error) {
+func (e *enrollServer) SignAgent(ctx context.Context, host string, rt agentrt.Runtime, csr *x509.CertificateRequest) (*certs.Signed, error) {
 	return e.ca.SignCSR(ctx, csr, certs.Request{Kind: certs.KindPeer, CommonName: host, IPs: []net.IP{net.IPv4(127, 0, 0, 1)},
-		URIs: []*url.URL{certs.AgentURI("inst-1", host)}, Validity: time.Hour})
+		URIs: []*url.URL{certs.RuntimeAgentURI("inst-1", host, string(rt))}, Validity: time.Hour})
 }
 func (e *enrollServer) CABundlePEM() []byte       { return e.ca.CertificatePEM() }
 func (e *enrollServer) ClientCAs() *x509.CertPool { return e.ca.Pool() }
-func (e *enrollServer) ConsumeToken(_ context.Context, plain, host string, _ net.IP) error {
+func (e *enrollServer) ConsumeToken(_ context.Context, plain, host string, rt agentrt.Runtime, _ net.IP) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if plain != e.plain {
 		return enroll.ErrTokenInvalid
 	}
-	if e.used[host] {
+	key := host + "/" + string(rt)
+	if e.used[key] {
 		return enroll.ErrTokenReplayed
 	}
-	e.used[host] = true
+	e.used[key] = true
 	return nil
 }
-func (e *enrollServer) CurrentSerial(_ context.Context, host string) (string, bool, error) {
+func (e *enrollServer) CurrentSerial(_ context.Context, host string, rt agentrt.Runtime) (string, bool, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	s, ok := e.serials[host]
+	s, ok := e.serials[host+"/"+string(rt)]
 	return s, ok, nil
 }
-func (e *enrollServer) RecordIssued(_ context.Context, host string, c *x509.Certificate) error {
+func (e *enrollServer) RecordIssued(_ context.Context, host string, rt agentrt.Runtime, c *x509.Certificate) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.serials[host] = c.SerialNumber.Text(16)
+	e.serials[host+"/"+string(rt)] = c.SerialNumber.Text(16)
 	return nil
 }
 func (e *enrollServer) Revoked(*big.Int) bool { return false }

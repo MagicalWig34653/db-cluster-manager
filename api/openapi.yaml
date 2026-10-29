@@ -856,8 +856,8 @@ paths:
     post:
       summary: Revoke a host's enrollment
       description: >-
-        Marks the host revoked and revokes its agent certificate. Like enroll:
-        host update permission, audited.
+        Marks the host revoked and revokes both runtime agent certificates.
+        Like enroll: host update permission, audited.
       operationId: revokeHost
       parameters:
         - { $ref: "#/components/parameters/Id" }
@@ -872,6 +872,35 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Host" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /hosts/{id}/agents/{runtime}/revoke:
+    post:
+      summary: Revoke one agent runtime certificate
+      description: >-
+        Revokes the current certificate of the selected runtime while the host
+        remains enrolled and the other runtime stays usable. The agent must
+        enroll again with a valid token. Requires host update permission and
+        is audited. Legacy single-slot identities are container identities.
+      operationId: revokeHostAgentRuntime
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+        - { name: runtime, in: path, required: true, schema: { type: string, enum: [container, native] } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false }
+      responses:
+        "200":
+          description: The updated host
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Host" }
+        "400": { $ref: "#/components/responses/Error" }
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
@@ -3758,12 +3787,12 @@ components:
         nanoCpus: { type: integer, format: int64 }
         memoryBytes: { type: integer, format: int64 }
         observedAt: { type: string, format: date-time }
-        agentIdentity: { type: boolean, description: An agent certificate is recorded (not a reachability claim) }
+        agentIdentity: { type: boolean, description: A current container or native agent certificate is recorded (not a reachability claim) }
         agentVersion: { type: string, description: Build version the agent reported in its last answer to the manager; absent until the manager has contacted the agent }
         agentSeenAt: { type: string, format: date-time, description: When the manager last received an HTTP answer from the agent (best effort, at most about one write a minute) }
         agents:
           type: array
-          description: "Runtime reports of the host's agents (ADR 0024): container (Docker agent) and/or native (systemd agent) with capability lists. Empty until an agent reported."
+          description: "Container and native agent slots on the host (ADR 0024). A slot is listed when a certificate or runtime report is recorded. Legacy single-slot records are container slots."
           items: { $ref: "#/components/schemas/HostAgentRuntime" }
         agentReportError: { type: string, description: "Set when an agent sent an inconsistent report (for example a container agent claiming a native capability); the host is then refused for routing." }
         maintenance:
@@ -3778,9 +3807,11 @@ components:
             ready: { type: boolean, description: Every maintenance operation succeeded; the operator may reboot the host }
     HostAgentRuntime:
       type: object
-      required: [runtime, capabilities]
+      required: [runtime, capabilities, identity]
       properties:
         runtime: { type: string, enum: [native, container] }
+        identity: { type: boolean, description: A current certificate is recorded for this host and runtime; reachability is not implied }
+        certificateExpiresAt: { type: string, format: date-time, description: Current certificate expiry; absent when identity is false }
         capabilities:
           type: array
           items: { type: string, enum: [docker-objects, galera-steps, restic, patch, host-maintenance, diagnostics] }

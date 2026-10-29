@@ -14,8 +14,10 @@ import (
 	"time"
 
 	"github.com/MagicalWig34653/db-cluster-manager/internal/agent"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/agentrt"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/certs"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/metastore"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/patch"
 )
 
 const collDenyState = "deny-state"
@@ -152,8 +154,9 @@ func (d DenyListCompactor) CompactOnce(s *Store) (int, error) {
 // DenyListDistributor pushes the deny list to the agents while this
 // replica leads.
 type DenyListDistributor struct {
-	Interval time.Duration // default 30s
-	Timeout  time.Duration // per host, default 10s
+	Interval time.Duration   // default 30s
+	Timeout  time.Duration   // per host, default 10s
+	Native   patch.HostAgent // native patch transport; nil in lab-only configurations
 }
 
 // Name implements Reconciler.
@@ -202,29 +205,57 @@ func (d DenyListDistributor) DistributeOnce(ctx context.Context, l *Leadership) 
 	var errs []error
 	for _, h := range hosts {
 		hv := h.Value
-		if hv.Enrollment != EnrollEnrolled || hv.AgentSerial == "" || hv.DenyListDigest == dl.Digest {
+		if hv.Enrollment != EnrollEnrolled {
 			continue
 		}
-		cmd := agent.Command{Term: l.Term, OpID: "deny-list-" + dl.Digest[:16], StepID: "host-" + hv.NodeID,
-			Kind: agent.KindSetDenyList, Args: args}
-		cctx, cancel := context.WithTimeout(ctx, timeout)
-		res, err := l.Agents.Send(cctx, hv.NodeID, cmd)
-		cancel()
-		if err == nil && res.Status != agent.StatusSucceeded {
-			err = fmt.Errorf("%s: %s", res.Code, res.Message)
-		}
-		if err != nil {
-			errs = append(errs, fmt.Errorf("host %s: %w", hv.NodeID, err))
-			continue
-		}
-		if _, _, err := Update(store, CollHosts, h.Key, func(cur HostRecord, exists bool) (HostRecord, error) {
-			if !exists {
-				return cur, ErrNotFound
+		for _, rt := range []agentrt.Runtime{agentrt.Container, agentrt.Native} {
+			if hv.identity(rt).Serial == "" || rt == agentrt.Native && d.Native == nil {
+				continue
 			}
-			cur.DenyListDigest = dl.Digest
-			return cur, nil
-		}); err != nil && !errors.Is(err, ErrNotFound) {
-			errs = append(errs, err)
+			digest := hv.DenyListDigests[rt]
+			if rt == agentrt.Container && digest == "" {
+				digest = hv.DenyListDigest
+			}
+			if digest == dl.Digest {
+				continue
+			}
+			cctx, cancel := context.WithTimeout(ctx, timeout)
+			var sendErr error
+			if rt == agentrt.Container {
+				cmd := agent.Command{Term: l.Term, OpID: "deny-list-" + dl.Digest[:16], StepID: "host-" + hv.NodeID, Kind: agent.KindSetDenyList, Args: args}
+				res, err := l.Agents.Send(cctx, hv.NodeID, cmd)
+				sendErr = err
+				if err == nil && res.Status != agent.StatusSucceeded {
+					sendErr = fmt.Errorf("%s: %s", res.Code, res.Message)
+				}
+			} else if !l.Valid() {
+				sendErr = fmt.Errorf("manager: leadership lost before native deny list delivery")
+			} else {
+				_, sendErr = d.Native.Do(cctx, hv.NodeID, patch.AgentCommand{Kind: patch.CmdDenyList, Term: l.Term, StepID: "deny-list-" + dl.Digest[:16] + "/" + hv.NodeID, DenyRevision: dl.Revision, DenySerials: append([]string{}, dl.Serials...)})
+			}
+			cancel()
+			if sendErr != nil {
+				errs = append(errs, fmt.Errorf("host %s %s: %w", hv.NodeID, rt, sendErr))
+				continue
+			}
+			if _, _, err := Update(store, CollHosts, h.Key, func(cur HostRecord, exists bool) (HostRecord, error) {
+				if !exists {
+					return cur, ErrNotFound
+				}
+				if cur.identity(rt).Serial != hv.identity(rt).Serial {
+					return cur, ErrConflict
+				}
+				if cur.DenyListDigests == nil {
+					cur.DenyListDigests = map[agentrt.Runtime]string{}
+				}
+				cur.DenyListDigests[rt] = dl.Digest
+				if rt == agentrt.Container {
+					cur.DenyListDigest = dl.Digest
+				}
+				return cur, nil
+			}); err != nil && !errors.Is(err, ErrNotFound) {
+				errs = append(errs, err)
+			}
 		}
 	}
 	return errors.Join(errs...)
