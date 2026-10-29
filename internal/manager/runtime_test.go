@@ -247,14 +247,13 @@ func TestOperationRecordsExecutingRuntimeInViewAPIAndAudit(t *testing.T) {
 	if !found {
 		t.Fatalf("API operation lacks executedBy: %+v", ops)
 	}
-	audits, _ := List[authz.AuditRecord](l.Store(), CollAudit)
-	var audited bool
-	for _, a := range audits {
-		if strings.Contains(a.Value.Change, "executed by runtime=native agent=agent/h1") && strings.Contains(a.Value.Change, ref.ID) {
-			audited = true
+	waitFor(t, "audit record naming the executing runtime", func() bool {
+		audits, _ := List[authz.AuditRecord](l.Store(), CollAudit)
+		for _, a := range audits {
+			if strings.Contains(a.Value.Change, "executed by runtime=native agent=agent/h1") && strings.Contains(a.Value.Change, ref.ID) {
+				return true
+			}
 		}
-	}
-	if !audited {
-		t.Fatal("no audit record names the executing runtime")
-	}
+		return false
+	})
 }
