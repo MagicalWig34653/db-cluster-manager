@@ -57,3 +57,4 @@ Lesereihenfolge für einen ersten Test: 1, 2, 3, danach 10, bevor Sie irgendetwa
 - [24 — Agent-Laufzeiten und Fähigkeiten (nur Fakes)](24-agent-runtimes.md)
 - [25 — Image-Updates (nur Fakes)](25-image-updates.md)
 - [26 — Image-Composer (nur Fakes und Mock)](26-image-composer.md)
+- [27 — Frischen Server aufnehmen (nur Simulation)](27-fresh-server-bootstrap.md)

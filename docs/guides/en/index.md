@@ -57,3 +57,4 @@ Reading order for a first test: 1, 2, 3, then 10 before trusting anything.
 - [24 — Agent runtimes and capabilities (fakes only)](24-agent-runtimes.md)
 - [25 — Image updates (fakes only)](25-image-updates.md)
 - [26 — Image composer (fakes and mock only)](26-image-composer.md)
+- [27 — Fresh-server bootstrap (simulation only)](27-fresh-server-bootstrap.md)

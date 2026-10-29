@@ -9,6 +9,7 @@ import { kubernetesMock } from './mock-kubernetes';
 import { provisionMock } from './mock-provision';
 import { vulnMock } from './mock-vuln';
 import { composerMock } from './mock-composer';
+import { bootstrapMock } from './mock-bootstrap';
 
 const now = Date.now();
 const ago = (minutes: number) => new Date(now - minutes * 60_000).toISOString();
@@ -427,7 +428,7 @@ export const mockFetch: typeof fetch = async (input, init) => {
 	} catch {
 		// ignore
 	}
-	const platform = provisionMock(method, url.pathname, parsed) ?? platformMock(method, url.pathname, url.searchParams, parsed) ?? composerMock(method, url.pathname, parsed) ?? vulnMock(method, url.pathname, parsed) ?? kubernetesMock(method, url.pathname, parsed);
+	const platform = bootstrapMock(method, url.pathname, parsed) ?? provisionMock(method, url.pathname, parsed) ?? platformMock(method, url.pathname, url.searchParams, parsed) ?? composerMock(method, url.pathname, parsed) ?? vulnMock(method, url.pathname, parsed) ?? kubernetesMock(method, url.pathname, parsed);
 	if (platform) return platform;
 	if (method === 'POST') {
 		if (url.pathname === '/api/v1/auth/logout') return new Response(null, { status: 204 });

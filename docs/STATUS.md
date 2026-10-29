@@ -2,6 +2,23 @@
 
 Updated: 2026-10-29.
 
+## Fresh-server bootstrap (2026-10-29, X18, ADR 0027, simulated host only; no VM, network or real host used)
+
+[ADR 0027](decisions/0027-fresh-server-bootstrap.md), guide [27](guides/en/27-fresh-server-bootstrap.md) (EN/DE). Implements part 1 of the owner additions of 2026-10-29 (fresh servers). Tests were written before the code.
+
+Implemented:
+
+- `internal/provision`: support matrix (Debian, Ubuntu, AlmaLinux, Rocky, Alpine), read-only preflight and parser (`BootstrapInspect`), profile validation, plan generator (`BuildBootstrapPlan`: findings with blocking/warning/note, ordered steps each with script, SHA-256 digest, read-only check and cleanup; plan digest and a separate lockdown digest), Docker repository key verified against a pinned fingerprint, firewall opened for SSH before enabling, sshd audit read-only, lockdown with a verified second login and an on-host automatic revert, cleanup plan output without global destructive commands, executor (`ExecuteBootstrap`) over the existing `CommandRunner` with `opjournal` steps under the leader term, check-before-run, resume after failure, stale-term fencing, secrets only via stdin; draft service (`BootstrapService`: draft, host key probe, fingerprint confirmation, approve, approve-lockdown, run, status, cancel, credential wipe and one-hour expiry); `SSHRunner` accepts a password only for the bootstrap login; `SSHHostKeyProbe`. `internal/patch.BootstrapAgentScripts` adapts the reviewed native agent install script.
+- Simulation tests with an in-memory host (`bootstrap_sim_test.go`): fresh Debian, fresh AlmaLinux, Alpine limits, partially configured host (satisfied steps not rerun), existing cluster/foreign agent/busy port/low disk blockers, failure mid-run then resume under a newer term, idempotent re-run, tampered and blocked plans refused, wrong fingerprint refused before any command, host key change after confirmation stops the run, lockdown separate approval, revert when the dedicated key fails, root not disabled when sealing the key fails, credentials wiped and expiring, secrets absent from commands, plans and views. All generated scripts pass `sh -n`.
+- API: 11 routes under `/bootstrap/*` (administrator only, 503 until `Config.Bootstrap` is set), `api/openapi.yaml`, route-contract and authz tests (operator/viewer 403, anonymous 401, unwired 503, secrets not echoed).
+- Web: `/bootstrap` wizard (host and credentials form, profile checkboxes, fingerprint confirmation, plan preview with scripts, approve, progress with polling, separate lockdown approval, credential re-entry), DE/EN strings, navigation entry, development mock server (`mock-bootstrap.ts`), 3 vitest tests (form model, flow incl. wrong fingerprint and separate lockdown approval).
+
+Actual checks (final tree): `gofmt -l .` (no output), `go vet ./...` (no output), `go test -race -count=1 -p 4 ./...` (all packages ok), in `web/`: `npm run check` (0 errors, 0 warnings), `npm run check:i18n` (passed), `npm test` (24 files, 231 tests ok), `npm run build` (ok); `python3 scripts/check_docs.py` (107 Markdown files, 74 requirements, 0 errors), `python3 scripts/check_deploy.py` (passed, static only). The page was not opened in a browser and not checked at 360 px by eye.
+
+Limits: nothing ran against a real host. The scripts were only syntax-checked with `sh -n`; package names, repository URLs, service names (`ssh`/`sshd`), firewall commands, revert timing and the Docker key fingerprint constant are unverified. The simulated host recognizes step markers and applies state transitions; it does not interpret shell. `SSHHostKeyProbe` has no test (it would need a listener). `Config.Bootstrap` is not constructed by the manager; enrollment-token source and container-agent deployment are interfaces without a production implementation; drafts and the journal are in memory (a restart drops them and the credentials); one host per bootstrap; k3s blocked; no screenshots.
+
+Next action: construct `BootstrapService` in the manager (token source from `internal/enroll`, agent release metadata, container-agent deployment through the service flow), then run it once per distribution family (Debian, AlmaLinux, Alpine) in a budgeted lab VM after the owner's go, and replace the unverified assumptions with recorded results.
+
 ## Image composer (2026-10-29, X17, ADR 0026, fakes only; no VM, registry or network used)
 
 [ADR 0026](decisions/0026-image-composer.md), guide [26](guides/en/26-image-composer.md) (EN/DE). Implements the owner addition "image composer" on top of the image build service (X08). Tests were written before the code for the catalog, validator, generator and API.

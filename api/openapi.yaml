@@ -3300,6 +3300,268 @@ paths:
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
+  /bootstrap/support:
+    get:
+      summary: OS support matrix of the fresh-server bootstrap (X18, proposal, fakes only)
+      description: >-
+        Debian, Ubuntu, AlmaLinux, Rocky and Alpine with versions, package manager, init system and optional features. Administrator only; 503 until a backend is configured.
+      operationId: getBootstrapSupport
+      responses:
+        '200':
+          description: Result
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/BootstrapOS' } }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /bootstrap/drafts:
+    get:
+      summary: List bootstrap drafts
+      description: >-
+        Secret-free views of all drafts. Administrator only.
+      operationId: listBootstrapDrafts
+      responses:
+        '200':
+          description: Result
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/BootstrapView' } }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+    post:
+      summary: Create a bootstrap draft and read the SSH host key
+      description: >-
+        Validates the request and reads the host key of that single host without authenticating. Nothing is changed and the credential is not used until the operator confirms the fingerprint. The credential and join token are write-only, held in memory only, never returned or logged, and wiped after the run, on cancel or after one hour without activity.
+      operationId: createBootstrapDraft
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BootstrapDraftInput' }
+      responses:
+        '201':
+          description: Result
+          content:
+            application/json:
+              schema: BootstrapView
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /bootstrap/drafts/{id}:
+    get:
+      summary: Bootstrap status and progress
+      description: >-
+        Draft state, host key, plan and per-step progress.
+      operationId: getBootstrapDraft
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Result
+          content:
+            application/json:
+              schema: BootstrapView
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /bootstrap/drafts/{id}/plan:
+    get:
+      summary: Plan preview with all scripts
+      description: >-
+        Findings, ordered steps with scripts, check scripts, cleanup scripts and digests. Contains no secret.
+      operationId: getBootstrapPlan
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Result
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BootstrapPlan' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /bootstrap/drafts/{id}/fingerprint:
+    post:
+      summary: Confirm the SSH host key fingerprint
+      description: >-
+        The operator types the fingerprint verified out of band. A mismatch cancels the draft and wipes its credentials before any connection. A match pins the key, runs the read-only preflight and builds the plan.
+      operationId: confirmBootstrapFingerprint
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false, required: [fingerprint], properties: { fingerprint: { type: string } } }
+      responses:
+        '200':
+          description: Result
+          content:
+            application/json:
+              schema: BootstrapView
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /bootstrap/drafts/{id}/approve:
+    post:
+      summary: Approve the main phase by plan digest
+      description: >-
+        Refused for a blocked plan or a different digest. Does not approve the lockdown phase.
+      operationId: approveBootstrap
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false, required: [digest], properties: { digest: { type: string, pattern: '^[a-f0-9]{64}$' } } }
+      responses:
+        '200':
+          description: Result
+          content:
+            application/json:
+              schema: BootstrapView
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /bootstrap/drafts/{id}/approve-lockdown:
+    post:
+      summary: Approve the lockdown phase by its own digest
+      description: >-
+        Dedicated key and disabling root login need a separate approval with lockdownDigest, possible only after the main phase completed.
+      operationId: approveBootstrapLockdown
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false, required: [digest], properties: { digest: { type: string, pattern: '^[a-f0-9]{64}$' } } }
+      responses:
+        '200':
+          description: Result
+          content:
+            application/json:
+              schema: BootstrapView
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /bootstrap/drafts/{id}/credentials:
+    post:
+      summary: Supply the login again after it was wiped
+      description: >-
+        Write only.
+      operationId: supplyBootstrapCredentials
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BootstrapCredential' }
+      responses:
+        '200':
+          description: Result
+          content:
+            application/json:
+              schema: BootstrapView
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /bootstrap/drafts/{id}/run:
+    post:
+      summary: Run or resume the approved phase
+      description: >-
+        Runs the approved phase asynchronously and returns at once; poll the draft. A failed run pauses and can be resumed: finished steps are not repeated and the host is re-checked first.
+      operationId: runBootstrap
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '202':
+          description: Result
+          content:
+            application/json:
+              schema: BootstrapView
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /bootstrap/drafts/{id}/cancel:
+    post:
+      summary: Cancel a draft and wipe its credentials
+      description: >-
+        Refused while running.
+      operationId: cancelBootstrap
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Result
+          content:
+            application/json:
+              schema: BootstrapView
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
   /provision/plans:
     post:
       summary: Preflight SSH hosts and store a sealed provisioning plan
@@ -3540,6 +3802,79 @@ components:
             properties:
               pendingPasskeyEnrollment: { type: boolean, enum: [true] }
   schemas:
+    BootstrapOS:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        versions: { type: array, items: { type: string } }
+        packageManager: { type: string }
+        init: { type: string }
+        docker: { type: string }
+        nativeAgent: { type: boolean }
+        firewall: { type: string }
+        unattended: { type: string }
+    BootstrapCredential:
+      type: object
+      additionalProperties: false
+      description: Write only. Either a private key or a password.
+      properties:
+        privateKey: { type: string, writeOnly: true }
+        password: { type: string, writeOnly: true }
+    BootstrapDraftInput:
+      type: object
+      additionalProperties: false
+      required: [id, host, profile, credential]
+      properties:
+        id: { type: string }
+        host: { type: object }
+        profile: { $ref: '#/components/schemas/BootstrapProfile' }
+        credential: { $ref: '#/components/schemas/BootstrapCredential' }
+        joinToken: { type: string, writeOnly: true }
+    BootstrapProfile:
+      type: object
+      properties:
+        serviceUser: { type: string }
+        firewall: { type: boolean }
+        unattendedUpgrades: { type: boolean }
+        dedicatedKey: { type: boolean }
+        disableRootLogin: { type: boolean }
+        runtime: { type: string, enum: [docker, none] }
+        nativeAgent: { type: boolean }
+        containerAgent: { type: boolean }
+        patch: { type: boolean }
+        patchApply: { type: boolean }
+        restic: { type: boolean }
+        resticPaths: { type: array, items: { type: string } }
+        cluster: { type: object }
+    BootstrapPlan:
+      type: object
+      properties:
+        id: { type: string }
+        host: { type: object }
+        profile: { $ref: '#/components/schemas/BootstrapProfile' }
+        hostKeyFingerprint: { type: string }
+        os: { $ref: '#/components/schemas/BootstrapOS' }
+        check: { type: object }
+        findings: { type: array, items: { type: object } }
+        blocked: { type: boolean }
+        steps: { type: array, items: { type: object } }
+        dedicatedPublicKey: { type: string }
+        digest: { type: string }
+        lockdownDigest: { type: string }
+    BootstrapView:
+      type: object
+      properties:
+        id: { type: string }
+        status: { type: string, enum: [awaiting-fingerprint, planned, blocked, approved, running, paused, main-complete, completed, cancelled] }
+        host: { type: object }
+        hostKey: { type: object, properties: { type: { type: string }, fingerprint: { type: string } } }
+        plan: { $ref: '#/components/schemas/BootstrapPlan' }
+        progress: { type: array, items: { type: object } }
+        error: { type: string }
+        mainApproved: { type: boolean }
+        lockdownApproved: { type: boolean }
+        credentialsHeld: { type: boolean }
     ProvisionPlanInput:
       type: object
       required: [id, platform, hosts, credentials]
