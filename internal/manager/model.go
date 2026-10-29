@@ -119,6 +119,9 @@ type HostRecord struct {
 	AgentSerial     string    `json:"agentSerial,omitempty"`
 	AgentNotAfter   time.Time `json:"agentNotAfter,omitzero"`
 	AgentIdentityAt time.Time `json:"agentIdentityAt,omitzero"`
+	// AgentIdentities holds independent certificate slots. The legacy fields
+	// above remain the container slot for records written by older managers.
+	AgentIdentities map[agentrt.Runtime]AgentIdentityRecord `json:"agentIdentities,omitempty"`
 	// AgentVersion and AgentSeenAt record the last HTTP answer received
 	// from the host's agent (build version from its response header).
 	// Written best-effort by AgentDirectory, at most about once a minute.
@@ -135,10 +138,27 @@ type HostRecord struct {
 	AgentServiceID string `json:"agentServiceId,omitempty"`
 	// DenyListDigest is the deny list the host's agent last confirmed
 	// (denylist.go).
-	DenyListDigest string `json:"denyListDigest,omitempty"`
+	DenyListDigest  string                     `json:"denyListDigest,omitempty"`
+	DenyListDigests map[agentrt.Runtime]string `json:"denyListDigests,omitempty"`
 	// Maintenance is set while the host is in guided maintenance
 	// (maintenance.go); replacement on it is paused.
 	Maintenance *HostMaintenanceRecord `json:"maintenance,omitempty"`
+}
+
+type AgentIdentityRecord struct {
+	Serial   string    `json:"serial"`
+	NotAfter time.Time `json:"notAfter"`
+	IssuedAt time.Time `json:"issuedAt"`
+}
+
+func (h HostRecord) identity(rt agentrt.Runtime) AgentIdentityRecord {
+	if id := h.AgentIdentities[rt]; id.Serial != "" {
+		return id
+	}
+	if rt == agentrt.Container {
+		return AgentIdentityRecord{Serial: h.AgentSerial, NotAfter: h.AgentNotAfter, IssuedAt: h.AgentIdentityAt}
+	}
+	return AgentIdentityRecord{}
 }
 
 // HostKey is the key of a host record.

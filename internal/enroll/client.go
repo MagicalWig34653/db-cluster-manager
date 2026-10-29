@@ -167,7 +167,7 @@ func post(ctx context.Context, tc *tls.Config, base, path string, timeout time.D
 // checkResponse verifies that the issued certificate is for key, chains to
 // a CA in the returned bundle that also verifies against trust (the pinned
 // CA or the current bundle), and carries the agent's identity.
-func checkResponse(resp Response, key *ecdsa.PrivateKey, installation, host string, trust func(*x509.Certificate) bool, now time.Time) (*Credentials, error) {
+func checkResponse(resp Response, key *ecdsa.PrivateKey, installation, host string, runtime agentrt.Runtime, trust func(*x509.Certificate) bool, now time.Time) (*Credentials, error) {
 	keyPEM, err := certs.MarshalKeyPEM(key)
 	if err != nil {
 		return nil, err
@@ -202,8 +202,9 @@ func checkResponse(resp Response, key *ecdsa.PrivateKey, installation, host stri
 		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}}); err != nil {
 		return nil, fmt.Errorf("enroll: issued certificate: %w", err)
 	}
-	if !certs.HasURI(kp.Leaf, certs.AgentURI(installation, host)) {
-		return nil, fmt.Errorf("enroll: issued certificate lacks %s", certs.AgentURI(installation, host))
+	want := certs.RuntimeAgentURI(installation, host, string(runtime))
+	if !certs.HasURI(kp.Leaf, want) {
+		return nil, fmt.Errorf("enroll: issued certificate lacks %s", want)
 	}
 	return cr, nil
 }
@@ -227,7 +228,7 @@ func Enroll(ctx context.Context, c AgentConfig) (*Credentials, error) {
 		return nil, err
 	}
 	pin, _ := certs.NormalizeFingerprint(c.CAFingerprint)
-	return checkResponse(resp, key, c.Installation, c.HostID, func(x *x509.Certificate) bool {
+	return checkResponse(resp, key, c.Installation, c.HostID, c.Info.Runtime, func(x *x509.Certificate) bool {
 		return x.IsCA && certs.Fingerprint(x) == pin
 	}, c.now())
 }
@@ -260,6 +261,13 @@ func Renew(ctx context.Context, c RenewConfig) (*Credentials, error) {
 	if err != nil {
 		return nil, err
 	}
+	currentHost, currentRuntime, ok := RuntimeFromAgentURI(cur.Leaf, c.Installation)
+	if !ok || currentHost != c.HostID {
+		return nil, errors.New("enroll: current certificate identity does not match host")
+	}
+	if c.Info.Runtime != "" && c.Info.Runtime != currentRuntime {
+		return nil, errors.New("enroll: renewal runtime differs from current certificate")
+	}
 	roots, err := c.Current.CAPool()
 	if err != nil {
 		return nil, err
@@ -280,7 +288,7 @@ func Renew(ctx context.Context, c RenewConfig) (*Credentials, error) {
 	if err := post(ctx, tc, c.ManagerURL, PathRenew, c.Timeout, RenewRequest{CSR: string(csr), Runtime: c.Info.Runtime, Capabilities: c.Info.Capabilities}, &resp); err != nil {
 		return nil, err
 	}
-	return checkResponse(resp, key, c.Installation, c.HostID, func(x *x509.Certificate) bool {
+	return checkResponse(resp, key, c.Installation, c.HostID, currentRuntime, func(x *x509.Certificate) bool {
 		if !x.IsCA {
 			return false
 		}

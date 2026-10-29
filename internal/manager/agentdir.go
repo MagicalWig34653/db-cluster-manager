@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/agentrt"
+	"maps"
 	"net"
 	"slices"
 	"strconv"
@@ -22,8 +23,8 @@ import (
 // AgentDirectory is the production runner.AgentClient: it resolves a step
 // target (a Swarm node ID) to the enrolled host record, dials the agent at
 // the node's Swarm address on Port over mTLS, presents the manager's client
-// certificate and accepts only the agent identity of that node (URI SAN)
-// from the agent CA, rejecting revoked serials.
+// certificate and accepts only the runtime identity and current serial of
+// that node from the agent CA, rejecting revoked serials.
 type AgentDirectory struct {
 	Store *Store
 	PKI   *AgentPKI
@@ -31,8 +32,7 @@ type AgentDirectory struct {
 	Port int
 	// Timeout bounds one command (default 5 minutes).
 	Timeout time.Duration
-	// NativePort is the listen port of the native agent (default 7445). The
-	// native agent uses the same enrollment identity as the container agent.
+	// NativePort is the listen port of the native agent (default 7445).
 	NativePort int
 
 	mu      sync.Mutex
@@ -59,8 +59,8 @@ func (d *AgentDirectory) resolve(nodeID string, rt agentrt.Runtime) (string, err
 		switch {
 		case v.Enrollment != EnrollEnrolled:
 			return "", fmt.Errorf("%w: host %s is not enrolled", agent.ErrInvalidCommand, nodeID)
-		case v.AgentSerial == "":
-			return "", fmt.Errorf("%w: the agent on host %s has not enrolled its identity", agent.ErrInvalidCommand, nodeID)
+		case v.identity(rt).Serial == "":
+			return "", fmt.Errorf("%w: the %s agent on host %s has not enrolled its identity", agent.ErrInvalidCommand, rt, nodeID)
 		}
 		ip := net.ParseIP(v.Addr)
 		if ip == nil || ip.IsUnspecified() {
@@ -82,7 +82,7 @@ func (d *AgentDirectory) resolve(nodeID string, rt agentrt.Runtime) (string, err
 }
 
 func (d *AgentDirectory) client(nodeID, base string, rt agentrt.Runtime) (*agent.Client, error) {
-	key := nodeID + "@" + base
+	key := nodeID + "/" + string(rt) + "@" + base
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if c, ok := d.clients[key]; ok {
@@ -99,7 +99,8 @@ func (d *AgentDirectory) client(nodeID, base string, rt agentrt.Runtime) (*agent
 	c, err := agent.NewMTLSClient(base, agent.MTLSClientConfig{
 		Certificate:   d.PKI.ManagerClientCertificate,
 		RootCAs:       ca.Pool(),
-		AgentIdentity: certs.AgentURI(inst, nodeID),
+		AgentIdentity: certs.RuntimeAgentURI(inst, nodeID, string(rt)),
+		CurrentSerial: func() (string, error) { return d.currentSerial(nodeID, rt) },
 		Revoked:       d.PKI.Revoked,
 		Now:           d.PKI.Now,
 		Timeout:       d.Timeout,
@@ -114,6 +115,17 @@ func (d *AgentDirectory) client(nodeID, base string, rt agentrt.Runtime) (*agent
 	}
 	d.clients[key] = c
 	return c, nil
+}
+
+func (d *AgentDirectory) currentSerial(nodeID string, rt agentrt.Runtime) (string, error) {
+	h, err := d.hostRecord(nodeID)
+	if err != nil {
+		return "", err
+	}
+	if h.Enrollment != EnrollEnrolled {
+		return "", fmt.Errorf("%w: host %s is not enrolled", agent.ErrInvalidCommand, nodeID)
+	}
+	return h.identity(rt).Serial, nil
 }
 
 // legacyReports is what a host without any report is assumed to run: an
@@ -163,7 +175,14 @@ func routeHost(h HostRecord, req agentrt.Requirement) (agentrt.Runtime, error) {
 	}
 	have := h.AgentReports
 	if len(have) == 0 {
-		have = legacyReports
+		if h.identity(agentrt.Native).Serial == "" || h.identity(agentrt.Container).Serial != "" {
+			have = legacyReports
+		}
+	} else if _, ok := have[agentrt.Container]; !ok && h.identity(agentrt.Container).Serial != "" {
+		// A pre-ADR-0024 container agent has no report. Enrolling a native
+		// agent must not erase its legacy routing capability.
+		have = maps.Clone(have)
+		have[agentrt.Container] = legacyReports[agentrt.Container]
 	}
 	return agentrt.Select(req, have)
 }

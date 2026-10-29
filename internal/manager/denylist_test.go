@@ -5,6 +5,7 @@ package manager
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"io"
 	"log"
 	"net"
@@ -16,10 +17,12 @@ import (
 	"time"
 
 	"github.com/MagicalWig34653/db-cluster-manager/internal/agent"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/agentrt"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/authz"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/certs"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/enroll"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/fencing"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/patch"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/runner"
 )
 
@@ -30,6 +33,52 @@ type noDocker struct{ agent.DockerAPI }
 type countingAgents struct {
 	inner runner.AgentClient
 	n     atomic.Int32
+}
+
+type fakeNativeDeny struct {
+	calls int
+	fail  bool
+}
+
+func (f *fakeNativeDeny) Do(_ context.Context, _ string, c patch.AgentCommand) (patch.AgentResult, error) {
+	if c.Kind != patch.CmdDenyList || len(c.DenySerials) == 0 {
+		return patch.AgentResult{}, errors.New("wrong native deny command")
+	}
+	f.calls++
+	if f.fail {
+		return patch.AgentResult{}, errors.New("native unavailable")
+	}
+	return patch.AgentResult{Runtime: agentrt.Native}, nil
+}
+
+func TestDenyListTracksEachRuntimeIndependently(t *testing.T) {
+	agents := newFakeAgents()
+	c := newCluster(t, 1, func(_ string, cfg *Config) { cfg.Agents = agents })
+	s := c.leader()
+	h := HostRecord{Swarm: "sw1", NodeID: "n1", Enrollment: EnrollEnrolled, AgentSerial: "a1", AgentIdentities: map[agentrt.Runtime]AgentIdentityRecord{agentrt.Native: {Serial: "b2"}}, AgentReports: map[agentrt.Runtime]agentrt.Info{agentrt.Container: agentrt.ContainerInfo(false), agentrt.Native: agentrt.NativeInfo(false)}}
+	if _, err := Put(s.Store(), CollHosts, HostKey("sw1", "n1"), h, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Put(s.Store(), CollRevocations, "ff", certs.Revocation{Serial: "ff", RevokedAt: time.Now(), NotAfter: time.Now().Add(time.Hour)}, nil); err != nil {
+		t.Fatal(err)
+	}
+	native := &fakeNativeDeny{fail: true}
+	d := DenyListDistributor{Native: native}
+	if err := d.DistributeOnce(context.Background(), s.Current()); err == nil {
+		t.Fatal("native delivery failure hidden")
+	}
+	got, _, _ := Get[HostRecord](s.Store(), CollHosts, HostKey("sw1", "n1"))
+	if got.Value.DenyListDigests[agentrt.Container] == "" || got.Value.DenyListDigests[agentrt.Native] != "" || len(agents.commands()) != 1 {
+		t.Fatalf("acknowledgements mixed: %+v", got.Value)
+	}
+	native.fail = false
+	if err := d.DistributeOnce(context.Background(), s.Current()); err != nil {
+		t.Fatal(err)
+	}
+	got, _, _ = Get[HostRecord](s.Store(), CollHosts, HostKey("sw1", "n1"))
+	if got.Value.DenyListDigests[agentrt.Native] != got.Value.DenyListDigests[agentrt.Container] || len(agents.commands()) != 1 || native.calls != 2 {
+		t.Fatalf("retry did not isolate runtimes: %+v calls %d", got.Value, native.calls)
+	}
 }
 
 func (c *countingAgents) Send(ctx context.Context, target string, cmd agent.Command) (agent.Result, error) {

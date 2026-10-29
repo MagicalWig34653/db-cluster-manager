@@ -41,7 +41,7 @@ func (c *Control) swarms() *Swarms {
 func toAPIHost(h HostRecord) api.Host {
 	return api.Host{Swarm: h.Swarm, NodeID: h.NodeID, Hostname: h.Hostname, Role: h.Role, Availability: h.Availability,
 		State: h.State, EngineVersion: h.EngineVersion, Enrollment: string(h.Enrollment), Spare: h.Spare,
-		NanoCPUs: h.NanoCPUs, MemoryBytes: h.MemoryBytes, ObservedAt: h.ObservedAt, AgentIdentity: h.AgentSerial != "",
+		NanoCPUs: h.NanoCPUs, MemoryBytes: h.MemoryBytes, ObservedAt: h.ObservedAt, AgentIdentity: h.identity(agentrt.Container).Serial != "" || h.identity(agentrt.Native).Serial != "",
 		AgentVersion: h.AgentVersion, AgentSeenAt: h.AgentSeenAt, Agents: apiAgents(h), AgentReportError: h.AgentReportError}
 }
 
@@ -49,14 +49,15 @@ func apiAgents(h HostRecord) []api.HostAgentRuntime {
 	var out []api.HostAgentRuntime
 	for _, rt := range []agentrt.Runtime{agentrt.Container, agentrt.Native} {
 		info, ok := h.AgentReports[rt]
-		if !ok {
+		id := h.identity(rt)
+		if !ok && id.Serial == "" {
 			continue
 		}
 		caps := make([]string, len(info.Capabilities))
 		for i, c := range info.Capabilities {
 			caps[i] = string(c)
 		}
-		out = append(out, api.HostAgentRuntime{Runtime: string(rt), Capabilities: caps})
+		out = append(out, api.HostAgentRuntime{Runtime: string(rt), Capabilities: caps, Identity: id.Serial != "", CertificateExpiresAt: id.NotAfter})
 	}
 	return out
 }
@@ -133,6 +134,27 @@ func (c *Control) SetEnrollment(_ context.Context, actor authz.Subject, swarmID,
 		return api.Host{}, MapCommandError(err)
 	}
 	return toAPIHost(h), nil
+}
+
+// RevokeAgent denies one runtime certificate while leaving the host and its
+// other runtime enrolled.
+func (c *Control) RevokeAgent(_ context.Context, actor authz.Subject, swarmID, nodeID, runtime string) (api.Host, error) {
+	if _, err := c.Ops.leadership(); err != nil {
+		return api.Host{}, MapCommandError(err)
+	}
+	rt := agentrt.Runtime(runtime)
+	if rt != agentrt.Container && rt != agentrt.Native {
+		return api.Host{}, api.ErrInvalidInput
+	}
+	p := &AgentPKI{Store: c.Ops.Svc.store, Now: c.Ops.Svc.cfg.Now}
+	if err := p.RevokeAgent(actor, c.Ops.Authorizer, swarmID, nodeID, "agent runtime revoked by "+actor.ID, rt); err != nil {
+		return api.Host{}, MapCommandError(err)
+	}
+	h, _, err := Get[HostRecord](c.Ops.Svc.store, CollHosts, HostKey(swarmID, nodeID), Consistent())
+	if err != nil {
+		return api.Host{}, MapCommandError(err)
+	}
+	return toAPIHost(h.Value), nil
 }
 
 // CreateCluster implements api.Control.

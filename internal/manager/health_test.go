@@ -227,7 +227,7 @@ func TestHealthCollectorZeroUUIDPrimaryIncident(t *testing.T) {
 
 func TestOutageRecoveryRefusesZeroUUIDPrimaryBeforeAgentRecovery(t *testing.T) {
 	ha := &healthAgents{status: map[string]map[string]string{
-		"h1": wsrep("Synced", "Primary", "2"), "h2": wsrep("Synced", "Primary", "2"), "h3": wsrep("Joining", "non-Primary", "0"),
+		"h1": wsrep("Synced", "Primary", "2"), "h2": wsrep("Joining", "non-Primary", "0"), "h3": wsrep("Joining", "non-Primary", "0"),
 	}}
 	ha.status["h1"]["wsrep_cluster_state_uuid"] = galera.ZeroUUID
 	s, _ := healthSetup(t, ha, nil)

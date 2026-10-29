@@ -261,6 +261,10 @@ func (s *server) coreEndpoints() []endpoint {
 			action: authz.ActionUpdate, resolve: s.resolveHost, hideUnreadable: true, handle: s.handleHostEnrollment(false),
 		},
 		{
+			method: "POST", path: "/hosts/{id}/agents/{runtime}/revoke", access: accessPermission,
+			action: authz.ActionUpdate, resolve: s.resolveHost, hideUnreadable: true, handle: s.handleRuntimeAgentRevocation,
+		},
+		{
 			method: "GET", path: "/hosts/{id}/maintenance-plan", access: accessPermission,
 			action: authz.ActionRead, resolve: s.resolveHost, hideDenied: true, handle: s.handleMaintenancePlan,
 		},

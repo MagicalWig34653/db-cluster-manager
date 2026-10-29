@@ -13,6 +13,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/MagicalWig34653/db-cluster-manager/internal/agentrt"
 )
 
 // Token errors. They are distinct for the manager's audit trail; the
@@ -38,8 +40,8 @@ type Token struct {
 	ExpiresAt    time.Time `json:"expiresAt"`
 	// AllowedHosts are the host (Swarm node) IDs that may enroll with it.
 	AllowedHosts []string `json:"allowedHosts"`
-	// Used maps a host ID to the time it consumed the token: each host may
-	// use the token once.
+	// Used maps the legacy container host ID or host/native to the time that
+	// runtime consumed the token. Each host may use it once per runtime.
 	Used    map[string]time.Time `json:"used,omitempty"`
 	Revoked bool                 `json:"revoked,omitempty"`
 }
@@ -82,6 +84,15 @@ func ParseToken(plain string) (id, secret string, err error) {
 // Consume checks secret for host at now and marks the token used by host.
 // It mutates t only on success; the caller stores t with compare-and-set.
 func (t *Token) Consume(secret, host string, now time.Time) error {
+	return t.ConsumeRuntime(secret, host, agentrt.Container, now)
+}
+
+// ConsumeRuntime marks one host/runtime slot used. The historical host-only
+// key remains the container slot for existing stored token records.
+func (t *Token) ConsumeRuntime(secret, host string, runtime agentrt.Runtime, now time.Time) error {
+	if runtime != agentrt.Container && runtime != agentrt.Native {
+		return fmt.Errorf("%w: invalid runtime", ErrTokenInvalid)
+	}
 	if subtle.ConstantTimeCompare([]byte(digest(secret)), []byte(t.Digest)) != 1 {
 		return fmt.Errorf("%w: secret mismatch", ErrTokenInvalid)
 	}
@@ -93,12 +104,16 @@ func (t *Token) Consume(secret, host string, now time.Time) error {
 	case !slices.Contains(t.AllowedHosts, host):
 		return fmt.Errorf("%w: %s", ErrHostNotAllowed, host)
 	}
-	if at, used := t.Used[host]; used {
+	key := host
+	if runtime == agentrt.Native {
+		key += "/native"
+	}
+	if at, used := t.Used[key]; used {
 		return fmt.Errorf("%w: %s at %s", ErrTokenReplayed, host, at.Format(time.RFC3339))
 	}
 	if t.Used == nil {
 		t.Used = map[string]time.Time{}
 	}
-	t.Used[host] = now
+	t.Used[key] = now
 	return nil
 }

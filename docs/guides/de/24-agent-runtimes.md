@@ -26,7 +26,7 @@ Die Tabelle steht in `internal/agentrt`. Der Manager weicht nie stillschweigend 
 
 ## Wo man es sieht
 
-- `GET /api/v1/hosts`: `agents` listet Laufzeit und Fähigkeiten je Host; `agentReportError` erscheint nach einer inkonsistenten Meldung. Die Host-Seite zeigt ein Badge je Laufzeit (UI-Lücke: noch keine Ansicht je Funktion).
+- `GET /api/v1/hosts`: `agents` listet je Laufzeit Fähigkeiten, ob ein aktuelles Zertifikat hinterlegt ist (`identity`), und dessen `certificateExpiresAt`. `agentReportError` erscheint nach einer inkonsistenten Meldung. Die Host-Seite zeigt ein Badge je Laufzeit (UI-Lücke: noch keine Ansicht je Funktion).
 - `GET /api/v1/host-sources[/{id}]`: `runtime` ist die Laufzeit, die die Quelle jetzt ausführen würde (nativ, wenn `restic` angeboten wird, sonst Container), `runtimeNote` der Grund, wenn keine möglich ist.
 - `GET /api/v1/operations`: `executedBy` nennt je Schritt `runtime`, `host` und die Agent-Identität `agent`, die ausgeführt hat. Die Zeitleiste enthält `[executed by runtime=native host=...]`.
 - Patch: `agentRuntime` am Patch-Host, `executedBy` am Plan.
@@ -40,6 +40,8 @@ Es gelten die Regeln aus [Anleitung 22](22-restic.md): Der Agent sichert nur unt
 
 ## Grenzen
 
-- Eine Identität je Host: Container-Agent und nativer Agent desselben Hosts würden gegenseitig ihr Zertifikat ablösen. Bis es Identitäten je Laufzeit gibt, nur einen von beiden je Host betreiben ([ADR 0024](../../decisions/0024-agent-runtimes.md)).
+- Container-Agent und nativer Agent können sich auf demselben Host mit demselben Enrollment-Token einschreiben, je einmal pro Laufzeit. Beide haben ein eigenes Zertifikat und einen eigenen Erneuerungszyklus. Bestehende Hosts mit einem Identitätsslot bleiben Container-Agenten. Das Abmelden des Hosts widerruft beide Zertifikate. Der Manager prüft Laufzeit-URI und aktuelle Seriennummer und verteilt die Zertifikats-Sperrliste getrennt an beide Laufzeiten ([ADR 0024](../../decisions/0024-agent-runtimes.md)).
+- Administratoren können mit `POST /api/v1/hosts/{id}/agents/{runtime}/revoke` (`runtime` ist `container` oder `native`) nur das Zertifikat einer Laufzeit widerrufen. Der Host und die andere Laufzeit bleiben eingeschrieben. Der widerrufene Agent braucht ein neues Enrollment-Token. Das bestehende `POST /api/v1/hosts/{id}/revoke` widerruft den ganzen Host und beide Zertifikate.
+- Ein mit der älteren Version eingeschriebener nativer Agent besitzt noch die Container-URI. Er braucht ein neues Enrollment-Token und ein natives Zertifikat, bevor dieser Manager ihn ansprechen kann; sein altes Zertifikat lässt sich nicht als native Identität erneuern.
 - Nur mit Fakes und Loopback-Listenern geprüft; keine VM und kein echter restic-Lauf auf dem nativen Agenten. Das Secret-Verzeichnis des nativen Agenten füllt der Manager nicht.
 - `host-maintenance` und `diagnostics` sind reservierte Namen; nichts wird dorthin geroutet.

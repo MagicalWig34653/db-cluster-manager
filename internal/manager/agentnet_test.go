@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"github.com/MagicalWig34653/db-cluster-manager/internal/agent"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/agentrt"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/authz"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/certs"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/enroll"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/version"
@@ -58,13 +60,17 @@ func newPKIFixture(t *testing.T, hostAddr string) *pkiFixture {
 }
 
 func (f *pkiFixture) enroll(t *testing.T, plain, host string) (*enroll.Credentials, error) {
+	return f.enrollInfo(t, plain, host, agentrt.Info{})
+}
+
+func (f *pkiFixture) enrollInfo(t *testing.T, plain, host string, info agentrt.Info) (*enroll.Credentials, error) {
 	t.Helper()
 	fp, err := f.pki.CAFingerprint()
 	if err != nil {
 		t.Fatal(err)
 	}
 	return enroll.Enroll(context.Background(), enroll.AgentConfig{ManagerURL: f.url, Installation: "inst-1", HostID: host,
-		CAFingerprint: fp, Token: plain, Timeout: 5 * time.Second})
+		CAFingerprint: fp, Token: plain, Timeout: 5 * time.Second, Info: info})
 }
 
 // startAgent serves h over mTLS with the enrolled credentials.
@@ -207,6 +213,58 @@ func mustSerial(t *testing.T, hex string) *big.Int {
 		t.Fatalf("serial %q", hex)
 	}
 	return n
+}
+
+func TestRuntimeRevocationAuthorizationAndIsolation(t *testing.T) {
+	c := newCluster(t, 1, nil)
+	s := c.leader()
+	h := HostRecord{Swarm: "sw1", NodeID: "n1", Enrollment: EnrollEnrolled, AgentSerial: "a1", AgentNotAfter: time.Now().Add(time.Hour), AgentIdentities: map[agentrt.Runtime]AgentIdentityRecord{
+		agentrt.Native: {Serial: "b2", NotAfter: time.Now().Add(time.Hour)},
+	}}
+	if _, err := Put(s.Store(), CollHosts, HostKey("sw1", "n1"), h, nil); err != nil {
+		t.Fatal(err)
+	}
+	az := opsFor(t, s).Authorizer
+	viewer := authz.Subject{ID: "viewer", Kind: authz.SubjectUser}
+	if err := az.Policy().Bind(authz.Binding{Subject: viewer, Role: authz.RoleViewer, Scope: authz.Global}); err != nil {
+		t.Fatal(err)
+	}
+	if err := az.Policy().Bind(authz.Binding{Subject: operatorSubject, Role: authz.RoleOperator, Scope: authz.Global}); err != nil {
+		t.Fatal(err)
+	}
+	p := &AgentPKI{Store: s.Store()}
+	if err := p.RevokeAgent(viewer, az, "sw1", "n1", "test", agentrt.Native); err == nil {
+		t.Fatal("viewer revoked native identity")
+	}
+	if err := p.RevokeAgent(operatorSubject, az, "sw1", "n1", "test", agentrt.Native); err == nil {
+		t.Fatal("operator revoked native identity")
+	}
+	if err := p.RevokeAgent(adminSubject, az, "sw1", "n1", "test", agentrt.Native); err != nil {
+		t.Fatal(err)
+	}
+	got, _, _ := Get[HostRecord](s.Store(), CollHosts, HostKey("sw1", "n1"))
+	if got.Value.identity(agentrt.Container).Serial != "a1" || got.Value.identity(agentrt.Native).Serial != "" || !p.Revoked(mustSerial(t, "b2")) || p.Revoked(mustSerial(t, "a1")) {
+		t.Fatalf("native revocation touched container: %+v", got.Value)
+	}
+	apiHost := toAPIHost(got.Value)
+	if !apiHost.AgentIdentity || len(apiHost.Agents) != 1 || apiHost.Agents[0].Runtime != "container" || !apiHost.Agents[0].Identity {
+		t.Fatalf("API identity slots: %+v", apiHost)
+	}
+	if _, _, err := Update(s.Store(), CollHosts, HostKey("sw1", "n1"), func(cur HostRecord, _ bool) (HostRecord, error) {
+		if cur.AgentIdentities == nil {
+			cur.AgentIdentities = map[agentrt.Runtime]AgentIdentityRecord{}
+		}
+		cur.AgentIdentities[agentrt.Native] = AgentIdentityRecord{Serial: "c3", NotAfter: time.Now().Add(time.Hour)}
+		return cur, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (&Swarms{Svc: s, Authorizer: az}).SetEnrollment(adminSubject, "sw1", "n1", false, ""); err != nil {
+		t.Fatal(err)
+	}
+	if !p.Revoked(mustSerial(t, "a1")) || !p.Revoked(mustSerial(t, "c3")) {
+		t.Fatal("host unenrollment did not deny both runtime serials")
+	}
 }
 
 func TestEnrollmentSourceAddressAndCAStability(t *testing.T) {

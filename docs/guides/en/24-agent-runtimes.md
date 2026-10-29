@@ -26,7 +26,7 @@ The table lives in `internal/agentrt`. The manager never falls back silently: if
 
 ## Where you see it
 
-- `GET /api/v1/hosts`: `agents` lists runtime and capabilities per host; `agentReportError` is set after an inconsistent report. The Hosts page shows one badge per runtime (UI gap: no per-function view yet).
+- `GET /api/v1/hosts`: `agents` lists each recorded runtime, capabilities, whether a current certificate is recorded (`identity`), and its `certificateExpiresAt`. `agentReportError` is set after an inconsistent report. The Hosts page shows one badge per runtime (UI gap: no per-function view yet).
 - `GET /api/v1/host-sources[/{id}]`: `runtime` is the runtime that would run the source now (native if it offers `restic`, else container), `runtimeNote` the reason when none can.
 - `GET /api/v1/operations`: `executedBy` lists per step the `runtime`, the `host` and the `agent` identity that executed it. The operation timeline has `[executed by runtime=native host=...]`.
 - Patch: `agentRuntime` on the patch host, `executedBy` on a plan.
@@ -40,6 +40,8 @@ The rules are those of [guide 22](22-restic.md): the agent backs up only below t
 
 ## Limits
 
-- One enrolled identity per host: the container agent and the native agent of the same host would supersede each other's certificate. Run one of them per host until per-runtime identities exist ([ADR 0024](../../decisions/0024-agent-runtimes.md)).
+- Container and native agents may enroll on the same host with the same enrollment token, once per runtime. Each has its own certificate and renewal cycle. Existing single-slot hosts remain container agents. Host unenrollment revokes both certificates. The manager pins the runtime URI and current serial and delivers the certificate deny list to both runtimes separately ([ADR 0024](../../decisions/0024-agent-runtimes.md)).
+- An administrator can revoke one runtime's certificate with `POST /api/v1/hosts/{id}/agents/{runtime}/revoke` (`runtime` is `container` or `native`); the host and the other runtime stay enrolled. The revoked agent needs a new enrollment token. The existing `POST /api/v1/hosts/{id}/revoke` revokes the whole host and both certificates.
+- A native agent enrolled by the older single-slot build holds the legacy container URI. It needs a fresh native enrollment token and certificate before this manager will route to it; its old certificate cannot renew as native.
 - Tested only with fakes and loopback listeners; no VM and no real restic run on the native agent. The secrets directory of the native agent is not filled by the manager.
 - `host-maintenance` and `diagnostics` are reserved names; nothing is routed to them.

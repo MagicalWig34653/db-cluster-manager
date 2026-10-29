@@ -74,6 +74,13 @@ func (f *fakeControl) SetEnrollment(_ context.Context, a authz.Subject, sw, node
 	return Host{Swarm: sw, NodeID: node, Enrollment: e}, nil
 }
 
+func (f *fakeControl) RevokeAgent(_ context.Context, a authz.Subject, sw, node, runtime string) (Host, error) {
+	if err := f.record(a, "revoke-agent %s/%s/%s", sw, node, runtime); err != nil {
+		return Host{}, err
+	}
+	return Host{Swarm: sw, NodeID: node, Enrollment: EnrollmentEnrolled, Agents: []HostAgentRuntime{{Runtime: runtime, Capabilities: []string{}, Identity: false}}}, nil
+}
+
 func (f *fakeControl) CreateCluster(_ context.Context, a authz.Subject, req CreateClusterRequest) (OperationRef, error) {
 	f.mu.Lock()
 	f.lastReq = req
@@ -374,6 +381,29 @@ func TestHostEnrollmentAuthorization(t *testing.T) {
 	// An ambiguous node ID is refused, not guessed.
 	cf.ctl.hosts = append(cf.ctl.hosts, Host{Swarm: "s2", NodeID: "h1"})
 	wantError(t, admin.do("POST", "/api/v1/hosts/h1/enroll", nil), http.StatusConflict, errConflict)
+}
+
+func TestRuntimeAgentRevocationAuthorization(t *testing.T) {
+	cf := newControlFixture(t)
+	viewer := cf.loggedIn("viewer", authz.RoleViewer, authz.SwarmScope("s1"))
+	operator := cf.loggedIn("operator", authz.RoleOperator, authz.SwarmScope("s1"))
+	path := "/api/v1/hosts/h1/agents/native/revoke"
+	wantError(t, viewer.do("POST", path, nil), http.StatusForbidden, errForbidden)
+	wantError(t, operator.do("POST", path, nil), http.StatusForbidden, errForbidden)
+	wantError(t, viewer.do("POST", "/api/v1/hosts/h3/agents/native/revoke", nil), http.StatusNotFound, errNotFound)
+	admin, _, _ := cf.setupAdmin("admin")
+	r := admin.do("POST", path, map[string]any{})
+	wantStatus(t, r, http.StatusOK)
+	var h Host
+	r.decode(t, &h)
+	if h.Enrollment != EnrollmentEnrolled || len(h.Agents) != 1 || h.Agents[0].Identity {
+		t.Fatalf("updated host: %+v", h)
+	}
+	wantError(t, admin.do("POST", "/api/v1/hosts/h1/agents/other/revoke", nil), http.StatusBadRequest, errBadRequest)
+	wantError(t, admin.do("POST", path, map[string]any{"unexpected": true}), http.StatusBadRequest, errBadRequest)
+	if calls := cf.ctl.Calls(); len(calls) != 1 || calls[0] != "admin:revoke-agent s1/h1/native" {
+		t.Fatalf("calls %v", calls)
+	}
 }
 
 func TestSwarmCommands(t *testing.T) {

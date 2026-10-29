@@ -324,7 +324,7 @@ func (p *AgentPKI) hostByNode(nodeID string, opts ...ReadOption) (Versioned[Host
 
 // SignAgent implements enroll.Authority. Identities come from the host
 // record: the agent URI SAN, the Swarm address as IP SAN and the hostname.
-func (p *AgentPKI) SignAgent(ctx context.Context, nodeID string, csr *x509.CertificateRequest) (*certs.Signed, error) {
+func (p *AgentPKI) SignAgent(ctx context.Context, nodeID string, runtime agentrt.Runtime, csr *x509.CertificateRequest) (*certs.Signed, error) {
 	h, err := p.hostByNode(nodeID, Consistent())
 	if err != nil {
 		return nil, err
@@ -337,7 +337,7 @@ func (p *AgentPKI) SignAgent(ctx context.Context, nodeID string, csr *x509.Certi
 	if err != nil {
 		return nil, err
 	}
-	req := certs.Request{Kind: certs.KindPeer, CommonName: "dbcm agent " + nodeID, URIs: []*url.URL{certs.AgentURI(inst, nodeID)},
+	req := certs.Request{Kind: certs.KindPeer, CommonName: "dbcm agent " + nodeID, URIs: []*url.URL{certs.RuntimeAgentURI(inst, nodeID, string(runtime))},
 		Validity: p.AgentValidity}
 	if req.Validity <= 0 {
 		req.Validity = DefaultAgentCertValidity
@@ -428,7 +428,7 @@ func (p *AgentPKI) RefreshTokenHosts(swarmID string) error {
 }
 
 // ConsumeToken implements enroll.Registry.
-func (p *AgentPKI) ConsumeToken(_ context.Context, plain, nodeID string, source net.IP) error {
+func (p *AgentPKI) ConsumeToken(_ context.Context, plain, nodeID string, runtime agentrt.Runtime, source net.IP) error {
 	id, secret, err := enroll.ParseToken(plain)
 	if err != nil {
 		return err
@@ -453,7 +453,7 @@ func (p *AgentPKI) ConsumeToken(_ context.Context, plain, nodeID string, source 
 		if cur.Swarm != h.Value.Swarm {
 			return cur, fmt.Errorf("%w: token of another swarm", enroll.ErrHostNotAllowed)
 		}
-		if err := cur.Token.Consume(secret, nodeID, p.now()); err != nil {
+		if err := cur.Token.ConsumeRuntime(secret, nodeID, runtime, p.now()); err != nil {
 			return cur, err
 		}
 		return cur, nil
@@ -462,7 +462,7 @@ func (p *AgentPKI) ConsumeToken(_ context.Context, plain, nodeID string, source 
 }
 
 // CurrentSerial implements enroll.Registry.
-func (p *AgentPKI) CurrentSerial(_ context.Context, nodeID string) (string, bool, error) {
+func (p *AgentPKI) CurrentSerial(_ context.Context, nodeID string, runtime agentrt.Runtime) (string, bool, error) {
 	h, err := p.hostByNode(nodeID, Consistent())
 	if errors.Is(err, enroll.ErrUnknownAgent) {
 		return "", false, nil
@@ -470,13 +470,13 @@ func (p *AgentPKI) CurrentSerial(_ context.Context, nodeID string) (string, bool
 	if err != nil {
 		return "", false, mapEnrollStoreErr(err)
 	}
-	return h.Value.AgentSerial, h.Value.AgentSerial != "", nil
+	id := h.Value.identity(runtime)
+	return id.Serial, id.Serial != "", nil
 }
 
-// RecordIssued implements enroll.Registry. The previous serial of the host
-// is added to the deny list: after a renewal only the new certificate is
-// accepted.
-func (p *AgentPKI) RecordIssued(_ context.Context, nodeID string, cert *x509.Certificate) error {
+// RecordIssued implements enroll.Registry. Only the previous serial of this
+// runtime is denied; the other runtime's certificate stays current.
+func (p *AgentPKI) RecordIssued(_ context.Context, nodeID string, runtime agentrt.Runtime, cert *x509.Certificate) error {
 	h, err := p.hostByNode(nodeID, Consistent())
 	if err != nil {
 		return mapEnrollStoreErr(err)
@@ -487,11 +487,17 @@ func (p *AgentPKI) RecordIssued(_ context.Context, nodeID string, cert *x509.Cer
 		if !exists || cur.Enrollment != EnrollEnrolled {
 			return cur, fmt.Errorf("%w: host %s", enroll.ErrUnknownAgent, nodeID)
 		}
-		previous = cur.AgentSerial
-		previousExpiry = cur.AgentNotAfter
-		cur.AgentSerial = cert.SerialNumber.Text(16)
-		cur.AgentNotAfter = cert.NotAfter
-		cur.AgentIdentityAt = p.now()
+		prior := cur.identity(runtime)
+		previous, previousExpiry = prior.Serial, prior.NotAfter
+		if cur.AgentIdentities == nil {
+			cur.AgentIdentities = map[agentrt.Runtime]AgentIdentityRecord{}
+		}
+		cur.AgentIdentities[runtime] = AgentIdentityRecord{Serial: cert.SerialNumber.Text(16), NotAfter: cert.NotAfter, IssuedAt: p.now()}
+		if runtime == agentrt.Container {
+			cur.AgentSerial, cur.AgentNotAfter, cur.AgentIdentityAt = cert.SerialNumber.Text(16), cert.NotAfter, p.now()
+			cur.DenyListDigest = ""
+		}
+		delete(cur.DenyListDigests, runtime)
 		return cur, nil
 	})
 	if err != nil {
@@ -504,9 +510,7 @@ func (p *AgentPKI) RecordIssued(_ context.Context, nodeID string, cert *x509.Cer
 }
 
 // RecordReport implements enroll.ReportRegistry: the validated runtime report
-// of the agent that enrolled or renewed for nodeID. The enrollment endpoint
-// carries the identity shared by both runtimes, so the report is stored under
-// its runtime; the other runtime's report is kept.
+// of the agent that enrolled or renewed for nodeID.
 func (p *AgentPKI) RecordReport(_ context.Context, nodeID string, info agentrt.Info) error {
 	if err := info.Validate(); err != nil {
 		return err
@@ -545,23 +549,45 @@ func (p *AgentPKI) Revoked(serial *big.Int) bool {
 // RevokeAgent revokes the current agent identity of a host: its serial is
 // denied and the record cleared, so the agent must enroll again with a
 // new token. Permission: update on the host.
-func (p *AgentPKI) RevokeAgent(actor authz.Subject, az *authz.Authorizer, swarmID, nodeID, reason string) error {
+func (p *AgentPKI) RevokeAgent(actor authz.Subject, az *authz.Authorizer, swarmID, nodeID, reason string, runtimes ...agentrt.Runtime) error {
 	if d := az.Authorize(actor, authz.ActionUpdate, authz.Resource{Type: authz.ResourceHost, Scope: authz.SwarmScope(swarmID), ID: nodeID}); !d.Allowed {
 		return &authz.DeniedError{Decision: d}
 	}
-	var serial string
-	var expiry time.Time
+	for _, rt := range runtimes {
+		if rt != agentrt.Container && rt != agentrt.Native {
+			return fmt.Errorf("manager: invalid agent runtime %q", rt)
+		}
+	}
+	var revoked []AgentIdentityRecord
 	_, _, err := Update(p.Store, CollHosts, HostKey(swarmID, nodeID), func(cur HostRecord, exists bool) (HostRecord, error) {
 		if !exists {
 			return cur, ErrNotFound
 		}
-		serial = cur.AgentSerial
-		expiry = cur.AgentNotAfter
-		cur.AgentSerial, cur.AgentNotAfter = "", time.Time{}
+		revoked = revoked[:0]
+		targets := runtimes
+		if len(targets) == 0 {
+			targets = []agentrt.Runtime{agentrt.Container, agentrt.Native}
+		}
+		for _, rt := range targets {
+			if id := cur.identity(rt); id.Serial != "" {
+				revoked = append(revoked, id)
+			}
+			delete(cur.AgentIdentities, rt)
+			delete(cur.AgentReports, rt)
+			delete(cur.DenyListDigests, rt)
+			if rt == agentrt.Container {
+				cur.AgentSerial, cur.AgentNotAfter, cur.AgentIdentityAt, cur.DenyListDigest = "", time.Time{}, time.Time{}, ""
+			}
+		}
 		return cur, nil
 	})
-	if err != nil || serial == "" {
+	if err != nil {
 		return err
 	}
-	return p.revokeSerial(serial, reason, expiry)
+	for _, id := range revoked {
+		if err := p.revokeSerial(id.Serial, reason, id.NotAfter); err != nil {
+			return err
+		}
+	}
+	return nil
 }
