@@ -36,6 +36,8 @@ Implementation of the Docker update decision (interpretation as stated above, im
 
 Implementation of the native-agent decision: [ADR 0024](decisions/0024-agent-runtimes.md) (explicit runtimes, capability table, no silent fallback; fakes only).
 
+**Owner additions of 2026-10-29:** (1) Fresh servers: the manager must be able to manage completely fresh servers. The operator enters root SSH credentials and the manager installs everything needed (OS preparation, container runtime or Kubernetes, native and/or container agent, enrollment) through the reviewed SSH plan flow of ADR 0018 with preflight, sealed credentials, digest checks and explicit approval; no silent changes, credentials are write-only and not stored after the run unless sealed by the operator. (2) Image composer: the contents of a service image are assembled by point-and-click from components, for example for a web server the distribution/base, nginx with version and settings, PHP with version, selectable extensions and php.ini settings; the result is a reviewed build recipe for the image build service (X08) with SBOM, scan and registry push, plus variants per distro. Both build on ADR 0018 and X08; detailed work packages follow.
+
 ## Remaining product decisions
 
 - Final project name/GitHub owner, release naming and Pages setup. Public visibility and Git initialization/public push by Claude are explicitly authorized.
