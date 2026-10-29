@@ -4,9 +4,9 @@ FROM docker.io/library/debian:bookworm-slim@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 LABEL org.opencontainers.image.title="shop" \
       org.opencontainers.image.base.name="docker.io/library/debian:bookworm-slim" \
       org.opencontainers.image.base.digest="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
-      dbcm.recipe-digest="sha256:685e174a334dd86b99da48c068e318b83aed17838531072c72461c00146ebb99" \
-      dbcm.catalog-version="2026.10.29-1" \
-      dbcm.generator-version="1"
+      dbcm.recipe-digest="sha256:251b8f3a4f646ca8e44e84b5f6200f71190f03c61efcb28ca5ae86abd875e01b" \
+      dbcm.catalog-version="2026.10.29-2" \
+      dbcm.generator-version="2"
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       nginx=1.22.* \
@@ -18,15 +18,16 @@ RUN apt-get update \
       php8.2-zip \
  && rm -rf /var/lib/apt/lists/*
 RUN groupadd --system --gid 10001 app && useradd --system --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app \
- && mkdir -p /var/www/html /var/log/nginx /etc/dbcm/php/conf.d /etc/dbcm/php/pool.d /etc/dbcm/nginx \
- && chown -R app:app /var/www/html /var/log/nginx
+ && mkdir -p /var/log/nginx /var/www/html /etc/dbcm/nginx /etc/dbcm/php/conf.d /etc/dbcm/php/pool.d \
+ && chown -R app:app /var/log/nginx /var/www/html
 COPY nginx/nginx.conf /etc/dbcm/nginx/nginx.conf
 COPY nginx/default.conf /etc/dbcm/nginx/default.conf
 COPY php/99-dbcm.ini /etc/dbcm/php/conf.d/99-dbcm.ini
 COPY php/php-fpm.conf /etc/dbcm/php/php-fpm.conf
 COPY php/pool.conf /etc/dbcm/php/pool.d/www.conf
-ENV PHP_INI_SCAN_DIR=:/etc/dbcm/php/conf.d
 COPY entrypoint.sh /usr/local/bin/dbcm-entrypoint
+ENV HOME=/tmp
+ENV PHP_INI_SCAN_DIR=:/etc/dbcm/php/conf.d
 RUN nginx -t -c /etc/dbcm/nginx/nginx.conf
 RUN php-fpm8.2 -t -y /etc/dbcm/php/php-fpm.conf
 USER 10001:10001

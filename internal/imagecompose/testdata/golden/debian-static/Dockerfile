@@ -4,9 +4,9 @@ FROM docker.io/library/debian:bookworm-slim@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 LABEL org.opencontainers.image.title="static site" \
       org.opencontainers.image.base.name="docker.io/library/debian:bookworm-slim" \
       org.opencontainers.image.base.digest="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
-      dbcm.recipe-digest="sha256:81cc43919e54462673a767920804149d613eabc6df9cbc82a52be140ea91edf7" \
-      dbcm.catalog-version="2026.10.29-1" \
-      dbcm.generator-version="1"
+      dbcm.recipe-digest="sha256:c65676f6e88d837ef10f0cec1470d1c25c794fa5b6a4a2900f6e379a7b886e59" \
+      dbcm.catalog-version="2026.10.29-2" \
+      dbcm.generator-version="2"
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       ca-certificates \
@@ -14,10 +14,11 @@ RUN apt-get update \
       tzdata \
  && rm -rf /var/lib/apt/lists/*
 RUN groupadd --system --gid 10001 app && useradd --system --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app \
- && mkdir -p /var/www/html /var/log/nginx /etc/dbcm/php/conf.d /etc/dbcm/php/pool.d /etc/dbcm/nginx \
- && chown -R app:app /var/www/html /var/log/nginx
+ && mkdir -p /var/log/nginx /var/www/html /etc/dbcm/nginx \
+ && chown -R app:app /var/log/nginx /var/www/html
 COPY nginx/nginx.conf /etc/dbcm/nginx/nginx.conf
 COPY nginx/default.conf /etc/dbcm/nginx/default.conf
+ENV HOME=/tmp
 RUN nginx -t -c /etc/dbcm/nginx/nginx.conf
 USER 10001:10001
 EXPOSE 8080

@@ -10,10 +10,12 @@
 		issuesAt,
 		localText,
 		platformsOn,
+		orderedComponents,
 		reconcile,
 		releasesOf,
 		requiredBy,
 		settingPath,
+		switchComponent,
 		versionsOn,
 		type ComposerForm
 	} from '../../../lib/composer';
@@ -21,7 +23,7 @@
 	import { shortDigest } from '../../../lib/services';
 	import { load } from '../../../lib/load.svelte';
 	import { locale, t } from '../../../lib/locale.svelte';
-	import { checkClass, selectClass } from '../../../lib/components/app/fieldClass';
+	import { checkClass, selectClass, textareaClass } from '../../../lib/components/app/fieldClass';
 	import * as Card from '../../../lib/components/ui/card/index.js';
 	import * as Alert from '../../../lib/components/ui/alert/index.js';
 	import { Button } from '../../../lib/components/ui/button/index.js';
@@ -91,6 +93,10 @@
 		set((cur) => ({ ...cur, components: { ...cur.components, [compId]: { ...cur.components[compId], settings: { ...cur.components[compId].settings, [f.key]: v } } } }));
 	}
 	function setComp(compId: string, patch: Partial<ComposerForm['components'][string]>) {
+		if (cat && 'on' in patch && Object.keys(patch).length === 1) {
+			set((cur) => switchComponent(cat, cur, compId, patch.on === true));
+			return;
+		}
 		set((cur) => ({ ...cur, components: { ...cur.components, [compId]: { ...cur.components[compId], ...patch } } }));
 	}
 	function useBase(distro: string, release: string) {
@@ -205,8 +211,11 @@
 				</Card.Root>
 
 				<h2 class="text-lg font-semibold">{t('cmpStepComponents')}</h2>
-				{#each cat.components as comp (comp.id)}
+				{#each orderedComponents(cat) as comp, i (comp.id)}
 					{@const c = form.components[comp.id]}
+					{#if i === 0 || orderedComponents(cat)[i - 1].kind !== comp.kind}
+						<p class="pt-2 text-sm font-medium text-muted-foreground">{t(comp.kind === 'server' ? 'cmpKindServer' : comp.kind === 'runtime' ? 'cmpKindRuntime' : comp.kind === 'tool' ? 'cmpKindTool' : 'cmpKindUtility')}</p>
+					{/if}
 					{@const avail = versionsOn(comp, form.distro, form.release)}
 					{@const f0 = form}
 					{@const blockers = (comp.requires ?? []).filter((r) => !f0.components[r]?.on)}
@@ -279,6 +288,8 @@
 																<select {id} class={selectClass} value={String(val)} onchange={(e) => setSetting(comp.id, f, e.currentTarget.value)} aria-describedby="{id}-d">
 																	{#each f.enum ?? [] as o (o.value)}<option value={o.value}>{o.value}</option>{/each}
 																</select>
+															{:else if f.multiline}
+																<textarea {id} class={textareaClass} rows="6" value={String(val)} oninput={(e) => setSetting(comp.id, f, e.currentTarget.value)} autocomplete="off" spellcheck="false" aria-invalid={problems.length > 0} aria-describedby="{id}-d"></textarea>
 															{:else}
 																<Input {id} class="font-mono" inputmode={f.type === 'int' ? 'numeric' : undefined} value={String(val)} oninput={(e) => setSetting(comp.id, f, e.currentTarget.value)} autocomplete="off" aria-invalid={problems.length > 0} aria-describedby="{id}-d" />
 															{/if}

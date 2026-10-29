@@ -4,9 +4,9 @@ FROM docker.io/library/ubuntu:24.04@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 LABEL org.opencontainers.image.title="shop" \
       org.opencontainers.image.base.name="docker.io/library/ubuntu:24.04" \
       org.opencontainers.image.base.digest="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
-      dbcm.recipe-digest="sha256:c3244aec9f9e2c6af8c8ce325810efe2f1939f5dff2fc3e23a810330a195a97f" \
-      dbcm.catalog-version="2026.10.29-1" \
-      dbcm.generator-version="1"
+      dbcm.recipe-digest="sha256:daae4f9a64e0428e07cb3398ba1996573e64af796e16acb091645f0b5bfe58e8" \
+      dbcm.catalog-version="2026.10.29-2" \
+      dbcm.generator-version="2"
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       nginx=1.24.* \
@@ -18,15 +18,16 @@ RUN apt-get update \
       php8.3-zip \
  && rm -rf /var/lib/apt/lists/*
 RUN groupadd --system --gid 10001 app && useradd --system --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app \
- && mkdir -p /var/www/html /var/log/nginx /etc/dbcm/php/conf.d /etc/dbcm/php/pool.d /etc/dbcm/nginx \
- && chown -R app:app /var/www/html /var/log/nginx
+ && mkdir -p /var/log/nginx /var/www/html /etc/dbcm/nginx /etc/dbcm/php/conf.d /etc/dbcm/php/pool.d \
+ && chown -R app:app /var/log/nginx /var/www/html
 COPY nginx/nginx.conf /etc/dbcm/nginx/nginx.conf
 COPY nginx/default.conf /etc/dbcm/nginx/default.conf
 COPY php/99-dbcm.ini /etc/dbcm/php/conf.d/99-dbcm.ini
 COPY php/php-fpm.conf /etc/dbcm/php/php-fpm.conf
 COPY php/pool.conf /etc/dbcm/php/pool.d/www.conf
-ENV PHP_INI_SCAN_DIR=:/etc/dbcm/php/conf.d
 COPY entrypoint.sh /usr/local/bin/dbcm-entrypoint
+ENV HOME=/tmp
+ENV PHP_INI_SCAN_DIR=:/etc/dbcm/php/conf.d
 RUN nginx -t -c /etc/dbcm/nginx/nginx.conf
 RUN php-fpm8.3 -t -y /etc/dbcm/php/php-fpm.conf
 USER 10001:10001

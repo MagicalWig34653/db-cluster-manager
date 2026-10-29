@@ -1138,6 +1138,8 @@ export interface ComposerField {
 	target?: 'ini' | 'pool';
 	needs?: string;
 	needsFeature?: string;
+	/** Multi-line input (PEM text); the value is still validated by the pattern. */
+	multiline?: boolean;
 }
 
 export interface ComposerComponent {
@@ -1189,7 +1191,7 @@ export interface ComposerPreview {
 	variants: ComposerVariant[];
 	recipe?: ComposerRecipe;
 	digest?: string;
-	role?: 'web' | 'fpm';
+	role?: 'web' | 'fpm' | 'worker' | 'app' | 'sftp' | 'jobs';
 	baseImage?: string;
 	contextHash?: string;
 	dockerfile?: string;

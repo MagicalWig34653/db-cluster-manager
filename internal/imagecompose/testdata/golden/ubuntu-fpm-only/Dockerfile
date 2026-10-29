@@ -4,9 +4,9 @@ FROM docker.io/library/ubuntu:24.04@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 LABEL org.opencontainers.image.title="fpm only" \
       org.opencontainers.image.base.name="docker.io/library/ubuntu:24.04" \
       org.opencontainers.image.base.digest="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
-      dbcm.recipe-digest="sha256:27bf28dab7792a6b299a9db49a1ad96e4bdcf65c3d3387abb57829a3cb5c3490" \
-      dbcm.catalog-version="2026.10.29-1" \
-      dbcm.generator-version="1"
+      dbcm.recipe-digest="sha256:a3addf114631a0bdddcf75cfd44042104b443e40077983359a087fdf6a1b67b9" \
+      dbcm.catalog-version="2026.10.29-2" \
+      dbcm.generator-version="2"
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       composer \
@@ -16,11 +16,12 @@ RUN apt-get update \
       php8.3-mysql \
  && rm -rf /var/lib/apt/lists/*
 RUN groupadd --system --gid 10001 app && useradd --system --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app \
- && mkdir -p /var/www/html /etc/dbcm/php/conf.d /etc/dbcm/php/pool.d /etc/dbcm/nginx \
+ && mkdir -p /var/www/html /etc/dbcm/php/conf.d /etc/dbcm/php/pool.d \
  && chown -R app:app /var/www/html
 COPY php/99-dbcm.ini /etc/dbcm/php/conf.d/99-dbcm.ini
 COPY php/php-fpm.conf /etc/dbcm/php/php-fpm.conf
 COPY php/pool.conf /etc/dbcm/php/pool.d/www.conf
+ENV HOME=/tmp
 ENV PHP_INI_SCAN_DIR=:/etc/dbcm/php/conf.d
 RUN php-fpm8.3 -t -y /etc/dbcm/php/php-fpm.conf
 USER 10001:10001

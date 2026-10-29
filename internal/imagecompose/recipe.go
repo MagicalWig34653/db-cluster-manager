@@ -202,13 +202,17 @@ func (c *Catalog) Resolve(r Recipe) (Recipe, error) {
 		add("components", "single-process rule: only one main process per image (%s selected)", strings.Join(mains, ", "))
 	}
 	if len(selected) > 0 && len(mains) == 0 && !seen["php"] {
-		add("components", "select a main process: nginx or php")
+		add("components", "select a main process: a web server, an application runtime, SFTP, the job runner or PHP")
+	}
+	if seen["php"] && len(mains) > 0 && !slices.ContainsFunc(webServerIDs, func(id string) bool { return seen[id] }) {
+		add("components[php]", "PHP can only accompany a web server (nginx, apache or caddy), not %s", strings.Join(mains, ", "))
 	}
 
 	// Cross-field rules on selected settings.
 	if p := settingsOf(out, "php"); p != nil {
 		is = append(is, phpCross(p)...)
 	}
+	is = append(is, crossRules(out)...)
 
 	// Platforms.
 	for _, pl := range r.Platforms {

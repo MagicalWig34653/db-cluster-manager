@@ -30,7 +30,7 @@ const SchemaVersion = 1
 
 // GeneratorVersion is part of the recipe digest: a change of the generator
 // changes the digest because the generated output changes with it.
-const GeneratorVersion = "1"
+const GeneratorVersion = "2"
 
 // EvidenceUnverified marks catalog data that no upstream document or real
 // build has confirmed.
@@ -83,7 +83,14 @@ type Support struct {
 	Binary string `json:"binary,omitempty"`
 	// CLI is a versioned CLI binary that needs a "php" symlink (Alpine).
 	CLI string `json:"cli,omitempty"`
+	// Layout holds distribution-specific file locations a renderer needs
+	// (for example the Apache module directory). Keys are allow-listed.
+	Layout map[string]string `json:"layout,omitempty"`
 }
+
+var layoutKeys = map[string]bool{"moduleDir": true, "mimeTypes": true}
+
+var layoutValueRe = regexp.MustCompile(`^/[A-Za-z0-9._/-]{1,100}$`)
 
 // ComponentVersion is one selectable version with its availability matrix.
 type ComponentVersion struct {
@@ -126,6 +133,9 @@ type Field struct {
 	Needs string `json:"needs,omitempty"`
 	// NeedsFeature names a feature of the same component that must be selected.
 	NeedsFeature string `json:"needsFeature,omitempty"`
+	// Multiline asks the UI for a multi-line input (PEM text); the value is
+	// still validated by the mandatory pattern.
+	Multiline bool `json:"multiline,omitempty"`
 }
 
 // Component is one building block of an image.
@@ -320,6 +330,14 @@ func (comp Component) validate(c *Catalog, ids map[string]bool, rel map[string]R
 					return badCatalog("component %s %s on %s: package %q is malformed", id, v.Version, k, p.Name)
 				}
 			}
+			for lk, lv := range s.Layout {
+				if !layoutKeys[lk] || !layoutValueRe.MatchString(lv) {
+					return badCatalog("component %s %s on %s: layout %q is not allowed", id, v.Version, k, lk)
+				}
+			}
+			if s.Binary != "" && !binaryRe.MatchString(s.Binary) {
+				return badCatalog("component %s %s on %s: binary %q is malformed", id, v.Version, k, s.Binary)
+			}
 			for _, m := range s.Modules {
 				if !moduleRe.MatchString(m) {
 					return badCatalog("component %s %s on %s: module %q is malformed", id, v.Version, k, m)
@@ -328,7 +346,7 @@ func (comp Component) validate(c *Catalog, ids map[string]bool, rel map[string]R
 			if fam[k] != "rhel" && len(s.Modules) > 0 {
 				return badCatalog("component %s %s on %s: dnf modules on a non-dnf family", id, v.Version, k)
 			}
-			if len(comp.Features) > 0 && comp.ID == "php" && (s.Prefix == "" || s.Binary == "") {
+			if comp.ID == "php" && (s.Prefix == "" || s.Binary == "") {
 				return badCatalog("component %s %s on %s: prefix and binary are required", id, v.Version, k)
 			}
 		}
@@ -362,6 +380,7 @@ var (
 	pkgRe     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9+._-]{0,80}$`)
 	versionRe = regexp.MustCompile(`^[0-9a-z][0-9a-z.]{0,15}$`)
 	moduleRe  = regexp.MustCompile(`^[a-z0-9]+:[0-9][0-9.]{0,10}$`)
+	binaryRe  = regexp.MustCompile(`^(/[A-Za-z0-9._-]+)*/?[A-Za-z0-9][A-Za-z0-9._-]*$`)
 	keyRe     = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_.]{0,63}$`)
 )
 

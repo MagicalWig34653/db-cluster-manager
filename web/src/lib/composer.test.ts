@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import catalogJson from './mock-composer-catalog.json';
 import { createClient, isComposerCatalog, isComposerPreview, type ComposerCatalog } from './api';
 import { composerMock } from './mock-composer';
-import { buildRecipe, defaultForm, featuresOn, issuesAt, localText, platformsOn, reconcile, requiredBy, settingPath, versionsOn, applicableFields } from './composer';
+import { switchComponent, orderedComponents, buildRecipe, defaultForm, featuresOn, issuesAt, localText, platformsOn, reconcile, requiredBy, settingPath, versionsOn, applicableFields } from './composer';
 
 const cat = catalogJson as unknown as ComposerCatalog;
 const nginx = cat.components.find((c) => c.id === 'nginx')!;
@@ -27,7 +27,10 @@ describe('choices follow the compatibility matrix', () => {
 		expect(versionsOn(php, 'alpine', '3.20')).toEqual(['8.3', '8.2']);
 		expect(versionsOn(php, 'debian', '12')).toEqual(['8.2']);
 		expect(versionsOn(nginx, 'debian', '12')).toEqual(['1.22']);
-		expect(versionsOn(nginx, 'almalinux', '9')).toEqual(['1.26', '1.24']);
+		expect(versionsOn(nginx, 'almalinux', '9')).toEqual(['1.26', '1.24', '1.22']);
+		expect(versionsOn(php, 'debian', '13')).toEqual(['8.4']);
+		expect(versionsOn(php, 'ubuntu', '22.04')).toEqual(['8.1']);
+		expect(versionsOn(nginx, 'rocky', '9')).toEqual(['1.26', '1.24', '1.22']);
 	});
 	it('offers extensions per distribution family', () => {
 		expect(featuresOn(cat, php, 'alpine')).toContain('redis');
@@ -141,5 +144,46 @@ describe('client against the mock server', () => {
 		await expect(api.composerBuild(req, 'sha256:' + '0'.repeat(64))).rejects.toMatchObject({ kind: 'conflict' });
 		const built = await api.composerBuild(req, plan.plan!.digest);
 		expect(built.job?.status).toBe('succeeded');
+	});
+});
+
+describe('extended catalog', () => {
+	it('offers the new bases, runtimes and storage components', () => {
+		for (const [d, r] of [['alpine', '3.21'], ['alpine', '3.22'], ['debian', '13'], ['ubuntu', '22.04'], ['rocky', '9']]) expect(cat.distros.find((x) => x.id === d)?.releases.some((x) => x.id === r)).toBe(true);
+		for (const id of ['apache', 'caddy', 'node', 'python', 'java', 'sftp', 'jobrunner', 'backuptools', 'dbclients', 'system']) expect(cat.components.some((c) => c.id === id)).toBe(true);
+		const node = cat.components.find((c) => c.id === 'node')!;
+		expect(versionsOn(node, 'ubuntu', '24.04')).toEqual([]);
+		expect(versionsOn(node, 'alpine', '3.21')).toEqual(['22']);
+	});
+	it('every new setting has both languages (labels and help)', () => {
+		for (const c of cat.components) for (const f of c.settings ?? []) {
+			expect(f.label.en && f.label.de).toBeTruthy();
+			if (f.help) expect(f.help.en && f.help.de).toBeTruthy();
+		}
+	});
+	it('a main process replaces another one and PHP only accompanies web servers', () => {
+		let f = defaultForm(cat);
+		f = switchComponent(cat, f, 'apache', true);
+		expect(f.components.nginx.on).toBe(false);
+		expect(f.components.apache.on).toBe(true);
+		expect(f.components.php.on).toBe(true);
+		f = switchComponent(cat, f, 'node', true);
+		expect(f.components.apache.on).toBe(false);
+		expect(f.components.php.on).toBe(false);
+		f = switchComponent(cat, f, 'php', true);
+		expect(f.components.node.on).toBe(false);
+		f = switchComponent(cat, f, 'system', true);
+		expect(f.components.php.on).toBe(true);
+	});
+	it('groups components by kind and flags the multi-line certificate field', () => {
+		const kinds = orderedComponents(cat).map((c) => c.kind);
+		expect(kinds).toEqual([...kinds].sort((a, b) => ['server', 'runtime', 'tool', 'utility'].indexOf(a) - ['server', 'runtime', 'tool', 'utility'].indexOf(b)));
+		expect(cat.components.find((c) => c.id === 'system')!.settings!.find((f) => f.key === 'extraCaPem')!.multiline).toBe(true);
+	});
+	it('does not send an empty certificate field', () => {
+		let f = defaultForm(cat);
+		f = switchComponent(cat, f, 'system', true);
+		const r = buildRecipe(cat, f);
+		expect(r.components.find((c) => c.id === 'system')!.settings).toBeUndefined();
 	});
 });

@@ -19,6 +19,20 @@ Limits: the catalog is unverified (package names, versions and dnf module stream
 
 Next action: wire `ImageComposerBackend` in the manager behind the existing image build configuration, then verify the catalog with a real build per distribution family in a lab VM (needs the lab budget), and connect the SBOM/scan step.
 
+### Image composer catalog extension (2026-10-29, catalog 2026.10.29-2, generator 2; fakes and golden files only)
+
+Owner request: extend the catalog; the engineer chose the content ([ADR 0026](decisions/0026-image-composer.md) addendum, guide [26](guides/en/26-image-composer.md) EN/DE).
+
+- Catalog: bases Alpine 3.20/3.21/3.22, Debian 12/13, Ubuntu 22.04/24.04, AlmaLinux 9, Rocky Linux 9; 14 components with 114 typed settings. New: Apache httpd, Caddy, Node.js 20/22, Python with gunicorn, Java 17/21 JRE, SFTP (single account, no chroot), scheduled job runner (restic/rclone presets), backup and sync tools, database client tools, system settings (time zone, locale, CA certificates, health check). nginx: brotli, rate limit, security header presets, real client address, forwarded proto. PHP 8.1 to 8.4, 39 extensions (apcu, imagick, redis, memcached, ldap, soap, sqlite and more), opcache/JIT/APCu settings, CLI worker mode, FPM ping.
+- Code: generator split into `generate.go`, `gen_web.go`, `gen_misc.go`, `cross.go`; catalog `layout` and `multiline` fields; new roles (`worker`, `app`, `sftp`, `jobs`); cross-rules (worker vs web server, PHP only beside a web server, trusted proxy CIDRs, health check preset needs, CA certificates parsed as CA, job tool present). Path patterns now refuse `.`/`..` segments (the older document root pattern accepted `/var/www/../..`). Generator version 2: `HOME=/tmp`, directory handling, new roles, so recipe digests of version 1 differ.
+- Tests: 13 new golden recipes (20 in total) and about 40 new rejection cases (shell/argument injection, traversal, bad CIDR, leaf/garbage/private-key PEM, impossible combinations, availability per base), invariants over every new golden recipe (non-root, digest pin, no remote scripts, deterministic), catalog matrix and language checks. Web: `switchComponent` (second main process switched off, PHP and non-web mains exclusive), component grouping by kind, textarea for the PEM field, 5 new vitest tests (233 in total).
+- UI: components grouped as servers, runtimes, tools, system; unselected components stay a single description line. The 360 px layout was not checked by eye (single column below `xl`, textarea `w-full min-w-0`).
+- Evidence: endoflife.date (third party) on 2026-10-29 confirmed that Debian 13, Rocky/AlmaLinux 9, PHP 8.4 and Node.js 22 exist and that PHP 8.1 is upstream end of life; Alpine data could not be fetched. **No package name, version, module stream, module path or file location was verified**; `evidence` stays `unverified`.
+- Deferred with reasons: Go static binary on scratch/distroless (no safe way to bring a binary into the context; proposed `payload` component pinned by digest), vsftpd and chrooted multi-user SFTP (need root/PAM), multiple PHP-FPM pools (one site per image).
+- Limits: nothing was built or run; the Apache, Caddy, sshd, locale and CA steps and all new package names are guesses until a lab build per family. Weak spots listed in the ADR addendum.
+
+Actual checks (final tree): `gofmt -l .` (no output), `go vet ./...` (no output), `go test -race -count=1 -p 4 ./...` (all packages ok), `python3 scripts/check_docs.py` (104 Markdown files, 73 requirements, 0 errors), `python3 scripts/check_deploy.py` (passed, static only), in `web/`: `npm run check` (0 errors, 0 warnings), `npm run check:i18n` (passed), `npm test` (23 files, 233 tests ok), `npm run build` (ok). The page was not opened in a browser.
+
 ## Image update service (2026-10-28/29, X16, ADR 0025, fakes only; no VM used)
 
 [ADR 0025](decisions/0025-image-update-service.md), guide [25](guides/en/25-image-updates.md) (EN/DE). Implements the owner decision "Docker updates in the manner of Watchtower" for image/service updates of managed objects; engine upgrades stay reviewed plans (ADR 0019). Tests were written before the code.

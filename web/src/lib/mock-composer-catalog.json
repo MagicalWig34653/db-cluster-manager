@@ -1,176 +1,492 @@
 {
   "schemaVersion": 1,
-  "version": "2026.10.29-1",
+  "version": "2026.10.29-2",
   "evidence": "unverified",
   "distros": [
     {"id": "alpine", "name": "Alpine Linux", "family": "alpine", "releases": [
-      {"id": "3.20", "name": "Alpine 3.20", "image": "docker.io/library/alpine", "tag": "3.20", "architectures": ["amd64", "arm64"]}
+      {"id": "3.20", "name": "Alpine 3.20", "image": "docker.io/library/alpine", "tag": "3.20", "architectures": ["amd64", "arm64"]},
+      {"id": "3.21", "name": "Alpine 3.21", "image": "docker.io/library/alpine", "tag": "3.21", "architectures": ["amd64", "arm64"]},
+      {"id": "3.22", "name": "Alpine 3.22", "image": "docker.io/library/alpine", "tag": "3.22", "architectures": ["amd64", "arm64"]}
     ]},
     {"id": "debian", "name": "Debian", "family": "debian", "releases": [
-      {"id": "12", "name": "Debian 12 (bookworm)", "image": "docker.io/library/debian", "tag": "bookworm-slim", "architectures": ["amd64", "arm64"]}
+      {"id": "12", "name": "Debian 12 (bookworm)", "image": "docker.io/library/debian", "tag": "bookworm-slim", "architectures": ["amd64", "arm64"]},
+      {"id": "13", "name": "Debian 13 (trixie)", "image": "docker.io/library/debian", "tag": "trixie-slim", "architectures": ["amd64", "arm64"]}
     ]},
     {"id": "ubuntu", "name": "Ubuntu", "family": "debian", "releases": [
+      {"id": "22.04", "name": "Ubuntu 22.04 LTS", "image": "docker.io/library/ubuntu", "tag": "22.04", "architectures": ["amd64", "arm64"]},
       {"id": "24.04", "name": "Ubuntu 24.04 LTS", "image": "docker.io/library/ubuntu", "tag": "24.04", "architectures": ["amd64", "arm64"]}
     ]},
     {"id": "almalinux", "name": "AlmaLinux", "family": "rhel", "releases": [
       {"id": "9", "name": "AlmaLinux 9", "image": "docker.io/library/almalinux", "tag": "9", "architectures": ["amd64", "arm64"]}
+    ]},
+    {"id": "rocky", "name": "Rocky Linux", "family": "rhel", "releases": [
+      {"id": "9", "name": "Rocky Linux 9", "image": "docker.io/library/rockylinux", "tag": "9", "architectures": ["amd64", "arm64"]}
     ]}
   ],
   "components": [
     {
-      "id": "nginx", "name": {"en": "nginx web server", "de": "nginx-Webserver"},
-      "kind": "server", "process": "main",
-      "description": {"en": "HTTP server listening on unprivileged port 8080, running as a non-root user.", "de": "HTTP-Server auf dem unprivilegierten Port 8080, läuft ohne Root-Rechte."},
+      "id": "nginx", "name": {"en": "nginx web server", "de": "nginx-Webserver"}, "kind": "server", "process": "main", "description": {"en": "HTTP server listening on unprivileged port 8080, running as a non-root user.", "de": "HTTP-Server auf dem unprivilegierten Port 8080, läuft ohne Root-Rechte."}, "featureLabel": {"en": "nginx modules", "de": "nginx-Module"},
       "versions": [
+        {"version": "1.28", "support": [
+          {"distro": "alpine", "release": "3.22", "architectures": ["amd64", "arm64"], "packages": [{"name": "nginx", "constraint": "1.28"}]}
+        ]},
         {"version": "1.26", "support": [
           {"distro": "alpine", "release": "3.20", "architectures": ["amd64", "arm64"], "packages": [{"name": "nginx", "constraint": "1.26"}]},
-          {"distro": "almalinux", "release": "9", "architectures": ["amd64", "arm64"], "modules": ["nginx:1.26"], "packages": [{"name": "nginx"}]}
+          {"distro": "alpine", "release": "3.21", "architectures": ["amd64", "arm64"], "packages": [{"name": "nginx", "constraint": "1.26"}]},
+          {"distro": "debian", "release": "13", "architectures": ["amd64", "arm64"], "packages": [{"name": "nginx", "constraint": "1.26"}]},
+          {"distro": "almalinux", "release": "9", "architectures": ["amd64", "arm64"], "modules": ["nginx:1.26"], "packages": [{"name": "nginx"}]},
+          {"distro": "rocky", "release": "9", "architectures": ["amd64", "arm64"], "modules": ["nginx:1.26"], "packages": [{"name": "nginx"}]}
         ]},
         {"version": "1.24", "support": [
           {"distro": "ubuntu", "release": "24.04", "architectures": ["amd64", "arm64"], "packages": [{"name": "nginx", "constraint": "1.24"}]},
-          {"distro": "almalinux", "release": "9", "architectures": ["amd64", "arm64"], "modules": ["nginx:1.24"], "packages": [{"name": "nginx"}]}
+          {"distro": "almalinux", "release": "9", "architectures": ["amd64", "arm64"], "modules": ["nginx:1.24"], "packages": [{"name": "nginx"}]},
+          {"distro": "rocky", "release": "9", "architectures": ["amd64", "arm64"], "modules": ["nginx:1.24"], "packages": [{"name": "nginx"}]}
         ]},
         {"version": "1.22", "support": [
-          {"distro": "debian", "release": "12", "architectures": ["amd64", "arm64"], "packages": [{"name": "nginx", "constraint": "1.22"}]}
+          {"distro": "debian", "release": "12", "architectures": ["amd64", "arm64"], "packages": [{"name": "nginx", "constraint": "1.22"}]},
+          {"distro": "almalinux", "release": "9", "architectures": ["amd64", "arm64"], "modules": ["nginx:1.22"], "packages": [{"name": "nginx"}]},
+          {"distro": "rocky", "release": "9", "architectures": ["amd64", "arm64"], "modules": ["nginx:1.22"], "packages": [{"name": "nginx"}]}
+        ]},
+        {"version": "1.18", "support": [
+          {"distro": "ubuntu", "release": "22.04", "architectures": ["amd64", "arm64"], "packages": [{"name": "nginx", "constraint": "1.18"}]}
         ]}
       ],
+      "features": [
+        {"id": "brotli", "packages": {"alpine": ["nginx-mod-http-brotli"], "debian": ["libnginx-mod-http-brotli-filter"]}}
+      ],
       "settings": [
-        {"key": "workerProcesses", "type": "enum", "group": "nginx", "default": "auto",
-         "enum": [{"value": "auto"}, {"value": "1"}, {"value": "2"}, {"value": "4"}, {"value": "8"}],
-         "label": {"en": "Worker processes", "de": "Worker-Prozesse"}, "help": {"en": "auto follows the CPU limit of the container.", "de": "auto folgt dem CPU-Limit des Containers."}},
-        {"key": "workerConnections", "type": "int", "group": "nginx", "default": 1024, "min": 64, "max": 65535,
-         "label": {"en": "Worker connections", "de": "Worker-Verbindungen"}, "help": {"en": "Connections per worker process.", "de": "Verbindungen pro Worker-Prozess."}},
-        {"key": "serverName", "type": "string", "group": "nginx", "default": "_", "pattern": "^(_|[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?)$", "maxLength": 253,
-         "label": {"en": "Server name", "de": "Servername"}, "help": {"en": "Host name, or _ for any.", "de": "Hostname oder _ für beliebig."}},
-        {"key": "documentRoot", "type": "string", "group": "nginx", "default": "/var/www/html", "pattern": "^/var/www(/[A-Za-z0-9._-]+)*$", "maxLength": 200,
-         "label": {"en": "Document root", "de": "Dokumentenwurzel"}, "help": {"en": "Must be below /var/www.", "de": "Muss unterhalb von /var/www liegen."}},
-        {"key": "clientMaxBodySize", "type": "string", "group": "nginx", "default": "1m", "pattern": "^[1-9][0-9]{0,5}[kKmMgG]?$", "maxLength": 8,
-         "label": {"en": "Maximum request body", "de": "Maximale Request-Größe"}, "help": {"en": "For example 1m or 64M. Keep it in line with upload_max_filesize.", "de": "Zum Beispiel 1m oder 64M. Passend zu upload_max_filesize wählen."}},
-        {"key": "keepaliveTimeout", "type": "int", "group": "nginx", "default": 65, "min": 0, "max": 600,
-         "label": {"en": "Keep-alive timeout (s)", "de": "Keep-alive-Timeout (s)"}},
-        {"key": "gzip", "type": "bool", "group": "nginx", "default": true,
-         "label": {"en": "Compress responses (gzip)", "de": "Antworten komprimieren (gzip)"}},
-        {"key": "serverTokens", "type": "bool", "group": "nginx", "default": false,
-         "label": {"en": "Show nginx version in headers", "de": "nginx-Version in Headern zeigen"}, "help": {"en": "Off is the hardening default.", "de": "Aus ist der Härtungsstandard."}},
-        {"key": "securityHeaders", "type": "bool", "group": "nginx", "default": true,
-         "label": {"en": "Send security headers", "de": "Sicherheits-Header senden"}, "help": {"en": "X-Content-Type-Options, X-Frame-Options, Referrer-Policy.", "de": "X-Content-Type-Options, X-Frame-Options, Referrer-Policy."}},
-        {"key": "fastcgiReadTimeout", "type": "int", "group": "nginx", "default": 60, "min": 1, "max": 3600, "needs": "php",
-         "label": {"en": "FastCGI read timeout (s)", "de": "FastCGI-Lese-Timeout (s)"}, "help": {"en": "Only used together with PHP.", "de": "Nur zusammen mit PHP wirksam."}}
+        {"key": "workerProcesses", "type": "enum", "group": "nginx", "default": "auto", "enum": [{"value": "auto"}, {"value": "1"}, {"value": "2"}, {"value": "4"}, {"value": "8"}], "label": {"en": "Worker processes", "de": "Worker-Prozesse"}, "help": {"en": "auto follows the CPU limit of the container.", "de": "auto folgt dem CPU-Limit des Containers."}},
+        {"key": "workerConnections", "type": "int", "group": "nginx", "default": 1024, "min": 64, "max": 65535, "label": {"en": "Worker connections", "de": "Worker-Verbindungen"}, "help": {"en": "Connections per worker process.", "de": "Verbindungen pro Worker-Prozess."}},
+        {"key": "serverName", "type": "string", "group": "site", "default": "_", "pattern": "^(_|[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?)$", "maxLength": 253, "label": {"en": "Server name", "de": "Servername"}, "help": {"en": "Host name, or _ for any.", "de": "Hostname oder _ für beliebig."}},
+        {"key": "documentRoot", "type": "string", "group": "site", "default": "/var/www/html", "pattern": "^/var/www(/[A-Za-z0-9_-][A-Za-z0-9._-]*)*$", "maxLength": 200, "label": {"en": "Document root", "de": "Dokumentenwurzel"}, "help": {"en": "Must be below /var/www.", "de": "Muss unterhalb von /var/www liegen."}},
+        {"key": "clientMaxBodySize", "type": "string", "group": "site", "default": "1m", "pattern": "^[1-9][0-9]{0,5}[kKmMgG]?$", "maxLength": 8, "label": {"en": "Maximum request body", "de": "Maximale Request-Größe"}, "help": {"en": "For example 1m or 64M. Keep it in line with upload_max_filesize.", "de": "Zum Beispiel 1m oder 64M. Passend zu upload_max_filesize wählen."}},
+        {"key": "keepaliveTimeout", "type": "int", "group": "nginx", "default": 65, "min": 0, "max": 600, "label": {"en": "Keep-alive timeout (s)", "de": "Keep-alive-Timeout (s)"}},
+        {"key": "gzip", "type": "bool", "group": "compression", "default": true, "label": {"en": "Compress responses (gzip)", "de": "Antworten komprimieren (gzip)"}},
+        {"key": "brotli", "type": "bool", "group": "compression", "default": true, "needsFeature": "brotli", "label": {"en": "Compress responses (brotli)", "de": "Antworten komprimieren (brotli)"}, "help": {"en": "Uses the distribution brotli module.", "de": "Nutzt das Brotli-Modul der Distribution."}},
+        {"key": "serverTokens", "type": "bool", "group": "headers", "default": false, "label": {"en": "Show nginx version in headers", "de": "nginx-Version in Headern zeigen"}, "help": {"en": "Off is the hardening default.", "de": "Aus ist der Härtungsstandard."}},
+        {"key": "securityHeaders", "type": "bool", "group": "headers", "default": true, "label": {"en": "Send security headers", "de": "Sicherheits-Header senden"}, "help": {"en": "Preset below selects which ones.", "de": "Das Preset darunter wählt die Header."}},
+        {"key": "securityHeadersPreset", "type": "enum", "group": "headers", "default": "basic", "enum": [{"value": "basic"}, {"value": "strict"}, {"value": "api"}], "label": {"en": "Security header preset", "de": "Preset der Sicherheits-Header"}, "help": {"en": "basic: nosniff, frame and referrer policy. strict: adds HSTS, Permissions-Policy and COOP (use behind HTTPS). api: nosniff, no-store, no-referrer and a CSP that blocks everything.", "de": "basic: nosniff, Frame- und Referrer-Policy. strict: zusätzlich HSTS, Permissions-Policy und COOP (hinter HTTPS). api: nosniff, no-store, no-referrer und eine CSP, die alles sperrt."}},
+        {"key": "realIpMode", "type": "enum", "group": "behind proxy", "default": "off", "enum": [{"value": "off"}, {"value": "x-forwarded-for"}, {"value": "x-real-ip"}], "label": {"en": "Client address from proxy header", "de": "Client-Adresse aus Proxy-Header"}, "help": {"en": "Use behind Traefik or another reverse proxy so logs and limits see the real client. The header is trusted only from the proxies below.", "de": "Hinter Traefik oder einem anderen Reverse-Proxy nutzen, damit Logs und Limits den echten Client sehen. Der Header wird nur von den unten genannten Proxys akzeptiert."}},
+        {"key": "trustedProxies", "type": "string", "group": "behind proxy", "default": "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16", "pattern": "^[0-9]{1,3}(\\.[0-9]{1,3}){3}(/[0-9]{1,2})?(,[0-9]{1,3}(\\.[0-9]{1,3}){3}(/[0-9]{1,2})?){0,7}$", "maxLength": 200, "label": {"en": "Trusted proxies (CIDR list)", "de": "Vertrauenswürdige Proxys (CIDR-Liste)"}, "help": {"en": "Comma-separated IPv4 CIDR ranges, at most 8. The default covers private ranges including Swarm overlay networks.", "de": "Kommagetrennte IPv4-CIDR-Bereiche, höchstens 8. Der Standard deckt private Bereiche samt Swarm-Overlay-Netzen ab."}},
+        {"key": "trustForwardedProto", "type": "bool", "group": "behind proxy", "default": false, "needs": "php", "label": {"en": "Trust X-Forwarded-Proto for PHP (HTTPS flag)", "de": "X-Forwarded-Proto für PHP vertrauen (HTTPS-Flag)"}, "help": {"en": "TLS ends at the proxy (nginx never serves TLS here). Enable only when every request comes through your proxy; clients could otherwise spoof the header.", "de": "TLS endet am Proxy (nginx liefert hier nie TLS). Nur aktivieren, wenn jede Anfrage über deinen Proxy kommt; sonst könnten Clients den Header fälschen."}},
+        {"key": "rateLimit", "type": "int", "group": "limits", "default": 0, "min": 0, "max": 100000, "label": {"en": "Rate limit (requests/s per client, 0 = off)", "de": "Rate-Limit (Anfragen/s je Client, 0 = aus)"}, "help": {"en": "Answers 429 above the limit. Combine with real-IP settings behind a proxy.", "de": "Antwortet oberhalb des Limits mit 429. Hinter einem Proxy mit den Real-IP-Einstellungen kombinieren."}},
+        {"key": "rateLimitBurst", "type": "int", "group": "limits", "default": 20, "min": 0, "max": 100000, "label": {"en": "Rate limit burst", "de": "Rate-Limit-Burst"}, "help": {"en": "Extra requests allowed in a burst before limiting.", "de": "Zusätzliche Anfragen, die in einem Burst vor dem Limit erlaubt sind."}},
+        {"key": "accessLog", "type": "bool", "group": "logging", "default": true, "label": {"en": "Write access log to stdout", "de": "Zugriffslog nach stdout schreiben"}},
+        {"key": "fastcgiReadTimeout", "type": "int", "group": "php", "default": 60, "needs": "php", "min": 1, "max": 3600, "label": {"en": "FastCGI read timeout (s)", "de": "FastCGI-Lese-Timeout (s)"}, "help": {"en": "Only used together with PHP.", "de": "Nur zusammen mit PHP wirksam."}}
       ]
     },
     {
-      "id": "php", "name": {"en": "PHP", "de": "PHP"},
-      "kind": "runtime", "process": "companion",
-      "description": {"en": "PHP-FPM (CLI included). Together with nginx it runs as a companion process; alone the image runs PHP-FPM as its single main process.", "de": "PHP-FPM (inklusive CLI). Zusammen mit nginx läuft es als Begleitprozess; allein ist PHP-FPM der einzige Hauptprozess."},
+      "id": "apache", "name": {"en": "Apache httpd web server", "de": "Apache-httpd-Webserver"}, "kind": "server", "process": "main", "description": {"en": "Apache HTTP server (event MPM) on unprivileged port 8080 with a generated minimal configuration; PHP runs as a PHP-FPM companion through mod_proxy_fcgi.", "de": "Apache-HTTP-Server (Event-MPM) auf dem unprivilegierten Port 8080 mit generierter Minimalkonfiguration; PHP läuft als PHP-FPM-Begleiter über mod_proxy_fcgi."},
       "versions": [
+        {"version": "2.4", "support": [
+          {"distro": "alpine", "release": "3.20", "architectures": ["amd64", "arm64"], "packages": [{"name": "apache2"}, {"name": "apache2-proxy"}], "binary": "/usr/sbin/httpd", "layout": {"moduleDir": "/usr/lib/apache2", "mimeTypes": "/etc/apache2/mime.types"}},
+          {"distro": "alpine", "release": "3.21", "architectures": ["amd64", "arm64"], "packages": [{"name": "apache2"}, {"name": "apache2-proxy"}], "binary": "/usr/sbin/httpd", "layout": {"moduleDir": "/usr/lib/apache2", "mimeTypes": "/etc/apache2/mime.types"}},
+          {"distro": "alpine", "release": "3.22", "architectures": ["amd64", "arm64"], "packages": [{"name": "apache2"}, {"name": "apache2-proxy"}], "binary": "/usr/sbin/httpd", "layout": {"moduleDir": "/usr/lib/apache2", "mimeTypes": "/etc/apache2/mime.types"}},
+          {"distro": "debian", "release": "12", "architectures": ["amd64", "arm64"], "packages": [{"name": "apache2"}], "binary": "/usr/sbin/apache2", "layout": {"moduleDir": "/usr/lib/apache2/modules", "mimeTypes": "/etc/mime.types"}},
+          {"distro": "debian", "release": "13", "architectures": ["amd64", "arm64"], "packages": [{"name": "apache2"}], "binary": "/usr/sbin/apache2", "layout": {"moduleDir": "/usr/lib/apache2/modules", "mimeTypes": "/etc/mime.types"}},
+          {"distro": "ubuntu", "release": "22.04", "architectures": ["amd64", "arm64"], "packages": [{"name": "apache2"}], "binary": "/usr/sbin/apache2", "layout": {"moduleDir": "/usr/lib/apache2/modules", "mimeTypes": "/etc/mime.types"}},
+          {"distro": "ubuntu", "release": "24.04", "architectures": ["amd64", "arm64"], "packages": [{"name": "apache2"}], "binary": "/usr/sbin/apache2", "layout": {"moduleDir": "/usr/lib/apache2/modules", "mimeTypes": "/etc/mime.types"}},
+          {"distro": "almalinux", "release": "9", "architectures": ["amd64", "arm64"], "packages": [{"name": "httpd"}], "binary": "/usr/sbin/httpd", "layout": {"moduleDir": "/usr/lib64/httpd/modules", "mimeTypes": "/etc/mime.types"}},
+          {"distro": "rocky", "release": "9", "architectures": ["amd64", "arm64"], "packages": [{"name": "httpd"}], "binary": "/usr/sbin/httpd", "layout": {"moduleDir": "/usr/lib64/httpd/modules", "mimeTypes": "/etc/mime.types"}}
+        ]}
+      ],
+      "settings": [
+        {"key": "serverName", "type": "string", "group": "site", "default": "_", "pattern": "^(_|[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?)$", "maxLength": 253, "label": {"en": "Server name", "de": "Servername"}, "help": {"en": "Host name, or _ for any.", "de": "Hostname oder _ für beliebig."}},
+        {"key": "documentRoot", "type": "string", "group": "site", "default": "/var/www/html", "pattern": "^/var/www(/[A-Za-z0-9_-][A-Za-z0-9._-]*)*$", "maxLength": 200, "label": {"en": "Document root", "de": "Dokumentenwurzel"}, "help": {"en": "Must be below /var/www.", "de": "Muss unterhalb von /var/www liegen."}},
+        {"key": "clientMaxBodySize", "type": "string", "group": "site", "default": "1m", "pattern": "^[1-9][0-9]{0,5}[kKmMgG]?$", "maxLength": 8, "label": {"en": "Maximum request body", "de": "Maximale Request-Größe"}, "help": {"en": "For example 1m or 64M. Keep it in line with upload_max_filesize.", "de": "Zum Beispiel 1m oder 64M. Passend zu upload_max_filesize wählen."}},
+        {"key": "keepaliveTimeout", "type": "int", "group": "apache", "default": 5, "min": 0, "max": 600, "label": {"en": "Keep-alive timeout (s)", "de": "Keep-alive-Timeout (s)"}},
+        {"key": "gzip", "type": "bool", "group": "compression", "default": true, "label": {"en": "Compress responses (mod_deflate)", "de": "Antworten komprimieren (mod_deflate)"}},
+        {"key": "serverTokens", "type": "bool", "group": "headers", "default": false, "label": {"en": "Show Apache version in headers", "de": "Apache-Version in Headern zeigen"}, "help": {"en": "Off is the hardening default.", "de": "Aus ist der Härtungsstandard."}},
+        {"key": "securityHeaders", "type": "bool", "group": "headers", "default": true, "label": {"en": "Send security headers", "de": "Sicherheits-Header senden"}, "help": {"en": "Preset below selects which ones.", "de": "Das Preset darunter wählt die Header."}},
+        {"key": "securityHeadersPreset", "type": "enum", "group": "headers", "default": "basic", "enum": [{"value": "basic"}, {"value": "strict"}, {"value": "api"}], "label": {"en": "Security header preset", "de": "Preset der Sicherheits-Header"}, "help": {"en": "basic: nosniff, frame and referrer policy. strict: adds HSTS, Permissions-Policy and COOP (use behind HTTPS). api: nosniff, no-store, no-referrer and a CSP that blocks everything.", "de": "basic: nosniff, Frame- und Referrer-Policy. strict: zusätzlich HSTS, Permissions-Policy und COOP (hinter HTTPS). api: nosniff, no-store, no-referrer und eine CSP, die alles sperrt."}},
+        {"key": "realIpMode", "type": "enum", "group": "behind proxy", "default": "off", "enum": [{"value": "off"}, {"value": "x-forwarded-for"}, {"value": "x-real-ip"}], "label": {"en": "Client address from proxy header", "de": "Client-Adresse aus Proxy-Header"}, "help": {"en": "Use behind Traefik or another reverse proxy so logs and limits see the real client. The header is trusted only from the proxies below.", "de": "Hinter Traefik oder einem anderen Reverse-Proxy nutzen, damit Logs und Limits den echten Client sehen. Der Header wird nur von den unten genannten Proxys akzeptiert."}},
+        {"key": "trustedProxies", "type": "string", "group": "behind proxy", "default": "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16", "pattern": "^[0-9]{1,3}(\\.[0-9]{1,3}){3}(/[0-9]{1,2})?(,[0-9]{1,3}(\\.[0-9]{1,3}){3}(/[0-9]{1,2})?){0,7}$", "maxLength": 200, "label": {"en": "Trusted proxies (CIDR list)", "de": "Vertrauenswürdige Proxys (CIDR-Liste)"}, "help": {"en": "Comma-separated IPv4 CIDR ranges, at most 8. The default covers private ranges including Swarm overlay networks.", "de": "Kommagetrennte IPv4-CIDR-Bereiche, höchstens 8. Der Standard deckt private Bereiche samt Swarm-Overlay-Netzen ab."}},
+        {"key": "accessLog", "type": "bool", "group": "logging", "default": true, "label": {"en": "Write access log to stdout", "de": "Zugriffslog nach stdout schreiben"}},
+        {"key": "fastcgiReadTimeout", "type": "int", "group": "php", "default": 60, "needs": "php", "min": 1, "max": 3600, "label": {"en": "FastCGI read timeout (s)", "de": "FastCGI-Lese-Timeout (s)"}, "help": {"en": "Only used together with PHP.", "de": "Nur zusammen mit PHP wirksam."}}
+      ]
+    },
+    {
+      "id": "caddy", "name": {"en": "Caddy web server", "de": "Caddy-Webserver"}, "kind": "server", "process": "main", "description": {"en": "Caddy 2 from the distribution package with automatic HTTPS and the admin endpoint switched off; plain HTTP on port 8080 behind your reverse proxy. PHP runs as a PHP-FPM companion. Not packaged for AlmaLinux and Rocky Linux.", "de": "Caddy 2 aus dem Distributionspaket, automatisches HTTPS und Admin-Endpunkt abgeschaltet; reines HTTP auf Port 8080 hinter deinem Reverse-Proxy. PHP läuft als PHP-FPM-Begleiter. Für AlmaLinux und Rocky Linux nicht paketiert."},
+      "versions": [
+        {"version": "2", "support": [
+          {"distro": "alpine", "release": "3.20", "architectures": ["amd64", "arm64"], "packages": [{"name": "caddy"}], "binary": "/usr/bin/caddy"},
+          {"distro": "alpine", "release": "3.21", "architectures": ["amd64", "arm64"], "packages": [{"name": "caddy"}], "binary": "/usr/bin/caddy"},
+          {"distro": "alpine", "release": "3.22", "architectures": ["amd64", "arm64"], "packages": [{"name": "caddy"}], "binary": "/usr/bin/caddy"},
+          {"distro": "debian", "release": "12", "architectures": ["amd64", "arm64"], "packages": [{"name": "caddy"}], "binary": "/usr/bin/caddy"},
+          {"distro": "debian", "release": "13", "architectures": ["amd64", "arm64"], "packages": [{"name": "caddy"}], "binary": "/usr/bin/caddy"},
+          {"distro": "ubuntu", "release": "24.04", "architectures": ["amd64", "arm64"], "packages": [{"name": "caddy"}], "binary": "/usr/bin/caddy"}
+        ]}
+      ],
+      "settings": [
+        {"key": "serverName", "type": "string", "group": "site", "default": "_", "pattern": "^(_|[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?)$", "maxLength": 253, "label": {"en": "Server name", "de": "Servername"}, "help": {"en": "Host name, or _ for any.", "de": "Hostname oder _ für beliebig."}},
+        {"key": "documentRoot", "type": "string", "group": "site", "default": "/var/www/html", "pattern": "^/var/www(/[A-Za-z0-9_-][A-Za-z0-9._-]*)*$", "maxLength": 200, "label": {"en": "Document root", "de": "Dokumentenwurzel"}, "help": {"en": "Must be below /var/www.", "de": "Muss unterhalb von /var/www liegen."}},
+        {"key": "clientMaxBodySize", "type": "string", "group": "site", "default": "1m", "pattern": "^[1-9][0-9]{0,5}[kKmMgG]?$", "maxLength": 8, "label": {"en": "Maximum request body", "de": "Maximale Request-Größe"}, "help": {"en": "For example 1m or 64M. Keep it in line with upload_max_filesize.", "de": "Zum Beispiel 1m oder 64M. Passend zu upload_max_filesize wählen."}},
+        {"key": "gzip", "type": "bool", "group": "compression", "default": true, "label": {"en": "Compress responses (gzip, zstd)", "de": "Antworten komprimieren (gzip, zstd)"}},
+        {"key": "securityHeaders", "type": "bool", "group": "headers", "default": true, "label": {"en": "Send security headers", "de": "Sicherheits-Header senden"}, "help": {"en": "Preset below selects which ones.", "de": "Das Preset darunter wählt die Header."}},
+        {"key": "securityHeadersPreset", "type": "enum", "group": "headers", "default": "basic", "enum": [{"value": "basic"}, {"value": "strict"}, {"value": "api"}], "label": {"en": "Security header preset", "de": "Preset der Sicherheits-Header"}, "help": {"en": "basic: nosniff, frame and referrer policy. strict: adds HSTS, Permissions-Policy and COOP (use behind HTTPS). api: nosniff, no-store, no-referrer and a CSP that blocks everything.", "de": "basic: nosniff, Frame- und Referrer-Policy. strict: zusätzlich HSTS, Permissions-Policy und COOP (hinter HTTPS). api: nosniff, no-store, no-referrer und eine CSP, die alles sperrt."}},
+        {"key": "realIpMode", "type": "enum", "group": "behind proxy", "default": "off", "enum": [{"value": "off"}, {"value": "x-forwarded-for"}, {"value": "x-real-ip"}], "label": {"en": "Client address from proxy header", "de": "Client-Adresse aus Proxy-Header"}, "help": {"en": "Use behind Traefik or another reverse proxy so logs and limits see the real client. The header is trusted only from the proxies below.", "de": "Hinter Traefik oder einem anderen Reverse-Proxy nutzen, damit Logs und Limits den echten Client sehen. Der Header wird nur von den unten genannten Proxys akzeptiert."}},
+        {"key": "trustedProxies", "type": "string", "group": "behind proxy", "default": "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16", "pattern": "^[0-9]{1,3}(\\.[0-9]{1,3}){3}(/[0-9]{1,2})?(,[0-9]{1,3}(\\.[0-9]{1,3}){3}(/[0-9]{1,2})?){0,7}$", "maxLength": 200, "label": {"en": "Trusted proxies (CIDR list)", "de": "Vertrauenswürdige Proxys (CIDR-Liste)"}, "help": {"en": "Comma-separated IPv4 CIDR ranges, at most 8. The default covers private ranges including Swarm overlay networks.", "de": "Kommagetrennte IPv4-CIDR-Bereiche, höchstens 8. Der Standard deckt private Bereiche samt Swarm-Overlay-Netzen ab."}},
+        {"key": "accessLog", "type": "bool", "group": "logging", "default": true, "label": {"en": "Write access log to stdout", "de": "Zugriffslog nach stdout schreiben"}},
+        {"key": "fastcgiReadTimeout", "type": "int", "group": "php", "default": 60, "needs": "php", "min": 1, "max": 3600, "label": {"en": "FastCGI read timeout (s)", "de": "FastCGI-Lese-Timeout (s)"}, "help": {"en": "Only used together with PHP.", "de": "Nur zusammen mit PHP wirksam."}}
+      ]
+    },
+    {
+      "id": "php", "name": {"en": "PHP", "de": "PHP"}, "kind": "runtime", "process": "companion", "description": {"en": "PHP-FPM (CLI included). Together with a web server it runs as a companion process; alone the image runs PHP-FPM, or a PHP CLI worker script, as its single main process.", "de": "PHP-FPM (inklusive CLI). Zusammen mit einem Webserver läuft es als Begleitprozess; allein ist PHP-FPM oder ein PHP-CLI-Worker-Skript der einzige Hauptprozess."}, "featureLabel": {"en": "PHP extensions", "de": "PHP-Erweiterungen"},
+      "versions": [
+        {"version": "8.4", "support": [
+          {"distro": "alpine", "release": "3.21", "architectures": ["amd64", "arm64"], "prefix": "php84", "binary": "php-fpm84", "cli": "php84", "packages": [{"name": "php84"}, {"name": "php84-fpm"}]},
+          {"distro": "alpine", "release": "3.22", "architectures": ["amd64", "arm64"], "prefix": "php84", "binary": "php-fpm84", "cli": "php84", "packages": [{"name": "php84"}, {"name": "php84-fpm"}]},
+          {"distro": "debian", "release": "13", "architectures": ["amd64", "arm64"], "prefix": "php8.4", "binary": "php-fpm8.4", "packages": [{"name": "php8.4-cli", "constraint": "8.4"}, {"name": "php8.4-fpm", "constraint": "8.4"}]}
+        ]},
         {"version": "8.3", "support": [
           {"distro": "alpine", "release": "3.20", "architectures": ["amd64", "arm64"], "prefix": "php83", "binary": "php-fpm83", "cli": "php83", "packages": [{"name": "php83"}, {"name": "php83-fpm"}]},
+          {"distro": "alpine", "release": "3.21", "architectures": ["amd64", "arm64"], "prefix": "php83", "binary": "php-fpm83", "cli": "php83", "packages": [{"name": "php83"}, {"name": "php83-fpm"}]},
+          {"distro": "alpine", "release": "3.22", "architectures": ["amd64", "arm64"], "prefix": "php83", "binary": "php-fpm83", "cli": "php83", "packages": [{"name": "php83"}, {"name": "php83-fpm"}]},
           {"distro": "ubuntu", "release": "24.04", "architectures": ["amd64", "arm64"], "prefix": "php8.3", "binary": "php-fpm8.3", "packages": [{"name": "php8.3-cli", "constraint": "8.3"}, {"name": "php8.3-fpm", "constraint": "8.3"}]},
-          {"distro": "almalinux", "release": "9", "architectures": ["amd64", "arm64"], "prefix": "php", "binary": "php-fpm", "modules": ["php:8.3"], "packages": [{"name": "php-cli"}, {"name": "php-fpm"}]}
+          {"distro": "almalinux", "release": "9", "architectures": ["amd64", "arm64"], "prefix": "php", "binary": "php-fpm", "modules": ["php:8.3"], "packages": [{"name": "php-cli"}, {"name": "php-fpm"}]},
+          {"distro": "rocky", "release": "9", "architectures": ["amd64", "arm64"], "prefix": "php", "binary": "php-fpm", "modules": ["php:8.3"], "packages": [{"name": "php-cli"}, {"name": "php-fpm"}]}
         ]},
         {"version": "8.2", "support": [
           {"distro": "alpine", "release": "3.20", "architectures": ["amd64", "arm64"], "prefix": "php82", "binary": "php-fpm82", "cli": "php82", "packages": [{"name": "php82"}, {"name": "php82-fpm"}]},
+          {"distro": "alpine", "release": "3.21", "architectures": ["amd64", "arm64"], "prefix": "php82", "binary": "php-fpm82", "cli": "php82", "packages": [{"name": "php82"}, {"name": "php82-fpm"}]},
+          {"distro": "alpine", "release": "3.22", "architectures": ["amd64", "arm64"], "prefix": "php82", "binary": "php-fpm82", "cli": "php82", "packages": [{"name": "php82"}, {"name": "php82-fpm"}]},
           {"distro": "debian", "release": "12", "architectures": ["amd64", "arm64"], "prefix": "php8.2", "binary": "php-fpm8.2", "packages": [{"name": "php8.2-cli", "constraint": "8.2"}, {"name": "php8.2-fpm", "constraint": "8.2"}]},
-          {"distro": "almalinux", "release": "9", "architectures": ["amd64", "arm64"], "prefix": "php", "binary": "php-fpm", "modules": ["php:8.2"], "packages": [{"name": "php-cli"}, {"name": "php-fpm"}]}
+          {"distro": "almalinux", "release": "9", "architectures": ["amd64", "arm64"], "prefix": "php", "binary": "php-fpm", "modules": ["php:8.2"], "packages": [{"name": "php-cli"}, {"name": "php-fpm"}]},
+          {"distro": "rocky", "release": "9", "architectures": ["amd64", "arm64"], "prefix": "php", "binary": "php-fpm", "modules": ["php:8.2"], "packages": [{"name": "php-cli"}, {"name": "php-fpm"}]}
+        ]},
+        {"version": "8.1", "support": [
+          {"distro": "ubuntu", "release": "22.04", "architectures": ["amd64", "arm64"], "prefix": "php8.1", "binary": "php-fpm8.1", "packages": [{"name": "php8.1-cli", "constraint": "8.1"}, {"name": "php8.1-fpm", "constraint": "8.1"}]},
+          {"distro": "almalinux", "release": "9", "architectures": ["amd64", "arm64"], "prefix": "php", "binary": "php-fpm", "modules": ["php:8.1"], "packages": [{"name": "php-cli"}, {"name": "php-fpm"}]},
+          {"distro": "rocky", "release": "9", "architectures": ["amd64", "arm64"], "prefix": "php", "binary": "php-fpm", "modules": ["php:8.1"], "packages": [{"name": "php-cli"}, {"name": "php-fpm"}]}
         ]}
       ],
-      "featureLabel": {"en": "PHP extensions", "de": "PHP-Erweiterungen"},
       "features": [
+        {"id": "apcu", "packages": {"alpine": ["{php}-pecl-apcu"], "debian": ["php-apcu"], "rhel": ["php-pecl-apcu"]}},
         {"id": "bcmath", "packages": {"alpine": ["{php}-bcmath"], "debian": ["{php}-bcmath"], "rhel": ["php-bcmath"]}},
+        {"id": "bz2", "packages": {"alpine": ["{php}-bz2"], "debian": ["{php}-bz2"], "rhel": []}},
+        {"id": "calendar", "packages": {"alpine": ["{php}-calendar"], "debian": [], "rhel": []}},
+        {"id": "ctype", "packages": {"alpine": ["{php}-ctype"], "debian": [], "rhel": []}},
         {"id": "curl", "packages": {"alpine": ["{php}-curl"], "debian": ["{php}-curl"], "rhel": []}},
+        {"id": "dom", "packages": {"alpine": ["{php}-dom"], "debian": ["{php}-xml"], "rhel": ["php-xml"]}},
         {"id": "exif", "packages": {"alpine": ["{php}-exif"], "debian": [], "rhel": []}},
+        {"id": "fileinfo", "packages": {"alpine": ["{php}-fileinfo"], "debian": [], "rhel": []}},
+        {"id": "ftp", "packages": {"alpine": ["{php}-ftp"], "debian": [], "rhel": []}},
         {"id": "gd", "packages": {"alpine": ["{php}-gd"], "debian": ["{php}-gd"], "rhel": ["php-gd"]}},
+        {"id": "gettext", "packages": {"alpine": ["{php}-gettext"], "debian": [], "rhel": []}},
         {"id": "gmp", "packages": {"alpine": ["{php}-gmp"], "debian": ["{php}-gmp"], "rhel": ["php-gmp"]}},
+        {"id": "iconv", "packages": {"alpine": ["{php}-iconv"], "debian": [], "rhel": []}},
+        {"id": "imagick", "packages": {"alpine": ["{php}-pecl-imagick"], "debian": ["php-imagick"]}},
         {"id": "intl", "packages": {"alpine": ["{php}-intl"], "debian": ["{php}-intl"], "rhel": ["php-intl"]}},
+        {"id": "ldap", "packages": {"alpine": ["{php}-ldap"], "debian": ["{php}-ldap"], "rhel": ["php-ldap"]}},
         {"id": "mbstring", "packages": {"alpine": ["{php}-mbstring"], "debian": ["{php}-mbstring"], "rhel": ["php-mbstring"]}},
+        {"id": "memcached", "packages": {"alpine": ["{php}-pecl-memcached"], "debian": ["php-memcached"]}},
         {"id": "mysqli", "packages": {"alpine": ["{php}-mysqli"], "debian": ["{php}-mysql"], "rhel": ["php-mysqlnd"]}},
         {"id": "opcache", "packages": {"alpine": ["{php}-opcache"], "debian": ["{php}-opcache"], "rhel": ["php-opcache"]}},
+        {"id": "openssl", "packages": {"alpine": ["{php}-openssl"], "debian": [], "rhel": []}},
+        {"id": "pcntl", "packages": {"alpine": ["{php}-pcntl"], "debian": [], "rhel": ["php-process"]}},
         {"id": "pdo_mysql", "packages": {"alpine": ["{php}-pdo_mysql"], "debian": ["{php}-mysql"], "rhel": ["php-mysqlnd"]}},
         {"id": "pdo_pgsql", "packages": {"alpine": ["{php}-pdo_pgsql"], "debian": ["{php}-pgsql"], "rhel": ["php-pgsql"]}},
+        {"id": "pdo_sqlite", "packages": {"alpine": ["{php}-pdo_sqlite"], "debian": ["{php}-sqlite3"], "rhel": ["php-pdo"]}},
         {"id": "pgsql", "packages": {"alpine": ["{php}-pgsql"], "debian": ["{php}-pgsql"], "rhel": ["php-pgsql"]}},
+        {"id": "phar", "packages": {"alpine": ["{php}-phar"], "debian": [], "rhel": []}},
+        {"id": "posix", "packages": {"alpine": ["{php}-posix"], "debian": [], "rhel": ["php-process"]}},
         {"id": "redis", "packages": {"alpine": ["{php}-pecl-redis"], "debian": ["php-redis"]}},
+        {"id": "simplexml", "packages": {"alpine": ["{php}-simplexml"], "debian": ["{php}-xml"], "rhel": ["php-xml"]}},
+        {"id": "soap", "packages": {"alpine": ["{php}-soap"], "debian": ["{php}-soap"], "rhel": ["php-soap"]}},
+        {"id": "sockets", "packages": {"alpine": ["{php}-sockets"], "debian": [], "rhel": []}},
         {"id": "sodium", "packages": {"alpine": ["{php}-sodium"], "debian": [], "rhel": []}},
+        {"id": "sqlite3", "packages": {"alpine": ["{php}-sqlite3"], "debian": ["{php}-sqlite3"], "rhel": ["php-pdo"]}},
+        {"id": "tokenizer", "packages": {"alpine": ["{php}-tokenizer"], "debian": [], "rhel": []}},
         {"id": "xml", "packages": {"alpine": ["{php}-xml", "{php}-dom", "{php}-simplexml"], "debian": ["{php}-xml"], "rhel": ["php-xml"]}},
+        {"id": "xsl", "packages": {"alpine": ["{php}-xsl"], "debian": ["{php}-xml"], "rhel": ["php-xml"]}},
         {"id": "zip", "packages": {"alpine": ["{php}-zip"], "debian": ["{php}-zip"], "rhel": ["php-pecl-zip"]}}
       ],
       "settings": [
-        {"key": "memory_limit", "type": "string", "group": "php.ini", "default": "128M", "pattern": "^(-1|[1-9][0-9]{0,5}[KMG]?)$", "maxLength": 8, "target": "ini",
-         "label": {"en": "memory_limit", "de": "memory_limit"}, "help": {"en": "Per request, for example 256M. -1 (unlimited) is not recommended.", "de": "Pro Request, zum Beispiel 256M. -1 (unbegrenzt) wird nicht empfohlen."}},
-        {"key": "upload_max_filesize", "type": "string", "group": "php.ini", "default": "2M", "pattern": "^[1-9][0-9]{0,5}[KMG]?$", "maxLength": 8, "target": "ini",
-         "label": {"en": "upload_max_filesize", "de": "upload_max_filesize"}},
-        {"key": "post_max_size", "type": "string", "group": "php.ini", "default": "8M", "pattern": "^[1-9][0-9]{0,5}[KMG]?$", "maxLength": 8, "target": "ini",
-         "label": {"en": "post_max_size", "de": "post_max_size"}},
-        {"key": "max_execution_time", "type": "int", "group": "php.ini", "default": 30, "min": 0, "max": 3600, "target": "ini",
-         "label": {"en": "max_execution_time (s)", "de": "max_execution_time (s)"}},
-        {"key": "max_input_vars", "type": "int", "group": "php.ini", "default": 1000, "min": 100, "max": 100000, "target": "ini",
-         "label": {"en": "max_input_vars", "de": "max_input_vars"}},
-        {"key": "date.timezone", "type": "string", "group": "php.ini", "default": "UTC", "pattern": "^(UTC|[A-Z][A-Za-z_]+(/[A-Za-z_+-]+){1,2})$", "maxLength": 40, "target": "ini",
-         "label": {"en": "date.timezone", "de": "date.timezone"}, "help": {"en": "For example UTC or Europe/Berlin.", "de": "Zum Beispiel UTC oder Europe/Berlin."}},
-        {"key": "display_errors", "type": "bool", "group": "php.ini", "default": false, "target": "ini",
-         "label": {"en": "display_errors", "de": "display_errors"}, "help": {"en": "Off is the hardening default; errors go to the log.", "de": "Aus ist der Härtungsstandard; Fehler gehen ins Log."}},
-        {"key": "expose_php", "type": "bool", "group": "php.ini", "default": false, "target": "ini",
-         "label": {"en": "expose_php", "de": "expose_php"}, "help": {"en": "Adds the PHP version to response headers.", "de": "Fügt die PHP-Version in Antwort-Header ein."}},
-        {"key": "allow_url_fopen", "type": "bool", "group": "php.ini", "default": false, "target": "ini",
-         "label": {"en": "allow_url_fopen", "de": "allow_url_fopen"}, "help": {"en": "Off is the hardening default; some applications need it.", "de": "Aus ist der Härtungsstandard; manche Anwendungen brauchen es."}},
-        {"key": "session.cookie_httponly", "type": "bool", "group": "php.ini", "default": true, "target": "ini",
-         "label": {"en": "session.cookie_httponly", "de": "session.cookie_httponly"}},
-        {"key": "session.cookie_secure", "type": "bool", "group": "php.ini", "default": false, "target": "ini",
-         "label": {"en": "session.cookie_secure", "de": "session.cookie_secure"}, "help": {"en": "Enable when the site is served over HTTPS.", "de": "Aktivieren, wenn die Seite über HTTPS ausgeliefert wird."}},
-        {"key": "session.use_strict_mode", "type": "bool", "group": "php.ini", "default": true, "target": "ini",
-         "label": {"en": "session.use_strict_mode", "de": "session.use_strict_mode"}},
-        {"key": "opcache.enable", "type": "bool", "group": "opcache", "default": true, "target": "ini", "needsFeature": "opcache",
-         "label": {"en": "opcache.enable", "de": "opcache.enable"}},
-        {"key": "opcache.memory_consumption", "type": "int", "group": "opcache", "default": 128, "min": 8, "max": 4096, "target": "ini", "needsFeature": "opcache",
-         "label": {"en": "opcache.memory_consumption (MB)", "de": "opcache.memory_consumption (MB)"}},
-        {"key": "pm", "type": "enum", "group": "php-fpm pool", "default": "dynamic", "target": "pool",
-         "enum": [{"value": "dynamic"}, {"value": "static"}, {"value": "ondemand"}],
-         "label": {"en": "Process manager (pm)", "de": "Prozessmanager (pm)"}},
-        {"key": "pm.max_children", "type": "int", "group": "php-fpm pool", "default": 10, "min": 1, "max": 1000, "target": "pool",
-         "label": {"en": "pm.max_children", "de": "pm.max_children"}},
-        {"key": "pm.start_servers", "type": "int", "group": "php-fpm pool", "default": 2, "min": 1, "max": 1000, "target": "pool",
-         "label": {"en": "pm.start_servers", "de": "pm.start_servers"}, "help": {"en": "Only for dynamic.", "de": "Nur für dynamic."}},
-        {"key": "pm.min_spare_servers", "type": "int", "group": "php-fpm pool", "default": 1, "min": 1, "max": 1000, "target": "pool",
-         "label": {"en": "pm.min_spare_servers", "de": "pm.min_spare_servers"}, "help": {"en": "Only for dynamic.", "de": "Nur für dynamic."}},
-        {"key": "pm.max_spare_servers", "type": "int", "group": "php-fpm pool", "default": 3, "min": 1, "max": 1000, "target": "pool",
-         "label": {"en": "pm.max_spare_servers", "de": "pm.max_spare_servers"}, "help": {"en": "Only for dynamic.", "de": "Nur für dynamic."}},
-        {"key": "pm.max_requests", "type": "int", "group": "php-fpm pool", "default": 500, "min": 0, "max": 100000, "target": "pool",
-         "label": {"en": "pm.max_requests", "de": "pm.max_requests"}, "help": {"en": "0 never recycles workers.", "de": "0 recycelt Worker nie."}},
-        {"key": "request_terminate_timeout", "type": "int", "group": "php-fpm pool", "default": 60, "min": 0, "max": 3600, "target": "pool",
-         "label": {"en": "request_terminate_timeout (s)", "de": "request_terminate_timeout (s)"}},
-        {"key": "catch_workers_output", "type": "bool", "group": "php-fpm pool", "default": true, "target": "pool",
-         "label": {"en": "catch_workers_output", "de": "catch_workers_output"}, "help": {"en": "Send worker stderr to the container log.", "de": "Worker-stderr ins Container-Log leiten."}}
+        {"key": "mode", "type": "enum", "group": "mode", "default": "fpm", "enum": [{"value": "fpm"}, {"value": "worker"}], "label": {"en": "Run mode", "de": "Betriebsart"}, "help": {"en": "fpm: PHP-FPM for a web server. worker: a long-running PHP CLI script is the main process (queue consumer); not combinable with a web server.", "de": "fpm: PHP-FPM für einen Webserver. worker: ein dauerhaft laufendes PHP-CLI-Skript ist der Hauptprozess (Queue-Consumer); nicht mit einem Webserver kombinierbar."}},
+        {"key": "workerScript", "type": "string", "group": "mode", "default": "/var/www/html/worker.php", "pattern": "^/var/www(/[A-Za-z0-9_-][A-Za-z0-9._-]*)+$", "maxLength": 200, "label": {"en": "Worker script", "de": "Worker-Skript"}, "help": {"en": "Used in worker mode. A script or console file below /var/www; the application provides it by volume or a derived image.", "de": "Wird im Worker-Modus verwendet. Ein Skript oder eine Konsolendatei unterhalb von /var/www; die Anwendung liefert sie per Volume oder abgeleitetem Image."}},
+        {"key": "workerArgs", "type": "string", "group": "mode", "default": "", "pattern": "^[A-Za-z0-9:._=/ -]{0,200}$", "maxLength": 200, "label": {"en": "Worker arguments", "de": "Worker-Argumente"}, "help": {"en": "Space-separated arguments, passed as separate argv entries without a shell (letters, digits and : . _ = / -).", "de": "Durch Leerzeichen getrennte Argumente, ohne Shell als getrennte argv-Einträge übergeben (Buchstaben, Ziffern und : . _ = / -)."}},
+        {"key": "memory_limit", "type": "string", "group": "php.ini", "default": "128M", "target": "ini", "pattern": "^(-1|[1-9][0-9]{0,5}[KMG]?)$", "maxLength": 8, "label": {"en": "memory_limit", "de": "memory_limit"}, "help": {"en": "Per request, for example 256M. -1 (unlimited) is not recommended.", "de": "Pro Request, zum Beispiel 256M. -1 (unbegrenzt) wird nicht empfohlen."}},
+        {"key": "upload_max_filesize", "type": "string", "group": "php.ini", "default": "2M", "target": "ini", "pattern": "^[1-9][0-9]{0,5}[KMG]?$", "maxLength": 8, "label": {"en": "upload_max_filesize", "de": "upload_max_filesize"}},
+        {"key": "post_max_size", "type": "string", "group": "php.ini", "default": "8M", "target": "ini", "pattern": "^[1-9][0-9]{0,5}[KMG]?$", "maxLength": 8, "label": {"en": "post_max_size", "de": "post_max_size"}},
+        {"key": "max_execution_time", "type": "int", "group": "php.ini", "default": 30, "target": "ini", "min": 0, "max": 3600, "label": {"en": "max_execution_time (s)", "de": "max_execution_time (s)"}},
+        {"key": "max_input_vars", "type": "int", "group": "php.ini", "default": 1000, "target": "ini", "min": 100, "max": 100000, "label": {"en": "max_input_vars", "de": "max_input_vars"}},
+        {"key": "max_file_uploads", "type": "int", "group": "php.ini", "default": 20, "target": "ini", "min": 1, "max": 1000, "label": {"en": "max_file_uploads", "de": "max_file_uploads"}},
+        {"key": "realpath_cache_size", "type": "string", "group": "php.ini", "default": "4096K", "target": "ini", "pattern": "^[1-9][0-9]{0,5}[KMG]?$", "maxLength": 8, "label": {"en": "realpath_cache_size", "de": "realpath_cache_size"}, "help": {"en": "Raise for large frameworks (for example 16M).", "de": "Für große Frameworks erhöhen (zum Beispiel 16M)."}},
+        {"key": "date.timezone", "type": "string", "group": "php.ini", "default": "UTC", "target": "ini", "pattern": "^(UTC|[A-Z][A-Za-z_]+(/[A-Za-z_+-]+){1,2})$", "maxLength": 40, "label": {"en": "date.timezone", "de": "date.timezone"}, "help": {"en": "For example UTC or Europe/Berlin.", "de": "Zum Beispiel UTC oder Europe/Berlin."}},
+        {"key": "display_errors", "type": "bool", "group": "php.ini", "default": false, "target": "ini", "label": {"en": "display_errors", "de": "display_errors"}, "help": {"en": "Off is the hardening default; errors go to the log.", "de": "Aus ist der Härtungsstandard; Fehler gehen ins Log."}},
+        {"key": "expose_php", "type": "bool", "group": "php.ini", "default": false, "target": "ini", "label": {"en": "expose_php", "de": "expose_php"}, "help": {"en": "Adds the PHP version to response headers.", "de": "Fügt die PHP-Version in Antwort-Header ein."}},
+        {"key": "allow_url_fopen", "type": "bool", "group": "php.ini", "default": false, "target": "ini", "label": {"en": "allow_url_fopen", "de": "allow_url_fopen"}, "help": {"en": "Off is the hardening default; some applications need it.", "de": "Aus ist der Härtungsstandard; manche Anwendungen brauchen es."}},
+        {"key": "session.cookie_httponly", "type": "bool", "group": "php.ini", "default": true, "target": "ini", "label": {"en": "session.cookie_httponly", "de": "session.cookie_httponly"}},
+        {"key": "session.cookie_secure", "type": "bool", "group": "php.ini", "default": false, "target": "ini", "label": {"en": "session.cookie_secure", "de": "session.cookie_secure"}, "help": {"en": "Enable when the site is served over HTTPS.", "de": "Aktivieren, wenn die Seite über HTTPS ausgeliefert wird."}},
+        {"key": "session.use_strict_mode", "type": "bool", "group": "php.ini", "default": true, "target": "ini", "label": {"en": "session.use_strict_mode", "de": "session.use_strict_mode"}},
+        {"key": "opcache.enable", "type": "bool", "group": "opcache", "default": true, "target": "ini", "needsFeature": "opcache", "label": {"en": "opcache.enable", "de": "opcache.enable"}},
+        {"key": "opcache.memory_consumption", "type": "int", "group": "opcache", "default": 128, "target": "ini", "needsFeature": "opcache", "min": 8, "max": 4096, "label": {"en": "opcache.memory_consumption (MB)", "de": "opcache.memory_consumption (MB)"}},
+        {"key": "opcache.interned_strings_buffer", "type": "int", "group": "opcache", "default": 8, "target": "ini", "needsFeature": "opcache", "min": 4, "max": 256, "label": {"en": "opcache.interned_strings_buffer (MB)", "de": "opcache.interned_strings_buffer (MB)"}},
+        {"key": "opcache.max_accelerated_files", "type": "int", "group": "opcache", "default": 10000, "target": "ini", "needsFeature": "opcache", "min": 200, "max": 1000000, "label": {"en": "opcache.max_accelerated_files", "de": "opcache.max_accelerated_files"}},
+        {"key": "opcache.validate_timestamps", "type": "bool", "group": "opcache", "default": true, "target": "ini", "needsFeature": "opcache", "label": {"en": "opcache.validate_timestamps", "de": "opcache.validate_timestamps"}, "help": {"en": "Switch off for immutable images (best speed); changed files are then not noticed without a restart.", "de": "Für unveränderliche Images ausschalten (schnellster Betrieb); geänderte Dateien werden dann ohne Neustart nicht bemerkt."}},
+        {"key": "opcache.revalidate_freq", "type": "int", "group": "opcache", "default": 2, "target": "ini", "needsFeature": "opcache", "min": 0, "max": 3600, "label": {"en": "opcache.revalidate_freq (s)", "de": "opcache.revalidate_freq (s)"}},
+        {"key": "opcache.jit", "type": "enum", "group": "opcache", "default": "disable", "target": "ini", "needsFeature": "opcache", "enum": [{"value": "disable"}, {"value": "tracing"}, {"value": "function"}], "label": {"en": "opcache.jit", "de": "opcache.jit"}, "help": {"en": "JIT compiler (PHP 8). tracing suits most code; function is simpler. Needs a non-zero buffer.", "de": "JIT-Compiler (PHP 8). tracing passt für die meiste Software; function ist einfacher. Braucht einen Puffer größer als null."}},
+        {"key": "opcache.jit_buffer_size", "type": "string", "group": "opcache", "default": "64M", "target": "ini", "needsFeature": "opcache", "pattern": "^[1-9][0-9]{0,5}[KMG]?$", "maxLength": 8, "label": {"en": "opcache.jit_buffer_size", "de": "opcache.jit_buffer_size"}},
+        {"key": "apc.shm_size", "type": "string", "group": "apcu", "default": "32M", "target": "ini", "needsFeature": "apcu", "pattern": "^[1-9][0-9]{0,5}[KMG]?$", "maxLength": 8, "label": {"en": "apc.shm_size", "de": "apc.shm_size"}},
+        {"key": "pm", "type": "enum", "group": "php-fpm pool", "default": "dynamic", "target": "pool", "enum": [{"value": "dynamic"}, {"value": "static"}, {"value": "ondemand"}], "label": {"en": "Process manager (pm)", "de": "Prozessmanager (pm)"}},
+        {"key": "pm.max_children", "type": "int", "group": "php-fpm pool", "default": 10, "target": "pool", "min": 1, "max": 1000, "label": {"en": "pm.max_children", "de": "pm.max_children"}},
+        {"key": "pm.start_servers", "type": "int", "group": "php-fpm pool", "default": 2, "target": "pool", "min": 1, "max": 1000, "label": {"en": "pm.start_servers", "de": "pm.start_servers"}, "help": {"en": "Only for dynamic.", "de": "Nur für dynamic."}},
+        {"key": "pm.min_spare_servers", "type": "int", "group": "php-fpm pool", "default": 1, "target": "pool", "min": 1, "max": 1000, "label": {"en": "pm.min_spare_servers", "de": "pm.min_spare_servers"}, "help": {"en": "Only for dynamic.", "de": "Nur für dynamic."}},
+        {"key": "pm.max_spare_servers", "type": "int", "group": "php-fpm pool", "default": 3, "target": "pool", "min": 1, "max": 1000, "label": {"en": "pm.max_spare_servers", "de": "pm.max_spare_servers"}, "help": {"en": "Only for dynamic.", "de": "Nur für dynamic."}},
+        {"key": "pm.process_idle_timeout", "type": "int", "group": "php-fpm pool", "default": 10, "target": "pool", "min": 1, "max": 3600, "label": {"en": "pm.process_idle_timeout (s)", "de": "pm.process_idle_timeout (s)"}, "help": {"en": "Only for ondemand.", "de": "Nur für ondemand."}},
+        {"key": "pm.max_requests", "type": "int", "group": "php-fpm pool", "default": 500, "target": "pool", "min": 0, "max": 100000, "label": {"en": "pm.max_requests", "de": "pm.max_requests"}, "help": {"en": "0 never recycles workers.", "de": "0 recycelt Worker nie."}},
+        {"key": "request_terminate_timeout", "type": "int", "group": "php-fpm pool", "default": 60, "target": "pool", "min": 0, "max": 3600, "label": {"en": "request_terminate_timeout (s)", "de": "request_terminate_timeout (s)"}},
+        {"key": "catch_workers_output", "type": "bool", "group": "php-fpm pool", "default": true, "target": "pool", "label": {"en": "catch_workers_output", "de": "catch_workers_output"}, "help": {"en": "Send worker stderr to the container log.", "de": "Worker-stderr ins Container-Log leiten."}}
       ]
     },
     {
-      "id": "composer", "name": {"en": "Composer", "de": "Composer"},
-      "kind": "tool", "process": "none", "requires": ["php"],
-      "description": {"en": "PHP dependency manager from the distribution package, no download script.", "de": "PHP-Abhängigkeitsverwaltung aus dem Distributionspaket, kein Download-Skript."},
+      "id": "composer", "name": {"en": "Composer", "de": "Composer"}, "kind": "tool", "process": "none", "requires": ["php"], "description": {"en": "PHP dependency manager from the distribution package, no download script.", "de": "PHP-Abhängigkeitsverwaltung aus dem Distributionspaket, kein Download-Skript."},
       "versions": [
         {"version": "2", "support": [
           {"distro": "alpine", "release": "3.20", "architectures": ["amd64", "arm64"], "packages": [{"name": "composer"}]},
+          {"distro": "alpine", "release": "3.21", "architectures": ["amd64", "arm64"], "packages": [{"name": "composer"}]},
+          {"distro": "alpine", "release": "3.22", "architectures": ["amd64", "arm64"], "packages": [{"name": "composer"}]},
           {"distro": "debian", "release": "12", "architectures": ["amd64", "arm64"], "packages": [{"name": "composer"}]},
+          {"distro": "debian", "release": "13", "architectures": ["amd64", "arm64"], "packages": [{"name": "composer"}]},
+          {"distro": "ubuntu", "release": "22.04", "architectures": ["amd64", "arm64"], "packages": [{"name": "composer"}]},
           {"distro": "ubuntu", "release": "24.04", "architectures": ["amd64", "arm64"], "packages": [{"name": "composer"}]}
         ]}
       ]
     },
     {
-      "id": "utilities", "name": {"en": "Utilities", "de": "Hilfsprogramme"},
-      "kind": "utility", "process": "none",
-      "description": {"en": "Selected distribution packages without a process of their own.", "de": "Ausgewählte Distributionspakete ohne eigenen Prozess."},
+      "id": "node", "name": {"en": "Node.js", "de": "Node.js"}, "kind": "runtime", "process": "main", "description": {"en": "Node.js from the distribution package running an application script from /app (provided by volume or a derived image). Distribution releases with end-of-life Node.js are not offered.", "de": "Node.js aus dem Distributionspaket, startet ein Anwendungsskript aus /app (per Volume oder abgeleitetem Image bereitgestellt). Releases mit abgelaufenem Node.js werden nicht angeboten."}, "featureLabel": {"en": "Node.js tools", "de": "Node.js-Werkzeuge"},
+      "versions": [
+        {"version": "22", "support": [
+          {"distro": "alpine", "release": "3.21", "architectures": ["amd64", "arm64"], "packages": [{"name": "nodejs", "constraint": "22"}], "binary": "/usr/bin/node"},
+          {"distro": "alpine", "release": "3.22", "architectures": ["amd64", "arm64"], "packages": [{"name": "nodejs", "constraint": "22"}], "binary": "/usr/bin/node"},
+          {"distro": "almalinux", "release": "9", "architectures": ["amd64", "arm64"], "modules": ["nodejs:22"], "packages": [{"name": "nodejs"}], "binary": "/usr/bin/node"},
+          {"distro": "rocky", "release": "9", "architectures": ["amd64", "arm64"], "modules": ["nodejs:22"], "packages": [{"name": "nodejs"}], "binary": "/usr/bin/node"}
+        ]},
+        {"version": "20", "support": [
+          {"distro": "alpine", "release": "3.20", "architectures": ["amd64", "arm64"], "packages": [{"name": "nodejs", "constraint": "20"}], "binary": "/usr/bin/node"},
+          {"distro": "debian", "release": "13", "architectures": ["amd64", "arm64"], "packages": [{"name": "nodejs", "constraint": "20"}], "binary": "/usr/bin/node"},
+          {"distro": "almalinux", "release": "9", "architectures": ["amd64", "arm64"], "modules": ["nodejs:20"], "packages": [{"name": "nodejs"}], "binary": "/usr/bin/node"},
+          {"distro": "rocky", "release": "9", "architectures": ["amd64", "arm64"], "modules": ["nodejs:20"], "packages": [{"name": "nodejs"}], "binary": "/usr/bin/node"}
+        ]}
+      ],
+      "features": [
+        {"id": "npm", "packages": {"alpine": ["npm"], "debian": ["npm"], "rhel": ["npm"]}}
+      ],
+      "settings": [
+        {"key": "entryPoint", "type": "string", "group": "node", "default": "/app/server.js", "pattern": "^/app(/[A-Za-z0-9_-][A-Za-z0-9._-]*)*\\.(js|mjs|cjs)$", "maxLength": 200, "label": {"en": "Entry script", "de": "Einstiegsskript"}, "help": {"en": "A .js, .mjs or .cjs file below /app.", "de": "Eine .js-, .mjs- oder .cjs-Datei unterhalb von /app."}},
+        {"key": "port", "type": "int", "group": "node", "default": 3000, "min": 1024, "max": 65535, "label": {"en": "Listen port", "de": "Lauschport"}, "help": {"en": "Informational (EXPOSE and health check); the application itself must listen on it.", "de": "Informativ (EXPOSE und Health-Check); die Anwendung selbst muss darauf lauschen."}},
+        {"key": "nodeEnv", "type": "enum", "group": "node", "default": "production", "enum": [{"value": "production"}, {"value": "development"}, {"value": "test"}], "label": {"en": "NODE_ENV", "de": "NODE_ENV"}},
+        {"key": "maxOldSpaceMb", "type": "int", "group": "node", "default": 0, "min": 0, "max": 65536, "label": {"en": "Heap limit (MB, 0 = Node default)", "de": "Heap-Limit (MB, 0 = Node-Standard)"}, "help": {"en": "Maps to --max-old-space-size; keep below the container memory limit.", "de": "Entspricht --max-old-space-size; unter dem Speicherlimit des Containers halten."}}
+      ]
+    },
+    {
+      "id": "python", "name": {"en": "Python with gunicorn", "de": "Python mit gunicorn"}, "kind": "runtime", "process": "main", "description": {"en": "Python 3 and gunicorn from distribution packages serving a WSGI application from /app (provided by volume or a derived image). Not offered on AlmaLinux and Rocky Linux because gunicorn is not in their base repositories.", "de": "Python 3 und gunicorn aus Distributionspaketen, liefert eine WSGI-Anwendung aus /app (per Volume oder abgeleitetem Image). Auf AlmaLinux und Rocky Linux nicht angeboten, weil gunicorn nicht in deren Basis-Repositories liegt."}, "featureLabel": {"en": "Python tools", "de": "Python-Werkzeuge"},
+      "versions": [
+        {"version": "3.13", "support": [
+          {"distro": "debian", "release": "13", "architectures": ["amd64", "arm64"], "packages": [{"name": "python3", "constraint": "3.13"}, {"name": "gunicorn"}], "binary": "python3"}
+        ]},
+        {"version": "3.12", "support": [
+          {"distro": "alpine", "release": "3.20", "architectures": ["amd64", "arm64"], "packages": [{"name": "python3", "constraint": "3.12"}, {"name": "py3-gunicorn"}], "binary": "python3"},
+          {"distro": "alpine", "release": "3.21", "architectures": ["amd64", "arm64"], "packages": [{"name": "python3", "constraint": "3.12"}, {"name": "py3-gunicorn"}], "binary": "python3"},
+          {"distro": "alpine", "release": "3.22", "architectures": ["amd64", "arm64"], "packages": [{"name": "python3", "constraint": "3.12"}, {"name": "py3-gunicorn"}], "binary": "python3"},
+          {"distro": "ubuntu", "release": "24.04", "architectures": ["amd64", "arm64"], "packages": [{"name": "python3", "constraint": "3.12"}, {"name": "gunicorn"}], "binary": "python3"}
+        ]},
+        {"version": "3.11", "support": [
+          {"distro": "debian", "release": "12", "architectures": ["amd64", "arm64"], "packages": [{"name": "python3", "constraint": "3.11"}, {"name": "gunicorn"}], "binary": "python3"}
+        ]},
+        {"version": "3.10", "support": [
+          {"distro": "ubuntu", "release": "22.04", "architectures": ["amd64", "arm64"], "packages": [{"name": "python3", "constraint": "3.10"}, {"name": "gunicorn"}], "binary": "python3"}
+        ]}
+      ],
+      "features": [
+        {"id": "pip", "packages": {"alpine": ["py3-pip"], "debian": ["python3-pip"]}}
+      ],
+      "settings": [
+        {"key": "app", "type": "string", "group": "gunicorn", "default": "app:app", "pattern": "^[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)*:[A-Za-z_][A-Za-z0-9_]*$", "maxLength": 120, "label": {"en": "WSGI application (module:callable)", "de": "WSGI-Anwendung (Modul:Aufrufbar)"}, "help": {"en": "For example app:app or project.wsgi:application.", "de": "Zum Beispiel app:app oder project.wsgi:application."}},
+        {"key": "port", "type": "int", "group": "gunicorn", "default": 8000, "min": 1024, "max": 65535, "label": {"en": "Listen port", "de": "Lauschport"}},
+        {"key": "workers", "type": "int", "group": "gunicorn", "default": 2, "min": 1, "max": 64, "label": {"en": "Worker processes", "de": "Worker-Prozesse"}},
+        {"key": "threads", "type": "int", "group": "gunicorn", "default": 1, "min": 1, "max": 64, "label": {"en": "Threads per worker", "de": "Threads je Worker"}},
+        {"key": "timeout", "type": "int", "group": "gunicorn", "default": 30, "min": 1, "max": 3600, "label": {"en": "Worker timeout (s)", "de": "Worker-Timeout (s)"}},
+        {"key": "forwardedAllowIps", "type": "string", "group": "gunicorn", "default": "127.0.0.1", "pattern": "^(\\*|[0-9a-fA-F.:/]{2,50}(,[0-9a-fA-F.:/]{2,50}){0,7})$", "maxLength": 200, "label": {"en": "Trusted proxies for X-Forwarded-* (--forwarded-allow-ips)", "de": "Vertrauenswürdige Proxys für X-Forwarded-* (--forwarded-allow-ips)"}, "help": {"en": "A comma-separated list of addresses or * (trust every sender; only on an isolated network).", "de": "Kommagetrennte Adressen oder * (jedem Absender vertrauen; nur in einem isolierten Netz)."}},
+        {"key": "accessLog", "type": "bool", "group": "gunicorn", "default": true, "label": {"en": "Write access log to stdout", "de": "Zugriffslog nach stdout schreiben"}}
+      ]
+    },
+    {
+      "id": "java", "name": {"en": "Java runtime (JRE) for a jar", "de": "Java-Laufzeit (JRE) für ein Jar"}, "kind": "runtime", "process": "main", "description": {"en": "Headless OpenJDK JRE from the distribution running an executable jar from /app (provided by volume or a derived image).", "de": "Headless-OpenJDK-JRE aus der Distribution, startet ein ausführbares Jar aus /app (per Volume oder abgeleitetem Image)."},
+      "versions": [
+        {"version": "21", "support": [
+          {"distro": "alpine", "release": "3.20", "architectures": ["amd64", "arm64"], "packages": [{"name": "openjdk21-jre-headless"}], "binary": "/usr/lib/jvm/java-21-openjdk/bin/java"},
+          {"distro": "alpine", "release": "3.21", "architectures": ["amd64", "arm64"], "packages": [{"name": "openjdk21-jre-headless"}], "binary": "/usr/lib/jvm/java-21-openjdk/bin/java"},
+          {"distro": "alpine", "release": "3.22", "architectures": ["amd64", "arm64"], "packages": [{"name": "openjdk21-jre-headless"}], "binary": "/usr/lib/jvm/java-21-openjdk/bin/java"},
+          {"distro": "debian", "release": "13", "architectures": ["amd64", "arm64"], "packages": [{"name": "openjdk-21-jre-headless"}], "binary": "/usr/bin/java"},
+          {"distro": "ubuntu", "release": "22.04", "architectures": ["amd64", "arm64"], "packages": [{"name": "openjdk-21-jre-headless"}], "binary": "/usr/bin/java"},
+          {"distro": "ubuntu", "release": "24.04", "architectures": ["amd64", "arm64"], "packages": [{"name": "openjdk-21-jre-headless"}], "binary": "/usr/bin/java"},
+          {"distro": "almalinux", "release": "9", "architectures": ["amd64", "arm64"], "packages": [{"name": "java-21-openjdk-headless"}], "binary": "/usr/bin/java"},
+          {"distro": "rocky", "release": "9", "architectures": ["amd64", "arm64"], "packages": [{"name": "java-21-openjdk-headless"}], "binary": "/usr/bin/java"}
+        ]},
+        {"version": "17", "support": [
+          {"distro": "alpine", "release": "3.20", "architectures": ["amd64", "arm64"], "packages": [{"name": "openjdk17-jre-headless"}], "binary": "/usr/lib/jvm/java-17-openjdk/bin/java"},
+          {"distro": "alpine", "release": "3.21", "architectures": ["amd64", "arm64"], "packages": [{"name": "openjdk17-jre-headless"}], "binary": "/usr/lib/jvm/java-17-openjdk/bin/java"},
+          {"distro": "alpine", "release": "3.22", "architectures": ["amd64", "arm64"], "packages": [{"name": "openjdk17-jre-headless"}], "binary": "/usr/lib/jvm/java-17-openjdk/bin/java"},
+          {"distro": "debian", "release": "12", "architectures": ["amd64", "arm64"], "packages": [{"name": "openjdk-17-jre-headless"}], "binary": "/usr/bin/java"},
+          {"distro": "ubuntu", "release": "22.04", "architectures": ["amd64", "arm64"], "packages": [{"name": "openjdk-17-jre-headless"}], "binary": "/usr/bin/java"},
+          {"distro": "ubuntu", "release": "24.04", "architectures": ["amd64", "arm64"], "packages": [{"name": "openjdk-17-jre-headless"}], "binary": "/usr/bin/java"},
+          {"distro": "almalinux", "release": "9", "architectures": ["amd64", "arm64"], "packages": [{"name": "java-17-openjdk-headless"}], "binary": "/usr/bin/java"},
+          {"distro": "rocky", "release": "9", "architectures": ["amd64", "arm64"], "packages": [{"name": "java-17-openjdk-headless"}], "binary": "/usr/bin/java"}
+        ]}
+      ],
+      "settings": [
+        {"key": "jarPath", "type": "string", "group": "java", "default": "/app/app.jar", "pattern": "^/app(/[A-Za-z0-9_-][A-Za-z0-9._-]*)*\\.jar$", "maxLength": 200, "label": {"en": "Jar file", "de": "Jar-Datei"}, "help": {"en": "A .jar file below /app.", "de": "Eine .jar-Datei unterhalb von /app."}},
+        {"key": "port", "type": "int", "group": "java", "default": 8080, "min": 1024, "max": 65535, "label": {"en": "Listen port", "de": "Lauschport"}, "help": {"en": "Informational (EXPOSE and health check); the application itself must listen on it.", "de": "Informativ (EXPOSE und Health-Check); die Anwendung selbst muss darauf lauschen."}},
+        {"key": "maxRamPercentage", "type": "int", "group": "java", "default": 75, "min": 10, "max": 90, "label": {"en": "Heap as percent of container memory", "de": "Heap in Prozent des Container-Speichers"}, "help": {"en": "-XX:MaxRAMPercentage; leave room for metaspace and threads.", "de": "-XX:MaxRAMPercentage; Platz für Metaspace und Threads lassen."}},
+        {"key": "garbageCollector", "type": "enum", "group": "java", "default": "default", "enum": [{"value": "default"}, {"value": "g1"}, {"value": "serial"}, {"value": "parallel"}], "label": {"en": "Garbage collector", "de": "Garbage Collector"}},
+        {"key": "exitOnOutOfMemory", "type": "bool", "group": "java", "default": true, "label": {"en": "Exit on OutOfMemoryError (lets Swarm restart the task)", "de": "Bei OutOfMemoryError beenden (Swarm startet die Task neu)"}}
+      ]
+    },
+    {
+      "id": "sftp", "name": {"en": "SFTP server (OpenSSH, non-root)", "de": "SFTP-Server (OpenSSH, ohne Root)"}, "kind": "server", "process": "main", "description": {"en": "OpenSSH serving only the internal SFTP subsystem for one account (app) on port 2222. Host key and authorized keys are not part of the image: mount them as secrets. No chroot, no further accounts: that needs root and is outside the non-root rule.", "de": "OpenSSH, das nur das interne SFTP-Subsystem für ein Konto (app) auf Port 2222 bereitstellt. Host-Key und authorized_keys sind nicht Teil des Images: als Secrets einbinden. Kein Chroot, keine weiteren Konten: das braucht Root und liegt außerhalb der Nicht-Root-Regel."},
+      "versions": [
+        {"version": "distro", "support": [
+          {"distro": "alpine", "release": "3.20", "architectures": ["amd64", "arm64"], "packages": [{"name": "openssh-server"}, {"name": "openssh-keygen"}], "binary": "/usr/sbin/sshd"},
+          {"distro": "alpine", "release": "3.21", "architectures": ["amd64", "arm64"], "packages": [{"name": "openssh-server"}, {"name": "openssh-keygen"}], "binary": "/usr/sbin/sshd"},
+          {"distro": "alpine", "release": "3.22", "architectures": ["amd64", "arm64"], "packages": [{"name": "openssh-server"}, {"name": "openssh-keygen"}], "binary": "/usr/sbin/sshd"},
+          {"distro": "debian", "release": "12", "architectures": ["amd64", "arm64"], "packages": [{"name": "openssh-server"}], "binary": "/usr/sbin/sshd"},
+          {"distro": "debian", "release": "13", "architectures": ["amd64", "arm64"], "packages": [{"name": "openssh-server"}], "binary": "/usr/sbin/sshd"},
+          {"distro": "ubuntu", "release": "22.04", "architectures": ["amd64", "arm64"], "packages": [{"name": "openssh-server"}], "binary": "/usr/sbin/sshd"},
+          {"distro": "ubuntu", "release": "24.04", "architectures": ["amd64", "arm64"], "packages": [{"name": "openssh-server"}], "binary": "/usr/sbin/sshd"},
+          {"distro": "almalinux", "release": "9", "architectures": ["amd64", "arm64"], "packages": [{"name": "openssh-server"}], "binary": "/usr/sbin/sshd"},
+          {"distro": "rocky", "release": "9", "architectures": ["amd64", "arm64"], "packages": [{"name": "openssh-server"}], "binary": "/usr/sbin/sshd"}
+        ]}
+      ],
+      "settings": [
+        {"key": "port", "type": "int", "group": "sftp", "default": 2222, "min": 1024, "max": 65535, "label": {"en": "Listen port", "de": "Lauschport"}},
+        {"key": "dataDir", "type": "string", "group": "sftp", "default": "/data", "pattern": "^/(data|srv)(/[A-Za-z0-9_-][A-Za-z0-9._-]*)*$", "maxLength": 100, "label": {"en": "Start directory", "de": "Startverzeichnis"}, "help": {"en": "Mount your volume here; below /data or /srv.", "de": "Dein Volume hier einbinden; unterhalb von /data oder /srv."}},
+        {"key": "readOnly", "type": "bool", "group": "sftp", "default": false, "label": {"en": "Read-only access", "de": "Nur lesender Zugriff"}},
+        {"key": "umask", "type": "enum", "group": "sftp", "default": "077", "enum": [{"value": "077"}, {"value": "027"}, {"value": "022"}], "label": {"en": "umask for new files", "de": "umask für neue Dateien"}},
+        {"key": "hostKeyPath", "type": "string", "group": "sftp", "default": "/run/secrets/ssh_host_ed25519_key", "pattern": "^/run/secrets/[A-Za-z0-9_-][A-Za-z0-9._-]*$", "maxLength": 100, "label": {"en": "Host key file (mounted secret)", "de": "Host-Key-Datei (eingebundenes Secret)"}, "help": {"en": "The image contains no host key; the file must exist at start.", "de": "Das Image enthält keinen Host-Key; die Datei muss beim Start vorhanden sein."}},
+        {"key": "authorizedKeysPath", "type": "string", "group": "sftp", "default": "/run/secrets/sftp_authorized_keys", "pattern": "^/run/secrets/[A-Za-z0-9_-][A-Za-z0-9._-]*$", "maxLength": 100, "label": {"en": "Authorized keys file (mounted secret)", "de": "authorized_keys-Datei (eingebundenes Secret)"}},
+        {"key": "maxAuthTries", "type": "int", "group": "sftp", "default": 3, "min": 1, "max": 10, "label": {"en": "Maximum authentication tries", "de": "Maximale Anmeldeversuche"}}
+      ]
+    },
+    {
+      "id": "jobrunner", "name": {"en": "Scheduled job runner", "de": "Zeitgesteuerter Job-Runner"}, "kind": "runtime", "process": "main", "description": {"en": "A small generated shell loop that runs one preset job at a fixed interval (no cron daemon, no free commands). Repository, remote and credentials come from the service environment or secrets at run time, never from the image.", "de": "Eine kleine generierte Shell-Schleife, die einen voreingestellten Job in festem Abstand ausführt (kein Cron-Daemon, keine freien Befehle). Repository, Remote und Zugangsdaten kommen zur Laufzeit aus Umgebung oder Secrets des Services, nie aus dem Image."},
       "versions": [
         {"version": "distro", "support": [
           {"distro": "alpine", "release": "3.20", "architectures": ["amd64", "arm64"]},
+          {"distro": "alpine", "release": "3.21", "architectures": ["amd64", "arm64"]},
+          {"distro": "alpine", "release": "3.22", "architectures": ["amd64", "arm64"]},
           {"distro": "debian", "release": "12", "architectures": ["amd64", "arm64"]},
+          {"distro": "debian", "release": "13", "architectures": ["amd64", "arm64"]},
+          {"distro": "ubuntu", "release": "22.04", "architectures": ["amd64", "arm64"]},
           {"distro": "ubuntu", "release": "24.04", "architectures": ["amd64", "arm64"]},
-          {"distro": "almalinux", "release": "9", "architectures": ["amd64", "arm64"]}
+          {"distro": "almalinux", "release": "9", "architectures": ["amd64", "arm64"]},
+          {"distro": "rocky", "release": "9", "architectures": ["amd64", "arm64"]}
         ]}
       ],
-      "featureLabel": {"en": "Packages", "de": "Pakete"},
+      "settings": [
+        {"key": "job", "type": "enum", "group": "job", "default": "restic-backup", "enum": [{"value": "restic-backup"}, {"value": "rclone-sync"}], "label": {"en": "Job", "de": "Job"}, "help": {"en": "restic-backup needs the restic tool, rclone-sync needs rclone (component Backup and sync tools).", "de": "restic-backup braucht das Werkzeug restic, rclone-sync braucht rclone (Komponente Backup- und Sync-Werkzeuge)."}},
+        {"key": "intervalSeconds", "type": "int", "group": "job", "default": 86400, "min": 60, "max": 604800, "label": {"en": "Interval (s)", "de": "Intervall (s)"}},
+        {"key": "runOnStart", "type": "bool", "group": "job", "default": true, "label": {"en": "Run once at start", "de": "Einmal beim Start ausführen"}},
+        {"key": "onFailure", "type": "enum", "group": "job", "default": "continue", "enum": [{"value": "continue"}, {"value": "exit"}], "label": {"en": "When a run fails", "de": "Wenn ein Lauf fehlschlägt"}, "help": {"en": "exit stops the container so Swarm restarts it and shows the failure.", "de": "exit beendet den Container, damit Swarm ihn neu startet und den Fehler zeigt."}},
+        {"key": "sourceDir", "type": "string", "group": "job", "default": "/data", "pattern": "^/(data|source)(/[A-Za-z0-9_-][A-Za-z0-9._-]*)*$", "maxLength": 100, "label": {"en": "Source directory", "de": "Quellverzeichnis"}, "help": {"en": "Below /data or /source.", "de": "Unterhalb von /data oder /source."}},
+        {"key": "resticKeepDaily", "type": "int", "group": "restic", "default": 7, "min": 0, "max": 3650, "label": {"en": "Keep daily snapshots (0 = no forget)", "de": "Tägliche Snapshots behalten (0 = nichts vergessen)"}, "help": {"en": "Runs forget --prune after each backup. RESTIC_REPOSITORY and RESTIC_PASSWORD_FILE come from the service.", "de": "Führt nach jedem Backup forget --prune aus. RESTIC_REPOSITORY und RESTIC_PASSWORD_FILE kommen vom Service."}},
+        {"key": "rcloneDestination", "type": "string", "group": "rclone", "default": "remote:backup", "pattern": "^[A-Za-z0-9_-]{1,32}:[A-Za-z0-9._/-]{0,100}$", "maxLength": 140, "label": {"en": "rclone destination (remote:path)", "de": "rclone-Ziel (Remote:Pfad)"}, "help": {"en": "The remote is defined in a config file mounted at run time (RCLONE_CONFIG).", "de": "Die Remote ist in einer zur Laufzeit eingebundenen Konfigurationsdatei definiert (RCLONE_CONFIG)."}}
+      ]
+    },
+    {
+      "id": "backuptools", "name": {"en": "Backup and sync tools", "de": "Backup- und Sync-Werkzeuge"}, "kind": "tool", "process": "none", "description": {"en": "Command-line tools from distribution packages. Availability differs per distribution (restic and rclone are not in the AlmaLinux/Rocky base repositories; the MinIO client is packaged for Alpine only).", "de": "Kommandozeilenwerkzeuge aus Distributionspaketen. Die Verfügbarkeit hängt von der Distribution ab (restic und rclone liegen nicht in den Basis-Repositories von AlmaLinux/Rocky; der MinIO-Client ist nur für Alpine paketiert)."}, "featureLabel": {"en": "Tools", "de": "Werkzeuge"},
+      "versions": [
+        {"version": "distro", "support": [
+          {"distro": "alpine", "release": "3.20", "architectures": ["amd64", "arm64"]},
+          {"distro": "alpine", "release": "3.21", "architectures": ["amd64", "arm64"]},
+          {"distro": "alpine", "release": "3.22", "architectures": ["amd64", "arm64"]},
+          {"distro": "debian", "release": "12", "architectures": ["amd64", "arm64"]},
+          {"distro": "debian", "release": "13", "architectures": ["amd64", "arm64"]},
+          {"distro": "ubuntu", "release": "22.04", "architectures": ["amd64", "arm64"]},
+          {"distro": "ubuntu", "release": "24.04", "architectures": ["amd64", "arm64"]},
+          {"distro": "almalinux", "release": "9", "architectures": ["amd64", "arm64"]},
+          {"distro": "rocky", "release": "9", "architectures": ["amd64", "arm64"]}
+        ]}
+      ],
       "features": [
+        {"id": "mc", "packages": {"alpine": ["minio-client"]}},
+        {"id": "rclone", "packages": {"alpine": ["rclone"], "debian": ["rclone"]}},
+        {"id": "restic", "packages": {"alpine": ["restic"], "debian": ["restic"]}},
+        {"id": "rsync", "packages": {"alpine": ["rsync"], "debian": ["rsync"], "rhel": ["rsync"]}},
+        {"id": "openssh-client", "packages": {"alpine": ["openssh-client"], "debian": ["openssh-client"], "rhel": ["openssh-clients"]}}
+      ]
+    },
+    {
+      "id": "dbclients", "name": {"en": "Database client tools", "de": "Datenbank-Client-Werkzeuge"}, "kind": "tool", "process": "none", "description": {"en": "Command-line clients for dumps and health probes, from distribution packages. They contain no server.", "de": "Kommandozeilen-Clients für Dumps und Prüfungen aus Distributionspaketen. Sie enthalten keinen Server."}, "featureLabel": {"en": "Clients", "de": "Clients"},
+      "versions": [
+        {"version": "distro", "support": [
+          {"distro": "alpine", "release": "3.20", "architectures": ["amd64", "arm64"]},
+          {"distro": "alpine", "release": "3.21", "architectures": ["amd64", "arm64"]},
+          {"distro": "alpine", "release": "3.22", "architectures": ["amd64", "arm64"]},
+          {"distro": "debian", "release": "12", "architectures": ["amd64", "arm64"]},
+          {"distro": "debian", "release": "13", "architectures": ["amd64", "arm64"]},
+          {"distro": "ubuntu", "release": "22.04", "architectures": ["amd64", "arm64"]},
+          {"distro": "ubuntu", "release": "24.04", "architectures": ["amd64", "arm64"]},
+          {"distro": "almalinux", "release": "9", "architectures": ["amd64", "arm64"]},
+          {"distro": "rocky", "release": "9", "architectures": ["amd64", "arm64"]}
+        ]}
+      ],
+      "features": [
+        {"id": "mariadb-client", "packages": {"alpine": ["mariadb-client"], "debian": ["mariadb-client"], "rhel": ["mariadb"]}},
+        {"id": "postgresql-client", "packages": {"alpine": ["postgresql-client"], "debian": ["postgresql-client"], "rhel": ["postgresql"]}},
+        {"id": "redis-cli", "packages": {"alpine": ["redis"], "debian": ["redis-tools"], "rhel": ["redis"]}},
+        {"id": "sqlite", "packages": {"alpine": ["sqlite"], "debian": ["sqlite3"], "rhel": ["sqlite"]}}
+      ]
+    },
+    {
+      "id": "system", "name": {"en": "System settings", "de": "Systemeinstellungen"}, "kind": "utility", "process": "none", "description": {"en": "Time zone, locale, additional CA certificates and a container health check. Settings only; the generator adds the needed packages (tzdata, locales, ca-certificates, curl).", "de": "Zeitzone, Locale, zusätzliche CA-Zertifikate und ein Container-Health-Check. Nur Einstellungen; der Generator ergänzt die nötigen Pakete (tzdata, locales, ca-certificates, curl)."},
+      "versions": [
+        {"version": "1", "support": [
+          {"distro": "alpine", "release": "3.20", "architectures": ["amd64", "arm64"]},
+          {"distro": "alpine", "release": "3.21", "architectures": ["amd64", "arm64"]},
+          {"distro": "alpine", "release": "3.22", "architectures": ["amd64", "arm64"]},
+          {"distro": "debian", "release": "12", "architectures": ["amd64", "arm64"]},
+          {"distro": "debian", "release": "13", "architectures": ["amd64", "arm64"]},
+          {"distro": "ubuntu", "release": "22.04", "architectures": ["amd64", "arm64"]},
+          {"distro": "ubuntu", "release": "24.04", "architectures": ["amd64", "arm64"]},
+          {"distro": "almalinux", "release": "9", "architectures": ["amd64", "arm64"]},
+          {"distro": "rocky", "release": "9", "architectures": ["amd64", "arm64"]}
+        ]}
+      ],
+      "settings": [
+        {"key": "timezone", "type": "string", "group": "locale", "default": "UTC", "pattern": "^(UTC|[A-Z][A-Za-z_]+(/[A-Za-z_+-]+){1,2})$", "maxLength": 40, "label": {"en": "Time zone (TZ)", "de": "Zeitzone (TZ)"}, "help": {"en": "For example UTC or Europe/Berlin.", "de": "Zum Beispiel UTC oder Europe/Berlin."}},
+        {"key": "locale", "type": "enum", "group": "locale", "default": "C.UTF-8", "enum": [{"value": "C.UTF-8"}, {"value": "en_US.UTF-8"}, {"value": "de_DE.UTF-8"}], "label": {"en": "Locale (LANG)", "de": "Locale (LANG)"}, "help": {"en": "Non-default locales are generated on Debian, Ubuntu and AlmaLinux/Rocky; Alpine (musl) only sets LANG.", "de": "Weitere Locales werden auf Debian, Ubuntu und AlmaLinux/Rocky erzeugt; Alpine (musl) setzt nur LANG."}},
+        {"key": "extraCaPem", "type": "string", "group": "certificates", "default": "", "multiline": true, "pattern": "^$|^(-----BEGIN CERTIFICATE-----\\n[A-Za-z0-9+/=\\n]{40,}\\n-----END CERTIFICATE-----\\n?){1,4}$", "maxLength": 24000, "label": {"en": "Additional CA certificates (PEM)", "de": "Zusätzliche CA-Zertifikate (PEM)"}, "help": {"en": "Up to four public CA certificates, pasted as PEM. Each must be a CA certificate; private keys are refused. Installed into the system trust store.", "de": "Bis zu vier öffentliche CA-Zertifikate als PEM. Jedes muss ein CA-Zertifikat sein; private Schlüssel werden abgelehnt. Wird in den System-Truststore installiert."}},
+        {"key": "healthcheck", "type": "enum", "group": "health check", "default": "none", "enum": [{"value": "none"}, {"value": "http"}, {"value": "fpm-ping"}], "label": {"en": "Health check", "de": "Health-Check"}, "help": {"en": "http: curl against the main web port. fpm-ping: nginx with PHP-FPM, asks PHP-FPM itself through a local-only ping endpoint, so a dead PHP-FPM is noticed. Other roles have no preset.", "de": "http: curl gegen den Haupt-Webport. fpm-ping: nginx mit PHP-FPM, fragt PHP-FPM selbst über einen nur lokalen Ping-Endpunkt, damit ein toter PHP-FPM auffällt. Andere Rollen haben kein Preset."}},
+        {"key": "healthcheckPath", "type": "string", "group": "health check", "default": "/", "pattern": "^/[A-Za-z0-9._~/-]{0,100}$", "maxLength": 101, "label": {"en": "Health check path", "de": "Health-Check-Pfad"}, "help": {"en": "Used by http.", "de": "Wird von http verwendet."}},
+        {"key": "healthcheckInterval", "type": "int", "group": "health check", "default": 30, "min": 5, "max": 3600, "label": {"en": "Interval (s)", "de": "Intervall (s)"}},
+        {"key": "healthcheckTimeout", "type": "int", "group": "health check", "default": 5, "min": 1, "max": 60, "label": {"en": "Timeout (s)", "de": "Timeout (s)"}},
+        {"key": "healthcheckRetries", "type": "int", "group": "health check", "default": 3, "min": 1, "max": 20, "label": {"en": "Retries", "de": "Wiederholungen"}},
+        {"key": "healthcheckStartPeriod", "type": "int", "group": "health check", "default": 10, "min": 0, "max": 3600, "label": {"en": "Start period (s)", "de": "Startphase (s)"}}
+      ]
+    },
+    {
+      "id": "utilities", "name": {"en": "Utilities", "de": "Hilfsprogramme"}, "kind": "utility", "process": "none", "description": {"en": "Selected distribution packages without a process of their own.", "de": "Ausgewählte Distributionspakete ohne eigenen Prozess."}, "featureLabel": {"en": "Packages", "de": "Pakete"},
+      "versions": [
+        {"version": "distro", "support": [
+          {"distro": "alpine", "release": "3.20", "architectures": ["amd64", "arm64"]},
+          {"distro": "alpine", "release": "3.21", "architectures": ["amd64", "arm64"]},
+          {"distro": "alpine", "release": "3.22", "architectures": ["amd64", "arm64"]},
+          {"distro": "debian", "release": "12", "architectures": ["amd64", "arm64"]},
+          {"distro": "debian", "release": "13", "architectures": ["amd64", "arm64"]},
+          {"distro": "ubuntu", "release": "22.04", "architectures": ["amd64", "arm64"]},
+          {"distro": "ubuntu", "release": "24.04", "architectures": ["amd64", "arm64"]},
+          {"distro": "almalinux", "release": "9", "architectures": ["amd64", "arm64"]},
+          {"distro": "rocky", "release": "9", "architectures": ["amd64", "arm64"]}
+        ]}
+      ],
+      "features": [
+        {"id": "bash", "packages": {"alpine": ["bash"], "debian": ["bash"], "rhel": ["bash"]}},
         {"id": "ca-certificates", "packages": {"alpine": ["ca-certificates"], "debian": ["ca-certificates"], "rhel": ["ca-certificates"]}},
         {"id": "curl", "packages": {"alpine": ["curl"], "debian": ["curl"], "rhel": ["curl"]}},
         {"id": "ghostscript", "packages": {"alpine": ["ghostscript"], "debian": ["ghostscript"], "rhel": ["ghostscript"]}},
         {"id": "imagemagick", "packages": {"alpine": ["imagemagick"], "debian": ["imagemagick"], "rhel": ["ImageMagick"]}},
+        {"id": "jq", "packages": {"alpine": ["jq"], "debian": ["jq"], "rhel": ["jq"]}},
         {"id": "msmtp", "packages": {"alpine": ["msmtp"], "debian": ["msmtp"], "rhel": ["msmtp"]}},
         {"id": "tzdata", "packages": {"alpine": ["tzdata"], "debian": ["tzdata"], "rhel": ["tzdata"]}}
       ]

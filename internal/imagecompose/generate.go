@@ -3,6 +3,8 @@
 package imagecompose
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -12,8 +14,12 @@ import (
 
 // Roles of a generated image, derived from the selection.
 const (
-	RoleWeb = "web" // nginx (with PHP-FPM as companion when PHP is selected)
-	RoleFPM = "fpm" // PHP-FPM alone as the single main process
+	RoleWeb    = "web"    // a web server (nginx, apache, caddy), with PHP-FPM as companion when PHP is selected
+	RoleFPM    = "fpm"    // PHP-FPM alone as the single main process
+	RoleWorker = "worker" // a PHP CLI worker script as the single main process
+	RoleApp    = "app"    // node, python (gunicorn) or java
+	RoleSFTP   = "sftp"   // OpenSSH serving SFTP only
+	RoleJobs   = "jobs"   // scheduled job runner
 )
 
 // PackageRef is one distribution package of the image, the input of the
@@ -44,11 +50,41 @@ const (
 	webPort  = 8080
 	fpmPort  = 9000
 	confRoot = "/etc/dbcm"
+	pingPath = "/dbcm-ping"
+)
+
+var (
+	webServerIDs = []string{"nginx", "apache", "caddy"}
+	appIDs       = []string{"node", "python", "java"}
 )
 
 type pkgLine struct {
 	ref      PackageRef
 	rendered string
+}
+
+// build collects everything the Dockerfile and context need, in the order
+// the components are processed (a fixed order), so output stays deterministic.
+type build struct {
+	family   string
+	sel      map[string]Selection
+	sup      map[string]Support
+	role     string
+	web      string // selected web server id, if any
+	files    []imagebuild.File
+	writable []string // directories created and owned by the app user
+	readonly []string // directories created, root-owned
+	preUser  []string // Dockerfile lines (COPY/RUN as root) after the package install
+	copies   []string // Dockerfile COPY lines
+	env      map[string]string
+	checks   []string // RUN lines that test the final configuration
+	expose   int
+	workdir  string
+	runtime  []string // STOPSIGNAL and ENTRYPOINT/CMD
+	health   string
+	packages map[string]pkgLine
+	modules  map[string]bool
+	extraW   []string // warnings from renderers
 }
 
 // Generate validates and renders a recipe. It is a pure function: the same
@@ -63,122 +99,180 @@ func (c *Catalog) Generate(r Recipe) (Result, error) {
 	res := Result{Recipe: n, Digest: c.Digest(n)}
 	baseRef := rel.Image + ":" + rel.Tag + "@" + n.Base.Digest
 
-	sel := map[string]Selection{}
-	sup := map[string]Support{}
+	b := &build{family: family, sel: map[string]Selection{}, sup: map[string]Support{}, env: map[string]string{"HOME": "/tmp"}, packages: map[string]pkgLine{}, modules: map[string]bool{}}
 	for _, s := range n.Components {
-		sel[s.ID] = s
+		b.sel[s.ID] = s
 		comp, _ := c.Component(s.ID)
 		cv, _ := comp.Version(s.Version)
-		sup[s.ID], _ = cv.SupportFor(n.Base.Distro, n.Base.Release)
+		b.sup[s.ID], _ = cv.SupportFor(n.Base.Distro, n.Base.Release)
 	}
-	_, hasNginx := sel["nginx"]
-	_, hasPHP := sel["php"]
-	res.Role = RoleFPM
-	if hasNginx {
-		res.Role = RoleWeb
+	b.role = roleOf(n)
+	for _, id := range webServerIDs {
+		if _, ok := b.sel[id]; ok {
+			b.web = id
+		}
 	}
+	res.Role = b.role
 
-	// Packages and dnf modules, deduplicated and sorted.
-	byRender := map[string]pkgLine{}
-	modules := map[string]bool{}
+	// Packages and dnf modules from the matrix and the selected features.
 	for _, s := range n.Components {
 		comp, _ := c.Component(s.ID)
-		su := sup[s.ID]
+		su := b.sup[s.ID]
 		for _, m := range su.Modules {
-			modules[m] = true
+			b.modules[m] = true
 		}
 		for _, p := range su.Packages {
-			add(byRender, family, s.ID, p.Name, p.Constraint)
+			add(b.packages, family, s.ID, p.Name, p.Constraint)
 		}
 		for _, f := range s.Features {
 			feat, _ := comp.Feature(f)
 			for _, tpl := range feat.Packages[family] {
-				add(byRender, family, s.ID, strings.ReplaceAll(tpl, "{php}", sup["php"].Prefix), "")
+				add(b.packages, family, s.ID, strings.ReplaceAll(tpl, "{php}", b.sup["php"].Prefix), "")
 			}
 		}
 	}
-	keys := make([]string, 0, len(byRender))
-	for k := range byRender {
+
+	// Renderers, in a fixed order.
+	switch b.web {
+	case "nginx":
+		b.nginx()
+	case "apache":
+		b.apache()
+	case "caddy":
+		b.caddy()
+	}
+	if _, ok := b.sel["php"]; ok {
+		c.php(b)
+	}
+	switch {
+	case b.sel["node"].ID != "":
+		b.node()
+	case b.sel["python"].ID != "":
+		b.python()
+	case b.sel["java"].ID != "":
+		b.java()
+	case b.sel["sftp"].ID != "":
+		b.sftp()
+	case b.sel["jobrunner"].ID != "":
+		b.jobs()
+	}
+	if _, ok := b.sel["system"]; ok {
+		b.system()
+	}
+	b.entrypoint()
+
+	keys := make([]string, 0, len(b.packages))
+	for k := range b.packages {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	var install []string
 	for _, k := range keys {
-		install = append(install, k)
-		res.Packages = append(res.Packages, byRender[k].ref)
+		res.Packages = append(res.Packages, b.packages[k].ref)
 	}
-	for m := range modules {
+	for m := range b.modules {
 		res.Modules = append(res.Modules, m)
 	}
 	sort.Strings(res.Modules)
-
-	// Context files.
-	var files []imagebuild.File
-	docroot := "/var/www/html"
-	if hasNginx {
-		o := sel["nginx"].Settings
-		docroot, _ = o["documentRoot"].(string)
-		files = append(files,
-			imagebuild.File{Path: "nginx/nginx.conf", Mode: 0o644, Content: renderNginxConf(o)},
-			imagebuild.File{Path: "nginx/default.conf", Mode: 0o644, Content: renderServerConf(o, hasPHP)},
-		)
-	}
-	phpBin := sup["php"].Binary
-	if hasPHP {
-		p := sel["php"]
-		files = append(files,
-			imagebuild.File{Path: "php/99-dbcm.ini", Mode: 0o644, Content: c.renderINI(p)},
-			imagebuild.File{Path: "php/php-fpm.conf", Mode: 0o644, Content: "; Generated by cluster-manager (imagecompose). Change the recipe, not this file.\n[global]\npid = /tmp/php-fpm.pid\nerror_log = /proc/self/fd/2\ndaemonize = no\ninclude = " + confRoot + "/php/pool.d/*.conf\n"},
-			imagebuild.File{Path: "php/pool.conf", Mode: 0o644, Content: c.renderPool(p, res.Role == RoleFPM)},
-		)
-		if res.Role == RoleWeb {
-			files = append(files, imagebuild.File{Path: "entrypoint.sh", Mode: 0o755, Content: "#!/bin/sh\n# Generated by cluster-manager (imagecompose).\n# PHP-FPM runs as a companion of nginx; there is no process supervisor.\nset -eu\n" + phpBin + " -F -y " + confRoot + "/php/php-fpm.conf &\nexec nginx -g 'daemon off;' -c " + confRoot + "/nginx/nginx.conf\n"})
-		}
-	}
-	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+	sort.Slice(b.files, func(i, j int) bool { return b.files[i].Path < b.files[j].Path })
 
 	// Dockerfile.
-	var b strings.Builder
-	b.WriteString("# syntax=docker/dockerfile:1\n")
-	b.WriteString("# Generated by cluster-manager (imagecompose). Review before building.\n")
-	fmt.Fprintf(&b, "FROM %s\n", baseRef)
-	fmt.Fprintf(&b, "LABEL org.opencontainers.image.title=%q \\\n      org.opencontainers.image.base.name=%q \\\n      org.opencontainers.image.base.digest=%q \\\n      dbcm.recipe-digest=%q \\\n      dbcm.catalog-version=%q \\\n      dbcm.generator-version=%q\n",
+	var d strings.Builder
+	d.WriteString("# syntax=docker/dockerfile:1\n")
+	d.WriteString("# Generated by cluster-manager (imagecompose). Review before building.\n")
+	fmt.Fprintf(&d, "FROM %s\n", baseRef)
+	fmt.Fprintf(&d, "LABEL org.opencontainers.image.title=%q \\\n      org.opencontainers.image.base.name=%q \\\n      org.opencontainers.image.base.digest=%q \\\n      dbcm.recipe-digest=%q \\\n      dbcm.catalog-version=%q \\\n      dbcm.generator-version=%q\n",
 		n.Name, rel.Image+":"+rel.Tag, n.Base.Digest, res.Digest, c.Version, GeneratorVersion)
-	b.WriteString(installLine(family, res.Modules, install))
-	if su := sup["php"]; hasPHP && su.CLI != "" {
-		fmt.Fprintf(&b, "RUN ln -sf /usr/bin/%s /usr/local/bin/php\n", su.CLI)
+	d.WriteString(installLine(family, res.Modules, keys))
+	if su := b.sup["php"]; b.sel["php"].ID != "" && su.CLI != "" {
+		fmt.Fprintf(&d, "RUN ln -sf /usr/bin/%s /usr/local/bin/php\n", su.CLI)
 	}
-	b.WriteString(userLine(family, docroot, hasNginx))
-	if hasNginx {
-		fmt.Fprintf(&b, "COPY nginx/nginx.conf %s/nginx/nginx.conf\nCOPY nginx/default.conf %s/nginx/default.conf\n", confRoot, confRoot)
+	for _, l := range b.preUser {
+		d.WriteString(l + "\n")
 	}
-	if hasPHP {
-		fmt.Fprintf(&b, "COPY php/99-dbcm.ini %s/php/conf.d/99-dbcm.ini\nCOPY php/php-fpm.conf %s/php/php-fpm.conf\nCOPY php/pool.conf %s/php/pool.d/www.conf\n", confRoot, confRoot, confRoot)
-		fmt.Fprintf(&b, "ENV PHP_INI_SCAN_DIR=:%s/php/conf.d\n", confRoot)
-		if res.Role == RoleWeb {
-			b.WriteString("COPY entrypoint.sh /usr/local/bin/dbcm-entrypoint\n")
-		}
+	d.WriteString(userLine(family, b.writable, b.readonly))
+	for _, l := range b.copies {
+		d.WriteString(l + "\n")
 	}
-	if hasNginx {
-		fmt.Fprintf(&b, "RUN nginx -t -c %s/nginx/nginx.conf\n", confRoot)
+	envKeys := make([]string, 0, len(b.env))
+	for k := range b.env {
+		envKeys = append(envKeys, k)
 	}
-	if hasPHP {
-		fmt.Fprintf(&b, "RUN %s -t -y %s/php/php-fpm.conf\n", phpBin, confRoot)
+	sort.Strings(envKeys)
+	for _, k := range envKeys {
+		fmt.Fprintf(&d, "ENV %s=%s\n", k, b.env[k])
 	}
-	fmt.Fprintf(&b, "USER %d:%d\n", appUID, appUID)
-	switch {
-	case hasNginx && hasPHP:
-		fmt.Fprintf(&b, "EXPOSE %d\nSTOPSIGNAL SIGQUIT\nENTRYPOINT [\"/usr/local/bin/dbcm-entrypoint\"]\n", webPort)
-	case hasNginx:
-		fmt.Fprintf(&b, "EXPOSE %d\nSTOPSIGNAL SIGQUIT\nCMD [\"nginx\", \"-g\", \"daemon off;\", \"-c\", \"%s/nginx/nginx.conf\"]\n", webPort, confRoot)
-	default:
-		fmt.Fprintf(&b, "EXPOSE %d\nCMD [\"%s\", \"-F\", \"-y\", \"%s/php/php-fpm.conf\"]\n", fpmPort, phpBin, confRoot)
+	for _, l := range b.checks {
+		d.WriteString(l + "\n")
+	}
+	fmt.Fprintf(&d, "USER %d:%d\n", appUID, appUID)
+	if b.workdir != "" {
+		fmt.Fprintf(&d, "WORKDIR %s\n", b.workdir)
+	}
+	if b.expose > 0 {
+		fmt.Fprintf(&d, "EXPOSE %d\n", b.expose)
+	}
+	if b.health != "" {
+		d.WriteString(b.health + "\n")
+	}
+	for _, l := range b.runtime {
+		d.WriteString(l + "\n")
 	}
 
-	res.Rendered = imagebuild.Rendered{SpecHash: res.Digest, Dockerfile: b.String(), Files: files, BaseImage: baseRef}
+	res.Rendered = imagebuild.Rendered{SpecHash: res.Digest, Dockerfile: d.String(), Files: b.files, BaseImage: baseRef}
 	res.Rendered.ContextHash = imagebuild.ComputeContextHash(res.Rendered)
-	res.Warnings, res.Notes = c.advice(n, rel, family, res.Role, sel)
+	res.Warnings, res.Notes = c.advice(n, rel, family, b)
 	return res, nil
+}
+
+// roleOf derives the image role from a normalized or raw recipe.
+func roleOf(n Recipe) string {
+	has := map[string]Selection{}
+	for _, s := range n.Components {
+		has[s.ID] = s
+	}
+	for _, id := range webServerIDs {
+		if _, ok := has[id]; ok {
+			return RoleWeb
+		}
+	}
+	for _, id := range appIDs {
+		if _, ok := has[id]; ok {
+			return RoleApp
+		}
+	}
+	if _, ok := has["sftp"]; ok {
+		return RoleSFTP
+	}
+	if _, ok := has["jobrunner"]; ok {
+		return RoleJobs
+	}
+	if p, ok := has["php"]; ok {
+		if m, _ := p.Settings["mode"].(string); m == "worker" {
+			return RoleWorker
+		}
+		return RoleFPM
+	}
+	return ""
+}
+
+// httpPort is the port a plain HTTP health check can use, or 0.
+func httpPort(n Recipe) int {
+	has := map[string]Selection{}
+	for _, s := range n.Components {
+		has[s.ID] = s
+	}
+	for _, id := range webServerIDs {
+		if _, ok := has[id]; ok {
+			return webPort
+		}
+	}
+	for _, id := range []string{"node", "python", "java"} {
+		if s, ok := has[id]; ok {
+			p, _ := s.Settings["port"].(int64)
+			return int(p)
+		}
+	}
+	return 0
 }
 
 // add renders one package with the family's version-constraint syntax.
@@ -230,11 +324,7 @@ func installLine(family string, modules, pkgs []string) string {
 	}
 }
 
-func userLine(family, docroot string, nginx bool) string {
-	dirs := docroot
-	if nginx {
-		dirs += " /var/log/nginx"
-	}
+func userLine(family string, writable, readonly []string) string {
 	var s string
 	switch family {
 	case "alpine":
@@ -242,8 +332,47 @@ func userLine(family, docroot string, nginx bool) string {
 	default:
 		s = fmt.Sprintf("RUN groupadd --system --gid %d app && useradd --system --uid %d --gid app --no-create-home --shell /usr/sbin/nologin app", appUID, appUID)
 	}
-	return s + " \\\n && mkdir -p " + dirs + " " + confRoot + "/php/conf.d " + confRoot + "/php/pool.d " + confRoot + "/nginx \\\n && chown -R app:app " + dirs + "\n"
+	w, ro := uniqSorted(writable), uniqSorted(readonly)
+	all := append(append([]string{}, w...), ro...)
+	if len(all) == 0 {
+		return s + "\n"
+	}
+	s += " \\\n && mkdir -p " + strings.Join(all, " ")
+	if len(w) > 0 {
+		s += " \\\n && chown -R app:app " + strings.Join(w, " ")
+	}
+	return s + "\n"
 }
+
+func uniqSorted(in []string) []string {
+	m := map[string]bool{}
+	var out []string
+	for _, s := range in {
+		if !m[s] {
+			m[s] = true
+			out = append(out, s)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// arr renders a JSON exec-form array for CMD, ENTRYPOINT and HEALTHCHECK.
+func arr(items ...string) string {
+	parts := make([]string, len(items))
+	for i, it := range items {
+		var buf bytes.Buffer
+		enc := json.NewEncoder(&buf)
+		enc.SetEscapeHTML(false)
+		_ = enc.Encode(it)
+		parts[i] = strings.TrimSpace(buf.String())
+	}
+	return "[" + strings.Join(parts, ", ") + "]"
+}
+
+func gs(o map[string]any, k string) string { v, _ := o[k].(string); return v }
+func gi(o map[string]any, k string) int64  { v, _ := o[k].(int64); return v }
+func gb(o map[string]any, k string) bool   { v, _ := o[k].(bool); return v }
 
 func b2(v any) string {
 	if b, _ := v.(bool); b {
@@ -252,42 +381,11 @@ func b2(v any) string {
 	return "off"
 }
 
-func renderNginxConf(o map[string]any) string {
-	var b strings.Builder
-	b.WriteString("# Generated by cluster-manager (imagecompose). Change the recipe, not this file.\n")
-	fmt.Fprintf(&b, "worker_processes %v;\npid /tmp/nginx.pid;\nerror_log /dev/stderr warn;\n", o["workerProcesses"])
-	fmt.Fprintf(&b, "events {\n    worker_connections %v;\n}\nhttp {\n", o["workerConnections"])
-	b.WriteString("    include /etc/nginx/mime.types;\n    default_type application/octet-stream;\n    access_log /dev/stdout;\n    sendfile on;\n")
-	fmt.Fprintf(&b, "    server_tokens %s;\n    keepalive_timeout %v;\n    client_max_body_size %v;\n", b2(o["serverTokens"]), o["keepaliveTimeout"], o["clientMaxBodySize"])
-	b.WriteString("    client_body_temp_path /tmp/nginx-client-body;\n    proxy_temp_path /tmp/nginx-proxy;\n    fastcgi_temp_path /tmp/nginx-fastcgi;\n    uwsgi_temp_path /tmp/nginx-uwsgi;\n    scgi_temp_path /tmp/nginx-scgi;\n")
-	fmt.Fprintf(&b, "    gzip %s;\n", b2(o["gzip"]))
-	if g, _ := o["gzip"].(bool); g {
-		b.WriteString("    gzip_types text/plain text/css application/json application/javascript text/xml application/xml image/svg+xml;\n")
+func yn(v any) string {
+	if b, _ := v.(bool); b {
+		return "yes"
 	}
-	fmt.Fprintf(&b, "    include %s/nginx/default.conf;\n}\n", confRoot)
-	return b.String()
-}
-
-func renderServerConf(o map[string]any, php bool) string {
-	var b strings.Builder
-	b.WriteString("# Generated by cluster-manager (imagecompose). Change the recipe, not this file.\nserver {\n")
-	fmt.Fprintf(&b, "    listen %d default_server;\n    server_name %v;\n    root %v;\n", webPort, o["serverName"], o["documentRoot"])
-	if php {
-		b.WriteString("    index index.php index.html;\n")
-	} else {
-		b.WriteString("    index index.html;\n")
-	}
-	if sh, _ := o["securityHeaders"].(bool); sh {
-		b.WriteString("    add_header X-Content-Type-Options \"nosniff\" always;\n    add_header X-Frame-Options \"SAMEORIGIN\" always;\n    add_header Referrer-Policy \"strict-origin-when-cross-origin\" always;\n")
-	}
-	if php {
-		b.WriteString("    location / {\n        try_files $uri $uri/ /index.php?$query_string;\n    }\n")
-		fmt.Fprintf(&b, "    location ~ \\.php$ {\n        try_files $uri =404;\n        include /etc/nginx/fastcgi_params;\n        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;\n        fastcgi_pass 127.0.0.1:%d;\n        fastcgi_read_timeout %vs;\n    }\n", fpmPort, o["fastcgiReadTimeout"])
-	} else {
-		b.WriteString("    location / {\n        try_files $uri $uri/ =404;\n    }\n")
-	}
-	b.WriteString("    location ~ /\\.(?!well-known) {\n        deny all;\n    }\n}\n")
-	return b.String()
+	return "no"
 }
 
 func iniVal(v any) string {
@@ -299,6 +397,46 @@ func iniVal(v any) string {
 		return "Off"
 	default:
 		return fmt.Sprint(x)
+	}
+}
+
+// entrypoint decides how the container starts. With PHP-FPM as companion a
+// generated entrypoint backgrounds PHP-FPM and replaces itself with the web
+// server; there is no process supervisor.
+func (b *build) entrypoint() {
+	phpBin := b.sup["php"].Binary
+	_, hasPHP := b.sel["php"]
+	if b.role != RoleWeb || !hasPHP {
+		return
+	}
+	cmd := b.webCommand()
+	sh := "#!/bin/sh\n# Generated by cluster-manager (imagecompose).\n# PHP-FPM runs as a companion of the web server; there is no process supervisor.\nset -eu\n" +
+		phpBin + " -F -y " + confRoot + "/php/php-fpm.conf &\nexec " + cmd + "\n"
+	b.files = append(b.files, imagebuild.File{Path: "entrypoint.sh", Mode: 0o755, Content: sh})
+	b.copies = append(b.copies, "COPY entrypoint.sh /usr/local/bin/dbcm-entrypoint")
+	b.runtime = append(b.runtime, "ENTRYPOINT "+arr("/usr/local/bin/dbcm-entrypoint"))
+}
+
+// webCommand is the shell-safe foreground command line of the web server.
+func (b *build) webCommand() string {
+	switch b.web {
+	case "apache":
+		return b.sup["apache"].Binary + " -D FOREGROUND -f " + confRoot + "/apache/httpd.conf"
+	case "caddy":
+		return b.sup["caddy"].Binary + " run --config " + confRoot + "/caddy/Caddyfile --adapter caddyfile"
+	default:
+		return "nginx -g 'daemon off;' -c " + confRoot + "/nginx/nginx.conf"
+	}
+}
+
+func (b *build) webCmdArray() []string {
+	switch b.web {
+	case "apache":
+		return []string{b.sup["apache"].Binary, "-D", "FOREGROUND", "-f", confRoot + "/apache/httpd.conf"}
+	case "caddy":
+		return []string{b.sup["caddy"].Binary, "run", "--config", confRoot + "/caddy/Caddyfile", "--adapter", "caddyfile"}
+	default:
+		return []string{"nginx", "-g", "daemon off;", "-c", confRoot + "/nginx/nginx.conf"}
 	}
 }
 
@@ -319,10 +457,10 @@ func (c *Catalog) renderINI(p Selection) string {
 	return b.String()
 }
 
-func (c *Catalog) renderPool(p Selection, fpmOnly bool) string {
+func (c *Catalog) renderPool(p Selection, listenAll, ping bool) string {
 	s := p.Settings
 	listen := fmt.Sprintf("127.0.0.1:%d", fpmPort)
-	if fpmOnly {
+	if listenAll {
 		listen = fmt.Sprintf("0.0.0.0:%d", fpmPort)
 	}
 	var b strings.Builder
@@ -330,35 +468,81 @@ func (c *Catalog) renderPool(p Selection, fpmOnly bool) string {
 	fmt.Fprintf(&b, "listen = %s\nclear_env = yes\ncatch_workers_output = %s\n", listen, yn(s["catch_workers_output"]))
 	pm, _ := s["pm"].(string)
 	fmt.Fprintf(&b, "pm = %s\npm.max_children = %v\npm.max_requests = %v\nrequest_terminate_timeout = %vs\n", pm, s["pm.max_children"], s["pm.max_requests"], s["request_terminate_timeout"])
-	if pm == "dynamic" {
+	switch pm {
+	case "dynamic":
 		fmt.Fprintf(&b, "pm.start_servers = %v\npm.min_spare_servers = %v\npm.max_spare_servers = %v\n", s["pm.start_servers"], s["pm.min_spare_servers"], s["pm.max_spare_servers"])
+	case "ondemand":
+		fmt.Fprintf(&b, "pm.process_idle_timeout = %vs\n", s["pm.process_idle_timeout"])
+	}
+	if ping {
+		fmt.Fprintf(&b, "ping.path = %s\nping.response = pong\n", pingPath)
 	}
 	return b.String()
 }
 
-func yn(v any) string {
-	if b, _ := v.(bool); b {
-		return "yes"
+// php renders the PHP configuration and its checks.
+func (c *Catalog) php(b *build) {
+	p := b.sel["php"]
+	phpBin := b.sup["php"].Binary
+	b.readonly = append(b.readonly, confRoot+"/php/conf.d")
+	b.files = append(b.files, imagebuild.File{Path: "php/99-dbcm.ini", Mode: 0o644, Content: c.renderINI(p)})
+	b.copies = append(b.copies, fmt.Sprintf("COPY php/99-dbcm.ini %s/php/conf.d/99-dbcm.ini", confRoot))
+	b.env["PHP_INI_SCAN_DIR"] = ":" + confRoot + "/php/conf.d"
+	if b.role == RoleWorker {
+		b.runtime = append(b.runtime, "CMD "+arr(append([]string{"php", gs(p.Settings, "workerScript")}, strings.Fields(gs(p.Settings, "workerArgs"))...)...))
+		b.writable = append(b.writable, "/var/www/html")
+		return
 	}
-	return "no"
+	hc := gs(b.sel["system"].Settings, "healthcheck")
+	ping := hc == "fpm-ping"
+	b.readonly = append(b.readonly, confRoot+"/php/pool.d")
+	b.files = append(b.files,
+		imagebuild.File{Path: "php/php-fpm.conf", Mode: 0o644, Content: "; Generated by cluster-manager (imagecompose). Change the recipe, not this file.\n[global]\npid = /tmp/php-fpm.pid\nerror_log = /proc/self/fd/2\ndaemonize = no\ninclude = " + confRoot + "/php/pool.d/*.conf\n"},
+		imagebuild.File{Path: "php/pool.conf", Mode: 0o644, Content: c.renderPool(p, b.role == RoleFPM, ping)},
+	)
+	b.copies = append(b.copies,
+		fmt.Sprintf("COPY php/php-fpm.conf %s/php/php-fpm.conf", confRoot),
+		fmt.Sprintf("COPY php/pool.conf %s/php/pool.d/www.conf", confRoot))
+	b.checks = append(b.checks, fmt.Sprintf("RUN %s -t -y %s/php/php-fpm.conf", phpBin, confRoot))
+	if b.role == RoleFPM {
+		b.writable = append(b.writable, "/var/www/html")
+		b.expose = fpmPort
+		b.runtime = append(b.runtime, "CMD "+arr(phpBin, "-F", "-y", confRoot+"/php/php-fpm.conf"))
+	}
 }
 
-func (c *Catalog) advice(n Recipe, rel Release, family, role string, sel map[string]Selection) (warnings, notes []string) {
+func (c *Catalog) advice(n Recipe, rel Release, family string, b *build) (warnings, notes []string) {
+	sel := b.sel
 	warnings = []string{
 		"Only the base image is pinned by digest. Distribution packages are constrained to the selected major.minor version but their patch versions float: two builds on different days can differ.",
-		"The component catalog is marked unverified: package names and versions were not checked against live repositories. The build itself is the check and fails on a wrong name.",
+		"The component catalog is marked unverified: package names, versions and file locations were not checked against live repositories. The build itself is the check and fails on a wrong name; configuration tests run at build time where the tool allows it.",
 		"The build service does not generate an SBOM or a vulnerability scan yet (placeholder); the package list of this preview is the intended input.",
 	}
-	if role == RoleWeb {
+	if b.role == RoleWeb {
 		if _, ok := sel["php"]; ok {
-			warnings = append(warnings, "nginx and PHP-FPM run in one container without a process supervisor: PHP-FPM is started in the background by the entrypoint, nginx replaces the shell as the main process. If PHP-FPM dies, nginx keeps running and answers 502; use the service health check.")
+			warnings = append(warnings, "The web server and PHP-FPM run in one container without a process supervisor: PHP-FPM is started in the background by the entrypoint, the web server replaces the shell as the main process. If PHP-FPM dies, the web server keeps running and answers 502; use the health check (preset fpm-ping with nginx) or the service health check.")
 		}
 	}
-	if role == RoleFPM {
+	switch b.role {
+	case RoleFPM:
 		warnings = append(warnings, "PHP-FPM listens on 0.0.0.0:9000 and speaks unauthenticated FastCGI: expose it only on an isolated service network.")
+	case RoleWorker:
+		warnings = append(warnings, "The PHP worker script and its application code are not part of the image: provide them by volume or a derived image. If the script exits, the container exits and Swarm restarts it.")
+	case RoleApp:
+		warnings = append(warnings, "The application is not part of the image: mount it at /app or build a derived image from this one. The listen port is informational; the application itself must bind it.")
+	case RoleSFTP:
+		warnings = append(warnings, "SFTP runs without root: one account (app), no chroot, no password login. The host key and authorized keys must be mounted as secrets; the container does not start without them. sshd as a non-root user is unverified in a container.")
+	case RoleJobs:
+		warnings = append(warnings, "Credentials (repository, password file, rclone configuration) are not part of the image: provide them as service environment or secrets. The job loop is a generated shell script; the tools must be selected in Backup and sync tools.")
 	}
 	if family == "rhel" {
-		warnings = append(warnings, "AlmaLinux versions come from dnf module streams; the stream names in the catalog are unverified.")
+		warnings = append(warnings, "AlmaLinux and Rocky Linux versions come from dnf module streams; the stream names in the catalog are unverified.")
+	}
+	if b.web == "caddy" {
+		warnings = append(warnings, "Caddy comes from the distribution package; the version differs per release (older packages such as 2.6 do not know client_ip_headers, which the real-IP option uses). The build validates the generated Caddyfile and fails on an unsupported directive.")
+	}
+	if b.web == "apache" {
+		warnings = append(warnings, "The Apache configuration is a minimal generated file with distribution-specific module paths (unverified); httpd -t runs during the build.")
 	}
 	if ng, ok := sel["nginx"]; ok {
 		if p, ok2 := sel["php"]; ok2 {
@@ -368,8 +552,18 @@ func (c *Catalog) advice(n Recipe, rel Release, family, role string, sel map[str
 			}
 		}
 	}
+	for _, e := range []struct{ id, version, msg string }{
+		{"php", "8.1", "PHP 8.1 reached upstream end of life on 2025-12-31 (endoflife.date); only a distribution may still patch it."},
+		{"python", "3.10", "Python 3.10 reaches upstream end of life in October 2026 (endoflife.date); only a distribution may still patch it."},
+		{"nginx", "1.18", "nginx 1.18 is far behind the current stable line; only the distribution patches it."},
+	} {
+		if s, ok := sel[e.id]; ok && s.Version == e.version {
+			warnings = append(warnings, e.msg)
+		}
+	}
+	port := fmt.Sprintf("unprivileged port %d", webPort)
 	notes = []string{
-		fmt.Sprintf("Runs as non-root user app (uid %d); nginx listens on unprivileged port %d, writes only below /tmp and its document root.", appUID, webPort),
+		fmt.Sprintf("Runs as non-root user app (uid %d); servers listen on unprivileged ports (web %s), write only below /tmp and their data directories; HOME is /tmp.", appUID, port),
 		"No secrets, credentials, build arguments or environment secrets enter the Dockerfile or the context; settings are typed and allow-listed, nothing is passed to a shell.",
 		"Packages come only from the distribution's own repositories; no download scripts, no third-party repositories, no package recommends (apt) or documentation (dnf).",
 		"Package caches are removed in the same layer; all configuration files are generated from the recipe and shown in the preview.",

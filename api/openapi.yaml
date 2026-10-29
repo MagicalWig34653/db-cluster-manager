@@ -4604,7 +4604,7 @@ components:
               versions: { type: object, additionalProperties: { type: string }, description: Newest version per component on that release }
         recipe: { $ref: "#/components/schemas/ComposerRecipe" }
         digest: { type: string }
-        role: { type: string, enum: [web, fpm] }
+        role: { type: string, enum: [web, fpm, worker, app, sftp, jobs] }
         baseImage: { type: string }
         contextHash: { type: string }
         dockerfile: { type: string }

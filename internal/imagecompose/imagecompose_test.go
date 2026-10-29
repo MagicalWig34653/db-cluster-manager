@@ -290,6 +290,7 @@ func TestGoldenFiles(t *testing.T) {
 		{ID: "utilities", Version: "distro", Features: []string{"tzdata", "ca-certificates"}}}}
 	fpm := Recipe{Name: "fpm only", Base: Base{"ubuntu", "24.04", testDigest}, Platforms: []string{"linux/amd64", "linux/arm64"},
 		Components: []Selection{{ID: "php", Version: "8.3", Features: []string{"pdo_mysql", "gd"}}, {ID: "composer", Version: "2"}}}
+	recipes := extraGolden()
 	for name, r := range map[string]Recipe{
 		"alpine-nginx-php": webRecipe("alpine", "3.20", "1.26", "8.3"),
 		"debian-nginx-php": webRecipe("debian", "12", "1.22", "8.2"),
@@ -299,6 +300,9 @@ func TestGoldenFiles(t *testing.T) {
 		"debian-static":    static,
 		"ubuntu-fpm-only":  fpm,
 	} {
+		recipes[name] = r
+	}
+	for name, r := range recipes {
 		t.Run(name, func(t *testing.T) {
 			res, err := c.Generate(r)
 			if err != nil {

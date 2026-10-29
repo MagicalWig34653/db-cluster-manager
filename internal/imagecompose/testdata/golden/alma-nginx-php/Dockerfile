@@ -4,9 +4,9 @@ FROM docker.io/library/almalinux:9@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 LABEL org.opencontainers.image.title="shop" \
       org.opencontainers.image.base.name="docker.io/library/almalinux:9" \
       org.opencontainers.image.base.digest="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
-      dbcm.recipe-digest="sha256:f39a1cf47a653eeb7a73349f638b1d4e8f9ac44db890459fe60819afbc9d660c" \
-      dbcm.catalog-version="2026.10.29-1" \
-      dbcm.generator-version="1"
+      dbcm.recipe-digest="sha256:2e68e0cad185af561d3f7387e978ab3c318cbdc4dd011f31663aa026b6b6cfc1" \
+      dbcm.catalog-version="2026.10.29-2" \
+      dbcm.generator-version="2"
 RUN dnf -y module enable nginx:1.26 php:8.3 \
  && dnf -y install --setopt=install_weak_deps=False --setopt=tsflags=nodocs \
       nginx \
@@ -18,15 +18,16 @@ RUN dnf -y module enable nginx:1.26 php:8.3 \
       php-pecl-zip \
  && dnf clean all && rm -rf /var/cache/dnf
 RUN groupadd --system --gid 10001 app && useradd --system --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app \
- && mkdir -p /var/www/html /var/log/nginx /etc/dbcm/php/conf.d /etc/dbcm/php/pool.d /etc/dbcm/nginx \
- && chown -R app:app /var/www/html /var/log/nginx
+ && mkdir -p /var/log/nginx /var/www/html /etc/dbcm/nginx /etc/dbcm/php/conf.d /etc/dbcm/php/pool.d \
+ && chown -R app:app /var/log/nginx /var/www/html
 COPY nginx/nginx.conf /etc/dbcm/nginx/nginx.conf
 COPY nginx/default.conf /etc/dbcm/nginx/default.conf
 COPY php/99-dbcm.ini /etc/dbcm/php/conf.d/99-dbcm.ini
 COPY php/php-fpm.conf /etc/dbcm/php/php-fpm.conf
 COPY php/pool.conf /etc/dbcm/php/pool.d/www.conf
-ENV PHP_INI_SCAN_DIR=:/etc/dbcm/php/conf.d
 COPY entrypoint.sh /usr/local/bin/dbcm-entrypoint
+ENV HOME=/tmp
+ENV PHP_INI_SCAN_DIR=:/etc/dbcm/php/conf.d
 RUN nginx -t -c /etc/dbcm/nginx/nginx.conf
 RUN php-fpm -t -y /etc/dbcm/php/php-fpm.conf
 USER 10001:10001

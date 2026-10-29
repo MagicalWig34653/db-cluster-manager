@@ -57,7 +57,7 @@ func TestImageComposerRoutes(t *testing.T) {
 	wantStatus(t, r, http.StatusOK)
 	r.decode(t, &pv)
 	if !pv.Valid || pv.Digest == "" || !strings.Contains(pv.Dockerfile, "FROM docker.io/library/alpine:3.20@sha256:") ||
-		pv.Recipe == nil || len(pv.Files) == 0 || len(pv.Packages) == 0 || len(pv.Variants) != 4 || len(pv.Warnings) == 0 {
+		pv.Recipe == nil || len(pv.Files) == 0 || len(pv.Packages) == 0 || len(pv.Variants) != 9 || len(pv.Warnings) == 0 {
 		t.Fatalf("%+v", pv)
 	}
 	if len(f.builder.Calls) != 0 {

@@ -138,6 +138,38 @@ export function reconcile(cat: ComposerCatalog, form: ComposerForm): ComposerFor
 	return out;
 }
 
+const WEB_SERVERS = ['nginx', 'apache', 'caddy'];
+
+/**
+ * Switches a component on or off while keeping the single-process rule: a
+ * second main process is switched off, an application or storage main
+ * process replaces PHP (PHP only accompanies a web server), and PHP replaces
+ * such a main process. The manager still validates; this only avoids the
+ * obvious conflict in the form.
+ */
+export function switchComponent(cat: ComposerCatalog, form: ComposerForm, id: string, on: boolean): ComposerForm {
+	const comps: ComposerForm['components'] = {};
+	for (const [k, v] of Object.entries(form.components)) comps[k] = { ...v };
+	if (!comps[id]) return form;
+	comps[id].on = on;
+	if (on) {
+		const comp = cat.components.find((c) => c.id === id);
+		const mainIds = cat.components.filter((c) => c.process === 'main').map((c) => c.id);
+		if (comp?.process === 'main') {
+			for (const other of mainIds) if (other !== id) comps[other].on = false;
+			if (!WEB_SERVERS.includes(id)) for (const dep of ['php', 'composer']) if (comps[dep]) comps[dep].on = false;
+		}
+		if (id === 'php') for (const m of mainIds) if (!WEB_SERVERS.includes(m)) comps[m].on = false;
+	}
+	return { ...form, components: comps };
+}
+
+const kindOrder = ['server', 'runtime', 'tool', 'utility'];
+
+/** Components grouped for display: servers, runtimes, tools, utilities; catalog order inside a group. */
+export const orderedComponents = (cat: ComposerCatalog): ComposerComponent[] =>
+	[...cat.components].sort((a, b) => kindOrder.indexOf(a.kind) - kindOrder.indexOf(b.kind));
+
 const intRE = /^-?\d+$/;
 
 /** Typed value of a setting input; text that is not a number stays text so the manager reports it. */

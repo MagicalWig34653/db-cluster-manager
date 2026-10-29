@@ -4,9 +4,9 @@ FROM docker.io/library/alpine:3.20@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 LABEL org.opencontainers.image.title="shop" \
       org.opencontainers.image.base.name="docker.io/library/alpine:3.20" \
       org.opencontainers.image.base.digest="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
-      dbcm.recipe-digest="sha256:279c152aaef7647e0dfbeae1976d16facb09534086c7f13d920060ffd97473dd" \
-      dbcm.catalog-version="2026.10.29-1" \
-      dbcm.generator-version="1"
+      dbcm.recipe-digest="sha256:029382c1a66ed459e70d2b25c9d0663e751b9a190e57051364ef4c682b3c5994" \
+      dbcm.catalog-version="2026.10.29-2" \
+      dbcm.generator-version="2"
 RUN apk add --no-cache \
       nginx~=1.26 \
       php83 \
@@ -17,15 +17,16 @@ RUN apk add --no-cache \
       php83-zip
 RUN ln -sf /usr/bin/php83 /usr/local/bin/php
 RUN addgroup -g 10001 -S app && adduser -S -D -H -u 10001 -G app -s /sbin/nologin app \
- && mkdir -p /var/www/html /var/log/nginx /etc/dbcm/php/conf.d /etc/dbcm/php/pool.d /etc/dbcm/nginx \
- && chown -R app:app /var/www/html /var/log/nginx
+ && mkdir -p /var/log/nginx /var/www/html /etc/dbcm/nginx /etc/dbcm/php/conf.d /etc/dbcm/php/pool.d \
+ && chown -R app:app /var/log/nginx /var/www/html
 COPY nginx/nginx.conf /etc/dbcm/nginx/nginx.conf
 COPY nginx/default.conf /etc/dbcm/nginx/default.conf
 COPY php/99-dbcm.ini /etc/dbcm/php/conf.d/99-dbcm.ini
 COPY php/php-fpm.conf /etc/dbcm/php/php-fpm.conf
 COPY php/pool.conf /etc/dbcm/php/pool.d/www.conf
-ENV PHP_INI_SCAN_DIR=:/etc/dbcm/php/conf.d
 COPY entrypoint.sh /usr/local/bin/dbcm-entrypoint
+ENV HOME=/tmp
+ENV PHP_INI_SCAN_DIR=:/etc/dbcm/php/conf.d
 RUN nginx -t -c /etc/dbcm/nginx/nginx.conf
 RUN php-fpm83 -t -y /etc/dbcm/php/php-fpm.conf
 USER 10001:10001
