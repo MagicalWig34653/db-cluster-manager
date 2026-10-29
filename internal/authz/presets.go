@@ -30,6 +30,7 @@ func PresetRoles() []Role {
 				{Type: ResourceRegistry, Action: ActionRead},
 				{Type: ResourceService, Action: ActionRead},
 				{Type: ResourcePatch, Action: ActionRead},
+				{Type: ResourceImageUpdate, Action: ActionRead},
 			},
 		},
 		{
@@ -51,6 +52,8 @@ func PresetRoles() []Role {
 				{Type: ResourceService, Action: ActionRead},
 				{Type: ResourcePatch, Action: ActionRead},
 				{Type: ResourcePatch, Action: ActionOperate}, // poll and propose; approve/apply need update (administrator)
+				{Type: ResourceImageUpdate, Action: ActionRead},
+				{Type: ResourceImageUpdate, Action: ActionOperate}, // check for candidates; policies, approval and apply need update (administrator)
 			},
 		},
 		{

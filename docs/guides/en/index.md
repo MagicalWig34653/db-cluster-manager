@@ -55,3 +55,4 @@ Reading order for a first test: 1, 2, 3, then 10 before trusting anything.
 - [23 — OS patch management (experimental)](23-patch-management.md)
 - [22 — Restic host backups (fakes only)](22-restic.md)
 - [24 — Agent runtimes and capabilities (fakes only)](24-agent-runtimes.md)
+- [25 — Image updates (fakes only)](25-image-updates.md)

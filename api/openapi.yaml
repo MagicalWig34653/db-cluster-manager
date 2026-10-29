@@ -2528,6 +2528,248 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
+  /image-updates/services:
+    get:
+      summary: Services in the image update scope (X16, fakes only)
+      description: >-
+        Only services with this installation's ownership labels (or an explicit
+        opt-in) are listed, with policy, digest baseline and open plan.
+        Needs image_update read permission; audited.
+      operationId: listImageUpdateServices
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/ImageUpdateServiceView" } }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /image-updates/services/{id}/policy:
+    put:
+      summary: Set the image update policy of a service
+      description: >-
+        Modes manual, notify, auto; tracks digest, patch, minor, major. Auto needs a
+        maintenance window, never applies to Galera, major versions or foreign services;
+        databases never follow major versions. Needs image_update update permission
+        (administrator preset only); audited.
+      operationId: putImageUpdatePolicy
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ImageUpdatePolicyInput" }
+      responses:
+        "200":
+          description: Stored policy
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ImageUpdatePolicy" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+    delete:
+      summary: Remove the policy (the service becomes manual)
+      description: >-
+        Needs image_update update permission; audited.
+      operationId: deleteImageUpdatePolicy
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      responses:
+        "204":
+          description: Removed
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /image-updates/services/{id}/check:
+    post:
+      summary: Look for a newer image now
+      description: >-
+        Reads the registry only (credentials from the sealed registry store) and
+        creates or reuses a reviewed plan; never touches the service. Needs
+        image_update operate permission; audited.
+      operationId: checkImageUpdate
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      responses:
+        "200":
+          description: Check result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ImageUpdateCheckResult" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /image-updates/plans:
+    get:
+      summary: Image update plans
+      description: >-
+        Newest first. Needs image_update read permission; audited.
+      operationId: listImageUpdatePlans
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/ImageUpdatePlan" } }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /image-updates/plans/{id}:
+    get:
+      summary: One image update plan
+      description: >-
+        Needs image_update read permission; audited.
+      operationId: getImageUpdatePlan
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ImageUpdatePlan" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /image-updates/plans/{id}/approve:
+    post:
+      summary: Approve the plan with this digest
+      description: >-
+        409 approval_mismatch when the digest differs; 409 policy_conflict for a
+        Galera plan (use the planner) or a foreign service. Needs image_update
+        update permission; audited.
+      operationId: approveImageUpdatePlan
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PatchApproveInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ImageUpdatePlan" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /image-updates/plans/{id}/decline:
+    post:
+      summary: Decline an open plan
+      description: >-
+        Needs image_update update permission; audited.
+      operationId: declineImageUpdatePlan
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ImageUpdatePlan" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /image-updates/plans/{id}/apply:
+    post:
+      summary: Apply an approved plan
+      description: >-
+        Checks window, drift and leadership, then starts the approval-gated service
+        update operation (agent update-service with Swarm UpdateConfig and
+        RollbackConfig, await-service and the health gate), approves it with the
+        caller's own permission and waits for the result. Needs image_update update
+        and service update permission; audited. A plan that failed after it started
+        is answered with state failed and its error.
+      operationId: applyImageUpdatePlan
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      responses:
+        "202":
+          description: Plan after the run
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ImageUpdatePlan" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /image-updates/plans/{id}/rollback:
+    post:
+      summary: Propose the rollback of a succeeded update
+      description: >-
+        Creates a plan back to the previous image; it needs its own approval.
+        Needs image_update update permission; audited.
+      operationId: rollbackImageUpdatePlan
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      responses:
+        "201":
+          description: Rollback plan
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ImageUpdatePlan" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /image-updates/offers:
+    post:
+      summary: Offer a finished image build as an update candidate
+      description: >-
+        Creates proposed plans of kind built for services in scope that run the
+        same repository; never auto-approved. Needs image_update update permission;
+        audited.
+      operationId: offerBuiltImage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ImageUpdateOfferInput" }
+      responses:
+        "200":
+          description: Plans
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/ImageUpdatePlan" } }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
   /patch/install/plans:
     post:
       summary: Plan a native agent installation over SSH
@@ -4359,6 +4601,99 @@ components:
         securityOnly: { type: boolean }
         reboot: { type: boolean, description: "Include a reboot step; only if the policy allows reboots" }
         coordination: { type: string, description: "Cluster planner procedure that coordinates this action on a Galera member" }
+    ImageUpdateWindow:
+      type: object
+      additionalProperties: false
+      required: [start, durationMinutes]
+      properties:
+        days: { type: array, items: { type: string } }
+        start: { type: string }
+        durationMinutes: { type: integer }
+        zone: { type: string }
+    ImageUpdateStrategy:
+      type: object
+      additionalProperties: false
+      properties:
+        order: { type: string, enum: [stop-first, start-first] }
+        parallelism: { type: integer }
+        delaySeconds: { type: integer }
+        monitorSeconds: { type: integer }
+        maxFailureRatio: { type: number }
+    ImageUpdatePolicyInput:
+      type: object
+      additionalProperties: false
+      properties:
+        mode: { type: string, enum: [manual, notify, auto] }
+        track: { type: string, enum: [digest, patch, minor, major] }
+        windows: { type: array, items: { $ref: "#/components/schemas/ImageUpdateWindow" } }
+        strategy: { $ref: "#/components/schemas/ImageUpdateStrategy" }
+        checkEveryMinutes: { type: integer }
+        waitMinutes: { type: integer }
+    ImageUpdatePolicy:
+      type: object
+      properties:
+        serviceId: { type: string }
+        mode: { type: string }
+        track: { type: string }
+        windows: { type: array, items: { $ref: "#/components/schemas/ImageUpdateWindow" } }
+        strategy: { $ref: "#/components/schemas/ImageUpdateStrategy" }
+        checkEveryMinutes: { type: integer }
+        waitMinutes: { type: integer }
+    ImageUpdateOfferInput:
+      type: object
+      additionalProperties: false
+      required: [jobId]
+      properties:
+        jobId: { type: string }
+        findingId: { type: string }
+    ImageUpdateImage:
+      type: object
+      properties:
+        ref: { type: string }
+        tag: { type: string }
+        digest: { type: string }
+    ImageUpdatePlan:
+      type: object
+      properties:
+        id: { type: string }
+        serviceId: { type: string }
+        serviceName: { type: string }
+        swarm: { type: string }
+        serviceType: { type: string }
+        kind: { type: string, enum: [digest, patch, minor, major, built, rollback] }
+        source: { type: string, enum: [registry, imagebuild, rollback] }
+        reference: { type: string }
+        from: { $ref: "#/components/schemas/ImageUpdateImage" }
+        to: { $ref: "#/components/schemas/ImageUpdateImage" }
+        strategy: { $ref: "#/components/schemas/ImageUpdateStrategy" }
+        database: { type: boolean }
+        route: { type: string, enum: [service-update, planner, report-only] }
+        digest: { type: string }
+        state: { type: string, enum: [proposed, approved, running, succeeded, failed, rolled_back, declined, superseded] }
+        auto: { type: boolean }
+        createdBy: { type: string }
+        createdAt: { type: string, format: date-time }
+        approvedBy: { type: string }
+        approvedAt: { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time }
+        operationId: { type: string }
+        executedBy: { type: string, enum: [native, container] }
+        error: { type: string }
+        rollback: { type: object, additionalProperties: true }
+    ImageUpdateCheckResult:
+      type: object
+      properties:
+        plan: { $ref: "#/components/schemas/ImageUpdatePlan" }
+        message: { type: string }
+    ImageUpdateServiceView:
+      type: object
+      properties:
+        service: { type: object, additionalProperties: true }
+        scope: { type: string, enum: [owned, opt-in] }
+        database: { type: boolean }
+        policy: { $ref: "#/components/schemas/ImageUpdatePolicy" }
+        state: { type: object, additionalProperties: true }
+        openPlan: { type: string }
     PatchApproveInput:
       type: object
       additionalProperties: false

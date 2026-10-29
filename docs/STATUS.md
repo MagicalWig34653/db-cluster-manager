@@ -1,6 +1,21 @@
 # Current status
 
-Updated: 2026-10-27.
+Updated: 2026-10-29.
+
+## Image update service (2026-10-28/29, X16, ADR 0025, fakes only; no VM used)
+
+[ADR 0025](decisions/0025-image-update-service.md), guide [25](guides/en/25-image-updates.md) (EN/DE). Implements the owner decision "Docker updates in the manner of Watchtower" for image/service updates of managed objects; engine upgrades stay reviewed plans (ADR 0019). Tests were written before the code.
+
+Implemented:
+
+- `internal/imageupdate`: reference parsing, tag candidate selection (variant suffix, precision, no pre-releases, databases never major), policy (manual/notify/auto, tracks, windows, Swarm strategy) with validation, plan model with digest, approve/apply/decline/rollback state machine journaled with `opjournal` and fenced by the leader term, digest baseline, automatic-rollback record, interrupted-plan recovery, notifications, error redaction, registry resolver over `registry.External` with credentials from the sealed registry store, offers of finished image builds (`built` plans, never auto).
+- Scope: only services with this installation's ownership label; foreign services only with the opt-in label and report-only; Galera plans route to the planner and cannot be approved.
+- Manager: `manager.ImageUpdateAdapter` lists managed services and updates through the existing approval-gated `service/update` operation (agent `update-service` with UpdateConfig/RollbackConfig, `await-service`, health gate), maps Swarm's `rollback_completed` to a rolled-back plan and records the executing runtime; `ImageUpdateScheduler` reconciler on the leader; `manager.imageUpdate` config (default off, `manager init` writes `enabled: false`, needs `auth.enabled`).
+- API: 11 routes under `/image-updates/*`, authz resource `image_update` (viewer read; operator check; administrator policies, approval, apply, rollback, offers), `api/openapi.yaml`, route-contract, role-matrix and end-to-end tests; 503 when disabled.
+
+Actual checks (final tree): `gofmt -l .` (no output), `go vet ./...` (no output), `go test -race -count=1 -p 4 ./...` (all packages ok), `python3 scripts/check_docs.py` (101 Markdown files, 72 requirements, 0 errors), `python3 scripts/check_deploy.py` (passed, static only). Web checks not run (no frontend change).
+
+Limits: fakes only (no registry, Swarm or VM). Multi-arch manifest lists are compared by the registry's digest header only; the running digest is not read from Swarm (baseline from the first check). Automatic hand-off from a vulnerability build to an offer is not wired (API only). No UI, no registry webhooks. Only the container agent executes updates.
 
 ## Agent runtimes and capability routing (2026-10-27, ADR 0024, fakes and loopback only; no VM used)
 

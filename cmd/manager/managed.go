@@ -31,6 +31,7 @@ import (
 	"github.com/MagicalWig34653/db-cluster-manager/internal/galera"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/galeraprobe"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/imagebuild"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/imageupdate"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/manager"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/manager/swarm"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/managertls"
@@ -102,6 +103,9 @@ type managerConfig struct {
 	// Patch enables OS patch management (X15, ADR 0023); off unless
 	// "enabled" is true. See patch.go.
 	Patch *patchConfig `json:"patch,omitempty"`
+	// ImageUpdate enables the image update service (X16, ADR 0025); off
+	// unless "enabled" is true. See imageupdate.go.
+	ImageUpdate *imageUpdateConfig `json:"imageUpdate,omitempty"`
 	// ProxyWriters enables the replicated writer-choice protocol.
 	ProxyWriters []proxyWriterConfig `json:"proxyWriters,omitempty"`
 	// ExperimentalProvisioning enables approval-gated SSH host provisioning.
@@ -505,6 +509,8 @@ type managedRuntime struct {
 	// patchCfg is nil when OS patch management is disabled; patch is the
 	// current leadership's service.
 	patchCfg               *patchConfig
+	imageUpdateCfg         *imageUpdateConfig
+	imageUpdate            atomic.Pointer[imageupdate.Service]
 	patch                  atomic.Pointer[patch.Service]
 	provisioning           bool
 	kubernetesProvisioning bool
@@ -579,11 +585,18 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 	if err := mc.Patch.validate(mc, cfg.Auth.Enabled); err != nil {
 		return nil, err
 	}
+	if err := mc.ImageUpdate.validate(cfg.Auth.Enabled); err != nil {
+		return nil, err
+	}
+	var iuCfg *imageUpdateConfig
+	if mc.ImageUpdate.on() {
+		iuCfg = mc.ImageUpdate
+	}
 	var patchCfg *patchConfig
 	if mc.Patch.on() {
 		patchCfg = mc.Patch
 	}
-	rt := &managedRuntime{patchCfg: patchCfg, proto: api.NewHandler(), keys: keys, backend: backend, targets: targets, backupCfg: mc.Backup, imageCfg: mc.ImageBuild, imageRunner: newImageRunner(), vulnCfg: mc.Vuln,
+	rt := &managedRuntime{patchCfg: patchCfg, imageUpdateCfg: iuCfg, proto: api.NewHandler(), keys: keys, backend: backend, targets: targets, backupCfg: mc.Backup, imageCfg: mc.ImageBuild, imageRunner: newImageRunner(), vulnCfg: mc.Vuln,
 		proxyWriters: map[string]proxyWriterConfig{}, provisioning: mc.ExperimentalProvisioning, kubernetesProvisioning: mc.ExperimentalKubernetesProvisioning,
 		forwardTLS: scfg.PeerTLS, forwardPeers: map[string]peerConfig{}}
 	for _, w := range mc.ProxyWriters {
@@ -616,6 +629,9 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 	}
 	if patchCfg != nil {
 		scfg.Reconcilers = append(scfg.Reconcilers, manager.PatchScheduler{Poll: rt.pollPatch, Interval: patchCfg.interval(), Logf: log.Warn})
+	}
+	if iuCfg != nil {
+		scfg.Reconcilers = append(scfg.Reconcilers, manager.ImageUpdateScheduler{Poll: rt.pollImageUpdate, Interval: iuCfg.interval(), Logf: log.Warn})
 	}
 	if keyring != nil {
 		rt.keyring = keyring
@@ -734,6 +750,7 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 			rt.hostSources.Store(nil)
 			rt.vuln.Store(nil)
 			rt.patch.Store(nil)
+			rt.imageUpdate.Store(nil)
 			rt.setHandler(rt.notLeader())
 			return
 		}
@@ -947,6 +964,13 @@ func (rt *managedRuntime) leaderAPI(pk passkey.Config, keys manager.KeyProvider,
 		// source that are not wired yet: its routes answer 503.
 		acfg.Patch = &api.PatchBackend{Svc: svc.patch}
 	}
+	if svc.imageUpdate != nil {
+		iub := &api.ImageUpdateBackend{Svc: svc.imageUpdate}
+		if svc.builds != nil {
+			iub.Builds = buildLookup{Jobs: manager.ImageJobStore{Store: rt.svc.Store()}}
+		}
+		acfg.ImageUpdates = iub
+	}
 	// Without a keyring or the agent transport the respective endpoints
 	// answer settings_incomplete.
 	acfg.Replicas = &manager.ReplicaService{Svc: rt.svc, Ring: rt.keyring, PKI: rt.pki, Authorizer: st.Authorizer}
@@ -968,6 +992,14 @@ func (rt *managedRuntime) leaderAPI(pk passkey.Config, keys manager.KeyProvider,
 		}
 		rt.patch.Store(svc.patch)
 	}
+	if svc.imageUpdate != nil {
+		if n, err := svc.imageUpdate.RecoverInterrupted(context.Background()); err != nil {
+			log.Warn("manager: interrupted image updates not recovered", "err", err)
+		} else if n > 0 {
+			log.Warn("manager: marked image updates interrupted by a restart or failover as failed", "count", n)
+		}
+		rt.imageUpdate.Store(svc.imageUpdate)
+	}
 	return h, st, nil
 }
 
@@ -985,8 +1017,10 @@ type commandSet struct {
 	settings    *manager.SettingsService
 	services    *manager.Services
 	images      *api.ImageBuildBackend
-	vuln        *vuln.Service  // nil without manager.vuln
-	patch       *patch.Service // nil without manager.patch.enabled
+	vuln        *vuln.Service        // nil without manager.vuln
+	patch       *patch.Service       // nil without manager.patch.enabled
+	imageUpdate *imageupdate.Service // nil without manager.imageUpdate.enabled
+	builds      *imagebuild.Service  // nil without manager.imageBuild
 }
 
 // newBackups builds the backup service with copy targets, the metastore
@@ -1046,6 +1080,12 @@ func (rt *managedRuntime) commandServices(st *manager.AuthStack) (commandSet, er
 	}
 	if rt.patchCfg != nil {
 		set.patch = rt.newPatchService()
+	}
+	if builder != nil {
+		set.builds = builds
+	}
+	if rt.imageUpdateCfg != nil {
+		set.imageUpdate = rt.newImageUpdateService(set.services, regs)
 	}
 	return set, nil
 }

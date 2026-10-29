@@ -49,6 +49,10 @@
       "enabled": false,
       "agentPort": 7445,
       "pollIntervalSeconds": 300
+    },
+    "imageUpdate": {
+      "enabled": false,
+      "pollIntervalSeconds": 300
     }
   }
 }

@@ -95,6 +95,10 @@ func (w Window) parse() (loc *time.Location, startMin int, days map[int]bool, er
 // Validate checks the window.
 func (w Window) Validate() error { _, _, _, err := w.parse(); return err }
 
+// Contains reports whether t lies in an occurrence of the window (also used
+// by the image update policies).
+func (w Window) Contains(t time.Time) bool { return w.contains(t) }
+
 // contains reports whether t lies in an occurrence of the window. The window
 // that began on the previous calendar day is considered too (overnight).
 func (w Window) contains(t time.Time) bool {

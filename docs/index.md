@@ -167,6 +167,7 @@ German interface: data-key rotation preview and explicit confirmation (mock capt
 - Operator CLI: [English](guides/en/20-cli.md) · [Deutsch](guides/de/20-cli.md) (fakes only; existing session cookie required).
 - OS patch management (agent-based reports, approval-gated patching, Galera guard): [English](guides/en/23-patch-management.md) · [Deutsch](guides/de/23-patch-management.md) ([ADR 0023](decisions/0023-os-patch-management.md); fakes plus a two-VM lab run; no UI).
 - Agent runtimes and capabilities (native vs container agent, routing table, restic on the native agent): [English](guides/en/24-agent-runtimes.md) · [Deutsch](guides/de/24-agent-runtimes.md) ([ADR 0024](decisions/0024-agent-runtimes.md); fakes only; UI badge only).
+- Image updates of managed services (Watchtower-style: policies, tag rules, health gate, rollback): [English](guides/en/25-image-updates.md) · [Deutsch](guides/de/25-image-updates.md) ([ADR 0025](decisions/0025-image-update-service.md); fakes only; no UI).
 - Docker Engine update plans: [English guide](guides/en/18-docker-engine-updates.md) · [Deutsche Anleitung](guides/de/18-docker-engine-updates.md) (fakes and mock only; no package source in the shipping manager).
 
 ## Project documentation

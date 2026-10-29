@@ -196,6 +196,8 @@ func buildInitConfig(o initOptions) (fileConfig, error) {
 		},
 		// OS patch management ships disabled and explicit; see patch.go.
 		Patch: &patchConfig{Enabled: false, AgentPort: defaultPatchPort, PollIntervalSeconds: defaultPatchInterval},
+		// Image updates ship disabled and explicit; see imageupdate.go.
+		ImageUpdate: &imageUpdateConfig{Enabled: false, PollIntervalSeconds: defaultImageUpdateInterval},
 	}
 	if net.ParseIP(host) == nil {
 		mc.AgentTransport.ServerDNS = []string{host}
