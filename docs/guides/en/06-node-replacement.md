@@ -16,7 +16,7 @@ A node whose host is gone, or whose data you decide to discard. A node that mere
 
 The operation chooses a target host by the placement rules, creates a new volume with an identity marker and lets the new node join by state transfer (SST). The exact step list is defined in `internal/galera` and `internal/runner` and has run only against fakes; read the plan in the operation view before relying on it.
 
-![Cluster detail with node table](../../assets/screenshots/en-light-cluster-detail.png)
+![Cluster detail with node table](../../assets/screenshots/real/real-cluster-detail.png)
 
 *Screenshot from the development mock server (`npm run dev:mock`, invented sample data), not from a real manager.*
 

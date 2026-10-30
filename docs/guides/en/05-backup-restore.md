@@ -43,7 +43,7 @@ Mock-server view only [Mock only].
 2. Review the plan, then `POST /api/v1/operations/{id}/approve` with the digest. A wrong digest answers `409 approval_mismatch`. Approval needs the **restore** permission (administrators; not in the operator preset).
 3. The job restores, the instance starts, and you connect with the one-time `dbcm_inspect` account. At expiry the instance, its volume and its init secret are removed.
 
-![Operations with approval and progress](../../assets/screenshots/en-light-operations.png)
+![Operations with approval and progress](../../assets/screenshots/real/real-operations.png)
 
 *Screenshot from the development mock server (`npm run dev:mock`, invented sample data), not from a real manager.*
 

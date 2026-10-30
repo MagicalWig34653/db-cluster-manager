@@ -27,9 +27,9 @@ layout: landing
 Keyboard navigation, focus and narrow-screen behavior are described in the [UI design note](DESIGN.md#static-accessibility-and-narrow-screen-review-2026-10-26) and the bilingual getting-started guides. This review is static; no new browser or screen-reader result is claimed.
 
 <div class="shot" markdown="1">
-![Cluster detail page of the web UI with node table and state](assets/screenshots/en-light-cluster-detail.png)
+![Cluster detail page of the web UI with node table and state](assets/screenshots/real/real-cluster-detail.png)
 
-*Screenshot from the development mock server (`npm run dev:mock`, invented sample data). The UI has not been run against a real manager yet.*
+*Real screenshot: the UI against a real manager on lab VMs (E13, 2026-10-30, English). Cluster detail, operations, hosts and the wizard are real captures; all other screenshots are from the development mock server (invented sample data) and the German ones are mock.*
 </div>
 
 </section>
@@ -111,7 +111,7 @@ All screenshots come from the development mock server with invented sample data 
 <div class="gallery" markdown="1">
 
 <div markdown="1">
-![Operations list with an approval waiting and step progress](assets/screenshots/en-light-operations.png)
+![Operations list with an approval waiting and step progress](assets/screenshots/real/real-operations.png)
 
 Operations: approval bound to the plan digest, step progress.
 </div>
@@ -123,7 +123,7 @@ Full-outage diagnosis and a recovery plan waiting for approval.
 </div>
 
 <div markdown="1">
-![Cluster creation wizard](assets/screenshots/en-light-create-wizard.png)
+![Cluster creation wizard](assets/screenshots/real/real-wizard.png)
 
 Cluster wizard: basics, placement, resources, preflight, review.
 </div>

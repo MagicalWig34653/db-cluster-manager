@@ -12,9 +12,9 @@ An AGPLv3, self-hosted manager for clusters and services, starting with MariaDB 
 
 The tag-triggered [release pipeline and verification policy](docs/RELEASING.md) is configured but has not published a release.
 
-![Cluster detail page of the web UI](docs/assets/screenshots/en-light-cluster-detail.png)
+![Cluster detail page of the web UI](docs/assets/screenshots/real/real-cluster-detail.png)
 
-*Screenshot from the development mock server (`npm run dev:mock`, invented sample data). The UI has not been run against a real manager yet.*
+*Real screenshot: the UI against a real manager on lab VMs (E13, 2026-10-30, English). Cluster detail, operations, hosts and the wizard are real captures; all other screenshots are from the development mock server (invented sample data) and the German ones are mock.*
 
 ## Features and verification status
 
@@ -42,9 +42,9 @@ All from the development mock server with invented data; they show the interface
 
 | Operations with approval and progress | Full-outage recovery plan |
 | --- | --- |
-| ![Operations list](docs/assets/screenshots/en-light-operations.png) | ![Full-outage diagnosis and recovery plan](docs/assets/screenshots/en-light-outage-recovery.png) |
+| ![Operations list](docs/assets/screenshots/real/real-operations.png) | ![Full-outage diagnosis and recovery plan](docs/assets/screenshots/en-light-outage-recovery.png) |
 | **Cluster wizard** | **Dark mode** |
-| ![Cluster creation wizard](docs/assets/screenshots/en-light-create-wizard.png) | ![Cluster detail in dark mode](docs/assets/screenshots/en-dark-cluster-detail.png) |
+| ![Cluster creation wizard](docs/assets/screenshots/real/real-wizard.png) | ![Cluster detail in dark mode](docs/assets/screenshots/en-dark-cluster-detail.png) |
 
 | **Services (earlier mock capture: container request, plan, approval)** | **Image composer with Dockerfile and plan** |
 | --- | --- |

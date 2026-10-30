@@ -12,7 +12,7 @@ title: Creating a Galera cluster
 
 Placement precedence is allow list, exclusion, preference, then automatic scoring; allow-listing and excluding the same host is `policy_conflict`. Other coarse errors: `no_capacity`, `settings_incomplete`, `cluster_exists`. The response is an operation (`202`); watch it with `GET /api/v1/operations` (progress shows the current step, attempts and the latest unmet precondition).
 
-![Cluster creation wizard, first step](../../assets/screenshots/en-light-create-wizard.png)
+![Cluster creation wizard, first step](../../assets/screenshots/real/real-wizard.png)
 
 *Screenshot from the development mock server (`npm run dev:mock`, invented sample data), not from a real manager.*
 
