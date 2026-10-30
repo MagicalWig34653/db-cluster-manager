@@ -192,8 +192,7 @@ func (c *Control) OutageDiagnosis(ctx context.Context, actor authz.Subject, clus
 	if err != nil {
 		return api.Diagnosis{}, MapCommandError(err)
 	}
-	return api.Diagnosis{Candidate: d.Candidate, Positions: d.Positions, Reasons: d.Reasons, Risks: d.Risks,
-		RequiresApproval: true}, nil
+	return diagnosisOf(d), nil
 }
 
 // OutageDiagnosisRecover implements api.Control: the diagnosis with
@@ -204,8 +203,7 @@ func (c *Control) OutageDiagnosisRecover(ctx context.Context, actor authz.Subjec
 	if err != nil {
 		return api.Diagnosis{}, MapCommandError(err)
 	}
-	return api.Diagnosis{Candidate: d.Candidate, Positions: d.Positions, Reasons: d.Reasons, Risks: d.Risks,
-		RequiresApproval: true}, nil
+	return diagnosisOf(d), nil
 }
 
 // OutageRecovery implements api.Control: guided full-outage recovery that
@@ -216,9 +214,8 @@ func (c *Control) OutageRecovery(ctx context.Context, actor authz.Subject, clust
 		return api.RecoveryStarted{}, MapCommandError(err)
 	}
 	return api.RecoveryStarted{ID: rec.ID, Kind: rec.Kind, Candidate: d.Candidate,
-		Approval: api.OperationApproval{Digest: rec.ApprovalDigest},
-		Diagnosis: api.Diagnosis{Candidate: d.Candidate, Positions: d.Positions, Reasons: d.Reasons, Risks: d.Risks,
-			RequiresApproval: true}}, nil
+		Approval:  api.OperationApproval{Digest: rec.ApprovalDigest},
+		Diagnosis: diagnosisOf(d)}, nil
 }
 
 // ResumeOperation implements api.Control.
@@ -301,4 +298,30 @@ func MapCommandError(err error) error {
 		return err
 	}
 	return fmt.Errorf("%w (%v)", sentinel, err)
+}
+
+func diagnosisOf(d galera.Diagnosis) api.Diagnosis {
+	return api.Diagnosis{Candidate: d.Candidate, Positions: d.Positions, Reasons: d.Reasons, Risks: d.Risks,
+		RequiresApproval: true, RecoveryKind: string(d.Kind), AutoEligible: d.AutoEligible}
+}
+
+// StartZeroUUIDRecovery implements api.ZeroUUIDRecoveryControl.
+func (c *Control) StartZeroUUIDRecovery(ctx context.Context, actor authz.Subject, clusterID string) (api.ZeroUUIDRecoveryStarted, error) {
+	rec, err := c.Ops.StartZeroUUIDRecovery(ctx, actor, clusterID)
+	if err != nil {
+		return api.ZeroUUIDRecoveryStarted{}, MapCommandError(err)
+	}
+	return api.ZeroUUIDRecoveryStarted{ID: rec.ID, Kind: rec.Kind, Snapshot: rec.Snapshot, Approval: api.OperationApproval{Digest: rec.ApprovalDigest}}, nil
+}
+
+// ZeroUUIDRecoveryStatus implements api.ZeroUUIDRecoveryControl.
+func (c *Control) ZeroUUIDRecoveryStatus(_ context.Context, actor authz.Subject, clusterID string) (api.ZeroUUIDRecoveryStatus, error) {
+	st, err := c.Ops.ZeroUUIDStatus(actor, clusterID)
+	return st, MapCommandError(err)
+}
+
+// SetAutoRecover implements api.ZeroUUIDRecoveryControl.
+func (c *Control) SetAutoRecover(_ context.Context, actor authz.Subject, clusterID string, enabled bool) (api.AutoRecoverPolicy, error) {
+	v, err := c.Ops.SetAutoRecover(actor, clusterID, enabled)
+	return api.AutoRecoverPolicy{Enabled: v}, MapCommandError(err)
 }

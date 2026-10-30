@@ -1185,8 +1185,12 @@ paths:
         true. Needs cluster read permission; a cluster the caller may not read
         answers 404. A 409 response has error=conflict and a reason:
         primary_component_exists or zero_cluster_uuid_primary when a Primary
-        component exists. The latter requires operator investigation; this
-        endpoint never repairs or bootstraps it.
+        component exists. For zero_cluster_uuid_primary the body also names
+        offer=zero-uuid-recovery (POST /clusters/{id}/zero-uuid-recovery,
+        ADR 0029). This endpoint never repairs or bootstraps. Once the nodes
+        are stopped, a state in which every node holds the zero cluster UUID
+        answers recovery_kind=zero-uuid-recovery instead of a missing
+        candidate.
       operationId: outageDiagnosis
       parameters:
         - { $ref: "#/components/parameters/Id" }
@@ -1228,6 +1232,96 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /clusters/{id}/zero-uuid-recovery:
+    get:
+      summary: Status of the newest zero-UUID recovery run
+      description: >-
+        The prepare phase and, once the positions were read on the stopped
+        nodes, the recovery phase of the newest run, with approval state,
+        the diagnosis the recovery was planned from and the pre-recovery
+        snapshot name. Needs cluster read permission.
+      operationId: zeroUuidRecoveryStatus
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      responses:
+        "200":
+          description: Status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ZeroUUIDRecoveryStatus" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Start the guided Galera recovery from the zero cluster UUID
+      description: >-
+        Phase 1 of the zero-UUID recovery (ADR 0029): stores an operation
+        that, after an approval of the returned digest, stops every node,
+        verifies the identity markers and snapshots every data directory
+        (refused without free space). Phase 2 is planned by the manager from
+        the positions read on the stopped nodes: safe_to_bootstrap on the
+        unique highest-seqno node, bootstrap with a new state UUID, the
+        other nodes rejoin by SST, steady-state arguments, state check; it
+        waits for its own approval (see GET) unless the cluster's autoRecover
+        policy applies. Refuses with 409 conflict (reason
+        primary_component_exists) when a Primary component with a valid
+        state UUID exists, and with busy while another operation of the
+        cluster is unfinished. Requesting needs operate permission; approving
+        (POST /operations/{id}/approve) needs the recover permission.
+      operationId: startZeroUuidRecovery
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      responses:
+        "202":
+          description: Prepare operation waiting for approval
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ZeroUUIDRecoveryStarted" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /clusters/{id}/auto-recover:
+    put:
+      summary: Switch the autoRecover policy of a cluster
+      description: >-
+        autoRecover (default off) lets the zero-UUID recovery run without a
+        human approval: the stop-and-snapshot phase once the zero-UUID state
+        is observed, the bootstrap phase only when every node position is
+        readable and the highest seqno is unique. Every run notifies before
+        and after. It never applies to upgrades. Needs the recover
+        permission on the cluster (administrator); audited.
+      operationId: setAutoRecover
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [enabled]
+              properties:
+                enabled: { type: boolean }
+      responses:
+        "200":
+          description: Policy stored
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [enabled]
+                properties:
+                  enabled: { type: boolean }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
   /clusters/{id}/outage-recovery:
     post:
@@ -1330,7 +1424,7 @@ paths:
         restore permission on the backups of the operation's cluster
         (administrators; not part of the operator preset), and for a
         cluster/delete operation the delete permission on the cluster instead,
-        for a galera/full-outage-recovery operation the recover permission on
+        for a galera/full-outage-recovery, galera/zero-uuid-prepare or galera/zero-uuid-recovery operation the recover permission on
         the cluster (only the administrator preset holds it; neither operate
         nor restore covers it), and for a service/create or service/delete
         operation the create or delete permission on the service resource in
@@ -4001,6 +4095,10 @@ components:
             recovery: zero_cluster_uuid_primary, primary_component_exists,
             no_candidate, candidate_mismatch, busy or conflict. No raw agent
             output or recovered position is included.
+        offer:
+          type: string
+          enum: [zero-uuid-recovery]
+          description: The guided operation that applies to a zero_cluster_uuid_primary conflict (ADR 0029)
     ReplicaKeyStatus:
       type: object
       required: [id, leader, hasCurrentKey]
@@ -4101,6 +4199,35 @@ components:
         lastBackupAt: { type: string, format: date-time, description: End of the newest successful backup; absent means unknown }
         lastVerifiedRestoreAt: { type: string, format: date-time, description: Newest passed restore verification; absent means unknown }
         automationPolicy: { type: string, enum: [auto-replace, manual] }
+        autoRecover: { type: boolean, description: "Per-cluster opt-in: run the guided Galera recovery without approval when every position is readable and the highest seqno is unique (default false, ADR 0029)" }
+    RecoveryPhase:
+      type: object
+      required: [id, kind, state, awaitingApproval, approval]
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [galera/zero-uuid-prepare, galera/zero-uuid-recovery] }
+        state: { type: string }
+        awaitingApproval: { type: boolean }
+        approval: { $ref: "#/components/schemas/OperationApproval" }
+        auto: { type: boolean, description: Approved by the autoRecover policy }
+        candidate: { type: string }
+        diagnosis: { $ref: "#/components/schemas/Diagnosis" }
+    ZeroUUIDRecoveryStarted:
+      type: object
+      required: [id, kind, snapshot, approval]
+      properties:
+        id: { type: string }
+        kind: { type: string }
+        snapshot: { type: string, description: Name of the pre-recovery data snapshot on every node volume }
+        approval: { $ref: "#/components/schemas/OperationApproval" }
+    ZeroUUIDRecoveryStatus:
+      type: object
+      required: [autoRecover]
+      properties:
+        autoRecover: { type: boolean }
+        snapshot: { type: string }
+        prepare: { $ref: "#/components/schemas/RecoveryPhase" }
+        recovery: { $ref: "#/components/schemas/RecoveryPhase" }
     Operation:
       type: object
       required: [id, kind, state]
@@ -4635,6 +4762,13 @@ components:
               slot: { type: string }
               detail: { type: string }
         requires_approval: { type: boolean, enum: [true] }
+        recovery_kind:
+          type: string
+          enum: [zero-uuid-recovery]
+          description: Set when every node holds the zero cluster UUID (Galera group history lost); the zero-UUID recovery is offered instead of a missing candidate
+        auto_eligible:
+          type: boolean
+          description: Every position readable and the highest seqno unique; the per-cluster autoRecover policy may then run the recovery without a human approval
     BackupPolicy:
       type: object
       additionalProperties: false

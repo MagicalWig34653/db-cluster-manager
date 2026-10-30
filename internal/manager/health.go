@@ -508,6 +508,15 @@ const wsrepRecoverTimeout = 4 * time.Minute
 // while a node was last seen in a Primary component, and the agent refuses
 // it while a container on the host mounts the volume.
 func (o *Operations) collectOutageEvidence(ctx context.Context, actor authz.Subject, clusterID string, recoverPositions bool) ([]galera.NodeInfo, error) {
+	return o.collectEvidence(ctx, actor, clusterID, recoverPositions, false)
+}
+
+// collectEvidence is collectOutageEvidence. trusted skips the permission
+// checks and the stale-Primary refusal: the zero-UUID recovery calls it
+// after its own approved prepare operation stopped every service, when the
+// stored health observations are older than the stop (ADR 0029). The stored
+// observations are then not used as evidence.
+func (o *Operations) collectEvidence(ctx context.Context, actor authz.Subject, clusterID string, recoverPositions, trusted bool) ([]galera.NodeInfo, error) {
 	cur, ok, err := Get[ClusterRecord](o.Svc.store, CollClusters, clusterID)
 	if err != nil {
 		return nil, err
@@ -515,10 +524,12 @@ func (o *Operations) collectOutageEvidence(ctx context.Context, actor authz.Subj
 	if !ok {
 		return nil, fmt.Errorf("%w: cluster %q", api.ErrNotFound, clusterID)
 	}
-	if d := o.Authorizer.Check(actor, authz.ActionRead, clusterRes(cur.Value.Swarm, clusterID)); !d.Allowed {
-		return nil, &authz.DeniedError{Decision: d}
+	if !trusted {
+		if d := o.Authorizer.Check(actor, authz.ActionRead, clusterRes(cur.Value.Swarm, clusterID)); !d.Allowed {
+			return nil, &authz.DeniedError{Decision: d}
+		}
 	}
-	if recoverPositions {
+	if recoverPositions && !trusted {
 		if err := o.authorize(actor, authz.ActionOperate, clusterRes(cur.Value.Swarm, clusterID)); err != nil {
 			return nil, err
 		}
@@ -544,7 +555,7 @@ func (o *Operations) collectOutageEvidence(ctx context.Context, actor authz.Subj
 	var wg sync.WaitGroup
 	for i, n := range c.Nodes {
 		out[i] = galera.NodeInfo{Slot: n.Slot}
-		if h, ok := c.Health[n.Slot]; ok {
+		if h, ok := c.Health[n.Slot]; ok && !trusted {
 			out[i].Health = h.Health
 		}
 		wg.Add(1)
@@ -566,7 +577,7 @@ func (o *Operations) collectOutageEvidence(ctx context.Context, actor authz.Subj
 			if json.Unmarshal(res.Output, &g) == nil && g.Grastate != nil {
 				out[i].Grastate = g.Grastate
 			}
-			if !recoverPositions || out[i].Grastate == nil || out[i].Grastate.Seqno >= 0 || out[i].Grastate.Empty() {
+			if !recoverPositions || out[i].Grastate == nil || out[i].Grastate.Seqno >= 0 {
 				return
 			}
 			uid, gid := c.Spec.DBOwner()

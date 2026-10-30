@@ -44,6 +44,8 @@ For the active task, maintain: objective, changed files/contracts, executed chec
 
 ## Current next action
 
+Zero-UUID recovery (2026-10-30, ADR 0029, fakes only): guided two-phase Galera recovery, mandatory snapshot, per-cluster `autoRecover` policy, REST API and guides are implemented and tested with fakes; see [STATUS](STATUS.md#guided-galera-recovery-from-the-zero-cluster-uuid-2026-10-30-adr-0029-fakes-only-no-vm-used). Next: run it on lab VMs against the E12 power-loss setup, then add the UI.
+
 Agent runtimes (2026-10-28, W12, ADR 0024, fakes only): per-runtime certificate slots, pinning, renewal, revocation, deny-list delivery and a single-runtime revocation API are implemented with backward compatibility for legacy container records ([STATUS](STATUS.md#per-runtime-agent-identities-and-outage-test-stabilization-2026-10-28-adr-0024-addendum-fakes-only-no-vm)). Staging/commit was denied by the sandbox's shared Git index lock; no push. Next: commit in a writable checkout and rerun listener-backed race tests where local binds are permitted; then trial simultaneous native/container agents and native restic/install flags in an owned lab when the VM budget allows, and add per-function UI.
 
 Patch management (2026-10-27, W12): `patch.Service` is wired into the managed manager runtime (off by default) and the Galera guard uses the guided host maintenance (fakes); the next increment is a lab run of this wiring and the SSH install routes; the UI is a gap ([STATUS.md](STATUS.md#os-patch-management-and-native-agent-2026-10-27-x15-adr-0023-fakes-first-then-a-two-vm-lab-run)).

@@ -683,6 +683,10 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 		checker.Backup = &dbbackup.Checker{Backend: backend}
 	}
 	scfg.Checker = checker
+	// Zero-UUID recovery (ADR 0029): plans phase 2, runs the opt-in
+	// autoRecover policy, notifies; Ops is set once the Service exists.
+	zeroRec := &manager.ZeroUUIDReconciler{}
+	scfg.Reconcilers = append(scfg.Reconcilers, zeroRec)
 	var probe manager.AgentHealthProbe
 	agents := mc.LabAgents || mc.AgentTransport != nil
 	if agents {
@@ -725,6 +729,12 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 	probe.Svc = svc
 	// Swarms lets the checker observe services for the update health gate.
 	checker.Store, checker.Ops = svc.Store(), &manager.Operations{Svc: svc, Swarms: swarms}
+	zeroRec.Ops = &manager.Operations{Svc: svc, Swarms: swarms, MaxRetries: operationRetries, Notify: func(ctx context.Context, e notify.Event) bool {
+		if rt.monitoring == nil {
+			return false
+		}
+		return rt.monitoring.Notify(ctx, e)
+	}}
 	monCfg := manager.MonitoringConfig{DataDir: mc.monitoringDir(), Checker: rt, Keys: keys, Logger: log}
 	if agents {
 		monCfg.Status = manager.AgentStatusSource{Svc: svc}
@@ -1097,7 +1107,12 @@ func (rt *managedRuntime) newBackups(ops *manager.Operations, sw *manager.Swarms
 // commandServices builds the command services on the leadership's
 // authorizer.
 func (rt *managedRuntime) commandServices(st *manager.AuthStack) (commandSet, error) {
-	ops := &manager.Operations{Svc: rt.svc, Authorizer: st.Authorizer, MaxRetries: operationRetries}
+	ops := &manager.Operations{Svc: rt.svc, Authorizer: st.Authorizer, MaxRetries: operationRetries, Notify: func(ctx context.Context, e notify.Event) bool {
+		if rt.monitoring == nil {
+			return false
+		}
+		return rt.monitoring.Notify(ctx, e)
+	}}
 	sw := *rt.swarms
 	sw.Svc, sw.Authorizer = rt.svc, st.Authorizer
 	ops.Swarms = &sw

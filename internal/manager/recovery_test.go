@@ -135,6 +135,7 @@ func TestRecoverOutageWaitsForApprovalThenRunsTheGuidedPlan(t *testing.T) {
 	want := []agent.Kind{agent.KindStopDB, agent.KindStopDB, agent.KindStopDB,
 		agent.KindAwaitStopped, agent.KindAwaitStopped, agent.KindAwaitStopped,
 		agent.KindVerifyIdentity, agent.KindVerifyIdentity, agent.KindVerifyIdentity,
+		agent.KindSnapshotData, agent.KindSnapshotData, agent.KindSnapshotData,
 		agent.KindMarkSafeToBootstrap, agent.KindUpdateService, agent.KindStartService,
 		agent.KindStartService, agent.KindStartService, agent.KindUpdateService, agent.KindAwaitService}
 	if !slices.Equal(got, want) {

@@ -14,6 +14,7 @@ import (
 	"github.com/MagicalWig34653/db-cluster-manager/internal/authz"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/galera"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/metastore"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/notify"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/runner"
 )
 
@@ -54,6 +55,9 @@ type Operations struct {
 	// Swarms, if set, resolves the operator-provided objects an operation
 	// references so the agents can be told to allow them (allowrefs.go).
 	Swarms *Swarms
+	// Notify, if set, receives the recovery notifications (monitoring
+	// dispatcher); events are recorded either way.
+	Notify func(ctx context.Context, e notify.Event) bool
 }
 
 // ErrNoServiceHost: no enrolled Swarm manager node with an enrolled agent

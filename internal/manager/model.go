@@ -265,6 +265,8 @@ type OperationRecord struct {
 	// FollowUp is the recovery operation created after this prepare phase
 	// (or "none" when the positions allowed no candidate).
 	FollowUp string `json:"followUp,omitempty"`
+	// EndNotified is set once the end-of-run notification was sent.
+	EndNotified bool `json:"endNotified,omitempty"`
 	// Diagnosis is the diagnosis a recovery operation was planned from.
 	Diagnosis *galera.Diagnosis `json:"diagnosis,omitempty"`
 	View      *runner.View      `json:"view,omitempty"`

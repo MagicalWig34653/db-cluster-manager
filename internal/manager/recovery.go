@@ -80,11 +80,13 @@ func (o *Operations) RecoverOutage(ctx context.Context, actor authz.Subject, clu
 	if err != nil {
 		return OperationRecord{}, d, err
 	}
+	opID, approvalID := newID("op"), newID("apr")
+	snapshot := "pre-recovery-" + opID
+	plan = plan.WithSnapshot(snapshot)
 	svcHost, err := o.serviceHostFor(c.Swarm)
 	if err != nil {
 		return OperationRecord{}, d, err
 	}
-	opID, approvalID := newID("op"), newID("apr")
 	op, err := runner.FromGaleraPlan(plan, runner.GaleraBindings{
 		OpID: opID, InstallationID: st.InstallationID, VolumeBase: st.VolumeBase,
 		ServiceIDs: c.ServiceID, StepTimeout: o.StepTimeout, MaxRetries: o.MaxRetries,
@@ -102,7 +104,7 @@ func (o *Operations) RecoverOutage(ctx context.Context, actor authz.Subject, clu
 		return OperationRecord{}, d, err
 	}
 	rec := OperationRecord{ID: opID, Kind: op.Kind, Swarm: c.Swarm, Cluster: c.ID, RequestedBy: actor.ID,
-		RequestedAt: o.Svc.cfg.Now(), Definition: op, Nodes: c.Nodes, ApprovalID: approvalID, ApprovalDigest: digest}
+		RequestedAt: o.Svc.cfg.Now(), Definition: op, Nodes: c.Nodes, ApprovalID: approvalID, ApprovalDigest: digest, Snapshot: snapshot}
 	if err := o.commit(rec, nil); err != nil {
 		return OperationRecord{}, d, err
 	}

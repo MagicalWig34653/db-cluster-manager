@@ -2,6 +2,18 @@
 
 Updated: 2026-10-30.
 
+## Guided Galera recovery from the zero cluster UUID (2026-10-30, ADR 0029; fakes only, no VM used)
+
+Implements owner decision 2026-10-30 item 1. **Fakes only: the manual procedure was lab-verified in E12; this automation never ran against a real cluster, `wsrep-recover` container, SST or bootstrap.** Done and tested:
+
+- `galera.DiagnoseFullOutage` recognises the all-zero state and answers `recovery_kind=zero-uuid-recovery` with the highest recovered local seqno as candidate instead of `no_candidate`; `auto_eligible` only with every position readable and a unique top seqno (tie, unreadable or missing position, no majority are never eligible; mixed histories keep the ordinary diagnosis). New plan kinds `zero-uuid-prepare` / `zero-uuid-recovery`; the ordinary recovery plan gained the mandatory snapshot steps and a state check.
+- Agent: `snapshot-data` (same-volume copy of `data/` with marker file, idempotent per name, refuses with `insufficient-space`), `mark-safe-to-bootstrap` with `allow_zero_uuid`; runner condition `state-recovered` in `galeraprobe.Checker`; `snapshot-data` registered in `agentrt`.
+- Manager: `StartZeroUUIDRecovery` (operate), phase 2 planned by `ZeroUUIDReconciler` from positions read on the stopped nodes (committed atomically with the link, so failover neither loses nor duplicates it), approval through the existing digest flow (administrator, `recover`), `SetAutoRecover` (administrator), status read, notifications before and after (`recovery.planned`, `recovery.needs_approval`, `recovery.ended`), wired in `cmd/manager/managed.go`.
+- Policy `autoRecover` (default off): auto-approves phase 1 (stop and snapshot) once a fresh zero-UUID Primary is observed (one-hour cooldown) and phase 2 only when `auto_eligible`; tests prove that tie and unreadable positions stay approval-gated and send no bootstrap command.
+- REST: `POST/GET /clusters/{id}/zero-uuid-recovery`, `PUT /clusters/{id}/auto-recover`, `Diagnosis.recovery_kind/auto_eligible`, `Cluster.autoRecover`, 409 `zero_cluster_uuid_primary` with `offer`. Authz tests: viewer reads, operator proposes, administrator approves and sets the policy. `api/openapi.yaml` updated (route/schema contract tests pass). Guides 07 and 10 DE+EN, ADR 0029.
+
+Limits: no row-level data check (state check only); the snapshot is a same-volume copy, not a backup, and costs disk; auto-approval of phase 1 acts before positions are known (see ADR); no UI yet; a failed SST leaves the operation failed with the cluster partly up. Next: lab run of the operation on the E12 setup (VM budget), then a UI view and the `autoRecover` switch.
+
 ## Docker engine as patch class container-runtime (2026-10-30, X15/X09, ADR 0023 addendum, ADR 0019 reconciled; fakes only, no VM used)
 
 Implements owner decision 2026-10-30 item 2. Done and verified with fakes (`internal/patch`, `internal/manager`, `internal/api` tests):
