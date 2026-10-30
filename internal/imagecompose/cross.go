@@ -67,6 +67,19 @@ func crossRules(n Recipe) []Issue {
 		}
 	}
 
+	// Minecraft: the EULA is never accepted implicitly, the heap must be consistent.
+	if s, ok := has["minecraft"]; ok {
+		if !gb(s.Settings, "eulaAccepted") {
+			is = append(is, Issue{at("minecraft", "eulaAccepted"), "the Minecraft EULA (https://www.minecraft.net/eula) must be accepted explicitly; the server does not run without it"})
+		}
+		if sizeBytes(gs(s.Settings, "memoryInitial")) > sizeBytes(gs(s.Settings, "memoryMax")) {
+			is = append(is, Issue{at("minecraft", "memoryInitial"), "must not exceed the maximum heap"})
+		}
+		if sizeBytes(gs(s.Settings, "memoryMax")) < 512<<20 {
+			is = append(is, Issue{at("minecraft", "memoryMax"), "Minecraft needs at least 512M of heap"})
+		}
+	}
+
 	// System settings.
 	if s, ok := has["system"]; ok {
 		is = append(is, systemCross(s, n, has)...)

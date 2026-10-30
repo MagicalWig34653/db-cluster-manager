@@ -4,8 +4,8 @@ FROM docker.io/library/debian:trixie-slim@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 LABEL org.opencontainers.image.title="files" \
       org.opencontainers.image.base.name="docker.io/library/debian:trixie-slim" \
       org.opencontainers.image.base.digest="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
-      dbcm.recipe-digest="sha256:1c88f5ec039cb69ef6e82dca0a8dfda1ca3179172db70069ca5300f9ace7ff86" \
-      dbcm.catalog-version="2026.10.29-2" \
+      dbcm.recipe-digest="sha256:76f6492c0f88615064443a5d62a719c6444d9a07e305f4d2b91b2d0c4276d6ba" \
+      dbcm.catalog-version="2026.10.30-1" \
       dbcm.generator-version="2"
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \

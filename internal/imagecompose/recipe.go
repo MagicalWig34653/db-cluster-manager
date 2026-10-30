@@ -213,6 +213,7 @@ func (c *Catalog) Resolve(r Recipe) (Recipe, error) {
 		is = append(is, phpCross(p)...)
 	}
 	is = append(is, crossRules(out)...)
+	is = append(is, c.artifactIssues(out)...)
 
 	// Platforms.
 	for _, pl := range r.Platforms {
@@ -312,6 +313,28 @@ func phpCross(s map[string]any) []Issue {
 			is = append(is, Issue{base + "pm.start_servers", "must lie between pm.min_spare_servers and pm.max_spare_servers"})
 		case mx > ch:
 			is = append(is, Issue{base + "pm.max_spare_servers", "must not exceed pm.max_children"})
+		}
+	}
+	return is
+}
+
+// artifactIssues checks that every selected downloaded component has a
+// pinned artifact for the chosen variant and version.
+func (c *Catalog) artifactIssues(n Recipe) []Issue {
+	var is []Issue
+	for _, sel := range n.Components {
+		if sel.ID != "minecraft" {
+			continue
+		}
+		comp, _ := c.Component(sel.ID)
+		cv, ok := comp.Version(sel.Version)
+		if !ok {
+			continue
+		}
+		if variant := gs(sel.Settings, "variant"); variant != "" {
+			if _, has := cv.Artifacts[variant]; !has {
+				is = append(is, Issue{"components[minecraft].settings.variant", fmt.Sprintf("%s has no pinned download for Minecraft %s in the catalog", variant, sel.Version)})
+			}
 		}
 	}
 	return is

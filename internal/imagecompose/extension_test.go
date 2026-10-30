@@ -68,6 +68,10 @@ func extraGolden() map[string]Recipe {
 			sel("python", "3.11", []string{"pip"}, map[string]any{"app": "project.wsgi:application", "workers": 4, "threads": 2, "forwardedAllowIps": "10.0.0.0/8"})),
 		"ubuntu2404-java": rec("jvm app", "ubuntu", "24.04", nil,
 			sel("java", "21", nil, map[string]any{"garbageCollector": "g1", "maxRamPercentage": 60})),
+		"ubuntu2404-minecraft-vanilla": rec("mc vanilla", "ubuntu", "24.04", nil,
+			sel("minecraft", "26.3", nil, mcOK(map[string]any{"motd": "Hello Swarm", "maxPlayers": 8, "difficulty": "normal", "viewDistance": 8, "memoryInitial": "1G", "memoryMax": "3G"}))),
+		"alpine322-minecraft-paper": rec("mc paper", "alpine", "3.22", nil,
+			sel("minecraft", "1.21.11", nil, mcOK(map[string]any{"variant": "paper", "onlineMode": false}))),
 		"debian13-sftp": rec("files", "debian", "13", nil,
 			sel("sftp", "distro", nil, map[string]any{"readOnly": true, "dataDir": "/srv/files"})),
 		"alpine321-jobs-restic": rec("backup", "alpine", "3.21", nil,
@@ -81,6 +85,147 @@ func extraGolden() map[string]Recipe {
 		"alma9-nginx-ca": rec("ca rhel", "almalinux", "9", nil,
 			sel("nginx", "1.26", nil, nil),
 			sel("system", "1", nil, map[string]any{"extraCaPem": testCA, "locale": "en_US.UTF-8"})),
+	}
+}
+
+// mcOK returns Minecraft settings that include the explicit EULA acceptance.
+func mcOK(over map[string]any) map[string]any {
+	m := map[string]any{"eulaAccepted": true}
+	for k, v := range over {
+		m[k] = v
+	}
+	return m
+}
+
+func TestMinecraft(t *testing.T) {
+	c := Default()
+	mc := func(distro, release, version string, settings map[string]any) Recipe {
+		return rec("mc", distro, release, nil, sel("minecraft", version, nil, settings))
+	}
+	// The EULA is never implicit: absent or false is refused with a path on the field.
+	for name, s := range map[string]map[string]any{"absent": nil, "false": {"eulaAccepted": false}} {
+		_, err := c.Generate(mc("ubuntu", "24.04", "26.3", s))
+		wantIssue(t, err, "components[minecraft].settings.eulaAccepted")
+		if err != nil && !strings.Contains(err.Error(), "EULA") {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	bad := map[string]struct {
+		r    Recipe
+		path string
+	}{
+		"java 25 not on alpine":    {mc("alpine", "3.22", "26.3", mcOK(nil)), "components[minecraft].version"},
+		"java 25 not on ubuntu 22": {mc("ubuntu", "22.04", "26.1.2", mcOK(nil)), "components[minecraft].version"},
+		"unknown version":          {mc("ubuntu", "24.04", "1.8.8", mcOK(nil)), "components[minecraft].version"},
+		"unknown variant":          {mc("ubuntu", "24.04", "26.3", mcOK(map[string]any{"variant": "spigot"})), "components[minecraft].settings.variant"},
+		"xms above xmx":            {mc("ubuntu", "24.04", "26.3", mcOK(map[string]any{"memoryInitial": "4G", "memoryMax": "2G"})), "components[minecraft].settings.memoryInitial"},
+		"heap too small":           {mc("ubuntu", "24.04", "26.3", mcOK(map[string]any{"memoryInitial": "128M", "memoryMax": "256M"})), "components[minecraft].settings.memoryMax"},
+		"heap injection":           {mc("ubuntu", "24.04", "26.3", mcOK(map[string]any{"memoryMax": "2G -XX:+Foo"})), "components[minecraft].settings.memoryMax"},
+		"motd newline":             {mc("ubuntu", "24.04", "26.3", mcOK(map[string]any{"motd": "hi\nop-permission-level=4"})), "components[minecraft].settings.motd"},
+		"motd equals":              {mc("ubuntu", "24.04", "26.3", mcOK(map[string]any{"motd": "a=b"})), "components[minecraft].settings.motd"},
+		"difficulty unknown":       {mc("ubuntu", "24.04", "26.3", mcOK(map[string]any{"difficulty": "nightmare"})), "components[minecraft].settings.difficulty"},
+		"view distance range":      {mc("ubuntu", "24.04", "26.3", mcOK(map[string]any{"viewDistance": 64})), "components[minecraft].settings.viewDistance"},
+		"unknown key":              {mc("ubuntu", "24.04", "26.3", mcOK(map[string]any{"rcon.password": "x"})), "components[minecraft].settings.rcon.password"},
+		"with nginx":               {rec("x", "ubuntu", "24.04", nil, sel("nginx", "1.24", nil, nil), sel("minecraft", "26.3", nil, mcOK(nil))), "components"},
+		"with php":                 {rec("x", "ubuntu", "24.04", nil, sel("minecraft", "26.3", nil, mcOK(nil)), sel("php", "8.3", nil, nil)), "components[php]"},
+		"http health check":        {rec("x", "ubuntu", "24.04", nil, sel("minecraft", "26.3", nil, mcOK(nil)), sel("system", "1", nil, map[string]any{"healthcheck": "http"})), "components[system].settings.healthcheck"},
+	}
+	for name, tc := range bad {
+		t.Run(name, func(t *testing.T) {
+			_, err := c.Generate(tc.r)
+			wantIssue(t, err, tc.path)
+		})
+	}
+
+	// Java version per Minecraft version: 21 for 1.21.x, 25 for 26.x (Mojang's javaVersion).
+	comp, _ := c.Component("minecraft")
+	for _, tc := range []struct{ version, distro, release, pkg string }{
+		{"1.21.11", "alpine", "3.21", "openjdk21-jre-headless"},
+		{"1.21.11", "ubuntu", "22.04", "openjdk-21-jre-headless"},
+		{"26.1.2", "debian", "13", "openjdk-25-jre-headless"},
+		{"26.3", "ubuntu", "24.04", "openjdk-25-jre-headless"},
+	} {
+		cv, _ := comp.Version(tc.version)
+		s, ok := cv.SupportFor(tc.distro, tc.release)
+		if !ok || len(s.Packages) != 1 || s.Packages[0].Name != tc.pkg {
+			t.Errorf("%s on %s %s: %+v", tc.version, tc.distro, tc.release, s)
+		}
+	}
+
+	// Generated output facts.
+	vanilla, err := c.Generate(extraGolden()["ubuntu2404-minecraft-vanilla"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if vanilla.Role != RoleGame {
+		t.Errorf("role %q", vanilla.Role)
+	}
+	df := vanilla.Rendered.Dockerfile
+	for _, want := range []string{
+		"ADD --checksum=sha256:d052f14d7a173734fba553711e5b570162e2f2a313267ee31a21b975a679be64 --chmod=0644 https://piston-data.mojang.com/v1/objects/33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c/server.jar /opt/minecraft/server.jar",
+		`sha1sum -c /tmp/server.jar.sha1`, "openjdk-25-jre-headless", `VOLUME ["/data"]`, "EXPOSE 25565", "WORKDIR /data", "USER 10001:10001",
+	} {
+		if !strings.Contains(df, want) {
+			t.Errorf("Dockerfile lacks %q:\n%s", want, df)
+		}
+	}
+	files := map[string]string{}
+	for _, f := range vanilla.Rendered.Files {
+		files[f.Path] = f.Content
+	}
+	if p := files["minecraft/managed.properties"]; !strings.Contains(p, "server-port=25565\n") || !strings.Contains(p, "motd=Hello Swarm\n") || !strings.Contains(p, "online-mode=true\n") {
+		t.Errorf("managed.properties: %s", p)
+	}
+	if e := files["minecraft/entrypoint.sh"]; !strings.Contains(e, "exec /usr/bin/java -Xms1G -Xmx3G ") || !strings.Contains(e, "nogui") {
+		t.Errorf("entrypoint: %s", e)
+	}
+	paper, err := c.Generate(extraGolden()["alpine322-minecraft-paper"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(paper.Rendered.Dockerfile, "sha1sum") || !strings.Contains(paper.Rendered.Dockerfile, "https://fill-data.papermc.io/v1/objects/") {
+		t.Errorf("paper Dockerfile: %s", paper.Rendered.Dockerfile)
+	}
+	var pw bool
+	for _, w := range paper.Warnings {
+		pw = pw || strings.Contains(w, "Paper, which also downloads")
+	}
+	if !pw {
+		t.Error("paper warning missing")
+	}
+}
+
+func TestArtifactCatalogRules(t *testing.T) {
+	good := string(embedded)
+	mojang := "https://piston-data.mojang.com/v1/objects/33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c/server.jar"
+	for name, mutate := range map[string]func(string) string{
+		"foreign host": func(s string) string {
+			return strings.Replace(s, mojang, "https://example.org/v1/objects/33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c/server.jar", 1)
+		},
+		"plain http": func(s string) string {
+			return strings.Replace(s, mojang, strings.Replace(mojang, "https:", "http:", 1), 1)
+		},
+		"url hash differs": func(s string) string {
+			return strings.Replace(s, "/33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c/", "/43680f5f2ac32864d6d7cf5e56a705fdb3e05f4c/", 1)
+		},
+		"sha256 malformed": func(s string) string {
+			return strings.Replace(s, "d052f14d7a173734fba553711e5b570162e2f2a313267ee31a21b975a679be64", "D052", 1)
+		},
+		"paper host for vanilla": func(s string) string {
+			return strings.Replace(s, "https://piston-data.mojang.com/v1/objects/33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c", "https://fill-data.papermc.io/v1/objects/33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c", 1)
+		},
+		"vanilla without sha1": func(s string) string {
+			return strings.Replace(s, `, "sha1": "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"`, "", 1)
+		},
+		"zero size": func(s string) string { return strings.Replace(s, `"size": 62294556`, `"size": 0`, 1) },
+	} {
+		mutated := mutate(good)
+		if mutated == good {
+			t.Fatalf("%s: mutation did not apply", name)
+		}
+		if _, err := Parse([]byte(mutated)); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
 	}
 }
 
@@ -188,7 +333,13 @@ func TestExtensionOutputFacts(t *testing.T) {
 	for name := range extraGolden() {
 		r := gen(name)
 		df := r.Rendered.Dockerfile
-		for _, bad := range []string{"curl http", "wget", "| sh", "| bash", "ARG ", "ADD ", "USER root", ":latest", "EXPOSE 80\n", "EXPOSE 22\n"} {
+		if strings.Contains(df, "ADD ") {
+			// The only download is the pinned Minecraft jar, always with a hash.
+			if !strings.Contains(name, "minecraft") || strings.Count(df, "ADD ") != strings.Count(df, "ADD --checksum=sha256:") {
+				t.Errorf("%s: ADD without checksum", name)
+			}
+		}
+		for _, bad := range []string{"curl http", "wget", "| sh", "| bash", "ARG ", "USER root", ":latest", "EXPOSE 80\n", "EXPOSE 22\n"} {
 			if strings.Contains(df, bad) {
 				t.Errorf("%s: Dockerfile contains %q", name, bad)
 			}
@@ -208,7 +359,7 @@ func TestExtensionOutputFacts(t *testing.T) {
 
 func TestCatalogExtensionMatrix(t *testing.T) {
 	c := Default()
-	for _, id := range []string{"apache", "caddy", "node", "python", "java", "sftp", "jobrunner", "backuptools", "dbclients", "system"} {
+	for _, id := range []string{"apache", "caddy", "node", "python", "java", "minecraft", "sftp", "jobrunner", "backuptools", "dbclients", "system"} {
 		if _, ok := c.Component(id); !ok {
 			t.Errorf("component %s missing", id)
 		}

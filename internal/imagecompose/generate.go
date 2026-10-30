@@ -18,6 +18,7 @@ const (
 	RoleFPM    = "fpm"    // PHP-FPM alone as the single main process
 	RoleWorker = "worker" // a PHP CLI worker script as the single main process
 	RoleApp    = "app"    // node, python (gunicorn) or java
+	RoleGame   = "game"   // Minecraft Java Edition server
 	RoleSFTP   = "sftp"   // OpenSSH serving SFTP only
 	RoleJobs   = "jobs"   // scheduled job runner
 )
@@ -151,6 +152,8 @@ func (c *Catalog) Generate(r Recipe) (Result, error) {
 		b.python()
 	case b.sel["java"].ID != "":
 		b.java()
+	case b.sel["minecraft"].ID != "":
+		c.minecraft(b)
 	case b.sel["sftp"].ID != "":
 		b.sftp()
 	case b.sel["jobrunner"].ID != "":
@@ -239,6 +242,9 @@ func roleOf(n Recipe) string {
 		if _, ok := has[id]; ok {
 			return RoleApp
 		}
+	}
+	if _, ok := has["minecraft"]; ok {
+		return RoleGame
 	}
 	if _, ok := has["sftp"]; ok {
 		return RoleSFTP
@@ -530,6 +536,16 @@ func (c *Catalog) advice(n Recipe, rel Release, family string, b *build) (warnin
 		warnings = append(warnings, "The PHP worker script and its application code are not part of the image: provide them by volume or a derived image. If the script exits, the container exits and Swarm restarts it.")
 	case RoleApp:
 		warnings = append(warnings, "The application is not part of the image: mount it at /app or build a derived image from this one. The listen port is informational; the application itself must bind it.")
+	case RoleGame:
+		art := "the Mojang server"
+		if gs(sel["minecraft"].Settings, "variant") == "paper" {
+			art = "Paper, which also downloads the Mojang server files itself on first start (outbound access to Mojang download hosts is needed once; the files are then kept in /data/cache)"
+		}
+		warnings = append(warnings,
+			"Minecraft: the image contains "+art+". The EULA acceptance in the recipe is yours; nothing accepts it on your behalf.",
+			"Mount a volume at /data that user 10001 can write (world, server.properties, logs). Only the recipe's server.properties keys (port, motd, max-players, difficulty, view-distance, online-mode) are rewritten on every start; other keys are kept.",
+			"Give the Swarm service a memory limit at least 512M above the maximum heap and a stop grace period of 60 s or more so the world is saved on shutdown. There is no health check preset for the game port yet (a status ping is not an HTTP check).",
+			"Port 25565 is raw TCP: publish it in host mode or through a TCP-capable proxy, not through an HTTP router.")
 	case RoleSFTP:
 		warnings = append(warnings, "SFTP runs without root: one account (app), no chroot, no password login. The host key and authorized keys must be mounted as secrets; the container does not start without them. sshd as a non-root user is unverified in a container.")
 	case RoleJobs:
@@ -565,7 +581,7 @@ func (c *Catalog) advice(n Recipe, rel Release, family string, b *build) (warnin
 	notes = []string{
 		fmt.Sprintf("Runs as non-root user app (uid %d); servers listen on unprivileged ports (web %s), write only below /tmp and their data directories; HOME is /tmp.", appUID, port),
 		"No secrets, credentials, build arguments or environment secrets enter the Dockerfile or the context; settings are typed and allow-listed, nothing is passed to a shell.",
-		"Packages come only from the distribution's own repositories; no download scripts, no third-party repositories, no package recommends (apt) or documentation (dnf).",
+		"Packages come only from the distribution's own repositories; no download scripts, no third-party repositories, no package recommends (apt) or documentation (dnf). The only other build-time download is the Minecraft server jar from the official host pinned in the catalog, verified by hash.",
 		"Package caches are removed in the same layer; all configuration files are generated from the recipe and shown in the preview.",
 		"Reproducibility: same recipe + catalog version + generator version = identical Dockerfile and context (recipe digest and context hash). Image bytes are identical only while the base digest and the distribution repositories are unchanged.",
 	}

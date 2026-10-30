@@ -150,7 +150,7 @@ describe('client against the mock server', () => {
 describe('extended catalog', () => {
 	it('offers the new bases, runtimes and storage components', () => {
 		for (const [d, r] of [['alpine', '3.21'], ['alpine', '3.22'], ['debian', '13'], ['ubuntu', '22.04'], ['rocky', '9']]) expect(cat.distros.find((x) => x.id === d)?.releases.some((x) => x.id === r)).toBe(true);
-		for (const id of ['apache', 'caddy', 'node', 'python', 'java', 'sftp', 'jobrunner', 'backuptools', 'dbclients', 'system']) expect(cat.components.some((c) => c.id === id)).toBe(true);
+		for (const id of ['apache', 'caddy', 'node', 'python', 'java', 'minecraft', 'sftp', 'jobrunner', 'backuptools', 'dbclients', 'system']) expect(cat.components.some((c) => c.id === id)).toBe(true);
 		const node = cat.components.find((c) => c.id === 'node')!;
 		expect(versionsOn(node, 'ubuntu', '24.04')).toEqual([]);
 		expect(versionsOn(node, 'alpine', '3.21')).toEqual(['22']);

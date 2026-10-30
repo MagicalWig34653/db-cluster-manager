@@ -92,10 +92,70 @@ var layoutKeys = map[string]bool{"moduleDir": true, "mimeTypes": true}
 
 var layoutValueRe = regexp.MustCompile(`^/[A-Za-z0-9._/-]{1,100}$`)
 
+// Artifact is a file the image downloads at build time from an official
+// upstream host: the catalog pins its URL and hash, the Dockerfile verifies
+// the hash (BuildKit ADD --checksum), so a changed upstream file fails the
+// build instead of entering the image. SHA1 is the hash the upstream
+// publishes when that is not SHA-256 (Mojang); it is checked in addition.
+type Artifact struct {
+	URL    string `json:"url"`
+	SHA256 string `json:"sha256"`
+	SHA1   string `json:"sha1,omitempty"`
+	Size   int64  `json:"size"`
+}
+
+// artifactHosts are the only download hosts an artifact may name, with the
+// variants each one may serve.
+var artifactHosts = map[string]string{
+	"piston-data.mojang.com": "vanilla",
+	"fill-data.papermc.io":   "paper",
+}
+
+var (
+	sha256Re = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	sha1Re   = regexp.MustCompile(`^[0-9a-f]{40}$`)
+	// The object path is /v1/objects/<hash>/<file>: the hash in the URL must
+	// be the pinned one (Mojang: SHA-1, PaperMC: SHA-256).
+	artifactURLRe = regexp.MustCompile(`^https://([a-z0-9.-]+)/v1/objects/([0-9a-f]{40}|[0-9a-f]{64})/[A-Za-z0-9._-]{1,80}\.jar$`)
+)
+
+func (a Artifact) validate(variant string) error {
+	m := artifactURLRe.FindStringSubmatch(a.URL)
+	if m == nil {
+		return errors.New("url must be https://<host>/v1/objects/<hash>/<file>.jar")
+	}
+	if artifactHosts[m[1]] != variant {
+		return fmt.Errorf("host %q is not an official download host for %s", m[1], variant)
+	}
+	if !sha256Re.MatchString(a.SHA256) {
+		return errors.New("sha256 is malformed")
+	}
+	if a.SHA1 != "" && !sha1Re.MatchString(a.SHA1) {
+		return errors.New("sha1 is malformed")
+	}
+	if (variant == "vanilla") != (a.SHA1 != "") {
+		return errors.New("sha1 is required for vanilla (Mojang publishes SHA-1) and not used for paper")
+	}
+	want := a.SHA256
+	if a.SHA1 != "" {
+		want = a.SHA1
+	}
+	if m[2] != want {
+		return errors.New("the hash in the url does not match the pinned hash")
+	}
+	if a.Size <= 0 || a.Size > 1<<30 {
+		return errors.New("size is out of range")
+	}
+	return nil
+}
+
 // ComponentVersion is one selectable version with its availability matrix.
+// Artifacts (variant to download) are used by components that ship a
+// downloaded file instead of a distribution package.
 type ComponentVersion struct {
-	Version string    `json:"version"`
-	Support []Support `json:"support"`
+	Version   string              `json:"version"`
+	Artifacts map[string]Artifact `json:"artifacts,omitempty"`
+	Support   []Support           `json:"support"`
 }
 
 // Feature is a selectable add-on of a component (a PHP extension, a package).
@@ -308,6 +368,17 @@ func (comp Component) validate(c *Catalog, ids map[string]bool, rel map[string]R
 		vs[v.Version] = true
 		if len(v.Support) == 0 {
 			return badCatalog("component %s %s: no support entries", id, v.Version)
+		}
+		if len(v.Artifacts) > 0 && id != "minecraft" {
+			return badCatalog("component %s %s: artifacts are only supported for minecraft", id, v.Version)
+		}
+		if id == "minecraft" && len(v.Artifacts) == 0 {
+			return badCatalog("component %s %s: no artifacts", id, v.Version)
+		}
+		for variant, a := range v.Artifacts {
+			if err := a.validate(variant); err != nil {
+				return badCatalog("component %s %s artifact %s: %v", id, v.Version, variant, err)
+			}
 		}
 		sup := map[string]bool{}
 		for _, s := range v.Support {

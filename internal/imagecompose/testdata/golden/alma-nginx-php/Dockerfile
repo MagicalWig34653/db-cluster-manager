@@ -4,8 +4,8 @@ FROM docker.io/library/almalinux:9@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 LABEL org.opencontainers.image.title="shop" \
       org.opencontainers.image.base.name="docker.io/library/almalinux:9" \
       org.opencontainers.image.base.digest="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
-      dbcm.recipe-digest="sha256:2e68e0cad185af561d3f7387e978ab3c318cbdc4dd011f31663aa026b6b6cfc1" \
-      dbcm.catalog-version="2026.10.29-2" \
+      dbcm.recipe-digest="sha256:56dd66e516ed97d567d39a4ebd8433aeed6f8d9760298f6f4c326b52e6b4f369" \
+      dbcm.catalog-version="2026.10.30-1" \
       dbcm.generator-version="2"
 RUN dnf -y module enable nginx:1.26 php:8.3 \
  && dnf -y install --setopt=install_weak_deps=False --setopt=tsflags=nodocs \

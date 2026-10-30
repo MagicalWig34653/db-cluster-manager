@@ -4,8 +4,8 @@ FROM docker.io/library/alpine:3.21@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 LABEL org.opencontainers.image.title="backup" \
       org.opencontainers.image.base.name="docker.io/library/alpine:3.21" \
       org.opencontainers.image.base.digest="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
-      dbcm.recipe-digest="sha256:3e423db6d9420b2e619a970d9cf8780659c2f957babf748c23df86a218be2ccd" \
-      dbcm.catalog-version="2026.10.29-2" \
+      dbcm.recipe-digest="sha256:1648457779fbb83de2dd9950717b51afca850331f1c27212be9b9015bbe211ce" \
+      dbcm.catalog-version="2026.10.30-1" \
       dbcm.generator-version="2"
 RUN apk add --no-cache \
       restic \

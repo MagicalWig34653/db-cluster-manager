@@ -4,8 +4,8 @@ FROM docker.io/library/alpine:3.20@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 LABEL org.opencontainers.image.title="shop" \
       org.opencontainers.image.base.name="docker.io/library/alpine:3.20" \
       org.opencontainers.image.base.digest="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
-      dbcm.recipe-digest="sha256:66dabac436f1071d919c4b2c8719cdc26a0fe98188d491d503a6f7a233610320" \
-      dbcm.catalog-version="2026.10.29-2" \
+      dbcm.recipe-digest="sha256:6f355b53f7d4604ebc1150fcb1f1c77ebceb5e55ab1b178baa0a63a4fda24bc5" \
+      dbcm.catalog-version="2026.10.30-1" \
       dbcm.generator-version="2"
 RUN apk add --no-cache \
       nginx~=1.26 \
