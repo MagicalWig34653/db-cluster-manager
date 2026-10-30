@@ -8,7 +8,9 @@ const form = () => ({
 	name: 'shop-db',
 	image: 'mariadb:11',
 	network: 'db-net',
-	rootPasswordSecret: 'root-pw'
+	rootPasswordSecret: 'root-pw',
+	cpuLimit: '1',
+	memLimit: '1'
 });
 
 const host = (id: string, over: Partial<Host> = {}): Host => ({
@@ -35,6 +37,14 @@ describe('cluster form', () => {
 		expect(validate(bad).map((e) => e.field)).toEqual(['name', 'cpuReservation']);
 		expect(validate({ ...form(), mode: 'prefer' }).map((e) => e.field)).toEqual(['hosts']);
 		expect(validate({ ...form(), mode: 'allowlist', hosts: ['a', 'b'] }).map((e) => e.key)).toEqual(['valAllowlistTooSmall']);
+	});
+	it('requires a CPU and memory limit or reservation (the planner refuses a zero demand with a bare 400)', () => {
+		const none = { ...form(), cpuLimit: '', memLimit: '' };
+		expect(validate(none)).toEqual([
+			{ field: 'cpuLimit', key: 'valDemandRequired' },
+			{ field: 'memLimit', key: 'valDemandRequired' }
+		]);
+		expect(validate({ ...none, cpuReservation: '0.5', memReservation: '1' })).toEqual([]);
 	});
 	it('builds a request in the CreateClusterRequest shape', () => {
 		const f = { ...form(), size: 5 as const, mode: 'allowlist' as const, hosts: ['a', 'b', 'c', 'd', 'e'], cpuLimit: '2', memLimit: '4', memReservation: '2', reserveMem: '1', autoReplace: true };

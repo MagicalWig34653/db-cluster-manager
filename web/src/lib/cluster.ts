@@ -88,6 +88,10 @@ export function validate(f: ClusterForm): FormError[] {
 	const lm = parseAmount(f.memLimit);
 	const rm = parseAmount(f.memReservation);
 	if (lm > 0 && rm > lm) errs.push({ field: 'memReservation', key: 'valReservationAboveLimit' });
+	// The planner counts the larger of limit and reservation and refuses a zero
+	// demand (found in the RC browser run: a bare 400 "bad_request").
+	if (!Number.isNaN(lc + rc) && Math.max(lc, rc) <= 0) errs.push({ field: 'cpuLimit', key: 'valDemandRequired' });
+	if (!Number.isNaN(lm + rm) && Math.max(lm, rm) <= 0) errs.push({ field: 'memLimit', key: 'valDemandRequired' });
 	if (f.mode !== 'automatic' && f.hosts.length === 0) errs.push({ field: 'hosts', key: 'valPickHosts' });
 	if (f.mode === 'allowlist' && f.hosts.length < f.size) errs.push({ field: 'hosts', key: 'valAllowlistTooSmall' });
 	return errs;
