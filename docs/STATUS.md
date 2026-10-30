@@ -2,7 +2,9 @@
 
 Updated: 2026-10-30.
 
-## Release candidate attempt E13 (2026-10-30; lab not run)
+## Release candidate attempt E13 (2026-10-30; lab ran partly, see [e13-rc-lab.md](../tests/p0/results/e13-rc-lab.md))
+
+Update: later the same day the lab ran: rc-demo up, real-browser setup/login/connect/enroll/create Galera/rolling restart with approval passed after three fixes (wizard limits validation, polled await-stopped, paused operation still blocking planning). Backup/restore/PITR (stage 3) and the manual INSTALL.md walkthrough did not run. VMs removed. The text below describes the earlier non-start.
 
 The planned lab run (fresh-install walkthrough, real-browser end-to-end, backup/restore/PITR with local and MinIO target) **did not start**: the host had 8-10 GiB free disk, swap about 91 % used and load 18-584, so no VM was created ([record](../tests/p0/results/e13-not-run.md)). Executed on the host: `scripts/rc-package.sh 0.1.0-rc1` produced two linux archives, six CycloneDX SBOMs, verified checksums and release notes (bsdtar archives, SBOMs from a throwaway repo with a local tag; no image built; nothing tagged, pushed or published). Written but **never executed**: `tests/p0/rc-demo.sh` (only `bash -n`). [RELEASE-CANDIDATE.md](RELEASE-CANDIDATE.md) lists verified, fake-only and unverified items and an owner quickstart. No UI, backup or restore result was gained in this cycle.
 ## Optional modules (2026-10-30, ADR 0030; fakes and in-process manager only, no VM used)

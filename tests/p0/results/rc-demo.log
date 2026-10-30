@@ -1,0 +1,1273 @@
+
+## Phase build: lab tooling, the API client, proxy and e5client (linux/arm64) on the host
+
+### go build ./tests/p0/e4client
+
+```
+$ env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o <repo>/.lab/e4/bin/e4client ./tests/p0/e4client
+(exit 0)
+```
+
+### go build ./tests/p0/e5client
+
+```
+$ env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o <repo>/.lab/e4/bin/e5client ./tests/p0/e5client
+(exit 0)
+```
+
+### go build ./cmd/proxy
+
+```
+$ env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o <repo>/.lab/e4/bin/proxy ./cmd/proxy
+(exit 0)
+```
+
+### git revision (the image is built from this commit, git archive HEAD)
+
+```
+$ git -C <repo> log -1 --format=%h %s
+a5f01a1 Merge feature module registry
+(exit 0)
+```
+
+### uncommitted changes (must be empty for a faithful build)
+
+```
+$ git -C <repo> status --short
+?? tests/p0/results/rc-demo.log
+(exit 0)
+```
+
+### host tools
+
+```
+$ sh -c jq --version; python3 --version; limactl --version
+jq-1.7.1-apple
+Python 3.15.2
+limactl version 2.2.1
+(exit 0)
+```
+
+
+## Phase vms: lab VMs (bin/lab) and rootful Docker
+
+host uptime: 18:42  up 12 days,  3:41, 10 users, load averages: 9.47 23.44 24.23
+
+17:42:34Z host load: { 9.47 23.44 24.23 }; host free disk (/System/Volumes/Data): 73Gi of 926Gi
+### host free disk before apply
+
+```
+$ host_free_disk
+host free disk (/System/Volumes/Data): 73Gi of 926Gi
+(exit 0)
+```
+
+### bin/lab status before
+
+```
+$ <repo>/bin/lab status
+host:
+  logical CPUs: 14
+  RAM: 48.0 GiB
+budget:
+  lab CPU limit: 7
+  lab RAM limit: 16.0 GiB
+  lab disk limit: 100.0 GiB
+manifest .lab/manifest.json:
+  (empty)
+inventory:
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+unrelated (never touched):
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+(exit 0)
+```
+
+### bin/lab apply -apply -vms 3 -cpus 2 -ram 4 -disk 20 -network lima:user-v2
+
+```
+$ <repo>/bin/lab apply -apply -vms 3 -cpus 2 -ram 4 -disk 20 -network lima:user-v2
+pre-snapshot:
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+executing actions:
+  # create Lima VM dbcm-lab-m1 (2 CPUs, 4 GiB RAM, 20 GiB disk, template docker, network lima:user-v2 (shared Lima state, not owned))
+  limactl create --name=dbcm-lab-m1 --cpus=2 --memory=4 --disk=20 --tty=false --network=lima:user-v2 template:docker
+  # start Lima VM dbcm-lab-m1
+  limactl start --tty=false dbcm-lab-m1
+  # create Lima VM dbcm-lab-m2 (2 CPUs, 4 GiB RAM, 20 GiB disk, template docker, network lima:user-v2 (shared Lima state, not owned))
+  limactl create --name=dbcm-lab-m2 --cpus=2 --memory=4 --disk=20 --tty=false --network=lima:user-v2 template:docker
+  # start Lima VM dbcm-lab-m2
+  limactl start --tty=false dbcm-lab-m2
+  # create Lima VM dbcm-lab-m3 (2 CPUs, 4 GiB RAM, 20 GiB disk, template docker, network lima:user-v2 (shared Lima state, not owned))
+  limactl create --name=dbcm-lab-m3 --cpus=2 --memory=4 --disk=20 --tty=false --network=lima:user-v2 template:docker
+  # start Lima VM dbcm-lab-m3
+  limactl start --tty=false dbcm-lab-m3
+post-snapshot diff:
+  added: lima:dbcm-lab-m1, lima:dbcm-lab-m2, lima:dbcm-lab-m3
+  removed: (none)
+(exit 0)
+```
+
+### switch dbcm-lab-m1 to rootful docker
+
+```
+$ vm_sh dbcm-lab-m1 
+			set -e
+			systemctl --user disable --now docker.service >/dev/null 2>&1 || true
+			sudo systemctl unmask containerd.service docker.service docker.socket >/dev/null 2>&1
+			sudo systemctl enable --now containerd.service docker.socket docker.service >/dev/null 2>&1
+			echo "rootful docker: $(systemctl is-active docker.service)"
+rootful docker: active
+(exit 0)
+```
+
+### facts dbcm-lab-m1
+
+```
+$ vm_sh dbcm-lab-m1 
+			echo "arch: $(uname -m) kernel: $(uname -r)"; grep PRETTY_NAME /etc/os-release; echo "nproc: $(nproc)"
+			free -m | head -2; df -h / | tail -1
+			sudo docker version --format "docker server {{.Server.Version}}"
+arch: aarch64 kernel: 7.0.0-34-generic
+PRETTY_NAME="Ubuntu 26.04.1 LTS"
+nproc: 2
+               total        used        free      shared  buff/cache   available
+Mem:            3896         546        2206           1        1305        3350
+/dev/vda1        19G  2.9G   16G  16% /
+docker server 29.9.2
+(exit 0)
+```
+
+### switch dbcm-lab-m2 to rootful docker
+
+```
+$ vm_sh dbcm-lab-m2 
+			set -e
+			systemctl --user disable --now docker.service >/dev/null 2>&1 || true
+			sudo systemctl unmask containerd.service docker.service docker.socket >/dev/null 2>&1
+			sudo systemctl enable --now containerd.service docker.socket docker.service >/dev/null 2>&1
+			echo "rootful docker: $(systemctl is-active docker.service)"
+rootful docker: active
+(exit 0)
+```
+
+### facts dbcm-lab-m2
+
+```
+$ vm_sh dbcm-lab-m2 
+			echo "arch: $(uname -m) kernel: $(uname -r)"; grep PRETTY_NAME /etc/os-release; echo "nproc: $(nproc)"
+			free -m | head -2; df -h / | tail -1
+			sudo docker version --format "docker server {{.Server.Version}}"
+arch: aarch64 kernel: 7.0.0-34-generic
+PRETTY_NAME="Ubuntu 26.04.1 LTS"
+nproc: 2
+               total        used        free      shared  buff/cache   available
+Mem:            3896         536        2216           1        1305        3360
+/dev/vda1        19G  2.9G   16G  16% /
+docker server 29.9.2
+(exit 0)
+```
+
+### switch dbcm-lab-m3 to rootful docker
+
+```
+$ vm_sh dbcm-lab-m3 
+			set -e
+			systemctl --user disable --now docker.service >/dev/null 2>&1 || true
+			sudo systemctl unmask containerd.service docker.service docker.socket >/dev/null 2>&1
+			sudo systemctl enable --now containerd.service docker.socket docker.service >/dev/null 2>&1
+			echo "rootful docker: $(systemctl is-active docker.service)"
+rootful docker: active
+(exit 0)
+```
+
+### facts dbcm-lab-m3
+
+```
+$ vm_sh dbcm-lab-m3 
+			echo "arch: $(uname -m) kernel: $(uname -r)"; grep PRETTY_NAME /etc/os-release; echo "nproc: $(nproc)"
+			free -m | head -2; df -h / | tail -1
+			sudo docker version --format "docker server {{.Server.Version}}"
+arch: aarch64 kernel: 7.0.0-34-generic
+PRETTY_NAME="Ubuntu 26.04.1 LTS"
+nproc: 2
+               total        used        free      shared  buff/cache   available
+Mem:            3896         536        2216           1        1305        3360
+/dev/vda1        19G  2.9G   16G  16% /
+docker server 29.9.2
+(exit 0)
+```
+
+### host free disk after apply
+
+```
+$ host_free_disk
+host free disk (/System/Volumes/Data): 70Gi of 926Gi
+(exit 0)
+```
+
+
+## Phase swarm: three Swarm manager nodes
+
+host uptime: 18:45  up 12 days,  3:43, 10 users, load averages: 7.26 17.26 21.59
+
+17:45:03Z host load: { 7.26 17.26 21.59 }; host free disk (/System/Volumes/Data): 70Gi of 926Gi
+17:45:04Z m1 user-v2 address: 192.168.104.1
+### swarm init on m1
+
+```
+$ vm_docker dbcm-lab-m1 swarm init --advertise-addr 192.168.104.1
+Swarm initialized: current node (n3vjt092oaw5ea0glutntrc0b) is now a manager.
+
+To add a worker to this swarm, run the following command:
+
+    docker swarm join --token SWMTKN-<redacted> 192.168.104.1:2377
+
+To add a manager to this swarm, run 'docker swarm join-token manager' and follow the instructions.
+(exit 0)
+```
+
+### swarm join dbcm-lab-m2 as manager (advertise 192.168.104.3, token not recorded)
+
+```
+$ vm_docker dbcm-lab-m2 swarm join --advertise-addr 192.168.104.3 --token SWMTKN-<redacted> 192.168.104.1:2377
+This node joined a swarm as a manager.
+(exit 0)
+```
+
+### swarm join dbcm-lab-m3 as manager (advertise 192.168.104.4, token not recorded)
+
+```
+$ vm_docker dbcm-lab-m3 swarm join --advertise-addr 192.168.104.4 --token SWMTKN-<redacted> 192.168.104.1:2377
+This node joined a swarm as a manager.
+(exit 0)
+```
+
+### docker node ls
+
+```
+$ vm_docker dbcm-lab-m1 node ls
+ID                            HOSTNAME           STATUS    AVAILABILITY   MANAGER STATUS   ENGINE VERSION
+n3vjt092oaw5ea0glutntrc0b *   lima-dbcm-lab-m1   Ready     Active         Leader           29.9.2
+n1rc04nxntqew5x95lf5setwx     lima-dbcm-lab-m2   Ready     Active         Reachable        29.9.2
+84g8mwm8o1d5v60s8dm28bkk4     lima-dbcm-lab-m3   Ready     Active         Reachable        29.9.2
+(exit 0)
+```
+
+
+## Phase images: docker build -f deploy/Dockerfile inside m1 (arm64), copy to m2/m3; tools
+
+host uptime: 18:45  up 12 days,  3:43, 10 users, load averages: 6.92 17.03 21.48
+
+17:45:06Z host load: { 6.92 17.03 21.48 }; host free disk (/System/Volumes/Data): 70Gi of 926Gi
+### install lab tools on dbcm-lab-m1
+
+```
+$ vm_root dbcm-lab-m1 
+			set -e
+			install -m 0755 /tmp/e4client /usr/local/bin/dbcm-e4-client
+			install -d -m 0700 "$1" "$1/out"
+			install -m 0755 /tmp/e5client /tmp/proxy "$1/"
+			rm -f /tmp/e4client /tmp/e5client /tmp/proxy /root/dbcm-e9
+(exit 0)
+```
+
+### install lab tools on dbcm-lab-m2
+
+```
+$ vm_root dbcm-lab-m2 
+			set -e
+			install -m 0755 /tmp/e4client /usr/local/bin/dbcm-e4-client
+			install -d -m 0700 "$1" "$1/out"
+			install -m 0755 /tmp/e5client /tmp/proxy "$1/"
+			rm -f /tmp/e4client /tmp/e5client /tmp/proxy /root/dbcm-e9
+(exit 0)
+```
+
+### install lab tools on dbcm-lab-m3
+
+```
+$ vm_root dbcm-lab-m3 
+			set -e
+			install -m 0755 /tmp/e4client /usr/local/bin/dbcm-e4-client
+			install -d -m 0700 "$1" "$1/out"
+			install -m 0755 /tmp/e5client /tmp/proxy "$1/"
+			rm -f /tmp/e4client /tmp/e5client /tmp/proxy /root/dbcm-e9
+(exit 0)
+```
+
+### apt packages (jq on m1, socat and openssl everywhere)
+
+```
+$ sh -c for v in dbcm-lab-m1 dbcm-lab-m2 dbcm-lab-m3; do limactl shell --workdir / $v -- sudo sh -c 'DEBIAN_FRONTEND=noninteractive apt-get install -y -qq jq socat openssl >/dev/null 2>&1; echo $(hostname): $(jq --version) $(socat -V | sed -n 2p) $(openssl version)'; done
+lima-dbcm-lab-m1: jq-1.8.1 socat version 1.8.1.1 on 03 Jul 2026 12:41:00 OpenSSL 3.5.5 27 Jan 2026 (Library: OpenSSL 3.5.5 27 Jan 2026)
+lima-dbcm-lab-m2: jq-1.8.1 socat version 1.8.1.1 on 03 Jul 2026 12:41:00 OpenSSL 3.5.5 27 Jan 2026 (Library: OpenSSL 3.5.5 27 Jan 2026)
+lima-dbcm-lab-m3: jq-1.8.1 socat version 1.8.1.1 on 03 Jul 2026 12:41:00 OpenSSL 3.5.5 27 Jan 2026 (Library: OpenSSL 3.5.5 27 Jan 2026)
+(exit 0)
+```
+
+### copy the committed source tree into m1
+
+```
+$ sh -c cd '<repo>' && git archive --format=tar HEAD cmd internal web go.mod go.sum deploy .dockerignore | limactl shell --workdir / dbcm-lab-m1 -- sudo sh -c 'rm -rf /root/dbcm-e9-src && mkdir -p /root/dbcm-e9-src && tar -x -C /root/dbcm-e9-src && ls /root/dbcm-e9-src'
+cmd
+deploy
+go.mod
+go.sum
+internal
+web
+(exit 0)
+```
+
+### docker build -f deploy/Dockerfile (UI + Go binaries + distroless runtime)
+
+```
+$ vm_root dbcm-lab-m1 
+		cd "$1" && time docker build -f deploy/Dockerfile -t "$2" --build-arg VERSION=0.0.0-e9 --build-arg COMMIT="$3" . 2>&1 | tail -40 /root/dbcm-e9-src db-cluster-manager:e12 a5f01a1
+#20 5.044 .svelte-kit/output/client/_app/immutable/chunks/DQuDD0Ow.js         184.93 kB │ gzip: 63.72 kB
+#20 5.044 
+#20 5.045 ✓ built in 1.57s
+#20 5.512 
+#20 5.512 Run npm run preview to preview your production build locally.
+#20 5.512 
+#20 5.512 > Using @sveltejs/adapter-static
+#20 5.568 Wrote site to "../internal/webui/assets"
+#20 5.568 ✔ done
+#20 DONE 5.7s
+
+#23 [build 7/8] COPY --from=web /src/internal/webui/assets/ ./internal/webui/assets/
+#23 DONE 0.0s
+
+#24 [build 8/8] RUN set -eu;     PKG=github.com/MagicalWig34653/db-cluster-manager/internal/version;     for c in manager agent cli; do       GOOS=linux GOARCH=arm64 go build -trimpath         -ldflags "-s -w -X ${PKG}.Version=0.0.0-e9 -X ${PKG}.Commit=a5f01a1"         -o /out/${c} ./cmd/${c};     done;     mkdir -p /out/data
+#24 DONE 16.9s
+
+#25 [stage-3 2/4] COPY --from=build /out/manager /out/agent /out/cli /usr/local/bin/
+#25 DONE 0.1s
+
+#26 [stage-3 3/4] COPY --from=restic /out/restic /usr/local/bin/restic
+#26 DONE 0.1s
+
+#27 [stage-3 4/4] COPY --from=build --chown=65532:65532 /out/data /var/lib/dbcm
+#27 DONE 0.0s
+
+#28 exporting to image
+#28 exporting layers
+#28 exporting layers 0.8s done
+#28 exporting manifest sha256:bf9218b92930d19d5c248a364c19b4f0e7a707c1b14c2479bcedd39b86b31e23
+#28 exporting manifest sha256:bf9218b92930d19d5c248a364c19b4f0e7a707c1b14c2479bcedd39b86b31e23 done
+#28 exporting config sha256:4d9d8fe927a9d3368acb87d2e73b47bdf0adbcecdd5781d2401f7d83dc0a1a67 done
+#28 exporting attestation manifest sha256:01bfb02c1b9ce1b7f4d20575f722fd458914c75d11c75f3d1f9b5a7bf7d2d23c done
+#28 exporting manifest list sha256:13c944980775c9806e0001f5041bb773f8616623737ef5f4d7177b18497125e6 done
+#28 naming to docker.io/library/db-cluster-manager:e12 done
+#28 unpacking to docker.io/library/db-cluster-manager:e12
+#28 unpacking to docker.io/library/db-cluster-manager:e12 0.4s done
+#28 DONE 1.2s
+0.12user 0.06system 0:34.89elapsed 0%CPU (0avgtext+0avgdata 60276maxresident)k
+0inputs+48outputs (0major+14882minor)pagefaults 0swaps
+(exit 0)
+```
+
+### image facts
+
+```
+$ vm_docker dbcm-lab-m1 image inspect --format {{.Id}} {{.Architecture}} {{.Os}} user={{.Config.User}} entrypoint={{.Config.Entrypoint}} size={{.Size}} db-cluster-manager:e12
+sha256:13c944980775c9806e0001f5041bb773f8616623737ef5f4d7177b18497125e6 arm64 linux user=65532:65532 entrypoint=[/usr/local/bin/manager] size=97905006
+(exit 0)
+```
+
+### copy the image to dbcm-lab-m2 (docker save | docker load through the host)
+
+```
+$ sh -c limactl shell --workdir / dbcm-lab-m1 -- sudo docker save db-cluster-manager:e12 | limactl shell --workdir / dbcm-lab-m2 -- sudo docker load
+Loaded image: db-cluster-manager:e12
+(exit 0)
+```
+
+### copy the image to dbcm-lab-m3 (docker save | docker load through the host)
+
+```
+$ sh -c limactl shell --workdir / dbcm-lab-m1 -- sudo docker save db-cluster-manager:e12 | limactl shell --workdir / dbcm-lab-m3 -- sudo docker load
+Loaded image: db-cluster-manager:e12
+(exit 0)
+```
+
+### free VM disk: remove the build cache and the builder base images inside m1 (VM-local, not a host prune)
+
+```
+$ vm_root dbcm-lab-m1 
+		docker builder prune -af 2>&1 | tail -1
+		for i in $(docker images --format "{{.Repository}}:{{.Tag}}" | grep -E "^(golang|node)"); do docker rmi "$i" >/dev/null 2>&1 && echo "removed $i"; done
+		fstrim -av 2>&1 | tail -2; df -h / | tail -1
+Total:	1.315GB
+/boot: 759.2 MiB (796033024 bytes) trimmed on /dev/vda13
+/: 14 GiB (15057817600 bytes) trimmed on /dev/vda1
+/dev/vda1        19G  3.2G   16G  18% /
+(exit 0)
+```
+
+### host free disk
+
+```
+$ host_free_disk
+host free disk (/System/Volumes/Data): 69Gi of 926Gi
+(exit 0)
+```
+
+### pull pinned MariaDB image on dbcm-lab-m1
+
+```
+$ vm_docker dbcm-lab-m1 pull -q mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+docker.io/library/mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+(exit 0)
+```
+
+### pull pinned MariaDB image on dbcm-lab-m2
+
+```
+$ vm_docker dbcm-lab-m2 pull -q mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+docker.io/library/mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+(exit 0)
+```
+
+### pull pinned MariaDB image on dbcm-lab-m3
+
+```
+$ vm_docker dbcm-lab-m3 pull -q mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+docker.io/library/mariadb:11.4.13@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+(exit 0)
+```
+
+
+## Phase prereqs: host directories, database secrets and cluster network (as manager init instructs)
+
+host uptime: 18:46  up 12 days,  3:45, 10 users, load averages: 8.15 15.21 20.43
+
+17:46:16Z host load: { 8.15 15.21 20.43 }; host free disk (/System/Volumes/Data): 69Gi of 926Gi
+### host directories on dbcm-lab-m1
+
+```
+$ vm_root dbcm-lab-m1 install -d -m 0755 /var/lib/dbcm-agent "$1" && ls -ld /var/lib/dbcm-agent "$1" /var/lib/dbcm/volumes
+drwxr-xr-x 2 root root 4096 Oct 30 18:46 /var/lib/dbcm-agent
+drwxr-xr-x 2 root root 4096 Oct 30 18:46 /var/lib/dbcm/volumes
+(exit 0)
+```
+
+### host directories on dbcm-lab-m2
+
+```
+$ vm_root dbcm-lab-m2 install -d -m 0755 /var/lib/dbcm-agent "$1" && ls -ld /var/lib/dbcm-agent "$1" /var/lib/dbcm/volumes
+drwxr-xr-x 2 root root 4096 Oct 30 18:46 /var/lib/dbcm-agent
+drwxr-xr-x 2 root root 4096 Oct 30 18:46 /var/lib/dbcm/volumes
+(exit 0)
+```
+
+### host directories on dbcm-lab-m3
+
+```
+$ vm_root dbcm-lab-m3 install -d -m 0755 /var/lib/dbcm-agent "$1" && ls -ld /var/lib/dbcm-agent "$1" /var/lib/dbcm/volumes
+drwxr-xr-x 2 root root 4096 Oct 30 18:46 /var/lib/dbcm-agent
+drwxr-xr-x 2 root root 4096 Oct 30 18:46 /var/lib/dbcm/volumes
+(exit 0)
+```
+
+### state directory and synthetic database secrets on m1 (values never logged)
+
+```
+$ vm_root dbcm-lab-m1 
+		set -e
+		install -d -m 0700 "$6"
+		for x in "$2:root" "$3:monitor" "$4:backup"; do
+			s=${x%%:*}; f="$6/${x#*:}.pw"
+			[ -f "$f" ] || head -c 24 /dev/urandom | base64 | tr -d "\n" >"$f"
+			chmod 0600 "$f"
+			if docker secret inspect "$s" >/dev/null 2>&1; then echo "secret $s exists"; else
+				docker secret create --label "dbcm.installation=$1" "$s" "$f" >/dev/null && echo "secret $s"; fi
+		done
+		docker network inspect -f "{{.Name}} exists" "$5" 2>/dev/null || docker network create --driver overlay --attachable --label "dbcm.installation=$1" "$5" e9lab dbcm-e9lab-root-pw dbcm-e9lab-monitor-pw dbcm-e9lab-backup-pw dbcm-e9lab-net /root/dbcm-e4
+secret dbcm-e9lab-root-pw
+secret dbcm-e9lab-monitor-pw
+secret dbcm-e9lab-backup-pw
+
+uhef37fn8ejtmu1r55cgx6jtf
+(exit 0)
+```
+
+
+## Phase hainit: peer CA and certificates, proxy tokens, three replica configurations, Swarm secrets/configs, local volumes
+
+host uptime: 18:46  up 12 days,  3:45, 10 users, load averages: 8.15 15.21 20.43
+
+17:46:17Z host load: { 8.15 15.21 20.43 }; host free disk (/System/Volumes/Data): 69Gi of 926Gi
+17:46:17Z replica addresses 192.168.104.1 192.168.104.3 192.168.104.4
+### peer CA, per-replica bundles (manager -issue-peer-certs from the image) and proxy/admin tokens (values never logged)
+
+```
+$ vm_root dbcm-lab-m1 
+		set -e
+		d="$1"; rm -rf "$d/peers" "$d/tokens"
+		install -d -m 0700 "$d/tokens"
+		[ -f "$d/ca.pass" ] || { head -c 24 /dev/urandom | base64 | tr -d "\n=" >"$d/ca.pass"; chmod 0600 "$d/ca.pass"; }
+		docker run --rm --user 0 -e DBCM_PEER_CA_PASSPHRASE="$(cat "$d/ca.pass")" -v "$d:/work" "$2" -issue-peer-certs /work/peers -installation "$3" -peer-ids manager-1,manager-2,manager-3
+		for t in proxy-a proxy-b admin; do head -c 24 /dev/urandom | base64 | tr -d "\n=+/" >"$d/tokens/$t.token"; done
+		chmod 0600 "$d"/tokens/*
+		find "$d/peers" -type f | sort | xargs ls -l | cut -c1-10,30- /root/dbcm-e4 db-cluster-manager:e12 e9lab
+-rw-r--r--ct 30 18:46 /root/dbcm-e4/peers/ca.pem
+-rw-------ct 30 18:46 /root/dbcm-e4/peers/ca.sealed
+-rw-r--r--ct 30 18:46 /root/dbcm-e4/peers/manager-1/ca.pem
+-rw-------ct 30 18:46 /root/dbcm-e4/peers/manager-1/peer-bundle.pem
+-rw-------ct 30 18:46 /root/dbcm-e4/peers/manager-1/peer-key.pem
+-rw-r--r--ct 30 18:46 /root/dbcm-e4/peers/manager-1/peer.pem
+-rw-r--r--ct 30 18:46 /root/dbcm-e4/peers/manager-2/ca.pem
+-rw-------ct 30 18:46 /root/dbcm-e4/peers/manager-2/peer-bundle.pem
+-rw-------ct 30 18:46 /root/dbcm-e4/peers/manager-2/peer-key.pem
+-rw-r--r--ct 30 18:46 /root/dbcm-e4/peers/manager-2/peer.pem
+-rw-r--r--ct 30 18:46 /root/dbcm-e4/peers/manager-3/ca.pem
+-rw-------ct 30 18:46 /root/dbcm-e4/peers/manager-3/peer-bundle.pem
+-rw-------ct 30 18:46 /root/dbcm-e4/peers/manager-3/peer-key.pem
+-rw-r--r--ct 30 18:46 /root/dbcm-e4/peers/manager-3/peer.pem
+(exit 0)
+```
+
+### manager init for replica 1 (stdout = configuration, stderr = instructions)
+
+```
+$ vm_root dbcm-lab-m1 
+			set -e
+			docker run --rm "$2" init -rp-id localhost -origin "http://localhost:$3" -manager-addr "$4" -installation "$5" -node-id "manager-$6" \
+				-peers "$7" -agent-image "$2" -display-name "E9 lab" >"$1.tmp" 2>"$1.err" || { cat "$1.err"; exit 1; }
+			jq --arg af "$8" --arg c "$9" "${10}" "$1.tmp" >"$1"
+			rm -f "$1.tmp"; chmod 0600 "$1"
+			echo "--- configuration (replica $6):"; cat "$1"
+			echo "--- instructions (stderr):"; cat "$1.err" /root/dbcm-e4/manager-1.json db-cluster-manager:e12 8080 192.168.104.1 e9lab 1 manager-1=192.168.104.1:7445,manager-2=192.168.104.3:7445,manager-3=192.168.104.4:7445 true e12db .manager.proxyWriters = [{clusterId: $c, initialWriter: "n1", candidates: ["n1","n2","n3"], autoFailover: ($af == "true"),
+	members: [{id: "proxy-a", tokenFile: "/var/lib/dbcm/proxy/proxy-a.token"}, {id: "proxy-b", tokenFile: "/var/lib/dbcm/proxy/proxy-b.token"}],
+	adminTokenFile: "/var/lib/dbcm/proxy/admin.token"}]
+--- configuration (replica 1):
+{
+  "auth": {
+    "enabled": true,
+    "rpId": "localhost",
+    "rpDisplayName": "E9 lab",
+    "origins": [
+      "http://localhost:8080"
+    ]
+  },
+  "manager": {
+    "nodeId": "manager-1",
+    "dataDir": "/var/lib/dbcm",
+    "bind": "192.168.104.1:7445",
+    "advertise": "192.168.104.1:7445",
+    "peers": [
+      {
+        "id": "manager-1",
+        "address": "192.168.104.1:7445",
+        "apiAddress": "192.168.104.1:7447"
+      },
+      {
+        "id": "manager-2",
+        "address": "192.168.104.3:7445",
+        "apiAddress": "192.168.104.3:7447"
+      },
+      {
+        "id": "manager-3",
+        "address": "192.168.104.4:7445",
+        "apiAddress": "192.168.104.4:7447"
+      }
+    ],
+    "bootstrap": true,
+    "keyFile": "",
+    "keyring": true,
+    "peerTLS": {
+      "installation": "e9lab",
+      "caFile": "/run/secrets/dbcm-peer-ca.pem",
+      "certFile": "/var/lib/dbcm/peer/peer-bundle.pem",
+      "keyFile": "/var/lib/dbcm/peer/peer-bundle.pem",
+      "renew": {
+        "caFile": "/run/secrets/dbcm-peer-ca-sealed",
+        "passphraseFile": "/run/secrets/dbcm-peer-ca-passphrase"
+      }
+    },
+    "apiForwardBind": "192.168.104.1:7447",
+    "labAgents": false,
+    "autoResume": false,
+    "agentTransport": {
+      "enrollListen": "192.168.104.1:7444",
+      "managerUrl": "https://192.168.104.1:7444",
+      "serverDns": [],
+      "serverIps": [],
+      "agentPort": 7443,
+      "allowAnySource": false,
+      "monitorUser": "dbcm_monitor",
+      "monitorSecret": "dbcm-e9lab-monitor-pw",
+      "dbSecrets": [
+        "dbcm-e9lab-root-pw",
+        "dbcm-e9lab-backup-pw"
+      ]
+    },
+    "settings": {
+      "installationId": "e9lab",
+      "volumeBase": "/var/lib/dbcm/volumes",
+      "agentImage": "db-cluster-manager:e12",
+      "monitorSocket": "",
+      "accounts": {
+        "monitorUser": "dbcm_monitor",
+        "monitorSecret": "dbcm-e9lab-monitor-pw",
+        "backupUser": "dbcm_backup",
+        "backupSecret": "dbcm-e9lab-backup-pw",
+        "backupLogical": false
+      }
+    },
+    "patch": {
+      "enabled": false,
+      "agentPort": 7445,
+      "pollIntervalSeconds": 300
+    },
+    "imageUpdate": {
+      "enabled": false,
+      "pollIntervalSeconds": 300
+    },
+    "imageComposer": {
+      "enabled": false
+    },
+    "serverBootstrap": {
+      "enabled": false,
+      "sweepSeconds": 60
+    },
+    "proxyWriters": [
+      {
+        "clusterId": "e12db",
+        "initialWriter": "n1",
+        "candidates": [
+          "n1",
+          "n2",
+          "n3"
+        ],
+        "autoFailover": true,
+        "members": [
+          {
+            "id": "proxy-a",
+            "tokenFile": "/var/lib/dbcm/proxy/proxy-a.token"
+          },
+          {
+            "id": "proxy-b",
+            "tokenFile": "/var/lib/dbcm/proxy/proxy-b.token"
+          }
+        ],
+        "adminTokenFile": "/var/lib/dbcm/proxy/admin.token"
+      }
+    ]
+  }
+}
+--- instructions (stderr):
+
+First-run instructions for installation e9lab (deploy/stack.yaml; see docs/INSTALL.md).
+No secret values are printed here. Create each secret from a file or stdin you control.
+
+1. On EVERY Swarm node: create the agent state directory and the volume base:
+     install -d -m 0755 /var/lib/dbcm-agent /var/lib/dbcm/volumes
+2. On a Swarm manager node, create the database secrets and the cluster network
+   (labelled with the installation):
+     for s in dbcm-e9lab-root-pw dbcm-e9lab-monitor-pw dbcm-e9lab-backup-pw; do
+       head -c 24 /dev/urandom | base64 | tr -d '\n' | docker secret create --label dbcm.installation=e9lab "$s" -
+     done
+     docker network create --driver overlay --attachable --label dbcm.installation=e9lab dbcm-e9lab-net
+3. Store this configuration as a Swarm config (configs are immutable; use a new name per change):
+     docker config create dbcm-manager-config-manager-1 <this file>
+   HA (not run as Swarm services): issue peer certificates once with manager -issue-peer-certs.
+   Copy only manager-1/peer-bundle.pem into this node's local /var/lib/dbcm/peer/ (uid 65532,
+   mode 0600). Create three external Swarm secrets from ca.pem, ca.sealed and a separate
+   passphrase file; keep offline recovery copies. These secrets give every manager node
+   online peer-CA signing authority. Repeat init with the same -peers and installation
+   for each -node-id. See docs/INSTALL.md ("Three-replica HA stack").
+4. Set DBCM_MANAGER_NODE_1..3, DBCM_CONFIG_NAME_1..3, DBCM_PEER_CA_NAME,
+   DBCM_PEER_CA_SEALED_NAME, DBCM_PEER_CA_PASSPHRASE_NAME, DBCM_DOCKER_GID
+   and DBCM_IMAGE, then deploy: docker stack deploy -c deploy/stack-ha.yaml dbcm
+   Each service needs a different manager node, config and local volume.
+5. Read the first leader's one-time setup token from its manager service log,
+   then open http://localhost:8080 through your TLS proxy and create the administrator.
+   Register the other replicas' data-key recipients before relying on failover.
+6. Register the Swarm in the UI with Docker endpoint unix:///var/run/docker.sock; agents enroll at https://192.168.104.1:7444.
+(exit 0)
+```
+
+### manager init for replica 2 (stdout = configuration, stderr = instructions)
+
+```
+$ vm_root dbcm-lab-m1 
+			set -e
+			docker run --rm "$2" init -rp-id localhost -origin "http://localhost:$3" -manager-addr "$4" -installation "$5" -node-id "manager-$6" \
+				-peers "$7" -agent-image "$2" -display-name "E9 lab" >"$1.tmp" 2>"$1.err" || { cat "$1.err"; exit 1; }
+			jq --arg af "$8" --arg c "$9" "${10}" "$1.tmp" >"$1"
+			rm -f "$1.tmp"; chmod 0600 "$1"
+			echo "--- configuration (replica $6):"; cat "$1"
+			echo "--- instructions (stderr):"; cat "$1.err" /root/dbcm-e4/manager-2.json db-cluster-manager:e12 8080 192.168.104.3 e9lab 2 manager-1=192.168.104.1:7445,manager-2=192.168.104.3:7445,manager-3=192.168.104.4:7445 true e12db .manager.proxyWriters = [{clusterId: $c, initialWriter: "n1", candidates: ["n1","n2","n3"], autoFailover: ($af == "true"),
+	members: [{id: "proxy-a", tokenFile: "/var/lib/dbcm/proxy/proxy-a.token"}, {id: "proxy-b", tokenFile: "/var/lib/dbcm/proxy/proxy-b.token"}],
+	adminTokenFile: "/var/lib/dbcm/proxy/admin.token"}]
+--- configuration (replica 2):
+{
+  "auth": {
+    "enabled": true,
+    "rpId": "localhost",
+    "rpDisplayName": "E9 lab",
+    "origins": [
+      "http://localhost:8080"
+    ]
+  },
+  "manager": {
+    "nodeId": "manager-2",
+    "dataDir": "/var/lib/dbcm",
+    "bind": "192.168.104.3:7445",
+    "advertise": "192.168.104.3:7445",
+    "peers": [
+      {
+        "id": "manager-1",
+        "address": "192.168.104.1:7445",
+        "apiAddress": "192.168.104.1:7447"
+      },
+      {
+        "id": "manager-2",
+        "address": "192.168.104.3:7445",
+        "apiAddress": "192.168.104.3:7447"
+      },
+      {
+        "id": "manager-3",
+        "address": "192.168.104.4:7445",
+        "apiAddress": "192.168.104.4:7447"
+      }
+    ],
+    "bootstrap": true,
+    "keyFile": "",
+    "keyring": true,
+    "peerTLS": {
+      "installation": "e9lab",
+      "caFile": "/run/secrets/dbcm-peer-ca.pem",
+      "certFile": "/var/lib/dbcm/peer/peer-bundle.pem",
+      "keyFile": "/var/lib/dbcm/peer/peer-bundle.pem",
+      "renew": {
+        "caFile": "/run/secrets/dbcm-peer-ca-sealed",
+        "passphraseFile": "/run/secrets/dbcm-peer-ca-passphrase"
+      }
+    },
+    "apiForwardBind": "192.168.104.3:7447",
+    "labAgents": false,
+    "autoResume": false,
+    "agentTransport": {
+      "enrollListen": "192.168.104.3:7444",
+      "managerUrl": "https://192.168.104.3:7444",
+      "serverDns": [],
+      "serverIps": [],
+      "agentPort": 7443,
+      "allowAnySource": false,
+      "monitorUser": "dbcm_monitor",
+      "monitorSecret": "dbcm-e9lab-monitor-pw",
+      "dbSecrets": [
+        "dbcm-e9lab-root-pw",
+        "dbcm-e9lab-backup-pw"
+      ]
+    },
+    "settings": {
+      "installationId": "e9lab",
+      "volumeBase": "/var/lib/dbcm/volumes",
+      "agentImage": "db-cluster-manager:e12",
+      "monitorSocket": "",
+      "accounts": {
+        "monitorUser": "dbcm_monitor",
+        "monitorSecret": "dbcm-e9lab-monitor-pw",
+        "backupUser": "dbcm_backup",
+        "backupSecret": "dbcm-e9lab-backup-pw",
+        "backupLogical": false
+      }
+    },
+    "patch": {
+      "enabled": false,
+      "agentPort": 7445,
+      "pollIntervalSeconds": 300
+    },
+    "imageUpdate": {
+      "enabled": false,
+      "pollIntervalSeconds": 300
+    },
+    "imageComposer": {
+      "enabled": false
+    },
+    "serverBootstrap": {
+      "enabled": false,
+      "sweepSeconds": 60
+    },
+    "proxyWriters": [
+      {
+        "clusterId": "e12db",
+        "initialWriter": "n1",
+        "candidates": [
+          "n1",
+          "n2",
+          "n3"
+        ],
+        "autoFailover": true,
+        "members": [
+          {
+            "id": "proxy-a",
+            "tokenFile": "/var/lib/dbcm/proxy/proxy-a.token"
+          },
+          {
+            "id": "proxy-b",
+            "tokenFile": "/var/lib/dbcm/proxy/proxy-b.token"
+          }
+        ],
+        "adminTokenFile": "/var/lib/dbcm/proxy/admin.token"
+      }
+    ]
+  }
+}
+--- instructions (stderr):
+
+First-run instructions for installation e9lab (deploy/stack.yaml; see docs/INSTALL.md).
+No secret values are printed here. Create each secret from a file or stdin you control.
+
+1. On EVERY Swarm node: create the agent state directory and the volume base:
+     install -d -m 0755 /var/lib/dbcm-agent /var/lib/dbcm/volumes
+2. On a Swarm manager node, create the database secrets and the cluster network
+   (labelled with the installation):
+     for s in dbcm-e9lab-root-pw dbcm-e9lab-monitor-pw dbcm-e9lab-backup-pw; do
+       head -c 24 /dev/urandom | base64 | tr -d '\n' | docker secret create --label dbcm.installation=e9lab "$s" -
+     done
+     docker network create --driver overlay --attachable --label dbcm.installation=e9lab dbcm-e9lab-net
+3. Store this configuration as a Swarm config (configs are immutable; use a new name per change):
+     docker config create dbcm-manager-config-manager-2 <this file>
+   HA (not run as Swarm services): issue peer certificates once with manager -issue-peer-certs.
+   Copy only manager-2/peer-bundle.pem into this node's local /var/lib/dbcm/peer/ (uid 65532,
+   mode 0600). Create three external Swarm secrets from ca.pem, ca.sealed and a separate
+   passphrase file; keep offline recovery copies. These secrets give every manager node
+   online peer-CA signing authority. Repeat init with the same -peers and installation
+   for each -node-id. See docs/INSTALL.md ("Three-replica HA stack").
+4. Set DBCM_MANAGER_NODE_1..3, DBCM_CONFIG_NAME_1..3, DBCM_PEER_CA_NAME,
+   DBCM_PEER_CA_SEALED_NAME, DBCM_PEER_CA_PASSPHRASE_NAME, DBCM_DOCKER_GID
+   and DBCM_IMAGE, then deploy: docker stack deploy -c deploy/stack-ha.yaml dbcm
+   Each service needs a different manager node, config and local volume.
+5. Read the first leader's one-time setup token from its manager service log,
+   then open http://localhost:8080 through your TLS proxy and create the administrator.
+   Register the other replicas' data-key recipients before relying on failover.
+6. Register the Swarm in the UI with Docker endpoint unix:///var/run/docker.sock; agents enroll at https://192.168.104.3:7444.
+(exit 0)
+```
+
+### manager init for replica 3 (stdout = configuration, stderr = instructions)
+
+```
+$ vm_root dbcm-lab-m1 
+			set -e
+			docker run --rm "$2" init -rp-id localhost -origin "http://localhost:$3" -manager-addr "$4" -installation "$5" -node-id "manager-$6" \
+				-peers "$7" -agent-image "$2" -display-name "E9 lab" >"$1.tmp" 2>"$1.err" || { cat "$1.err"; exit 1; }
+			jq --arg af "$8" --arg c "$9" "${10}" "$1.tmp" >"$1"
+			rm -f "$1.tmp"; chmod 0600 "$1"
+			echo "--- configuration (replica $6):"; cat "$1"
+			echo "--- instructions (stderr):"; cat "$1.err" /root/dbcm-e4/manager-3.json db-cluster-manager:e12 8080 192.168.104.4 e9lab 3 manager-1=192.168.104.1:7445,manager-2=192.168.104.3:7445,manager-3=192.168.104.4:7445 true e12db .manager.proxyWriters = [{clusterId: $c, initialWriter: "n1", candidates: ["n1","n2","n3"], autoFailover: ($af == "true"),
+	members: [{id: "proxy-a", tokenFile: "/var/lib/dbcm/proxy/proxy-a.token"}, {id: "proxy-b", tokenFile: "/var/lib/dbcm/proxy/proxy-b.token"}],
+	adminTokenFile: "/var/lib/dbcm/proxy/admin.token"}]
+--- configuration (replica 3):
+{
+  "auth": {
+    "enabled": true,
+    "rpId": "localhost",
+    "rpDisplayName": "E9 lab",
+    "origins": [
+      "http://localhost:8080"
+    ]
+  },
+  "manager": {
+    "nodeId": "manager-3",
+    "dataDir": "/var/lib/dbcm",
+    "bind": "192.168.104.4:7445",
+    "advertise": "192.168.104.4:7445",
+    "peers": [
+      {
+        "id": "manager-1",
+        "address": "192.168.104.1:7445",
+        "apiAddress": "192.168.104.1:7447"
+      },
+      {
+        "id": "manager-2",
+        "address": "192.168.104.3:7445",
+        "apiAddress": "192.168.104.3:7447"
+      },
+      {
+        "id": "manager-3",
+        "address": "192.168.104.4:7445",
+        "apiAddress": "192.168.104.4:7447"
+      }
+    ],
+    "bootstrap": true,
+    "keyFile": "",
+    "keyring": true,
+    "peerTLS": {
+      "installation": "e9lab",
+      "caFile": "/run/secrets/dbcm-peer-ca.pem",
+      "certFile": "/var/lib/dbcm/peer/peer-bundle.pem",
+      "keyFile": "/var/lib/dbcm/peer/peer-bundle.pem",
+      "renew": {
+        "caFile": "/run/secrets/dbcm-peer-ca-sealed",
+        "passphraseFile": "/run/secrets/dbcm-peer-ca-passphrase"
+      }
+    },
+    "apiForwardBind": "192.168.104.4:7447",
+    "labAgents": false,
+    "autoResume": false,
+    "agentTransport": {
+      "enrollListen": "192.168.104.4:7444",
+      "managerUrl": "https://192.168.104.4:7444",
+      "serverDns": [],
+      "serverIps": [],
+      "agentPort": 7443,
+      "allowAnySource": false,
+      "monitorUser": "dbcm_monitor",
+      "monitorSecret": "dbcm-e9lab-monitor-pw",
+      "dbSecrets": [
+        "dbcm-e9lab-root-pw",
+        "dbcm-e9lab-backup-pw"
+      ]
+    },
+    "settings": {
+      "installationId": "e9lab",
+      "volumeBase": "/var/lib/dbcm/volumes",
+      "agentImage": "db-cluster-manager:e12",
+      "monitorSocket": "",
+      "accounts": {
+        "monitorUser": "dbcm_monitor",
+        "monitorSecret": "dbcm-e9lab-monitor-pw",
+        "backupUser": "dbcm_backup",
+        "backupSecret": "dbcm-e9lab-backup-pw",
+        "backupLogical": false
+      }
+    },
+    "patch": {
+      "enabled": false,
+      "agentPort": 7445,
+      "pollIntervalSeconds": 300
+    },
+    "imageUpdate": {
+      "enabled": false,
+      "pollIntervalSeconds": 300
+    },
+    "imageComposer": {
+      "enabled": false
+    },
+    "serverBootstrap": {
+      "enabled": false,
+      "sweepSeconds": 60
+    },
+    "proxyWriters": [
+      {
+        "clusterId": "e12db",
+        "initialWriter": "n1",
+        "candidates": [
+          "n1",
+          "n2",
+          "n3"
+        ],
+        "autoFailover": true,
+        "members": [
+          {
+            "id": "proxy-a",
+            "tokenFile": "/var/lib/dbcm/proxy/proxy-a.token"
+          },
+          {
+            "id": "proxy-b",
+            "tokenFile": "/var/lib/dbcm/proxy/proxy-b.token"
+          }
+        ],
+        "adminTokenFile": "/var/lib/dbcm/proxy/admin.token"
+      }
+    ]
+  }
+}
+--- instructions (stderr):
+
+First-run instructions for installation e9lab (deploy/stack.yaml; see docs/INSTALL.md).
+No secret values are printed here. Create each secret from a file or stdin you control.
+
+1. On EVERY Swarm node: create the agent state directory and the volume base:
+     install -d -m 0755 /var/lib/dbcm-agent /var/lib/dbcm/volumes
+2. On a Swarm manager node, create the database secrets and the cluster network
+   (labelled with the installation):
+     for s in dbcm-e9lab-root-pw dbcm-e9lab-monitor-pw dbcm-e9lab-backup-pw; do
+       head -c 24 /dev/urandom | base64 | tr -d '\n' | docker secret create --label dbcm.installation=e9lab "$s" -
+     done
+     docker network create --driver overlay --attachable --label dbcm.installation=e9lab dbcm-e9lab-net
+3. Store this configuration as a Swarm config (configs are immutable; use a new name per change):
+     docker config create dbcm-manager-config-manager-3 <this file>
+   HA (not run as Swarm services): issue peer certificates once with manager -issue-peer-certs.
+   Copy only manager-3/peer-bundle.pem into this node's local /var/lib/dbcm/peer/ (uid 65532,
+   mode 0600). Create three external Swarm secrets from ca.pem, ca.sealed and a separate
+   passphrase file; keep offline recovery copies. These secrets give every manager node
+   online peer-CA signing authority. Repeat init with the same -peers and installation
+   for each -node-id. See docs/INSTALL.md ("Three-replica HA stack").
+4. Set DBCM_MANAGER_NODE_1..3, DBCM_CONFIG_NAME_1..3, DBCM_PEER_CA_NAME,
+   DBCM_PEER_CA_SEALED_NAME, DBCM_PEER_CA_PASSPHRASE_NAME, DBCM_DOCKER_GID
+   and DBCM_IMAGE, then deploy: docker stack deploy -c deploy/stack-ha.yaml dbcm
+   Each service needs a different manager node, config and local volume.
+5. Read the first leader's one-time setup token from its manager service log,
+   then open http://localhost:8080 through your TLS proxy and create the administrator.
+   Register the other replicas' data-key recipients before relying on failover.
+6. Register the Swarm in the UI with Docker endpoint unix:///var/run/docker.sock; agents enroll at https://192.168.104.4:7444.
+(exit 0)
+```
+
+### Swarm secrets for the peer CA and configs per replica
+
+```
+$ vm_root dbcm-lab-m1 
+		set -e
+		d="$1"
+		mk() { docker secret inspect "$1" >/dev/null 2>&1 && echo "secret $1 exists" || { docker secret create "$1" "$2" >/dev/null && echo "secret $1"; }; }
+		mk dbcm-e9-peer-ca "$d/peers/ca.pem"; mk dbcm-e9-peer-ca-sealed "$d/peers/ca.sealed"; mk dbcm-e9-peer-ca-pass "$d/ca.pass"
+		for i in 1 2 3; do
+			docker config inspect "dbcm-e9-config-$i" >/dev/null 2>&1 && echo "config $i exists" || { docker config create "dbcm-e9-config-$i" "$d/manager-$i.json" >/dev/null && echo "config $i"; }
+		done
+		docker secret ls; docker config ls /root/dbcm-e4
+secret dbcm-e9-peer-ca
+secret dbcm-e9-peer-ca-sealed
+secret dbcm-e9-peer-ca-pass
+config 1
+config 2
+config 3
+ID                          NAME                     DRIVER    CREATED                  UPDATED
+yemo39ij9dei0o86gtv1jc0jl   dbcm-e9-peer-ca                    Less than a second ago   Less than a second ago
+k18dd41b2dtlxakv9g6r3kt3h   dbcm-e9-peer-ca-pass               Less than a second ago   Less than a second ago
+n9yfjgli1m6o6f0sa15haq3x8   dbcm-e9-peer-ca-sealed             Less than a second ago   Less than a second ago
+vhrf8tjnwbofb0hxealylk8ra   dbcm-e9lab-backup-pw               1 second ago             1 second ago
+5oh4it95z2pmx37ziga3w7fxo   dbcm-e9lab-monitor-pw              1 second ago             1 second ago
+umu56ijegvq9qtwt521m1rmpf   dbcm-e9lab-root-pw                 1 second ago             1 second ago
+ID                          NAME               CREATED                  UPDATED
+sb87sbbxkpt5fhs2ak9yvawgc   dbcm-e9-config-1   Less than a second ago   Less than a second ago
+v3xp8ikdkof6oizixmkfkqk3i   dbcm-e9-config-2   Less than a second ago   Less than a second ago
+tvqckxwon4yy19bhr70liprrq   dbcm-e9-config-3   Less than a second ago   Less than a second ago
+(exit 0)
+```
+
+### volume dbcm_manager-data-1 on dbcm-lab-m1: own peer bundle and the shared proxy tokens, owned by 65532
+
+```
+$ sh -c limactl shell --workdir / dbcm-lab-m1 -- sudo tar -C /root/dbcm-e4 -cf - peers/manager-1/peer-bundle.pem tokens | limactl shell --workdir / dbcm-lab-m1 -- sudo sh -c '
+				set -e
+				docker volume create dbcm_manager-data-1 >/dev/null
+				mp=$(docker volume inspect -f "{{.Mountpoint}}" dbcm_manager-data-1)
+				d=$(mktemp -d) && tar -C $d -xf -
+				install -d -m 0700 $mp/peer $mp/proxy
+				install -m 0600 $d/peers/manager-1/peer-bundle.pem $mp/peer/peer-bundle.pem
+				for t in proxy-a proxy-b admin; do install -m 0600 $d/tokens/$t.token $mp/proxy/$t.token; done
+				rm -rf $d
+				chown -R 65532:65532 $mp
+				ls -lnR $mp | cut -c1-60'
+/var/lib/docker/volumes/dbcm_manager-data-1/_data:
+total 8
+drwx------ 2 65532 65532 4096 Oct 30 18:46 peer
+drwx------ 2 65532 65532 4096 Oct 30 18:46 proxy
+
+/var/lib/docker/volumes/dbcm_manager-data-1/_data/peer:
+total 4
+-rw------- 1 65532 65532 1536 Oct 30 18:46 peer-bundle.pem
+
+/var/lib/docker/volumes/dbcm_manager-data-1/_data/proxy:
+total 12
+-rw------- 1 65532 65532 32 Oct 30 18:46 admin.token
+-rw------- 1 65532 65532 31 Oct 30 18:46 proxy-a.token
+-rw------- 1 65532 65532 30 Oct 30 18:46 proxy-b.token
+(exit 0)
+```
+
+### volume dbcm_manager-data-2 on dbcm-lab-m2: own peer bundle and the shared proxy tokens, owned by 65532
+
+```
+$ sh -c limactl shell --workdir / dbcm-lab-m1 -- sudo tar -C /root/dbcm-e4 -cf - peers/manager-2/peer-bundle.pem tokens | limactl shell --workdir / dbcm-lab-m2 -- sudo sh -c '
+				set -e
+				docker volume create dbcm_manager-data-2 >/dev/null
+				mp=$(docker volume inspect -f "{{.Mountpoint}}" dbcm_manager-data-2)
+				d=$(mktemp -d) && tar -C $d -xf -
+				install -d -m 0700 $mp/peer $mp/proxy
+				install -m 0600 $d/peers/manager-2/peer-bundle.pem $mp/peer/peer-bundle.pem
+				for t in proxy-a proxy-b admin; do install -m 0600 $d/tokens/$t.token $mp/proxy/$t.token; done
+				rm -rf $d
+				chown -R 65532:65532 $mp
+				ls -lnR $mp | cut -c1-60'
+/var/lib/docker/volumes/dbcm_manager-data-2/_data:
+total 8
+drwx------ 2 65532 65532 4096 Oct 30 18:46 peer
+drwx------ 2 65532 65532 4096 Oct 30 18:46 proxy
+
+/var/lib/docker/volumes/dbcm_manager-data-2/_data/peer:
+total 4
+-rw------- 1 65532 65532 1536 Oct 30 18:46 peer-bundle.pem
+
+/var/lib/docker/volumes/dbcm_manager-data-2/_data/proxy:
+total 12
+-rw------- 1 65532 65532 32 Oct 30 18:46 admin.token
+-rw------- 1 65532 65532 31 Oct 30 18:46 proxy-a.token
+-rw------- 1 65532 65532 30 Oct 30 18:46 proxy-b.token
+(exit 0)
+```
+
+### volume dbcm_manager-data-3 on dbcm-lab-m3: own peer bundle and the shared proxy tokens, owned by 65532
+
+```
+$ sh -c limactl shell --workdir / dbcm-lab-m1 -- sudo tar -C /root/dbcm-e4 -cf - peers/manager-3/peer-bundle.pem tokens | limactl shell --workdir / dbcm-lab-m3 -- sudo sh -c '
+				set -e
+				docker volume create dbcm_manager-data-3 >/dev/null
+				mp=$(docker volume inspect -f "{{.Mountpoint}}" dbcm_manager-data-3)
+				d=$(mktemp -d) && tar -C $d -xf -
+				install -d -m 0700 $mp/peer $mp/proxy
+				install -m 0600 $d/peers/manager-3/peer-bundle.pem $mp/peer/peer-bundle.pem
+				for t in proxy-a proxy-b admin; do install -m 0600 $d/tokens/$t.token $mp/proxy/$t.token; done
+				rm -rf $d
+				chown -R 65532:65532 $mp
+				ls -lnR $mp | cut -c1-60'
+/var/lib/docker/volumes/dbcm_manager-data-3/_data:
+total 8
+drwx------ 2 65532 65532 4096 Oct 30 18:46 peer
+drwx------ 2 65532 65532 4096 Oct 30 18:46 proxy
+
+/var/lib/docker/volumes/dbcm_manager-data-3/_data/peer:
+total 4
+-rw------- 1 65532 65532 1536 Oct 30 18:46 peer-bundle.pem
+
+/var/lib/docker/volumes/dbcm_manager-data-3/_data/proxy:
+total 12
+-rw------- 1 65532 65532 32 Oct 30 18:46 admin.token
+-rw------- 1 65532 65532 31 Oct 30 18:46 proxy-a.token
+-rw------- 1 65532 65532 30 Oct 30 18:46 proxy-b.token
+(exit 0)
+```
+
+
+## Phase hastack: docker stack deploy -c deploy/stack-ha.yaml (three pinned manager services)
+
+host uptime: 18:46  up 12 days,  3:45, 10 users, load averages: 8.15 15.21 20.43
+
+17:46:19Z host load: { 8.15 15.21 20.43 }; host free disk (/System/Volumes/Data): 69Gi of 926Gi
+17:46:19Z docker socket group ids: 987 987 987
+### docker stack deploy
+
+```
+$ vm_root dbcm-lab-m1 
+		cd "$1" && DBCM_IMAGE="$2" DBCM_DOCKER_GID="$3" DBCM_MANAGER_NODE_1=lima-dbcm-lab-m1 DBCM_MANAGER_NODE_2=lima-dbcm-lab-m2 DBCM_MANAGER_NODE_3=lima-dbcm-lab-m3 \
+		DBCM_CONFIG_NAME_1=dbcm-e9-config-1 DBCM_CONFIG_NAME_2=dbcm-e9-config-2 DBCM_CONFIG_NAME_3=dbcm-e9-config-3 \
+		DBCM_PEER_CA_NAME=dbcm-e9-peer-ca DBCM_PEER_CA_SEALED_NAME=dbcm-e9-peer-ca-sealed DBCM_PEER_CA_PASSPHRASE_NAME=dbcm-e9-peer-ca-pass \
+		docker stack deploy -c deploy/stack-ha.yaml --detach=true "$4" 2>&1 /root/dbcm-e9-src db-cluster-manager:e12 987 dbcm
+Creating service dbcm_manager-2
+Creating service dbcm_manager-3
+Creating service dbcm_manager-1
+(exit 0)
+```
+
+17:46:30Z wait ok after 8s: three manager tasks running
+### stack services
+
+```
+$ vm_docker dbcm-lab-m1 stack services dbcm
+ID             NAME             MODE         REPLICAS   IMAGE                    PORTS
+ydbacmzdaoty   dbcm_manager-1   replicated   1/1        db-cluster-manager:e12   
+9wa6dkyfz6a1   dbcm_manager-2   replicated   1/1        db-cluster-manager:e12   
+006f9xfmwlqe   dbcm_manager-3   replicated   1/1        db-cluster-manager:e12   
+(exit 0)
+```
+
+### placement as Swarm stored it
+
+```
+$ sh -c for i in 1 2 3; do limactl shell --workdir / dbcm-lab-m1 -- sudo docker service inspect --format '{{.Spec.Name}} constraints={{.Spec.TaskTemplate.Placement.Constraints}} replicas={{.Spec.Mode.Replicated.Replicas}} user={{.Spec.TaskTemplate.ContainerSpec.User}} readonly={{.Spec.TaskTemplate.ContainerSpec.ReadOnly}} capdrop={{.Spec.TaskTemplate.ContainerSpec.CapabilityDrop}} secrets={{len .Spec.TaskTemplate.ContainerSpec.Secrets}} update={{.Spec.UpdateConfig.Order}}/{{.Spec.UpdateConfig.FailureAction}}' dbcm_manager-$i; done
+dbcm_manager-1 constraints=[node.role == manager node.hostname == lima-dbcm-lab-m1] replicas=1 user=65532:987 readonly=true capdrop=[ALL] secrets=3 update=stop-first/rollback
+dbcm_manager-2 constraints=[node.role == manager node.hostname == lima-dbcm-lab-m2] replicas=1 user=65532:987 readonly=true capdrop=[ALL] secrets=3 update=stop-first/rollback
+dbcm_manager-3 constraints=[node.role == manager node.hostname == lima-dbcm-lab-m3] replicas=1 user=65532:987 readonly=true capdrop=[ALL] secrets=3 update=stop-first/rollback
+(exit 0)
+```
+
+17:46:31Z wait ok after 0s: a replica leads
+### replica 1: probe without forwarding (leader 200, follower 503 + X-DCM-Leader)
+
+```
+$ ha_probe dbcm-lab-m1
+HTTP/1.1 503 Service Unavailable X-Dcm-Leader: manager-2 (exit 0)
+```
+
+### replica 2: probe without forwarding (leader 200, follower 503 + X-DCM-Leader)
+
+```
+$ ha_probe dbcm-lab-m2
+HTTP/1.1 200 OK (exit 0)
+```
+
+### replica 3: probe without forwarding (leader 200, follower 503 + X-DCM-Leader)
+
+```
+$ ha_probe dbcm-lab-m3
+HTTP/1.1 503 Service Unavailable X-Dcm-Leader: manager-2 (exit 0)
+```
+
+### listeners on the replica VMs (7445 metastore, 7447 API forwarding, 8080 loopback API, 7444 enrollment)
+
+```
+$ sh -c for v in dbcm-lab-m1 dbcm-lab-m2 dbcm-lab-m3; do limactl shell --workdir / $v -- sudo ss -ltn | grep -E ':7444|:7445|:7447|:8080' | sed "s/^/$v /"; done
+dbcm-lab-m1 LISTEN 0      4096       127.0.0.1:8080      0.0.0.0:*   
+dbcm-lab-m1 LISTEN 0      4096   192.168.104.1:7444      0.0.0.0:*   
+dbcm-lab-m1 LISTEN 0      4096   192.168.104.1:7445      0.0.0.0:*   
+dbcm-lab-m1 LISTEN 0      4096   192.168.104.1:7447      0.0.0.0:*   
+dbcm-lab-m2 LISTEN 0      4096   192.168.104.3:7444      0.0.0.0:*   
+dbcm-lab-m2 LISTEN 0      4096   192.168.104.3:7445      0.0.0.0:*   
+dbcm-lab-m2 LISTEN 0      4096   192.168.104.3:7447      0.0.0.0:*   
+dbcm-lab-m2 LISTEN 0      4096       127.0.0.1:8080      0.0.0.0:*   
+dbcm-lab-m3 LISTEN 0      4096       127.0.0.1:8080      0.0.0.0:*   
+dbcm-lab-m3 LISTEN 0      4096   192.168.104.4:7445      0.0.0.0:*   
+dbcm-lab-m3 LISTEN 0      4096   192.168.104.4:7444      0.0.0.0:*   
+dbcm-lab-m3 LISTEN 0      4096   192.168.104.4:7447      0.0.0.0:*   
+(exit 0)
+```
+
+### container health state per replica
+
+```
+$ sh -c for i in 1 2 3; do limactl shell --workdir / dbcm-lab-m$i -- sudo docker ps --filter label=com.docker.swarm.service.name=dbcm_manager-$i --format '{{.Names}} {{.Status}}'; done
+dbcm_manager-1.1.hzyg8e4b7u5h9a4rt72dmnfqx Up 7 seconds (healthy)
+dbcm_manager-2.1.lw0r1wo56qn5d4y333eaovlce Up 10 seconds (healthy)
+dbcm_manager-3.1.iaube9mo9r7k04w1ndd7yny3x Up 9 seconds (healthy)
+(exit 0)
+```
+
+### log of replica 1
+
+```
+$ mgr_logs 1 30
+2026-10-30T17:46:24.311933928Z dbcm_manager-1.1.hzyg8e4b7u5h9a4rt72dmnfqx@lima-dbcm-lab-m1    | 2026/10/30 17:46:24 INFO manager: agent enrollment endpoint listening addr=192.168.104.1:7444
+2026-10-30T17:46:24.312077512Z dbcm_manager-1.1.hzyg8e4b7u5h9a4rt72dmnfqx@lima-dbcm-lab-m1    | 2026/10/30 17:46:24 INFO manager listening addr=127.0.0.1:8080 version=0.0.0-e9 auth=true
+(exit 0)
+```
+
+### log of replica 2
+
+```
+$ mgr_logs 2 30
+2026-10-30T17:46:21.588655363Z dbcm_manager-2.1.lw0r1wo56qn5d4y333eaovlce@lima-dbcm-lab-m2    | 2026/10/30 17:46:21 INFO manager: agent enrollment endpoint listening addr=192.168.104.3:7444
+2026-10-30T17:46:21.588728323Z dbcm_manager-2.1.lw0r1wo56qn5d4y333eaovlce@lima-dbcm-lab-m2    | 2026/10/30 17:46:21 INFO manager listening addr=127.0.0.1:8080 version=0.0.0-e9 auth=true
+2026-10-30T17:46:22.794059964Z dbcm_manager-2.1.lw0r1wo56qn5d4y333eaovlce@lima-dbcm-lab-m2    | 2026/10/30 17:46:22 WARN manager: the data key has no recovery envelope; configure a backup recovery key (settings.backup.recipientKey)
+2026-10-30T17:46:22.794787645Z dbcm_manager-2.1.lw0r1wo56qn5d4y333eaovlce@lima-dbcm-lab-m2    | 2026/10/30 17:46:22 INFO manager: leadership started term=2 adopted=0
+2026-10-30T17:46:22.799765660Z dbcm_manager-2.1.lw0r1wo56qn5d4y333eaovlce@lima-dbcm-lab-m2    | 2026/10/30 17:46:22 INFO manager: configured settings applied
+2026-10-30T17:46:22.801878869Z dbcm_manager-2.1.lw0r1wo56qn5d4y333eaovlce@lima-dbcm-lab-m2    | 2026/10/30 17:46:22 INFO manager: bound the manager system subject to its system role
+(exit 0)
+```
+
+### log of replica 3
+
+```
+$ mgr_logs 3 30
+2026-10-30T17:46:22.617393338Z dbcm_manager-3.1.iaube9mo9r7k04w1ndd7yny3x@lima-dbcm-lab-m3    | 2026/10/30 17:46:22 INFO manager: agent enrollment endpoint listening addr=192.168.104.4:7444
+2026-10-30T17:46:22.617426669Z dbcm_manager-3.1.iaube9mo9r7k04w1ndd7yny3x@lima-dbcm-lab-m3    | 2026/10/30 17:46:22 INFO manager listening addr=127.0.0.1:8080 version=0.0.0-e9 auth=true
+(exit 0)
+```
+
+**Result:** PASS (hastack): three replicas running, leader replica 2
+
+17:46:32Z RESULT: PASS (hastack): three replicas running, leader replica 2
+17:46:32Z E12_KEEP_VMS=1: VMs kept; run bin/lab cleanup --apply manually
+17:46:32Z E12 finished with exit 0

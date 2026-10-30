@@ -4,7 +4,7 @@ title: Release candidate (R1 slice) - state, limits and owner quickstart
 
 # Release candidate (R1 slice)
 
-Draft of 2026-10-30. **This is not a release.** No tag, image or release was created or pushed; the owner decides. The R1 exit gates in [RELEASES.md](RELEASES.md) are not met, and the release-candidate lab run (E13) did **not** execute because the host had no resources for it ([e13-not-run.md](../tests/p0/results/e13-not-run.md)). The honest state: the components were verified earlier on lab VMs and with fakes; the **assembled** candidate has not been walked through by a fresh user, in a real browser, or with real backup data in this cycle.
+Draft of 2026-10-30. **This is not a release.** No tag, image or release was created or pushed; the owner decides. The R1 exit gates in [RELEASES.md](RELEASES.md) are not met, and the release-candidate lab run (E13) first could not start (host resources, [e13-not-run.md](../tests/p0/results/e13-not-run.md)) and later ran only partly ([e13-rc-lab.md](../tests/p0/results/e13-rc-lab.md)). The honest state: the components were verified earlier on lab VMs and with fakes; the **assembled** candidate has not been walked through by a fresh user, in a real browser, or with real backup data in this cycle.
 
 ## What was run for this candidate
 
@@ -12,9 +12,9 @@ Draft of 2026-10-30. **This is not a release.** No tag, image or release was cre
 | --- | --- | --- |
 | Local release packaging (`scripts/rc-package.sh 0.1.0-rc1`): linux amd64/arm64 archives of manager/agent/cli, six CycloneDX SBOMs, SHA256SUMS, release notes | Ran; checksums verified | Host-only. Archives are bsdtar, not the workflow's reproducible GNU tar; SBOMs from a throwaway repo with a local tag |
 | Container images (`deploy/Dockerfile`, `Dockerfile.jobs`) | Not built in this cycle | Earlier arm64 manager image ran in E7 only |
-| Fresh-install walkthrough, `tests/p0/rc-demo.sh` | **Not run** (script exists, `bash -n` only) | None |
-| Real-browser UI end-to-end, real screenshots, 360 px and keyboard checks | **Not run** | None. Existing screenshots in `docs/assets` come from the mock server |
-| Backup, restore and PITR with local and MinIO target | **Not run** in this cycle | See below for earlier partial evidence |
+| `tests/p0/rc-demo.sh up` | Ran: three HA replicas up, token printed, forward works | Lab VMs (arm64); not the manual INSTALL.md path |
+| Real-browser UI end-to-end (Playwright, virtual passkey): setup, login, connect, enroll, deploy agents, create Galera, rolling restart with approval; 360 px and tab order | Ran; three bugs fixed | Lab VMs. Real screenshots in `docs/assets/screenshots/real/`; the guides still use mock screenshots |
+| Backup, restore and PITR with local and MinIO target | **Not run** | See below for earlier partial evidence |
 
 ## What is verified on VMs (earlier cycles, arm64, Docker 29.9.2, MariaDB 11.4.13)
 
