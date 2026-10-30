@@ -351,6 +351,18 @@ func TestFromGaleraPlanAccounts(t *testing.T) {
 // TestExecSQLIsIdempotent: the bootstrap account step is retried while the
 // new server does not accept the root login yet (lab E4); its templates are
 // idempotent statements.
+// A stopped MariaDB task needs seconds to leave Swarm's running count (lab RC
+// run, rolling restart: await-stopped failed on its first answer). The step
+// changes nothing and must be polled like await-service.
+func TestAwaitStoppedIsPolled(t *testing.T) {
+	if !Idempotent(agent.KindAwaitStopped) {
+		t.Fatal("await-stopped must be idempotent so the runner polls it up to MaxRetries")
+	}
+	if Idempotent(agent.KindStartService) {
+		t.Fatal("start-service changes state and must not be retried blindly")
+	}
+}
+
 func TestExecSQLIsIdempotent(t *testing.T) {
 	if !Idempotent(agent.KindExecSQL) {
 		t.Fatal("exec-sql is not retried")

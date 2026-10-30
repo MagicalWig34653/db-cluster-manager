@@ -192,6 +192,10 @@ func Idempotent(k agent.Kind) bool {
 	case agent.KindAwaitService:
 		// Changes nothing: polled until Swarm finished replacing the task.
 		return true
+	case agent.KindAwaitStopped:
+		// Changes nothing: polled until Swarm no longer counts a running task
+		// of the stopped service (a database needs seconds to shut down).
+		return true
 	case agent.KindExecSQL:
 		// Only allow-listed templates that are idempotent statements
 		// (CREATE USER IF NOT EXISTS, ALTER USER, REVOKE, GRANT); a retry is
