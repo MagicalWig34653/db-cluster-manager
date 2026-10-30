@@ -72,6 +72,8 @@ func extraGolden() map[string]Recipe {
 			sel("minecraft", "26.3", nil, mcOK(map[string]any{"motd": "Hello Swarm", "maxPlayers": 8, "difficulty": "normal", "viewDistance": 8, "memoryInitial": "1G", "memoryMax": "3G"}))),
 		"alpine322-minecraft-paper": rec("mc paper", "alpine", "3.22", nil,
 			sel("minecraft", "1.21.11", nil, mcOK(map[string]any{"variant": "paper", "onlineMode": false}))),
+		"debian13-minecraft-crossplay": rec("mc crossplay", "debian", "13", nil,
+			sel("minecraft", "26.3", nil, mcOK(map[string]any{"variant": "paper", "crossplay": true}))),
 		"debian13-sftp": rec("files", "debian", "13", nil,
 			sel("sftp", "distro", nil, map[string]any{"readOnly": true, "dataDir": "/srv/files"})),
 		"alpine321-jobs-restic": rec("backup", "alpine", "3.21", nil,
@@ -117,6 +119,9 @@ func TestMinecraft(t *testing.T) {
 		"java 25 not on alpine":    {mc("alpine", "3.22", "26.3", mcOK(nil)), "components[minecraft].version"},
 		"java 25 not on ubuntu 22": {mc("ubuntu", "22.04", "26.1.2", mcOK(nil)), "components[minecraft].version"},
 		"unknown version":          {mc("ubuntu", "24.04", "1.8.8", mcOK(nil)), "components[minecraft].version"},
+		"crossplay on vanilla":     {mc("ubuntu", "24.04", "26.3", mcOK(map[string]any{"crossplay": true})), "components[minecraft].settings.crossplay"},
+		"crossplay unverified ver": {mc("ubuntu", "24.04", "26.1.2", mcOK(map[string]any{"variant": "paper", "crossplay": true})), "components[minecraft].settings.crossplay"},
+		"crossplay as text":        {mc("ubuntu", "24.04", "26.3", mcOK(map[string]any{"variant": "paper", "crossplay": "yes"})), "components[minecraft].settings.crossplay"},
 		"unknown variant":          {mc("ubuntu", "24.04", "26.3", mcOK(map[string]any{"variant": "spigot"})), "components[minecraft].settings.variant"},
 		"xms above xmx":            {mc("ubuntu", "24.04", "26.3", mcOK(map[string]any{"memoryInitial": "4G", "memoryMax": "2G"})), "components[minecraft].settings.memoryInitial"},
 		"heap too small":           {mc("ubuntu", "24.04", "26.3", mcOK(map[string]any{"memoryInitial": "128M", "memoryMax": "256M"})), "components[minecraft].settings.memoryMax"},
@@ -195,6 +200,45 @@ func TestMinecraft(t *testing.T) {
 	}
 }
 
+func TestMinecraftCrossplay(t *testing.T) {
+	c := Default()
+	// Off by default: no plugin, no UDP port.
+	off, err := c.Generate(extraGolden()["alpine322-minecraft-paper"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(off.Rendered.Dockerfile, "geysermc") || strings.Contains(off.Rendered.Dockerfile, "/udp") {
+		t.Errorf("crossplay off must not add anything:\n%s", off.Rendered.Dockerfile)
+	}
+	on, err := c.Generate(extraGolden()["debian13-minecraft-crossplay"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	df := on.Rendered.Dockerfile
+	for _, want := range []string{
+		"RUN mkdir -p -m 0755 /opt/minecraft /opt/minecraft/plugins",
+		"ADD --checksum=sha256:234fa467a32bbc780bd495296eb18fa0fbd7af8dab41f137ed5f7a45aabfbb90 --chmod=0644 https://download.geysermc.org/v2/projects/geyser/versions/2.12.1/builds/1279/downloads/spigot /opt/minecraft/plugins/Geyser-Spigot.jar",
+		"ADD --checksum=sha256:21570aff9ce17d6983928e8552777760e1ede5050026b04c686b0ae112e6fd7e --chmod=0644 https://download.geysermc.org/v2/projects/floodgate/versions/2.2.5/builds/141/downloads/spigot /opt/minecraft/plugins/floodgate-spigot.jar",
+		"EXPOSE 25565\nEXPOSE 19132/udp\n",
+	} {
+		if !strings.Contains(df, want) {
+			t.Errorf("Dockerfile lacks %q:\n%s", want, df)
+		}
+	}
+	for _, f := range on.Rendered.Files {
+		if f.Path == "minecraft/entrypoint.sh" && !strings.Contains(f.Content, "mkdir -p plugins\ncp -f /opt/minecraft/plugins/*.jar plugins/\n") {
+			t.Errorf("entrypoint does not copy the plugins into the volume:\n%s", f.Content)
+		}
+	}
+	var udp bool
+	for _, w := range on.Warnings {
+		udp = udp || strings.Contains(w, "UDP 19132")
+	}
+	if !udp {
+		t.Error("UDP warning missing")
+	}
+}
+
 func TestArtifactCatalogRules(t *testing.T) {
 	good := string(embedded)
 	mojang := "https://piston-data.mojang.com/v1/objects/33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c/server.jar"
@@ -216,6 +260,18 @@ func TestArtifactCatalogRules(t *testing.T) {
 		},
 		"vanilla without sha1": func(s string) string {
 			return strings.Replace(s, `, "sha1": "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"`, "", 1)
+		},
+		"plugin foreign host": func(s string) string {
+			return strings.Replace(s, "https://download.geysermc.org/v2/projects/geyser/", "https://example.org/v2/projects/geyser/", 1)
+		},
+		"plugin project mismatch": func(s string) string {
+			return strings.Replace(s, "/v2/projects/geyser/versions/2.12.1", "/v2/projects/floodgate/versions/2.12.1", 1)
+		},
+		"plugin not spigot": func(s string) string {
+			return strings.Replace(s, "/builds/141/downloads/spigot", "/builds/141/downloads/velocity", 1)
+		},
+		"plugin sha256 malformed": func(s string) string {
+			return strings.Replace(s, "234fa467a32bbc780bd495296eb18fa0fbd7af8dab41f137ed5f7a45aabfbb90", "234F", 1)
 		},
 		"zero size": func(s string) string { return strings.Replace(s, `"size": 62294556`, `"size": 0`, 1) },
 	} {

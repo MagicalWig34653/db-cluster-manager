@@ -131,6 +131,19 @@ Owner request ([ADR 0026](decisions/0026-image-composer.md) addendum 2026-10-30,
 
 Actual checks: `gofmt -l internal/imagecompose` (no output), `go vet ./internal/...` (no output), `go test ./internal/imagecompose/... ./internal/imagebuild/...` (ok), `python3 scripts/check_docs.py` (113 Markdown files, 74 requirements, 0 errors).
 
+### Image composer: Bedrock crossplay option for Minecraft (2026-10-30, catalog 2026.10.30-2)
+
+Owner request ([ADR 0026](decisions/0026-image-composer.md) addendum 2026-10-30 (2), guide [26](guides/en/26-image-composer.md) EN/DE).
+
+- Catalog: boolean `minecraft.crossplay` (default off, DE/EN labels); per version `crossplay` with pinned Geyser-Spigot and Floodgate-Spigot (URL, SHA-256, size) from `download.geysermc.org` (new entry in the artifact host allow-list). Only Minecraft 26.3 carries them (Geyser 2.12.1 b1279, Floodgate 2.2.5 b141); hashes recomputed from the downloaded files and equal to the API values. Web mock catalog copy synced (drift test).
+- Code: `validatePlugin` in `catalog.go`, crossplay checks in `artifactIssues` (vanilla refused, unverified version refused), plugin `ADD`, entrypoint copy to `/data/plugins` and `EXPOSE 19132/udp` in `gen_game.go`/`generate.go`, UDP and outbound-access advice.
+- Tests: golden `debian13-minecraft-crossplay` (other goldens changed only in the catalog-version label), `TestMinecraftCrossplay` (off adds nothing, Dockerfile, entrypoint, UDP warning), validation cases (vanilla, 1.21.11/26.1.2 unverified, non-bool), four broken-plugin catalog mutations.
+- Lab (executed, one VM `dbcm-lab-m1`, 2 CPU, 6 GiB, 20 GiB, Debian 13 arm64, removed with `bin/lab cleanup --apply`, unrelated Lima/Colima entries intact; host disk 57 GiB free): the generated image built (hash-checked `ADD`), Paper 26.3 loaded Floodgate and Geyser, Geyser `Done`, uid 10001, UDP and TCP sockets on 19132 bound, STUN on udp/19132. With Geyser's default `transport: nethernet` a RakNet ping got no answer; with `raknet` it answered (`MCPE;Geyser;2225;26.60`).
+- Limits: no real Bedrock client, unknown which transport current Bedrock clients need, no Floodgate linking, no Swarm service, 1.21.11/26.1.2 deliberately refused (Geyser names Java 26.3 only), jars stay in the volume when the option is turned off, Geyser downloads Mojang client files on first start. BDS not implemented (reasons in ADR/guide, not re-verified).
+- Next action: test with a real Bedrock client and decide whether the recipe should manage Geyser's `transport`.
+
+Actual checks: see the commit message of this work package.
+
 ## Image update service (2026-10-28/29, X16, ADR 0025, fakes only; no VM used)
 
 [ADR 0025](decisions/0025-image-update-service.md), guide [25](guides/en/25-image-updates.md) (EN/DE). Implements the owner decision "Docker updates in the manner of Watchtower" for image/service updates of managed objects; engine upgrades stay reviewed plans (ADR 0019). Tests were written before the code.

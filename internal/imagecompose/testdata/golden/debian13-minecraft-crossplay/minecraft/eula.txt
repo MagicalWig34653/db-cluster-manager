@@ -1,0 +1,2 @@
+# Written because the recipe states that the Minecraft EULA (https://www.minecraft.net/eula) was accepted.
+eula=true

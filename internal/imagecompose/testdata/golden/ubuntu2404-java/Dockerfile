@@ -4,8 +4,8 @@ FROM docker.io/library/ubuntu:24.04@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 LABEL org.opencontainers.image.title="jvm app" \
       org.opencontainers.image.base.name="docker.io/library/ubuntu:24.04" \
       org.opencontainers.image.base.digest="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
-      dbcm.recipe-digest="sha256:a9a1380a6f0d72e48ad14794f279b84176362eabf0a3eb427ac57700adb24c6c" \
-      dbcm.catalog-version="2026.10.30-1" \
+      dbcm.recipe-digest="sha256:577fe318a70720289a8a3a7a5e218ea6681c5a81aef327b0374913e16b86dd58" \
+      dbcm.catalog-version="2026.10.30-2" \
       dbcm.generator-version="2"
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \

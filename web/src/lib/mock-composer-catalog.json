@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.10.30-1",
+  "version": "2026.10.30-2",
   "evidence": "unverified",
   "distros": [
     {"id": "alpine", "name": "Alpine Linux", "family": "alpine", "releases": [
@@ -348,6 +348,7 @@
       "versions": [
         {"version": "26.3",
          "artifacts": {"vanilla": {"url": "https://piston-data.mojang.com/v1/objects/33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c/server.jar", "sha256": "d052f14d7a173734fba553711e5b570162e2f2a313267ee31a21b975a679be64", "sha1": "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c", "size": 62294556}, "paper": {"url": "https://fill-data.papermc.io/v1/objects/a836a016be7ac52352eb3a1efb6857bb42ee73a6c78d46e292f7e87742edb0e6/paper-26.3-231.jar", "sha256": "a836a016be7ac52352eb3a1efb6857bb42ee73a6c78d46e292f7e87742edb0e6", "size": 55258607}},
+         "crossplay": {"geyser": {"url": "https://download.geysermc.org/v2/projects/geyser/versions/2.12.1/builds/1279/downloads/spigot", "sha256": "234fa467a32bbc780bd495296eb18fa0fbd7af8dab41f137ed5f7a45aabfbb90", "size": 52115333}, "floodgate": {"url": "https://download.geysermc.org/v2/projects/floodgate/versions/2.2.5/builds/141/downloads/spigot", "sha256": "21570aff9ce17d6983928e8552777760e1ede5050026b04c686b0ae112e6fd7e", "size": 11561096}},
          "support": [
           {"distro": "ubuntu", "release": "24.04", "architectures": ["amd64", "arm64"], "packages": [{"name": "openjdk-25-jre-headless"}], "binary": "/usr/bin/java"},
           {"distro": "debian", "release": "13", "architectures": ["amd64", "arm64"], "packages": [{"name": "openjdk-25-jre-headless"}], "binary": "/usr/bin/java"}
@@ -375,6 +376,7 @@
         {"key": "memoryInitial", "type": "string", "group": "memory", "default": "1G", "pattern": "^[1-9][0-9]{0,5}[MG]$", "maxLength": 8, "label": {"en": "Initial heap (-Xms)", "de": "Start-Heap (-Xms)"}, "help": {"en": "For example 1G or 1024M. Must not exceed the maximum heap.", "de": "Zum Beispiel 1G oder 1024M. Darf den maximalen Heap nicht überschreiten."}},
         {"key": "memoryMax", "type": "string", "group": "memory", "default": "2G", "pattern": "^[1-9][0-9]{0,5}[MG]$", "maxLength": 8, "label": {"en": "Maximum heap (-Xmx)", "de": "Maximaler Heap (-Xmx)"}, "help": {"en": "For example 2G. Set the service memory limit at least 512M above it for metaspace and threads.", "de": "Zum Beispiel 2G. Das Speicherlimit des Services mindestens 512M darüber setzen (Metaspace, Threads)."}},
         {"key": "motd", "type": "string", "group": "server.properties", "default": "A Minecraft Server", "pattern": "^[A-Za-z0-9 .,!:_-]{0,59}$", "maxLength": 59, "label": {"en": "Message of the day (motd)", "de": "Nachricht des Tages (motd)"}, "help": {"en": "Letters, digits, space and . , ! : _ - only.", "de": "Nur Buchstaben, Ziffern, Leerzeichen und . , ! : _ -."}},
+        {"key": "crossplay", "type": "bool", "group": "server", "default": false, "label": {"en": "Bedrock crossplay (Geyser + Floodgate)", "de": "Bedrock-Crossplay (Geyser + Floodgate)"}, "help": {"en": "Lets Bedrock Edition players join the Java server. Only with variant paper and only on Minecraft versions with a verified Geyser/Floodgate build (currently 26.3). Adds UDP port 19132; publish it as UDP. Geyser and Floodgate are downloaded from download.geysermc.org and hash-checked.", "de": "Erlaubt Spielern der Bedrock Edition den Beitritt zum Java-Server. Nur mit Variante paper und nur bei Minecraft-Versionen mit geprüftem Geyser/Floodgate-Build (derzeit 26.3). Fügt UDP-Port 19132 hinzu; als UDP veröffentlichen. Geyser und Floodgate kommen von download.geysermc.org und werden per Hash geprüft."}},
         {"key": "maxPlayers", "type": "int", "group": "server.properties", "default": 20, "min": 1, "max": 1000, "label": {"en": "Maximum players", "de": "Maximale Spielerzahl"}},
         {"key": "difficulty", "type": "enum", "group": "server.properties", "default": "easy", "enum": [{"value": "peaceful"}, {"value": "easy"}, {"value": "normal"}, {"value": "hard"}], "label": {"en": "Difficulty", "de": "Schwierigkeitsgrad"}},
         {"key": "viewDistance", "type": "int", "group": "server.properties", "default": 10, "min": 3, "max": 32, "label": {"en": "View distance (chunks)", "de": "Sichtweite (Chunks)"}, "help": {"en": "Lower values save CPU and memory.", "de": "Niedrigere Werte sparen CPU und Speicher."}},

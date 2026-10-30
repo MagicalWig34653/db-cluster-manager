@@ -336,6 +336,13 @@ func (c *Catalog) artifactIssues(n Recipe) []Issue {
 				is = append(is, Issue{"components[minecraft].settings.variant", fmt.Sprintf("%s has no pinned download for Minecraft %s in the catalog", variant, sel.Version)})
 			}
 		}
+		if gb(sel.Settings, "crossplay") {
+			if gs(sel.Settings, "variant") != "paper" {
+				is = append(is, Issue{"components[minecraft].settings.crossplay", "crossplay (Geyser + Floodgate) needs the paper variant; it is not available for vanilla"})
+			} else if len(cv.Crossplay) == 0 {
+				is = append(is, Issue{"components[minecraft].settings.crossplay", fmt.Sprintf("no verified Geyser/Floodgate build for Minecraft %s in the catalog", sel.Version)})
+			}
+		}
 	}
 	return is
 }

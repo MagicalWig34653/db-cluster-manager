@@ -4,8 +4,8 @@ FROM docker.io/library/rockylinux:9@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 LABEL org.opencontainers.image.title="tools" \
       org.opencontainers.image.base.name="docker.io/library/rockylinux:9" \
       org.opencontainers.image.base.digest="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
-      dbcm.recipe-digest="sha256:1538bbec0e19e0a502bbadb26595c98b06ecf5fedf9e3171482bcf1208f715c8" \
-      dbcm.catalog-version="2026.10.30-1" \
+      dbcm.recipe-digest="sha256:6f3fd4925904540ffb3a958d6ac88c1d172f175a056ce5e79e8662c64ba071e4" \
+      dbcm.catalog-version="2026.10.30-2" \
       dbcm.generator-version="2"
 RUN dnf -y module enable nginx:1.24 php:8.3 \
  && dnf -y install --setopt=install_weak_deps=False --setopt=tsflags=nodocs \

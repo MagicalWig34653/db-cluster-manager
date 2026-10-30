@@ -22,7 +22,7 @@ Open **Image composer** in the navigation.
 ## What the generator guarantees
 
 - **Same recipe, same output.** The Dockerfile and context files are byte-identical for the same normalized recipe, catalog version and generator version (golden-file tests). The image itself is identical only while the base digest and the distribution repositories are unchanged: packages are constrained to the major.minor version but their patch versions float.
-- **Hardening defaults.** Base pinned by digest, non-root user (uid 10001), unprivileged port 8080 (nginx) or 9000 (FPM only), no secrets or build arguments, no download scripts, no third-party repositories (the only build-time download is the hash-pinned Minecraft server jar), `server_tokens` off, security headers on, `expose_php`, `display_errors` and `allow_url_fopen` off by default, `allow_url_include` off and `cgi.fix_pathinfo=0` always. `nginx -t` and `php-fpm -t` run during the build.
+- **Hardening defaults.** Base pinned by digest, non-root user (uid 10001), unprivileged port 8080 (nginx) or 9000 (FPM only), no secrets or build arguments, no download scripts, no third-party repositories (the only build-time downloads are the hash-pinned Minecraft server jar and, if enabled, the Geyser and Floodgate plugins), `server_tokens` off, security headers on, `expose_php`, `display_errors` and `allow_url_fopen` off by default, `allow_url_include` off and `cgi.fix_pathinfo=0` always. `nginx -t` and `php-fpm -t` run during the build.
 - **No arbitrary shell.** Settings are typed (bool, whole number with range, one of a list, or text with a mandatory pattern). Unknown keys, wrong types, out-of-range numbers and anything with shell metacharacters in a pattern-checked field are refused with the field path.
 - **One main process.** There is no supervisor in the image. If PHP-FPM dies while nginx keeps running, requests get 502; use the service health check. A PHP-FPM-only image listens on 9000 without authentication: put it on an isolated network.
 
@@ -70,7 +70,7 @@ Everything below is generated from distribution packages and typed settings; non
 
 **Module switch.** Since [ADR 0030](../../decisions/0030-optional-modules.md) this feature is a module that an administrator switches at runtime ([guide 28](28-modules.md)). The configuration section above only sets its initial state, and the routes of a disabled feature answer `404 module_disabled` (not 503).
 
-## Minecraft server (catalog 2026.10.30-1)
+## Minecraft server (catalog 2026.10.30-2)
 
 *Verified once in a lab VM (see Evidence); everything else about the composer is still fakes only.*
 
@@ -85,3 +85,16 @@ Everything below is generated from distribution packages and typed settings; non
 **Runtime behaviour.** A generated entrypoint rewrites exactly the recipe's `server.properties` keys on every start and keeps all other keys and the world. Give the Swarm service a memory limit at least 512M above the maximum heap and a stop grace period of 60 s or more; the volume at `/data` must be writable by uid 10001. There is no health-check preset for the game port (a Minecraft status ping is not an HTTP check). Port 25565 is raw TCP: publish it in host mode or behind a TCP proxy.
 
 **Evidence and limits.** On 2026-10-30 one lab VM (`dbcm-lab-m1`, Ubuntu 24.04, arm64, removed afterwards) built the generated images for *vanilla 26.3 on Ubuntu 24.04 (Java 25)* and *Paper 1.21.11 on Alpine 3.22 (Java 21)* and started them; the Minecraft status ping answered with the configured motd and player limit, the process ran as uid 10001, a restart kept the data and custom keys, and a stop saved the chunks. Not verified: the other bases and versions, `online-mode` with real clients, a Swarm service, the manager's own build path (the build used `docker build` on the golden context, not the build service). The catalog's global `unverified` marker is unchanged.
+
+### Bedrock crossplay (Geyser + Floodgate, catalog 2026.10.30-2)
+
+The boolean setting `crossplay` (default off) lets Bedrock Edition players join the Java server. It adds **UDP 19132** (`EXPOSE 19132/udp`; publish it as UDP, in host mode or behind a UDP-capable proxy) and the plugins Geyser-Spigot and Floodgate-Spigot.
+
+- **Only Paper, only verified versions.** With `vanilla` the recipe is refused (`components[minecraft].settings.crossplay`: needs the paper variant). The combination is offered only where the catalog pins a Geyser/Floodgate build: currently **Minecraft 26.3** (Geyser 2.12.1 build 1279, Floodgate 2.2.5 build 141). Geyser's supported-versions page names only Java 26.3 (older Java servers would need ViaVersion); 1.21.11 and 26.1.2 are therefore refused with crossplay, not guessed.
+- **Where the plugins come from.** Build-time `ADD --checksum=sha256:...` from `download.geysermc.org` (official GeyserMC download API, one fixed project/version/build URL per plugin; the host is in the catalog's artifact allow-list). The hashes were computed from the downloaded files and equal the ones the API publishes. The jars live in `/opt/minecraft/plugins` in the image; the entrypoint copies them to `/data/plugins` on every start, because the volume hides anything baked into `/data`. Geyser's configuration and the Floodgate key stay in the volume. Switching crossplay off does not delete jars already in `/data/plugins`.
+- **Outbound access.** Geyser downloads Mojang's client files itself on its first start.
+- **Evidence and limits.** Lab, 2026-10-30 (`dbcm-lab-m1`, Debian 13 arm64, removed afterwards): the generated image built (both hashes checked), Paper 26.3 loaded Floodgate and Geyser, Geyser logged `Done`, the process is uid 10001, a socket on UDP 19132 (and a TCP signaling socket on 19132) is bound inside the container, and the container logged STUN discovery on udp/19132. Geyser 2.12.1 defaults to the new `nethernet` transport; with that default a RakNet ping got no answer, after switching the volume's config to `transport: raknet` Geyser answered a RakNet unconnected ping (`MCPE;Geyser;2225;26.60;...`). **Not tested:** a real Bedrock client joining, which transport current Bedrock clients need, Floodgate account linking, a Swarm service. Geyser's `auth-type` is its default (online); the recipe does not manage Geyser's configuration.
+
+### Why Bedrock Dedicated Server (BDS) is not included yet
+
+BDS (the official Mojang Bedrock server) is a separate product from the Java server and is deliberately not offered: it is distributed as an x86_64 Linux build only (no arm64, while the composer targets amd64 and arm64), it has no stable, hash-published download that the catalog could pin like the Mojang and PaperMC artifacts, and it has its own license terms that must be accepted explicitly. Geyser covers the common case (Bedrock players on a Java server) without these limits. These points are the owner's reasons recorded here; they were not re-verified in this work package. BDS is not implemented.

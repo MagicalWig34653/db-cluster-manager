@@ -4,8 +4,8 @@ FROM docker.io/library/almalinux:9@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 LABEL org.opencontainers.image.title="ca rhel" \
       org.opencontainers.image.base.name="docker.io/library/almalinux:9" \
       org.opencontainers.image.base.digest="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
-      dbcm.recipe-digest="sha256:75e049ef2af989074ba1442c2ed23ce9a3c3c3aee18205736bf8294a67a16420" \
-      dbcm.catalog-version="2026.10.30-1" \
+      dbcm.recipe-digest="sha256:5b2f3fc15df3e3557cc8ed52da17679530a8b6761cc34dc58ab6941394f0d135" \
+      dbcm.catalog-version="2026.10.30-2" \
       dbcm.generator-version="2"
 RUN dnf -y module enable nginx:1.26 \
  && dnf -y install --setopt=install_weak_deps=False --setopt=tsflags=nodocs \

@@ -67,25 +67,26 @@ type pkgLine struct {
 // build collects everything the Dockerfile and context need, in the order
 // the components are processed (a fixed order), so output stays deterministic.
 type build struct {
-	family   string
-	sel      map[string]Selection
-	sup      map[string]Support
-	role     string
-	web      string // selected web server id, if any
-	files    []imagebuild.File
-	writable []string // directories created and owned by the app user
-	readonly []string // directories created, root-owned
-	preUser  []string // Dockerfile lines (COPY/RUN as root) after the package install
-	copies   []string // Dockerfile COPY lines
-	env      map[string]string
-	checks   []string // RUN lines that test the final configuration
-	expose   int
-	workdir  string
-	runtime  []string // STOPSIGNAL and ENTRYPOINT/CMD
-	health   string
-	packages map[string]pkgLine
-	modules  map[string]bool
-	extraW   []string // warnings from renderers
+	family    string
+	sel       map[string]Selection
+	sup       map[string]Support
+	role      string
+	web       string // selected web server id, if any
+	files     []imagebuild.File
+	writable  []string // directories created and owned by the app user
+	readonly  []string // directories created, root-owned
+	preUser   []string // Dockerfile lines (COPY/RUN as root) after the package install
+	copies    []string // Dockerfile COPY lines
+	env       map[string]string
+	checks    []string // RUN lines that test the final configuration
+	expose    int
+	exposeUDP int // optional second, UDP port
+	workdir   string
+	runtime   []string // STOPSIGNAL and ENTRYPOINT/CMD
+	health    string
+	packages  map[string]pkgLine
+	modules   map[string]bool
+	extraW    []string // warnings from renderers
 }
 
 // Generate validates and renders a recipe. It is a pure function: the same
@@ -213,6 +214,9 @@ func (c *Catalog) Generate(r Recipe) (Result, error) {
 	}
 	if b.expose > 0 {
 		fmt.Fprintf(&d, "EXPOSE %d\n", b.expose)
+	}
+	if b.exposeUDP > 0 {
+		fmt.Fprintf(&d, "EXPOSE %d/udp\n", b.exposeUDP)
 	}
 	if b.health != "" {
 		d.WriteString(b.health + "\n")
@@ -546,6 +550,10 @@ func (c *Catalog) advice(n Recipe, rel Release, family string, b *build) (warnin
 			"Mount a volume at /data that user 10001 can write (world, server.properties, logs). Only the recipe's server.properties keys (port, motd, max-players, difficulty, view-distance, online-mode) are rewritten on every start; other keys are kept.",
 			"Give the Swarm service a memory limit at least 512M above the maximum heap and a stop grace period of 60 s or more so the world is saved on shutdown. There is no health check preset for the game port yet (a status ping is not an HTTP check).",
 			"Port 25565 is raw TCP: publish it in host mode or through a TCP-capable proxy, not through an HTTP router.")
+		if gb(sel["minecraft"].Settings, "crossplay") {
+			warnings = append(warnings,
+				"Crossplay: Geyser listens on UDP 19132 for Bedrock players; publish it as UDP (host mode or an UDP-capable proxy). Geyser and Floodgate are copied from the image to /data/plugins on every start; their configuration and the Floodgate key stay in the volume. Geyser downloads Mojang's client files itself on first start (outbound access needed once). Switching crossplay off does not delete the jars already in /data/plugins.")
+		}
 	case RoleSFTP:
 		warnings = append(warnings, "SFTP runs without root: one account (app), no chroot, no password login. The host key and authorized keys must be mounted as secrets; the container does not start without them. sshd as a non-root user is unverified in a container.")
 	case RoleJobs:

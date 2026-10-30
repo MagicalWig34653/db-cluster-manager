@@ -4,8 +4,8 @@ FROM docker.io/library/alpine:3.22@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 LABEL org.opencontainers.image.title="mc paper" \
       org.opencontainers.image.base.name="docker.io/library/alpine:3.22" \
       org.opencontainers.image.base.digest="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
-      dbcm.recipe-digest="sha256:602986927eed68567c5872a1916a20240c9c38673d97d353cec52881852fffda" \
-      dbcm.catalog-version="2026.10.30-1" \
+      dbcm.recipe-digest="sha256:0e493e7bf70a2bd5aa8fed4d5df64691bafee9be4bbfab6521999c69010579c0" \
+      dbcm.catalog-version="2026.10.30-2" \
       dbcm.generator-version="2"
 RUN apk add --no-cache \
       openjdk21-jre-headless

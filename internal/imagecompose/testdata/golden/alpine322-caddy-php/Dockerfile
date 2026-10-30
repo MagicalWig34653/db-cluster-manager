@@ -4,8 +4,8 @@ FROM docker.io/library/alpine:3.22@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 LABEL org.opencontainers.image.title="caddy site" \
       org.opencontainers.image.base.name="docker.io/library/alpine:3.22" \
       org.opencontainers.image.base.digest="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
-      dbcm.recipe-digest="sha256:aaccf0048654049550e602e4bd671c0791f314f9255cf7892864671a88b06f61" \
-      dbcm.catalog-version="2026.10.30-1" \
+      dbcm.recipe-digest="sha256:0b81741c19743f49529994d5597212d4d2ca3358fb62b686c97814f3942d6168" \
+      dbcm.catalog-version="2026.10.30-2" \
       dbcm.generator-version="2"
 RUN apk add --no-cache \
       caddy \

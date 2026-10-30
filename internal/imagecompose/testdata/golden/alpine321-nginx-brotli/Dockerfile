@@ -4,8 +4,8 @@ FROM docker.io/library/alpine:3.21@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 LABEL org.opencontainers.image.title="static brotli" \
       org.opencontainers.image.base.name="docker.io/library/alpine:3.21" \
       org.opencontainers.image.base.digest="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
-      dbcm.recipe-digest="sha256:d20e552670da6af2352c50eb78b9c4642591753862f4945ee1f68d8fb7472aaa" \
-      dbcm.catalog-version="2026.10.30-1" \
+      dbcm.recipe-digest="sha256:cc070e17cd7863fad677ab8963ffd17935238bb21ab8d52c82e79ccdea9c5253" \
+      dbcm.catalog-version="2026.10.30-2" \
       dbcm.generator-version="2"
 RUN apk add --no-cache \
       nginx-mod-http-brotli \

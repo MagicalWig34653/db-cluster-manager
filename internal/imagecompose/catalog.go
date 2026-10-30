@@ -109,6 +109,7 @@ type Artifact struct {
 var artifactHosts = map[string]string{
 	"piston-data.mojang.com": "vanilla",
 	"fill-data.papermc.io":   "paper",
+	"download.geysermc.org":  "crossplay",
 }
 
 var (
@@ -118,6 +119,35 @@ var (
 	// be the pinned one (Mojang: SHA-1, PaperMC: SHA-256).
 	artifactURLRe = regexp.MustCompile(`^https://([a-z0-9.-]+)/v1/objects/([0-9a-f]{40}|[0-9a-f]{64})/[A-Za-z0-9._-]{1,80}\.jar$`)
 )
+
+// pluginURLRe: the crossplay plugins come from the GeyserMC download API; the
+// path names the project, a fixed version and a fixed build number.
+var pluginURLRe = regexp.MustCompile(`^https://([a-z0-9.-]+)/v2/projects/(geyser|floodgate)/versions/[0-9]{1,2}(\.[0-9]{1,3}){1,2}/builds/[0-9]{1,6}/downloads/spigot$`)
+
+// validatePlugin checks a crossplay plugin artifact: the key is the GeyserMC
+// project, the hash is SHA-256 (the API publishes it, it is not part of the URL).
+func (a Artifact) validatePlugin(project string) error {
+	m := pluginURLRe.FindStringSubmatch(a.URL)
+	if m == nil {
+		return errors.New("url must be https://<host>/v2/projects/<project>/versions/<version>/builds/<build>/downloads/spigot")
+	}
+	if artifactHosts[m[1]] != "crossplay" {
+		return fmt.Errorf("host %q is not an official download host for crossplay plugins", m[1])
+	}
+	if m[2] != project {
+		return fmt.Errorf("url names project %q, not %q", m[2], project)
+	}
+	if !sha256Re.MatchString(a.SHA256) {
+		return errors.New("sha256 is malformed")
+	}
+	if a.SHA1 != "" {
+		return errors.New("sha1 is not used for plugins")
+	}
+	if a.Size <= 0 || a.Size > 1<<28 {
+		return errors.New("size is out of range")
+	}
+	return nil
+}
 
 func (a Artifact) validate(variant string) error {
 	m := artifactURLRe.FindStringSubmatch(a.URL)
@@ -155,6 +185,9 @@ func (a Artifact) validate(variant string) error {
 type ComponentVersion struct {
 	Version   string              `json:"version"`
 	Artifacts map[string]Artifact `json:"artifacts,omitempty"`
+	// Crossplay lists the verified Geyser and Floodgate plugin builds for this
+	// version (keys geyser, floodgate); absent means crossplay is not offered.
+	Crossplay map[string]Artifact `json:"crossplay,omitempty"`
 	Support   []Support           `json:"support"`
 }
 
@@ -378,6 +411,19 @@ func (comp Component) validate(c *Catalog, ids map[string]bool, rel map[string]R
 		for variant, a := range v.Artifacts {
 			if err := a.validate(variant); err != nil {
 				return badCatalog("component %s %s artifact %s: %v", id, v.Version, variant, err)
+			}
+		}
+		if len(v.Crossplay) > 0 {
+			if id != "minecraft" || len(v.Crossplay) != 2 {
+				return badCatalog("component %s %s: crossplay needs exactly geyser and floodgate, minecraft only", id, v.Version)
+			}
+			for name, a := range v.Crossplay {
+				if name != "geyser" && name != "floodgate" {
+					return badCatalog("component %s %s: unknown crossplay plugin %q", id, v.Version, name)
+				}
+				if err := a.validatePlugin(name); err != nil {
+					return badCatalog("component %s %s crossplay %s: %v", id, v.Version, name, err)
+				}
 			}
 		}
 		sup := map[string]bool{}
