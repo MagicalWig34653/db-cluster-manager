@@ -55,6 +55,8 @@ The stop uses `--force` because a graceful `limactl stop` fails on an instance t
 
 `tests/p0/e12-recovery-autofailover-rolling.sh` (E12: three VMs with the HA stack; autoFailover with a hard-stopped writer VM, stack redeploy and per-replica rolling update, peer certificate renewal, full power loss with zero-UUID incident, manual recovery and staggered loss; phases selectable with `E12_PHASES`, VMs kept with `E12_KEEP_VMS=1`, `E9_MIN_FREE_GIB` host disk guard) writes `tests/p0/results/e12-recovery-autofailover-rolling.{log,md}`; the log is the concatenation of several stages on kept VMs. About 2.5 hours with retries.
 
+`tests/p0/rc-demo.sh up|info|forward|down` (release-candidate demo: E12 phases up to the HA stack, stops before the first administrator and prints URL and setup token; **never executed**) and `scripts/rc-package.sh VERSION` (local dry run of the release workflow's archive, SBOM, checksum and release-notes steps; host-only, ran 2026-10-30). See [E13 not-run record](../tests/p0/results/e13-not-run.md).
+
 `tests/p0/e11-restic.sh` (restic lab, two Debian 12 VMs, pinned downloads from GitHub, MinIO cross-built with `go install` for linux/arm64) writes `tests/p0/results/e11-restic.{log,md}`; the in-VM harness is `cmd/resticlab`, the external-host case is the env-gated test `TestE11ExternalHostSSHPlanReal` in `internal/manager`. It needs outbound network access and about 10 minutes.
 
 The `cmd/lab` tests use a fake runner only. `lab apply --apply` and `lab cleanup --apply` have not been executed against a real host.

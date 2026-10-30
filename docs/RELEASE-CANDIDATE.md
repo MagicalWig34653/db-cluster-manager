@@ -1,0 +1,48 @@
+---
+title: Release candidate (R1 slice) - state, limits and owner quickstart
+---
+
+# Release candidate (R1 slice)
+
+Draft of 2026-10-30. **This is not a release.** No tag, image or release was created or pushed; the owner decides. The R1 exit gates in [RELEASES.md](RELEASES.md) are not met, and the release-candidate lab run (E13) did **not** execute because the host had no resources for it ([e13-not-run.md](../tests/p0/results/e13-not-run.md)). The honest state: the components were verified earlier on lab VMs and with fakes; the **assembled** candidate has not been walked through by a fresh user, in a real browser, or with real backup data in this cycle.
+
+## What was run for this candidate
+
+| Item | Result | Evidence level |
+| --- | --- | --- |
+| Local release packaging (`scripts/rc-package.sh 0.1.0-rc1`): linux amd64/arm64 archives of manager/agent/cli, six CycloneDX SBOMs, SHA256SUMS, release notes | Ran; checksums verified | Host-only. Archives are bsdtar, not the workflow's reproducible GNU tar; SBOMs from a throwaway repo with a local tag |
+| Container images (`deploy/Dockerfile`, `Dockerfile.jobs`) | Not built in this cycle | Earlier arm64 manager image ran in E7 only |
+| Fresh-install walkthrough, `tests/p0/rc-demo.sh` | **Not run** (script exists, `bash -n` only) | None |
+| Real-browser UI end-to-end, real screenshots, 360 px and keyboard checks | **Not run** | None. Existing screenshots in `docs/assets` come from the mock server |
+| Backup, restore and PITR with local and MinIO target | **Not run** in this cycle | See below for earlier partial evidence |
+
+## What is verified on VMs (earlier cycles, arm64, Docker 29.9.2, MariaDB 11.4.13)
+
+E1/E2 Swarm Galera and host loss; E4 real manager and mTLS agents creating a three-node Galera cluster, node kill, physical backup to SFTP and an inspection restore; E7 single-instance stack from the manager image; E9 three-replica HA stack with election, forwarding, peer mTLS, leader kill, drain, and redundant proxy with coordinated writer; E10 patching; E11 restic and MinIO; E12 autoFailover, rolling redeploy, certificate renewal, full power loss with the zero-UUID incident and the manual recovery. Results are in `tests/p0/results/`.
+
+## What exists only on fakes
+
+Guided zero-UUID recovery automation (ADR 0029), Docker engine patch class, native manager TLS/ACME, restore into a new target through the UI, PITR, backup copies between targets, scheduled restore verification, scale/rolling operation approval through the UI against a real manager, host maintenance, cluster deletion, notifications to real receivers. The UI has been driven only against the mock server and in-process tests.
+
+## Known limits and risks
+
+- arm64 only; amd64 has no native evidence. Only Docker 29.x is in the compatibility matrix.
+- Not production software. Full list: [known limits](guides/en/10-known-limits.md).
+- Plain HTTP on the manager; passkeys need an https origin (or `http://localhost`) in front. The three-replica HA stack needs peer CA custody on the manager nodes and manual data-key recipient registration before the second and third replica can lead.
+- The manager mounts the Docker socket (root-equivalent on its node).
+- Lima exposes guest listeners on host loopback (lab hazard only).
+- Host resource finding: the one development machine used for all lab evidence is frequently overloaded (load above 500, disk at 99 %, swap exhausted on 2026-10-30), so timing-sensitive results need a cleaner host.
+- No signed artifacts: the release and cosign workflow has never run.
+
+## Owner quickstart on a separate test Swarm
+
+Use a dedicated test Swarm and an explicit Docker context. Never your production Swarm.
+
+1. Build artifacts: `make build`, then `scripts/rc-package.sh 0.1.0-rc1 dist/rc` to get archives, SBOMs and checksums locally (nothing is published).
+2. Build the two images on each node or one build host and `docker save | docker load` them to all nodes ([INSTALL.md](INSTALL.md) step 1).
+3. Follow [INSTALL.md](INSTALL.md): single instance for a first look, or the three-replica HA stack. Create the administrator with the setup token from the service log.
+4. Alternatively, on a machine with enough resources run `tests/p0/rc-demo.sh up` (three Lima VMs, about 12 GiB RAM, at least 15 GiB free disk), then `forward` and open `http://localhost:8080`; `down` removes only `dbcm-lab-` VMs. Untested.
+5. Register the Swarm, enroll hosts ([guide 2](guides/en/02-hosts-and-agents.md)), create a three-node Galera cluster, and run a backup to a local or S3 target with a restore into a new target before trusting anything.
+6. Teardown: [INSTALL.md](INSTALL.md) "Teardown and uninstall".
+
+Report every deviation from these steps; they are the walkthrough gaps that this cycle could not collect.

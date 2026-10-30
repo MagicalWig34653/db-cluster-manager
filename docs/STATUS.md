@@ -2,6 +2,10 @@
 
 Updated: 2026-10-30.
 
+## Release candidate attempt E13 (2026-10-30; lab not run)
+
+The planned lab run (fresh-install walkthrough, real-browser end-to-end, backup/restore/PITR with local and MinIO target) **did not start**: the host had 8-10 GiB free disk, swap about 91 % used and load 18-584, so no VM was created ([record](../tests/p0/results/e13-not-run.md)). Executed on the host: `scripts/rc-package.sh 0.1.0-rc1` produced two linux archives, six CycloneDX SBOMs, verified checksums and release notes (bsdtar archives, SBOMs from a throwaway repo with a local tag; no image built; nothing tagged, pushed or published). Written but **never executed**: `tests/p0/rc-demo.sh` (only `bash -n`). [RELEASE-CANDIDATE.md](RELEASE-CANDIDATE.md) lists verified, fake-only and unverified items and an owner quickstart. No UI, backup or restore result was gained in this cycle.
+
 ## Guided Galera recovery from the zero cluster UUID (2026-10-30, ADR 0029; fakes only, no VM used)
 
 Implements owner decision 2026-10-30 item 1. **Fakes only: the manual procedure was lab-verified in E12; this automation never ran against a real cluster, `wsrep-recover` container, SST or bootstrap.** Done and tested:
