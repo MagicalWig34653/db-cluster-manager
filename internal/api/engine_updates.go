@@ -28,6 +28,9 @@ type EngineUpdatePlan struct {
 	ApprovalRequired  bool               `json:"approvalRequired"`
 	Exportable        bool               `json:"exportable"`
 	Digest            string             `json:"digest"`
+	// ExecutionPath is always "patch-management": the plan is a preview and
+	// the engine is changed only through the patch module (ADR 0019/0023).
+	ExecutionPath string `json:"executionPath"`
 }
 
 type EngineRunbookRequest struct {

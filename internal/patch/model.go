@@ -52,12 +52,14 @@ type Package struct {
 // manager or its repository metadata says so; an unknown classification is
 // false with the report-level SecurityKnown note, never "safe".
 type Update struct {
-	Name       string   `json:"name"`
-	Installed  string   `json:"installed,omitempty"`
-	Available  string   `json:"available"`
-	Arch       string   `json:"arch,omitempty"`
-	Source     string   `json:"source,omitempty"` // repository or suite
-	Security   bool     `json:"security,omitempty"`
+	Name      string `json:"name"`
+	Installed string `json:"installed,omitempty"`
+	Available string `json:"available"`
+	Arch      string `json:"arch,omitempty"`
+	Source    string `json:"source,omitempty"` // repository or suite
+	Security  bool   `json:"security,omitempty"`
+	// Class is set by the manager at ingest (os or container-runtime).
+	Class      Class    `json:"class,omitempty"`
 	Advisories []string `json:"advisories,omitempty"` // CVE, RHSA, DSA ... identifiers
 }
 

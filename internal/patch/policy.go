@@ -127,6 +127,12 @@ type Policy struct {
 	SecurityOnly bool         `json:"securityOnly,omitempty"`
 	Windows      []Window     `json:"windows,omitempty"`
 	Reboot       RebootPolicy `json:"reboot,omitempty"`
+	// ContainerRuntime is the mode for the container-runtime package class
+	// (Docker engine, containerd, plugins). Anything unset is report_only:
+	// engine updates are never applied unless this is explicitly
+	// approval_required, and then only by an approved plan behind the
+	// engine guard.
+	ContainerRuntime Mode `json:"containerRuntime,omitempty"`
 	// ReportEveryMinutes is the pull schedule; 0 means the default (360).
 	ReportEveryMinutes int `json:"reportEveryMinutes,omitempty"`
 }
@@ -142,6 +148,9 @@ func (p Policy) Normalized() Policy {
 	if p.Reboot == "" {
 		p.Reboot = RebootNever
 	}
+	if p.ContainerRuntime == "" {
+		p.ContainerRuntime = ModeReportOnly
+	}
 	return p
 }
 
@@ -150,6 +159,9 @@ func (p Policy) Validate() error {
 	p = p.Normalized()
 	if p.Mode != ModeReportOnly && p.Mode != ModeApprovalRequired {
 		return fmt.Errorf("%w: mode %q", ErrInvalid, p.Mode)
+	}
+	if p.ContainerRuntime != ModeReportOnly && p.ContainerRuntime != ModeApprovalRequired {
+		return fmt.Errorf("%w: container-runtime mode %q", ErrInvalid, p.ContainerRuntime)
 	}
 	if p.Reboot != RebootNever && p.Reboot != RebootWithPlan && p.Reboot != RebootAuto {
 		return fmt.Errorf("%w: reboot policy %q", ErrInvalid, p.Reboot)

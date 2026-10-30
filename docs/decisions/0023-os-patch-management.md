@@ -160,6 +160,43 @@ product at their own risk.
   not wired). There is no UI. yum, zypper, apk and pacman are covered by
   parsers and fakes only.
 
+## Addendum 2026-10-30: container-runtime class (Docker engine)
+
+Owner decision 2026-10-30: the Docker engine is patched here like any OS
+package; the image update service ([ADR 0025](0025-image-update-service.md))
+handles container images only.
+
+- **Class.** `patch.Classify` marks docker-ce, docker-ce-cli, containerd.io,
+  docker-buildx-plugin, docker-compose-plugin, docker.io and `moby-*` as
+  `container-runtime`; everything else is `os`. The class is set at ingest and
+  exposed as `class` on each update.
+- **Policy.** `Policy.containerRuntime` (`report_only` default,
+  `approval_required` opt-in) is separate from `mode`. Under report-only a
+  proposal can be previewed but approval and apply fail with
+  `ErrRuntimeReportOnly`. Nothing is ever applied automatically.
+- **Selection.** Engine packages are never part of an "all packages" plan; they
+  must be named, and a plan contains either engine or OS packages, not both.
+- **Engine guard** (`patch.EvaluateEngine`, state from `EngineProbe`): `docker info` answers; Swarm node
+  is ready; no running Swarm tasks other than those the approver acknowledged
+  in the plan (`acknowledgeTasks`, part of the digest; an unknown task list
+  refuses); on a Swarm manager the ADR 0019 quorum math must hold; live-restore
+  is detected and stated. Every plan states that a daemon restart affects all
+  containers. Galera members still go through the unchanged `GaleraGuard` and
+  host-maintenance coordination. The guard runs at proposal (preview) and again
+  at apply, and a refusal leaves the plan approved and sends nothing to the host.
+- **Verification and record.** After the apply and the host report, the probe is
+  polled (5 attempts, 10 s) until `docker info`, node readiness and task
+  reconvergence are healthy; otherwise the plan is failed and the admins are
+  notified. Engine version before and after are stored on the plan and in the
+  patch history entry. The operation journal has the extra step
+  `engine-verify`; its step records carry no version text, the plan and
+  history do.
+- **Limits.** The shipping manager has no `EngineRuntimeSource` (docker info,
+  tasks, live-restore, convergence), so the guard refuses every engine plan
+  until one exists; all behaviour is verified with fakes only. The apply
+  journal remains in memory. Containerd and plugin packages are classified but
+  not individually version-checked against the compatibility matrix.
+
 ## Evidence
 
 Tests (fakes): `internal/patch` (parsers for all six managers, collector,

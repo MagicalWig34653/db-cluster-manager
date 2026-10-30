@@ -1,5 +1,7 @@
 # Docker Engine update plans
 
+> **Execution path (owner decision 2026-10-30).** This page only previews and exports a runbook. The Docker engine is actually updated by [patch management](23-patch-management.md) as the report-only `container-runtime` package class, behind an engine guard (drained host or acknowledged tasks, manager quorum, Galera coordination, post-update health check). Image updates ([guide 25](25-image-updates.md)) never touch the engine. A daemon restart affects all containers on the host.
+
 The **Docker Engine updates** page provides a read-only plan for one Swarm host.
 Choose a host and a target version, then review compatibility, blockers, the
 Galera maintenance plan, operator steps and rollback limits. The plan's digest

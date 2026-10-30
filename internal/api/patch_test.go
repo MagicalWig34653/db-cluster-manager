@@ -224,10 +224,58 @@ func TestPatchInstallRoutesAndSecrets(t *testing.T) {
 func TestPatchErrorMapping(t *testing.T) {
 	for err, want := range map[error]error{
 		patch.ErrNotFound: ErrNotFound, patch.ErrInvalid: ErrInvalidInput, patch.ErrReportOnly: ErrPolicyConflict, patch.ErrOutsideWindow: ErrConflict,
-		patch.ErrGaleraBlocked: ErrConflict, patch.ErrDigest: ErrApprovalMismatch, patch.ErrInstallDigest: ErrApprovalMismatch,
+		patch.ErrGaleraBlocked: ErrConflict, patch.ErrEngineGuard: ErrConflict, patch.ErrRuntimeReportOnly: ErrPolicyConflict, patch.ErrDigest: ErrApprovalMismatch, patch.ErrInstallDigest: ErrApprovalMismatch,
 	} {
 		if got := mapPatchError(err); !errors.Is(got, want) {
 			t.Fatalf("%v -> %v, want %v", err, got, want)
 		}
+	}
+}
+
+type apiProbe struct{ st patch.EngineState }
+
+func (p *apiProbe) Probe(context.Context, string) (patch.EngineState, error) { return p.st, nil }
+
+func TestPatchEnginePlanAuthzGuardAndPolicy(t *testing.T) {
+	f, svc, ag := newPatchFixture(t)
+	admin, _, _ := f.setupAdmin("admin")
+	op := f.loggedIn("op", authz.RoleOperator, authz.Global)
+	viewer := f.loggedIn("view", authz.RoleViewer, authz.Global)
+	ag.pending["docker-ce"] = true
+	probe := &apiProbe{st: patch.EngineState{Version: "29.1.0", DockerInfoOK: true, SwarmRole: "worker", NodeState: "ready", Availability: "active", TasksKnown: true,
+		RunningTasks: []string{"web.1.abc"}, TasksConverged: patch.Yes}}
+	svc.Engine = probe
+	svc.Sleep = func(time.Duration) {}
+
+	wantStatus(t, admin.do("PUT", "/api/v1/patch/hosts/h1", map[string]any{"policy": map[string]any{"mode": "approval_required"}}), http.StatusOK)
+	wantStatus(t, op.do("POST", "/api/v1/patch/hosts/h1/poll", nil), http.StatusOK)
+	var view PatchHostView
+	viewer.do("GET", "/api/v1/patch/hosts/h1", nil).decode(t, &view)
+	classes := map[string]patch.Class{}
+	for _, u := range view.Updates {
+		classes[u.Name] = u.Class
+	}
+	if classes["docker-ce"] != patch.ClassContainerRuntime || classes["openssl"] != patch.ClassOS {
+		t.Fatalf("%v", classes)
+	}
+
+	var plan patch.Plan
+	r := op.do("POST", "/api/v1/patch/hosts/h1/plans", map[string]any{"packages": []string{"docker-ce"}})
+	wantStatus(t, r, http.StatusCreated)
+	r.decode(t, &plan)
+	if !plan.ContainerRuntime || plan.EngineGuard == nil || plan.EngineGuard.Allowed || plan.EngineGuard.RestartNote == "" {
+		t.Fatalf("%+v", plan)
+	}
+	wantError(t, viewer.do("POST", "/api/v1/patch/hosts/h1/plans", map[string]any{"packages": []string{"docker-ce"}}), http.StatusForbidden, errForbidden)
+	wantError(t, op.do("POST", "/api/v1/patch/plans/"+plan.ID+"/approve", map[string]any{"digest": plan.Digest}), http.StatusForbidden, errForbidden)
+	// The default policy of the class is report-only.
+	wantError(t, admin.do("POST", "/api/v1/patch/plans/"+plan.ID+"/approve", map[string]any{"digest": plan.Digest}), http.StatusConflict, errPolicyConflict)
+
+	wantStatus(t, admin.do("PUT", "/api/v1/patch/hosts/h1", map[string]any{"policy": map[string]any{"mode": "approval_required", "containerRuntime": "approval_required"}}), http.StatusOK)
+	wantStatus(t, admin.do("POST", "/api/v1/patch/plans/"+plan.ID+"/approve", map[string]any{"digest": plan.Digest}), http.StatusOK)
+	// The running task blocks the apply.
+	wantError(t, admin.do("POST", "/api/v1/patch/plans/"+plan.ID+"/apply", nil), http.StatusConflict, errConflict)
+	if ag.applied != 0 {
+		t.Fatal("guard did not stop the apply")
 	}
 }

@@ -1,6 +1,13 @@
 # ADR 0019: Docker Engine update plans and operator runbooks
 
-Status: **Proposal**, 2026-10-25. X09/W07 safe default, fakes only. The update
+Status: **Proposal; execution superseded in part on 2026-10-30.** Owner
+decision 2026-10-30 ([ENTSCHEIDUNGEN](../ENTSCHEIDUNGEN.md)): the Docker engine
+(docker-ce, containerd, buildx/compose plugins) is updated by the system-wide
+patch management ([ADR 0023](0023-os-patch-management.md), addendum "Container-runtime
+class"), never by the image update service and never by a second execution
+path. This ADR remains the read-only preview, the compatibility matrix check
+and the printable runbook; its quorum math is shared code with the patch
+module's engine guard. Original status: Proposal, 2026-10-25. X09/W07 safe default, fakes only. The update
 boundary questions in [ENTSCHEIDUNGEN.md](../ENTSCHEIDUNGEN.md#open-decisions-from-the-scope-extension)
 remain open. This ADR does not select an unattended upgrade or restart policy.
 
@@ -74,3 +81,18 @@ upgrade command in the export. API tests cover route/schema matching and audit.
 Frontend tests cover the export guard and download filename. No host, Docker
 daemon, package repository or real infrastructure was contacted. Actual check
 results are recorded in [STATUS.md](../STATUS.md#x09-docker-engine-update-plans-2026-10-25-fakes-and-mock-only).
+
+## Addendum 2026-10-30: consumer of the patch module
+
+`EngineUpdatePlan` reports `executionPath: "patch-management"` and its steps
+point to the patch plan. It still executes nothing. The Swarm manager quorum
+check is the function `managerQuorumSafe`, used by the preview and by
+`PatchEngineProbe` (the engine guard of the patch module), so there is one
+implementation of the ADR 0019 math. The open boundary questions are answered
+as follows: engine updates are OS-package updates under the patch policy
+(`containerRuntime` mode, default report-only), need explicit approval of a
+digest-bound plan, run only behind the engine guard and the Galera
+host-maintenance coordination, and never restart the host (a reboot needs the
+existing reboot policy). Installation methods are those the package manager of
+the patch agent handles (apt, dnf, yum, zypper); the compatibility matrix is not
+yet enforced by the patch module (limit).

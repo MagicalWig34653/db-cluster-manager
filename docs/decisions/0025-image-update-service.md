@@ -4,7 +4,7 @@ Status: **Implemented with fakes only; no registry, Swarm or VM used**, 2026-10-
 
 ## Scope
 
-In: image updates of **managed services** (pull a newer tag or digest, update the Swarm service, wait for the health gate, roll back on failure). Out: the Docker engine itself (ADR 0019, reviewed plans only), containers or services the manager does not own, and Galera clusters (they go through the rolling or minor-upgrade planner).
+In: image updates of **managed services** (pull a newer tag or digest, update the Swarm service, wait for the health gate, roll back on failure). Out: the Docker engine itself (patch management, container-runtime class: [ADR 0023](0023-os-patch-management.md) addendum of 2026-10-30; ADR 0019 is only the preview), containers or services the manager does not own, and Galera clusters (they go through the rolling or minor-upgrade planner).
 
 ## Decision and alternatives
 

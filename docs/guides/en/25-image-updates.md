@@ -4,7 +4,7 @@ title: Image updates
 
 # Image updates [Fakes only; not run against a registry or Swarm]
 
-The image update service ([ADR 0025](../../decisions/0025-image-update-service.md), requirement X16) finds newer images for your managed services and, only where you allow it, updates them: pull the newer tag or digest, update the Swarm service, wait for the health gate, roll back on failure. It works like Watchtower but only on objects the manager owns and always through the manager's own approval-gated service update. The Docker engine itself is never updated this way ([ADR 0019](../../decisions/0019-docker-engine-update-plans.md)).
+The image update service ([ADR 0025](../../decisions/0025-image-update-service.md), requirement X16) finds newer images for your managed services and, only where you allow it, updates them: pull the newer tag or digest, update the Swarm service, wait for the health gate, roll back on failure. It works like Watchtower but only on objects the manager owns and always through the manager's own approval-gated service update. This module handles **container images only**. The Docker engine (docker-ce, containerd, buildx and compose plugins) is never updated this way; it is part of OS [patch management](23-patch-management.md) as the report-only `container-runtime` package class ([ADR 0023](../../decisions/0023-os-patch-management.md)).
 
 ## Enable it
 

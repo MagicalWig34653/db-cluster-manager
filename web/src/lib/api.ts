@@ -1004,7 +1004,7 @@ export interface EngineUpdatePlan {
 	swarm: string; host: string; currentVersion: string; targetVersion?: string;
 	availableVersions: string[]; compatibility?: string; maintenance: MaintenancePreview;
 	steps: string[]; warnings: string[]; blockers: string[]; rollbackNotes: string[];
-	pinnedManager: boolean; approvalRequired: boolean; exportable: boolean; digest: string;
+	pinnedManager: boolean; approvalRequired: boolean; exportable: boolean; digest: string; executionPath?: string;
 }
 
 export interface EngineRunbook { digest: string; script: string }

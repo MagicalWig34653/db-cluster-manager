@@ -1,6 +1,23 @@
 # Current status
 
-Updated: 2026-10-29.
+Updated: 2026-10-30.
+
+## Docker engine as patch class container-runtime (2026-10-30, X15/X09, ADR 0023 addendum, ADR 0019 reconciled; fakes only, no VM used)
+
+Implements owner decision 2026-10-30 item 2. Done and verified with fakes (`internal/patch`, `internal/manager`, `internal/api` tests):
+
+- `patch.Classify` marks docker-ce, docker-ce-cli, containerd.io, docker-buildx-plugin, docker-compose-plugin, docker.io and `moby-*` as `container-runtime` (else `os`); set at ingest, exposed as `class` on updates.
+- `Policy.containerRuntime` defaults to `report_only`; approval and apply of an engine plan fail with `ErrRuntimeReportOnly` (API 409 `policy_conflict`) until set to `approval_required`. Engine packages are excluded from "all packages" plans, must be named, and cannot be mixed with OS packages. No automatic apply exists.
+- Engine guard (`patch.EvaluateEngine`, `EngineProbe`): docker info, node ready, no unacknowledged running tasks (`acknowledgeTasks`, covered by the plan digest; unknown list refuses), manager quorum via the shared `managerQuorumSafe` (ADR 0019 math), live-restore detection, restart note that all containers are affected. Run at proposal (preview) and at apply; a refusal leaves the plan approved and sends nothing to the host. Galera members still pass the unchanged `GaleraGuard`/host-maintenance coordination.
+- Post-update verification (docker info, node ready, tasks reconverged, up to 5 probes); failure marks the plan failed and notifies. Versions before and after are on the plan and in the history entry; the journal gets the step `engine-verify`.
+- `EngineUpdatePlan` (ADR 0019) reports `executionPath: patch-management` and no longer describes a separate manual execution path; it still executes nothing. OpenAPI: `containerRuntime` policy, `class`, `acknowledgeTasks`, `PatchEngineGuard`, plan engine fields. API tests cover the role matrix (viewer/operator denied, admin approves), default report-only and the guard refusal.
+- DE/EN guides 18, 23 and 25 updated (25: images only).
+
+Checks run on this branch: `gofmt -l .` (clean), `go vet ./...`, `go test -race -count=1 -p 4 ./...`, `python3 scripts/check_docs.py` (0 errors), `python3 scripts/check_deploy.py` (static only) all passed. Frontend not rebuilt (only an optional TypeScript field was added).
+
+Limits: the shipping manager has no `EngineRuntimeSource` (docker info, tasks, live-restore, convergence), so `PatchEngineProbe` fails closed and every engine plan is currently refused at apply; no real Docker engine, Swarm or package repository was used. The compatibility matrix of ADR 0019 is not enforced by the patch module. The journal still holds no version text (versions are on the plan and history). No UI for the new fields. No ADR 0029 exists on this branch; the addendum text is in ADR 0023 and ADR 0019.
+
+Next: implement a real `EngineRuntimeSource` (agent command for docker info/tasks) and a lab run on a disposable Swarm node (VM budget).
 
 ## Fresh-server bootstrap (2026-10-29, X18, ADR 0027, simulated host only; no VM, network or real host used)
 

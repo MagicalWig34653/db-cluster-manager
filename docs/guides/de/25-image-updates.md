@@ -4,7 +4,7 @@ title: Image-Updates
 
 # Image-Updates [Nur mit Fakes geprüft; nicht gegen Registry oder Swarm]
 
-Der Image-Update-Dienst ([ADR 0025](../../decisions/0025-image-update-service.md), Anforderung X16) findet neuere Images für Ihre verwalteten Dienste und aktualisiert sie nur dort, wo Sie es erlauben: neueren Tag oder Digest ziehen, Swarm-Dienst aktualisieren, Health-Gate abwarten, bei Fehlern zurückrollen. Er arbeitet wie Watchtower, aber nur auf Objekten, die der Manager besitzt, und immer über das genehmigungspflichtige Dienst-Update des Managers. Die Docker-Engine selbst wird so nie aktualisiert ([ADR 0019](../../decisions/0019-docker-engine-update-plans.md)).
+Der Image-Update-Dienst ([ADR 0025](../../decisions/0025-image-update-service.md), Anforderung X16) findet neuere Images für Ihre verwalteten Dienste und aktualisiert sie nur dort, wo Sie es erlauben: neueren Tag oder Digest ziehen, Swarm-Dienst aktualisieren, Health-Gate abwarten, bei Fehlern zurückrollen. Er arbeitet wie Watchtower, aber nur auf Objekten, die der Manager besitzt, und immer über das genehmigungspflichtige Dienst-Update des Managers. Dieses Modul behandelt **ausschließlich Container-Images**. Die Docker-Engine (docker-ce, containerd, buildx- und compose-Plugins) wird so nie aktualisiert; sie gehört zur [Patch-Verwaltung](23-patch-management.md) als standardmäßig nur berichtende Paketklasse `container-runtime` ([ADR 0023](../../decisions/0023-os-patch-management.md)).
 
 ## Aktivieren
 

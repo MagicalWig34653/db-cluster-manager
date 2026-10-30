@@ -53,6 +53,23 @@ func newerEngine(current, target string) bool {
 	return false
 }
 
+// managerQuorumSafe is the ADR 0019 quorum math shared by the engine update
+// preview and the patch module's engine guard: a majority of the Swarm
+// managers must stay ready and active outside the node.
+func managerQuorumSafe(swarmHosts []HostRecord, nodeID string) bool {
+	managerCount, readyOutside := 0, 0
+	for _, other := range swarmHosts {
+		if other.Role != "manager" {
+			continue
+		}
+		managerCount++
+		if other.NodeID != nodeID && other.State == "ready" && other.Availability == "active" {
+			readyOutside++
+		}
+	}
+	return readyOutside > managerCount/2
+}
+
 func engineUpdateResource(swarmID, nodeID string) authz.Resource {
 	return authz.Resource{Type: authz.ResourceEngineUpdate, Scope: authz.SwarmScope(swarmID), ID: nodeID}
 }
@@ -71,7 +88,7 @@ func (c *Control) EngineUpdatePlan(ctx context.Context, actor authz.Subject, swa
 		return api.EngineUpdatePlan{}, api.ErrNotFound
 	}
 	plan := api.EngineUpdatePlan{Swarm: swarmID, Host: nodeID, CurrentVersion: h.Value.EngineVersion,
-		TargetVersion: target, PinnedManager: h.Value.Role == "manager", ApprovalRequired: true,
+		TargetVersion: target, PinnedManager: h.Value.Role == "manager", ApprovalRequired: true, ExecutionPath: "patch-management",
 		AvailableVersions: []string{}, Steps: []string{}, Warnings: []string{}, Blockers: []string{}, RollbackNotes: []string{
 			"Docker package downgrades are installation-method specific and may be unsupported; preserve package metadata and a host backup before changing the engine.",
 			"If the node cannot rejoin, keep it out of service, diagnose Swarm and Galera state, and use guided recovery; never bootstrap Galera automatically.",
@@ -116,23 +133,18 @@ func (c *Control) EngineUpdatePlan(ctx context.Context, actor authz.Subject, swa
 	if err != nil {
 		return api.EngineUpdatePlan{}, MapCommandError(err)
 	}
-	managerCount, readyOutside := 0, 0
+	var swarmHosts []HostRecord
 	for _, item := range hosts {
 		other := item.Value
 		if other.Swarm != swarmID {
 			continue
 		}
+		swarmHosts = append(swarmHosts, other)
 		if other.NodeID != nodeID && other.Maintenance != nil {
 			plan.Blockers = append(plan.Blockers, "Another host is already in maintenance; update only one host at a time")
 		}
-		if other.Role == "manager" {
-			managerCount++
-			if other.NodeID != nodeID && other.State == "ready" && other.Availability == "active" {
-				readyOutside++
-			}
-		}
 	}
-	if h.Value.Role == "manager" && readyOutside <= managerCount/2 {
+	if h.Value.Role == "manager" && !managerQuorumSafe(swarmHosts, nodeID) {
 		plan.Blockers = append(plan.Blockers, "Swarm manager quorum cannot be maintained outside this host")
 	}
 	if h.Value.State != "ready" || h.Value.Availability != "active" {
@@ -170,7 +182,8 @@ func (c *Control) EngineUpdatePlan(ctx context.Context, actor authz.Subject, swa
 	if plan.PinnedManager {
 		plan.Warnings = append(plan.Warnings, "This Swarm manager may host a pinned cluster-manager replica; confirm its placement and an alternate manager endpoint before proceeding")
 	}
-	plan.Steps = []string{"Review target compatibility and package source; preserve rollback material", "Enter guided host maintenance and wait for ready", "Operator drains this one Swarm node", "Operator updates Docker Engine and restarts the daemon or host as required", "Verify Swarm manager quorum, engine version and node readiness", "Operator restores Swarm active availability, then leaves guided host maintenance and verifies Galera Synced"}
+	plan.Warnings = append(plan.Warnings, "The Docker engine is updated by patch management (container-runtime package class, ADR 0023); this plan is the preview and printable runbook, it does not execute anything. A daemon restart affects all containers on the host.")
+	plan.Steps = []string{"Review target compatibility and package source; preserve rollback material", "Enter guided host maintenance and wait for ready", "Drain this one Swarm node (or acknowledge its running tasks in the patch plan)", "Propose a patch plan naming the container-runtime packages (docker-ce, containerd.io, plugins), approve it (policy containerRuntime = approval_required) and apply it; the patch module re-runs the engine guard and verifies docker info, node readiness and task reconvergence", "Restore Swarm active availability, then leave guided host maintenance and verify Galera Synced"}
 	plan.Exportable = target != "" && len(plan.Blockers) == 0
 	encoded, _ := json.Marshal(plan)
 	plan.Digest = fmt.Sprintf("sha256:%x", sha256.Sum256(encoded))

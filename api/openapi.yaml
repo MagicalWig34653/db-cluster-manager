@@ -4496,7 +4496,7 @@ components:
         conditions: { type: array, items: { type: string } }
     EngineUpdatePlan:
       type: object
-      required: [swarm, host, currentVersion, availableVersions, maintenance, steps, warnings, blockers, rollbackNotes, pinnedManager, approvalRequired, exportable, digest]
+      required: [swarm, host, currentVersion, availableVersions, maintenance, steps, warnings, blockers, rollbackNotes, pinnedManager, approvalRequired, exportable, digest, executionPath]
       properties:
         swarm: { type: string }
         host: { type: string }
@@ -4513,6 +4513,7 @@ components:
         approvalRequired: { type: boolean }
         exportable: { type: boolean }
         digest: { type: string }
+        executionPath: { type: string, enum: [patch-management], description: "Engine updates are executed only by the patch module (container-runtime class); this plan is the read-only preview and the printable runbook." }
     EngineRunbookRequest:
       type: object
       required: [targetVersion, digest]
@@ -5162,6 +5163,7 @@ components:
         securityOnly: { type: boolean }
         windows: { type: array, maxItems: 16, items: { $ref: "#/components/schemas/PatchWindow" } }
         reboot: { type: string, enum: [never, with_plan, auto_in_window], description: "Anything but never needs a window" }
+        containerRuntime: { type: string, enum: [report_only, approval_required], description: "Mode of the container-runtime package class (Docker engine, containerd, plugins). Empty means report_only: engine plans cannot be approved or applied until this is approval_required; they then still run behind the engine guard." }
         reportEveryMinutes: { type: integer, minimum: 0, maximum: 10080 }
     PatchWindow:
       type: object
@@ -5211,6 +5213,7 @@ components:
         arch: { type: string }
         source: { type: string }
         security: { type: boolean }
+        class: { type: string, enum: [os, container-runtime], description: "Package class set by the manager. container-runtime covers docker-ce, docker-ce-cli, containerd.io, docker-buildx-plugin, docker-compose-plugin, docker.io and moby-*." }
         advisories: { type: array, items: { type: string } }
     PatchHostSummary:
       type: object
@@ -5259,6 +5262,23 @@ components:
         securityOnly: { type: boolean }
         reboot: { type: boolean, description: "Include a reboot step; only if the policy allows reboots" }
         coordination: { type: string, description: "Cluster planner procedure that coordinates this action on a Galera member" }
+        acknowledgeTasks: { type: array, maxItems: 200, items: { type: string }, description: "Container-runtime plans only: running Swarm tasks the approver accepts to interrupt. Engine packages must be named explicitly, never come from the default selection, and cannot be mixed with OS packages in one plan." }
+    PatchEngineGuard:
+      type: object
+      required: [allowed, checks, restartNote]
+      properties:
+        allowed: { type: boolean }
+        version: { type: string, description: "Engine version seen by the probe" }
+        restartNote: { type: string, description: "States that a daemon restart affects all containers on the host (live-restore noted)" }
+        checks:
+          type: array
+          items:
+            type: object
+            required: [name, ok]
+            properties:
+              name: { type: string, enum: [probe, docker-info, node-ready, tasks, manager-quorum, live-restore] }
+              ok: { type: boolean }
+              detail: { type: string }
     ImageUpdateWindow:
       type: object
       additionalProperties: false
@@ -5381,6 +5401,11 @@ components:
         remaining: { type: array, items: { type: string } }
         rebootStatus: { type: string }
         executedBy: { type: string, enum: [native], description: "Agent runtime that applied the plan (ADR 0024)." }
+        containerRuntime: { type: boolean, description: "True for a container-runtime (Docker engine) plan; such a plan only contains that class and is subject to the engine guard" }
+        acknowledgeTasks: { type: array, items: { type: string } }
+        engineGuard: { $ref: "#/components/schemas/PatchEngineGuard" }
+        engineVersionBefore: { type: string }
+        engineVersionAfter: { type: string }
     PatchInstallInput:
       type: object
       additionalProperties: false

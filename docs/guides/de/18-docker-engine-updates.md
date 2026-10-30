@@ -1,5 +1,7 @@
 # Pläne für Docker-Engine-Updates
 
+> **Ausführungsweg (Eigentümerentscheidung 2026-10-30).** Diese Seite zeigt nur eine Vorschau und exportiert ein Runbook. Die Docker-Engine wird tatsächlich von der [Patch-Verwaltung](23-patch-management.md) als standardmäßig nur berichtende Paketklasse `container-runtime` aktualisiert, hinter einem Engine-Wächter (gedrainter Host oder bestätigte Tasks, Manager-Quorum, Galera-Koordination, Gesundheitsprüfung danach). Image-Updates ([Anleitung 25](25-image-updates.md)) berühren die Engine nie. Ein Neustart des Daemons betrifft alle Container des Hosts.
+
 Die Seite **Docker-Engine-Updates** zeigt einen lesenden Plan für jeweils einen
 Swarm-Host. Host und Zielversion auswählen; dann Kompatibilität, Sperren,
 Galera-Wartungsplan, Schritte und Grenzen einer Rückkehr prüfen. Der Digest des

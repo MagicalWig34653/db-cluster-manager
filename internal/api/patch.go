@@ -319,9 +319,9 @@ func mapPatchError(err error) error {
 		return ErrNotFound
 	case errors.Is(err, patch.ErrInvalid), errors.Is(err, patch.ErrInstallInvalid), errors.Is(err, patch.ErrPartialUnsupported):
 		return ErrInvalidInput
-	case errors.Is(err, patch.ErrReportOnly), errors.Is(err, patch.ErrRebootDenied):
+	case errors.Is(err, patch.ErrReportOnly), errors.Is(err, patch.ErrRebootDenied), errors.Is(err, patch.ErrRuntimeReportOnly):
 		return ErrPolicyConflict
-	case errors.Is(err, patch.ErrOutsideWindow), errors.Is(err, patch.ErrGaleraBlocked), errors.Is(err, patch.ErrConflict),
+	case errors.Is(err, patch.ErrOutsideWindow), errors.Is(err, patch.ErrGaleraBlocked), errors.Is(err, patch.ErrEngineGuard), errors.Is(err, patch.ErrConflict),
 		errors.Is(err, patch.ErrInstallExists), errors.Is(err, patch.ErrInstallPreflight):
 		return ErrConflict
 	case errors.Is(err, patch.ErrInstallDigest), errors.Is(err, patch.ErrDigest):

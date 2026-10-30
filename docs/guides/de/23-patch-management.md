@@ -59,3 +59,16 @@ Wiederholte Schritte werden dauerhaft unterdrückt: Der Agent vermerkt einen Sch
 ## Laufzeit und Restic (ADR 0024)
 
 Der Patch-Agent ist die **native** Laufzeit: Er meldet `runtime=native` und die Fähigkeit `patch` (plus `restic`, wenn mit `resticPaths` installiert). Patch-Befehle gehen nur an einen nativen Agenten; ein Host, der nur einen Container-Agenten meldet, wird mit Begründung abgelehnt. Pläne führen `executedBy`, Patch-Hosts `agentRuntime`. Siehe [Anleitung 24](24-agent-runtimes.md).
+
+## Docker-Engine-Pakete (Paketklasse container-runtime)
+
+Pakete der Docker-Engine (docker-ce, docker-ce-cli, containerd.io, docker-buildx-plugin, docker-compose-plugin, docker.io, moby-*) werden mit `class: container-runtime` gemeldet, alles andere mit `os`. Die Docker-Engine wird hier aktualisiert, nicht vom Image-Update-Modul ([Anleitung 25](25-image-updates.md)). **[Nur Fakes]**
+
+- **Standardmäßig nur berichten.** Das Richtlinienfeld `containerRuntime` ist `report_only`, solange Sie nicht `approval_required` in der Host-, Gruppen- oder Standardrichtlinie setzen. Bei report-only sehen Sie die Engine-Updates und können einen Plan als Vorschau erzeugen; Genehmigen und Anwenden werden abgelehnt. Der Manager wendet Engine-Updates nie automatisch an.
+- **Eigener Plan, ausdrückliche Namen.** Ein Plan „alle Pakete“ enthält nie Engine-Pakete. Schlagen Sie einen eigenen Plan vor, der sie nennt (`{"packages": ["docker-ce", "containerd.io"]}`); Engine- und OS-Pakete lassen sich nicht mischen.
+- **Engine-Wächter.** Der Plan enthält ein `engineGuard`-Ergebnis, das beim Anwenden erneut geprüft wird. Anwenden wird abgelehnt, außer `docker info` antwortet, der Swarm-Knoten ist ready, auf dem Host läuft kein Swarm-Task (Knoten zuerst drainen) – ausgenommen Tasks, die Sie beim Vorschlag in `acknowledgeTasks` genannt haben (Teil des genehmigten Digests) – und auf einem Swarm-Manager bleibt die Mehrheit der Manager anderswo ready und aktiv. Unbekannte Werte lehnen ab. Galera-Mitglieder brauchen die oben beschriebene Host-Wartungs-Koordination. Live-Restore wird erkannt und angegeben.
+- **Ein Neustart des Daemons betrifft alle Container** des Hosts (Live-Restore mindert das Risiko, beseitigt es aber nicht). Planen Sie es wie ein Wartungsfenster; der Plan sagt das in `restartNote`.
+- **Prüfung und Nachweis.** Nach dem Anwenden wartet der Manager, bis `docker info`, Knotenbereitschaft und die Task-Reconvergenz wieder gesund sind; sonst gilt der Plan als fehlgeschlagen und Admins werden benachrichtigt. `engineVersionBefore` und `engineVersionAfter` stehen im Plan und im Host-Verlauf.
+- Die [Seite für Docker-Engine-Updates](18-docker-engine-updates.md) bleibt die lesende Kompatibilitätsvorschau mit Runbook.
+
+Grenzen: Der ausgelieferte Manager hat noch keine Quelle für docker info, Tasks und Live-Restore; der Wächter lehnt daher derzeit jeden Engine-Plan ab. Das Verhalten ist nur mit Fakes geprüft, keine echte Docker-Engine und kein Swarm.

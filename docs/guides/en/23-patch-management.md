@@ -59,3 +59,16 @@ Replays of a mutating step are suppressed durably: the agent records a step befo
 ## Runtime and restic (ADR 0024)
 
 The patch agent is the **native** runtime: it reports `runtime=native` and the capability `patch` (plus `restic` when installed with `resticPaths`). Patch commands are routed only to a native agent; a host that reports only a container agent is refused with a reason. Plans record `executedBy`, patch hosts `agentRuntime`. See [guide 24](24-agent-runtimes.md).
+
+## Docker engine packages (container-runtime class)
+
+Packages of the Docker engine (docker-ce, docker-ce-cli, containerd.io, docker-buildx-plugin, docker-compose-plugin, docker.io, moby-*) are reported with `class: container-runtime`; everything else is `os`. The Docker engine is updated here, not by the image update module ([guide 25](25-image-updates.md)). **[Fakes only]**
+
+- **Report-only by default.** The policy field `containerRuntime` is `report_only` unless you set `approval_required` on the host, group or default policy. Under report-only you can see the engine updates and preview a plan, but approving or applying it is refused. The manager never applies engine updates automatically.
+- **Own plan, explicit names.** An "all packages" plan never contains engine packages. Propose a separate plan that names them (`{"packages": ["docker-ce", "containerd.io"]}`); engine and OS packages cannot be mixed in one plan.
+- **Engine guard.** The plan carries an `engineGuard` result, checked again at apply. Apply is refused unless `docker info` answers, the Swarm node is ready, no Swarm task is running on the host (drain the node first) except tasks you listed in `acknowledgeTasks` when proposing (part of the approved digest), and, on a Swarm manager, a majority of managers stays ready and active elsewhere. Unknown values refuse. Galera members need the host-maintenance coordination described above. Live-restore is detected and stated.
+- **A daemon restart affects all containers** on the host (live-restore reduces, but does not remove, that risk). Plan it like a maintenance window; the plan says so in `restartNote`.
+- **Verification and record.** After the apply the manager waits until `docker info`, node readiness and task reconvergence are healthy again, otherwise the plan is marked failed and admins are notified. `engineVersionBefore` and `engineVersionAfter` are stored on the plan and in the host history.
+- The [Docker engine update page](18-docker-engine-updates.md) remains the read-only compatibility preview and runbook.
+
+Limits: the shipping manager has no source for docker info, tasks and live-restore yet, so the guard currently refuses every engine plan; the behaviour is verified with fakes only, no real Docker engine or Swarm.

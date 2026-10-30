@@ -83,6 +83,9 @@ func (rt *managedRuntime) newPatchService() *patch.Service {
 		Journal: opjournal.New(),
 		Agents:  &manager.PatchAgentDirectory{Dir: &manager.AgentDirectory{Store: store, PKI: rt.pki, NativePort: rt.patchCfg.port()}},
 		Guard:   patch.GaleraGuard{Directory: pg, Coordinator: pg},
+		// No engine runtime source exists yet, so the engine guard refuses
+		// container-runtime plans until one is configured (fail closed).
+		Engine: &manager.PatchEngineProbe{Store: store},
 		Term: func() (uint64, error) {
 			l := rt.svc.Current()
 			if l == nil || !l.Valid() {

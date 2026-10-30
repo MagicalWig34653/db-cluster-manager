@@ -101,6 +101,20 @@ type Plan struct {
 	Remaining []string `json:"remaining,omitempty"`
 	// RebootStatus: "", "requested", or "skipped: <reason>".
 	RebootStatus string `json:"rebootStatus,omitempty"`
+	// ContainerRuntime marks a plan for the container-runtime class (Docker
+	// engine). Such a plan contains only that class and is subject to the
+	// engine guard (ADR 0019 addendum in ADR 0023).
+	ContainerRuntime bool `json:"containerRuntime,omitempty"`
+	// AcknowledgeTasks names running Swarm tasks the approver accepts to
+	// interrupt; covered by the digest.
+	AcknowledgeTasks []string `json:"acknowledgeTasks,omitempty"`
+	// EngineGuard is the guard result at proposal time and again at apply
+	// time (the apply-time result replaces it).
+	EngineGuard *EngineGuardResult `json:"engineGuard,omitempty"`
+	// EngineVersionBefore and EngineVersionAfter are the engine versions
+	// seen by the probe before and after the run.
+	EngineVersionBefore string `json:"engineVersionBefore,omitempty"`
+	EngineVersionAfter  string `json:"engineVersionAfter,omitempty"`
 	// ExecutedBy is the agent runtime that applied the plan (always
 	// "native"; recorded from the verified answer, ADR 0024).
 	ExecutedBy agentrt.Runtime `json:"executedBy,omitempty"`
@@ -115,7 +129,9 @@ func (p Plan) computeDigest() string {
 		Reboot       bool
 		Coordination string
 		Simulation   Simulation
-	}{p.ID, p.HostID, p.Manager, p.Packages, p.SecurityOnly, p.Reboot, p.Coordination, p.Simulation})
+		Runtime      bool     `json:",omitempty"`
+		Ack          []string `json:",omitempty"`
+	}{p.ID, p.HostID, p.Manager, p.Packages, p.SecurityOnly, p.Reboot, p.Coordination, p.Simulation, p.ContainerRuntime, p.AcknowledgeTasks})
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
 }
@@ -126,6 +142,9 @@ type ProposeInput struct {
 	SecurityOnly bool     `json:"securityOnly,omitempty"`
 	Reboot       bool     `json:"reboot,omitempty"`
 	Coordination string   `json:"coordination,omitempty"`
+	// AcknowledgeTasks (container-runtime plans only) names running Swarm
+	// tasks the approver accepts to interrupt.
+	AcknowledgeTasks []string `json:"acknowledgeTasks,omitempty"`
 }
 
 // Service is the manager side of patch management. Writes must happen on the
@@ -135,6 +154,11 @@ type Service struct {
 	Journal *opjournal.Journal
 	Agents  HostAgent
 	Guard   Guard
+	// Engine probes the Docker engine state for container-runtime plans.
+	// Nil makes the engine guard refuse (fail closed).
+	Engine EngineProbe
+	// Sleep waits between engine health probes (default time.Sleep).
+	Sleep func(time.Duration)
 	// Term returns the current leader term; an error means not leader.
 	Term   func() (uint64, error)
 	Now    func() time.Time
@@ -439,6 +463,9 @@ func (s *Service) Ingest(ctx context.Context, hostID string, r HostReport) (Diff
 		return Diff{}, err
 	}
 	r.HostID = hostID
+	for i := range r.Updates {
+		r.Updates[i].Class = Classify(r.Updates[i].Name)
+	}
 	sortUpdates(r.Updates)
 	sortPackages(r.Installed)
 	var prev HostReport
@@ -744,6 +771,38 @@ func (s *Service) Propose(ctx context.Context, actor, hostID string, in ProposeI
 	if len(chosen) == 0 {
 		return Plan{}, fmt.Errorf("%w: nothing to update", ErrInvalid)
 	}
+	// The container-runtime class is never part of a default selection; it
+	// has to be named explicitly and gets its own plan.
+	var engineSel, osSel []Update
+	for _, u := range chosen {
+		if Classify(u.Name) == ClassContainerRuntime {
+			engineSel = append(engineSel, u)
+		} else {
+			osSel = append(osSel, u)
+		}
+	}
+	if len(in.Packages) == 0 {
+		chosen, engineSel = osSel, nil
+		if len(chosen) == 0 {
+			return Plan{}, fmt.Errorf("%w: nothing to update (container-runtime packages must be named explicitly)", ErrInvalid)
+		}
+	}
+	if len(engineSel) > 0 && len(osSel) > 0 {
+		return Plan{}, fmt.Errorf("%w: container-runtime packages need their own plan", ErrInvalid)
+	}
+	if len(in.AcknowledgeTasks) > 0 && len(engineSel) == 0 {
+		return Plan{}, fmt.Errorf("%w: acknowledged tasks only apply to container-runtime plans", ErrInvalid)
+	}
+	ack := append([]string(nil), in.AcknowledgeTasks...)
+	sort.Strings(ack)
+	if len(ack) > 200 {
+		return Plan{}, fmt.Errorf("%w: too many acknowledged tasks", ErrInvalid)
+	}
+	for _, t := range ack {
+		if !idRe.MatchString(t) {
+			return Plan{}, fmt.Errorf("%w: task %q", ErrInvalid, t)
+		}
+	}
 	pkgs := names(chosen)
 	sort.Strings(pkgs)
 	if in.Coordination != "" && !idRe.MatchString(in.Coordination) {
@@ -758,6 +817,11 @@ func (s *Service) Propose(ctx context.Context, actor, hostID string, in ProposeI
 	}
 	p := Plan{ID: newID("pp"), HostID: hostID, Manager: rep.Manager, Packages: pkgs, SecurityOnly: secOnly, Reboot: in.Reboot,
 		Coordination: in.Coordination, Simulation: *res.Simulation, State: PlanProposed, CreatedBy: actor, CreatedAt: s.now()}
+	if len(engineSel) > 0 {
+		p.ContainerRuntime, p.AcknowledgeTasks = true, ack
+		g, _ := s.engineGuard(ctx, hostID, ack)
+		p.EngineGuard = &g
+	}
 	p.Digest = p.computeDigest()
 	zero := uint64(0)
 	return p, s.put(CollPlans, p.ID, p, &zero)
@@ -788,6 +852,9 @@ func (s *Service) Approve(ctx context.Context, actor, planID, digest string) (Pl
 	}
 	if p.Reboot && pol.Reboot == RebootNever {
 		return Plan{}, ErrRebootDenied
+	}
+	if p.ContainerRuntime && pol.ContainerRuntime != ModeApprovalRequired {
+		return Plan{}, ErrRuntimeReportOnly
 	}
 	p.State, p.ApprovedBy, p.ApprovedAt = PlanApproved, actor, s.now()
 	return p, s.put(CollPlans, p.ID, p, &ver)
@@ -848,6 +915,18 @@ func (s *Service) Apply(ctx context.Context, planID string) (Plan, error) {
 	if err := s.Guard.Check(ctx, p.HostID, ActionApply, p.Coordination); err != nil {
 		return p, err
 	}
+	steps, kind := []string{"apply", "verify"}, "patch/apply"
+	if p.ContainerRuntime {
+		if pol.ContainerRuntime != ModeApprovalRequired {
+			return p, ErrRuntimeReportOnly
+		}
+		g, st := s.engineGuard(ctx, p.HostID, p.AcknowledgeTasks)
+		if !g.Allowed {
+			return p, fmt.Errorf("%w: %s", ErrEngineGuard, g.Failed())
+		}
+		p.EngineGuard, p.EngineVersionBefore = &g, st.Version
+		steps, kind = []string{"apply", "verify", "engine-verify"}, "patch/engine-apply"
+	}
 	term, err := s.Term()
 	if err != nil {
 		return p, err
@@ -856,7 +935,7 @@ func (s *Service) Apply(ctx context.Context, planID string) (Plan, error) {
 	if err := s.put(CollPlans, p.ID, p, &ver); err != nil {
 		return Plan{}, err
 	}
-	if err := s.Journal.Begin(p.OpID, "patch/apply", []string{"apply", "verify"}, term); err != nil {
+	if err := s.Journal.Begin(p.OpID, kind, steps, term); err != nil {
 		return s.fail(ctx, p, "", err)
 	}
 	if err := s.Journal.StartStep(p.OpID, "apply", term); err != nil {
@@ -879,6 +958,17 @@ func (s *Service) Apply(ctx context.Context, planID string) (Plan, error) {
 		return s.fail(ctx, p, "verify", err)
 	}
 	_ = s.Journal.FinishStep(p.OpID, "verify", opjournal.Succeeded, term)
+	if p.ContainerRuntime {
+		if err := s.Journal.StartStep(p.OpID, "engine-verify", term); err != nil {
+			return s.fail(ctx, p, "", err)
+		}
+		post, bad := s.verifyEngine(ctx, p.HostID)
+		p.EngineVersionAfter = post.Version
+		if bad != "" {
+			return s.fail(ctx, p, "engine-verify", fmt.Errorf("engine health verification failed after the update (%s -> %s): %s", p.EngineVersionBefore, post.Version, bad))
+		}
+		_ = s.Journal.FinishStep(p.OpID, "engine-verify", opjournal.Succeeded, term)
+	}
 	still := map[string]bool{}
 	for _, u := range res.Report.Updates {
 		still[u.Name] = true
@@ -895,7 +985,11 @@ func (s *Service) Apply(ctx context.Context, planID string) (Plan, error) {
 	if err := s.afterApplyReboot(ctx, &p, pol, res.Report.RebootRequired, term); err != nil {
 		p.RebootStatus = "failed: " + truncate(err.Error(), 200)
 	}
-	_ = s.addHistory(HistoryEntry{HostID: p.HostID, At: s.now(), Kind: "apply", PlanID: p.ID, Result: string(p.State), UpdatesPending: len(res.Report.Updates),
+	result := string(p.State)
+	if p.ContainerRuntime {
+		result += fmt.Sprintf("; engine %s -> %s", p.EngineVersionBefore, p.EngineVersionAfter)
+	}
+	_ = s.addHistory(HistoryEntry{HostID: p.HostID, At: s.now(), Kind: "apply", PlanID: p.ID, Result: result, UpdatesPending: len(res.Report.Updates),
 		SecurityCount: len(res.Report.SecurityUpdates()), RebootRequired: res.Report.RebootRequired})
 	if err := s.putAny(p); err != nil {
 		return p, err
@@ -954,9 +1048,16 @@ func (s *Service) fail(ctx context.Context, p Plan, step string, cause error) (P
 	}
 	p.State, p.FinishedAt, p.Error = PlanFailed, s.now(), truncate(cause.Error(), 400)
 	_ = s.putAny(p)
-	_ = s.addHistory(HistoryEntry{HostID: p.HostID, At: s.now(), Kind: "apply", PlanID: p.ID, Result: "failed: " + p.Error, RebootRequired: Unknown})
+	_ = s.addHistory(HistoryEntry{HostID: p.HostID, At: s.now(), Kind: "apply", PlanID: p.ID, Result: "failed: " + p.Error + engineHistory(p), RebootRequired: Unknown})
 	s.emit(ctx, notify.SeverityError, "patch.run_failed", "host/"+p.HostID, "patch run failed on "+p.HostID, map[string]string{"host": p.HostID, "plan": p.ID, "error": p.Error})
 	return p, cause
+}
+
+func engineHistory(p Plan) string {
+	if !p.ContainerRuntime {
+		return ""
+	}
+	return fmt.Sprintf("; engine %s -> %s", p.EngineVersionBefore, orUnknown(p.EngineVersionAfter))
 }
 
 // isLostConnection reports an error where the command may have run.
