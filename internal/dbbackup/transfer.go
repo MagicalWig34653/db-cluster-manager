@@ -115,7 +115,8 @@ func streamDigest(ctx context.Context, be backup.Backend, name string) (string, 
 
 // CopyBackup copies a complete backup object (stream, manifest, signed
 // record) from src to dst. It is idempotent: when dst already holds a
-// verifying transfer record for the same manifest, nothing is rewritten. A
+// transfer record for the same manifest whose object verifies against the
+// manifest digest, nothing is rewritten; a corrupt existing copy is replaced. A
 // source without a valid manifest (an incomplete backup) is refused, and a
 // stream whose bytes differ from the manifest is deleted from dst again.
 func CopyBackup(ctx context.Context, src, dst backup.Backend, req TransferRequest) (TransferRecord, error) {
@@ -137,9 +138,10 @@ func CopyBackup(ctx context.Context, src, dst backup.Backend, req TransferReques
 	if m.Object != req.Object {
 		return TransferRecord{}, fmt.Errorf("%w: manifest names object %q", ErrInvalidManifest, m.Object)
 	}
-	if _, _, err := VerifyTransfer(ctx, dst, req.Object, req.Keys, false); err == nil {
+	// Deep check: a same-size corrupt object left by an earlier copy must be
+	// rewritten, not reported as copied (lab E14).
+	if rec, _, err := VerifyTransfer(ctx, dst, req.Object, req.Keys, true); err == nil {
 		if old, merr := readAllLimited(ctx, dst, ManifestName(req.Object), 16<<20); merr == nil && bytes.Equal(old, raw) {
-			rec, _, _ := VerifyTransfer(ctx, dst, req.Object, req.Keys, false)
 			return rec, nil
 		}
 	}

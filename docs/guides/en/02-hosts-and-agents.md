@@ -34,7 +34,7 @@ Observed: three agents enrolled within 2 s and reported `agentIdentity: true` [L
 
 ![Hosts page with enrollment state](../../assets/screenshots/real/real-hosts.png)
 
-*Screenshot from the development mock server (`npm run dev:mock`, invented sample data), not from a real manager.*
+*Real screenshot: the UI against a real manager on lab VMs (2026-10-30).*
 
 ## Revoke a host
 

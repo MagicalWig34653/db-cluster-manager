@@ -45,7 +45,7 @@ Mock-server view only [Mock only].
 
 ![Operations with approval and progress](../../assets/screenshots/real/real-operations.png)
 
-*Screenshot from the development mock server (`npm run dev:mock`, invented sample data), not from a real manager.*
+*Real screenshot: the UI against a real manager on lab VMs (2026-10-30).*
 
 ## Verification levels
 

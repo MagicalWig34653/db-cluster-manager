@@ -63,6 +63,32 @@ func TestCopyBackupAcrossBackendsAndVerify(t *testing.T) {
 	}
 }
 
+// TestCopyBackupRepairsCorruptExistingCopy: a repeated copy must not report
+// success for a same-size corrupt object that an earlier copy left on the
+// target (lab E14: the second copy "succeeded" in milliseconds over a copy
+// with a flipped byte).
+func TestCopyBackupRepairsCorruptExistingCopy(t *testing.T) {
+	ctx := context.Background()
+	src, _, _ := runPhysicalBackup(t, testKey(t))
+	keys := transferKeys(t)
+	dst := backup.NewMemBackend()
+	if _, err := CopyBackup(ctx, src, dst, copyReq(keys)); err != nil {
+		t.Fatal(err)
+	}
+	stream, _ := readAllBackend(t, dst, xferObject)
+	flipped := append([]byte(nil), stream...)
+	flipped[10] ^= 1
+	if err := dst.Put(ctx, xferObject, bytes.NewReader(flipped)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CopyBackup(ctx, src, dst, copyReq(keys)); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := VerifyTransfer(ctx, dst, xferObject, keys, true); err != nil {
+		t.Fatalf("copy still corrupt after a repeated copy: %v", err)
+	}
+}
+
 func readAllBackend(t *testing.T, be backup.Backend, name string) ([]byte, error) {
 	t.Helper()
 	rc, err := be.Get(context.Background(), name)

@@ -1,0 +1,263 @@
+
+## Phase build: lab tooling, the API client, proxy and e5client (linux/arm64) on the host
+
+### go build ./tests/p0/e4client
+
+```
+$ env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o <repo>/.lab/e4/bin/e4client ./tests/p0/e4client
+(exit 0)
+```
+
+### go build ./tests/p0/e5client
+
+```
+$ env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o <repo>/.lab/e4/bin/e5client ./tests/p0/e5client
+(exit 0)
+```
+
+### go build ./cmd/proxy
+
+```
+$ env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o <repo>/.lab/e4/bin/proxy ./cmd/proxy
+(exit 0)
+```
+
+### git revision (the image is built from this commit, git archive HEAD)
+
+```
+$ git -C <repo> log -1 --format=%h %s
+874ed1a docs: use real screenshots where a real capture exists, label the rest as mock
+(exit 0)
+```
+
+### uncommitted changes (must be empty for a faithful build)
+
+```
+$ git -C <repo> status --short
+?? tests/p0/results/e14-vms.log
+(exit 0)
+```
+
+### host tools
+
+```
+$ sh -c jq --version; python3 --version; limactl --version
+jq-1.7.1-apple
+Python 3.15.2
+limactl version 2.2.1
+(exit 0)
+```
+
+
+## Phase vms: lab VMs (bin/lab) and rootful Docker
+
+host uptime: 20:10  up 12 days,  5:09, 10 users, load averages: 100.74 89.43 47.66
+
+19:10:16Z host load: { 100.74 89.43 47.66 }; host free disk (/System/Volumes/Data): 67Gi of 926Gi
+### host free disk before apply
+
+```
+$ host_free_disk
+host free disk (/System/Volumes/Data): 67Gi of 926Gi
+(exit 0)
+```
+
+### bin/lab status before
+
+```
+$ <repo>/bin/lab status
+host:
+  logical CPUs: 14
+  RAM: 48.0 GiB
+budget:
+  lab CPU limit: 7
+  lab RAM limit: 16.0 GiB
+  lab disk limit: 100.0 GiB
+manifest .lab/manifest.json:
+  (empty)
+inventory:
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+unrelated (never touched):
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+(exit 0)
+```
+
+### bin/lab apply -apply -vms 3 -cpus 2 -ram 4 -disk 20 -network lima:user-v2
+
+```
+$ <repo>/bin/lab apply -apply -vms 3 -cpus 2 -ram 4 -disk 20 -network lima:user-v2
+pre-snapshot:
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+executing actions:
+  # create Lima VM dbcm-lab-m1 (2 CPUs, 4 GiB RAM, 20 GiB disk, template docker, network lima:user-v2 (shared Lima state, not owned))
+  limactl create --name=dbcm-lab-m1 --cpus=2 --memory=4 --disk=20 --tty=false --network=lima:user-v2 template:docker
+  # start Lima VM dbcm-lab-m1
+  limactl start --tty=false dbcm-lab-m1
+  # create Lima VM dbcm-lab-m2 (2 CPUs, 4 GiB RAM, 20 GiB disk, template docker, network lima:user-v2 (shared Lima state, not owned))
+  limactl create --name=dbcm-lab-m2 --cpus=2 --memory=4 --disk=20 --tty=false --network=lima:user-v2 template:docker
+  # start Lima VM dbcm-lab-m2
+  limactl start --tty=false dbcm-lab-m2
+  # create Lima VM dbcm-lab-m3 (2 CPUs, 4 GiB RAM, 20 GiB disk, template docker, network lima:user-v2 (shared Lima state, not owned))
+  limactl create --name=dbcm-lab-m3 --cpus=2 --memory=4 --disk=20 --tty=false --network=lima:user-v2 template:docker
+  # start Lima VM dbcm-lab-m3
+  limactl start --tty=false dbcm-lab-m3
+post-snapshot diff:
+  added: lima:dbcm-lab-m1, lima:dbcm-lab-m2, lima:dbcm-lab-m3
+  removed: (none)
+(exit 0)
+```
+
+### switch dbcm-lab-m1 to rootful docker
+
+```
+$ vm_sh dbcm-lab-m1 
+			set -e
+			systemctl --user disable --now docker.service >/dev/null 2>&1 || true
+			sudo systemctl unmask containerd.service docker.service docker.socket >/dev/null 2>&1
+			sudo systemctl enable --now containerd.service docker.socket docker.service >/dev/null 2>&1
+			echo "rootful docker: $(systemctl is-active docker.service)"
+rootful docker: active
+(exit 0)
+```
+
+### facts dbcm-lab-m1
+
+```
+$ vm_sh dbcm-lab-m1 
+			echo "arch: $(uname -m) kernel: $(uname -r)"; grep PRETTY_NAME /etc/os-release; echo "nproc: $(nproc)"
+			free -m | head -2; df -h / | tail -1
+			sudo docker version --format "docker server {{.Server.Version}}"
+arch: aarch64 kernel: 7.0.0-34-generic
+PRETTY_NAME="Ubuntu 26.04.1 LTS"
+nproc: 2
+               total        used        free      shared  buff/cache   available
+Mem:            3896         529        2223           1        1305        3367
+/dev/vda1        19G  2.9G   16G  16% /
+docker server 29.9.2
+(exit 0)
+```
+
+### switch dbcm-lab-m2 to rootful docker
+
+```
+$ vm_sh dbcm-lab-m2 
+			set -e
+			systemctl --user disable --now docker.service >/dev/null 2>&1 || true
+			sudo systemctl unmask containerd.service docker.service docker.socket >/dev/null 2>&1
+			sudo systemctl enable --now containerd.service docker.socket docker.service >/dev/null 2>&1
+			echo "rootful docker: $(systemctl is-active docker.service)"
+rootful docker: active
+(exit 0)
+```
+
+### facts dbcm-lab-m2
+
+```
+$ vm_sh dbcm-lab-m2 
+			echo "arch: $(uname -m) kernel: $(uname -r)"; grep PRETTY_NAME /etc/os-release; echo "nproc: $(nproc)"
+			free -m | head -2; df -h / | tail -1
+			sudo docker version --format "docker server {{.Server.Version}}"
+arch: aarch64 kernel: 7.0.0-34-generic
+PRETTY_NAME="Ubuntu 26.04.1 LTS"
+nproc: 2
+               total        used        free      shared  buff/cache   available
+Mem:            3896         535        2216           1        1307        3361
+/dev/vda1        19G  2.9G   16G  16% /
+docker server 29.9.2
+(exit 0)
+```
+
+### switch dbcm-lab-m3 to rootful docker
+
+```
+$ vm_sh dbcm-lab-m3 
+			set -e
+			systemctl --user disable --now docker.service >/dev/null 2>&1 || true
+			sudo systemctl unmask containerd.service docker.service docker.socket >/dev/null 2>&1
+			sudo systemctl enable --now containerd.service docker.socket docker.service >/dev/null 2>&1
+			echo "rootful docker: $(systemctl is-active docker.service)"
+rootful docker: active
+(exit 0)
+```
+
+### facts dbcm-lab-m3
+
+```
+$ vm_sh dbcm-lab-m3 
+			echo "arch: $(uname -m) kernel: $(uname -r)"; grep PRETTY_NAME /etc/os-release; echo "nproc: $(nproc)"
+			free -m | head -2; df -h / | tail -1
+			sudo docker version --format "docker server {{.Server.Version}}"
+arch: aarch64 kernel: 7.0.0-34-generic
+PRETTY_NAME="Ubuntu 26.04.1 LTS"
+nproc: 2
+               total        used        free      shared  buff/cache   available
+Mem:            3896         544        2208           1        1305        3352
+/dev/vda1        19G  2.9G   16G  16% /
+docker server 29.9.2
+(exit 0)
+```
+
+### host free disk after apply
+
+```
+$ host_free_disk
+host free disk (/System/Volumes/Data): 64Gi of 926Gi
+(exit 0)
+```
+
+
+## Phase swarm: three Swarm manager nodes
+
+host uptime: 20:13  up 12 days,  5:11, 10 users, load averages: 23.29 62.37 44.05
+
+19:13:01Z host load: { 23.29 62.37 44.05 }; host free disk (/System/Volumes/Data): 64Gi of 926Gi
+19:13:01Z m1 user-v2 address: 192.168.104.1
+### swarm init on m1
+
+```
+$ vm_docker dbcm-lab-m1 swarm init --advertise-addr 192.168.104.1
+Swarm initialized: current node (05rizjkmq1x6t9x6w9iqefu19) is now a manager.
+
+To add a worker to this swarm, run the following command:
+
+    docker swarm join --token SWMTKN-<redacted> 192.168.104.1:2377
+
+To add a manager to this swarm, run 'docker swarm join-token manager' and follow the instructions.
+(exit 0)
+```
+
+### swarm join dbcm-lab-m2 as manager (advertise 192.168.104.3, token not recorded)
+
+```
+$ vm_docker dbcm-lab-m2 swarm join --advertise-addr 192.168.104.3 --token SWMTKN-<redacted> 192.168.104.1:2377
+This node joined a swarm as a manager.
+(exit 0)
+```
+
+### swarm join dbcm-lab-m3 as manager (advertise 192.168.104.4, token not recorded)
+
+```
+$ vm_docker dbcm-lab-m3 swarm join --advertise-addr 192.168.104.4 --token SWMTKN-<redacted> 192.168.104.1:2377
+This node joined a swarm as a manager.
+(exit 0)
+```
+
+### docker node ls
+
+```
+$ vm_docker dbcm-lab-m1 node ls
+ID                            HOSTNAME           STATUS    AVAILABILITY   MANAGER STATUS   ENGINE VERSION
+05rizjkmq1x6t9x6w9iqefu19 *   lima-dbcm-lab-m1   Ready     Active         Leader           29.9.2
+wzwzh0qughuo1a3caoirjpnvy     lima-dbcm-lab-m2   Ready     Active         Reachable        29.9.2
+44lmszjloqazanb4qirgz93bv     lima-dbcm-lab-m3   Ready     Active         Reachable        29.9.2
+(exit 0)
+```
+
+19:13:03Z E12_KEEP_VMS=1: VMs kept; run bin/lab cleanup --apply manually
+19:13:03Z E12 finished with exit 0
