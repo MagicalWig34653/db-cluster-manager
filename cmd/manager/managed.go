@@ -106,6 +106,13 @@ type managerConfig struct {
 	// ImageUpdate enables the image update service (X16, ADR 0025); off
 	// unless "enabled" is true. See imageupdate.go.
 	ImageUpdate *imageUpdateConfig `json:"imageUpdate,omitempty"`
+	// ImageComposer enables the image composer (X17, ADR 0026); off unless
+	// "enabled" is true. Needs imageBuild. See bootstrap.go.
+	ImageComposer *imageComposerConfig `json:"imageComposer,omitempty"`
+	// ServerBootstrap enables the fresh-server bootstrap (X18, ADR 0027 and
+	// 0028); off unless "enabled" is true. It is not called "bootstrap"
+	// because that key already starts the metastore cluster. See bootstrap.go.
+	ServerBootstrap *bootstrapConfig `json:"serverBootstrap,omitempty"`
 	// ProxyWriters enables the replicated writer-choice protocol.
 	ProxyWriters []proxyWriterConfig `json:"proxyWriters,omitempty"`
 	// ExperimentalProvisioning enables approval-gated SSH host provisioning.
@@ -512,6 +519,11 @@ type managedRuntime struct {
 	imageUpdateCfg         *imageUpdateConfig
 	imageUpdate            atomic.Pointer[imageupdate.Service]
 	patch                  atomic.Pointer[patch.Service]
+	installer              atomic.Pointer[patch.Installer]
+	bootstrap              atomic.Pointer[provision.BootstrapService]
+	bootstrapCfg           *bootstrapConfig // nil: fresh-server bootstrap disabled
+	composerOn             bool
+	agentTransport         *agentTransportConfig
 	provisioning           bool
 	kubernetesProvisioning bool
 
@@ -588,6 +600,16 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 	if err := mc.ImageUpdate.validate(cfg.Auth.Enabled); err != nil {
 		return nil, err
 	}
+	if err := mc.ImageComposer.validate(mc, cfg.Auth.Enabled); err != nil {
+		return nil, err
+	}
+	if err := mc.ServerBootstrap.validate(mc, cfg.Auth.Enabled); err != nil {
+		return nil, err
+	}
+	var bootCfg *bootstrapConfig
+	if mc.ServerBootstrap.on() {
+		bootCfg = mc.ServerBootstrap
+	}
 	var iuCfg *imageUpdateConfig
 	if mc.ImageUpdate.on() {
 		iuCfg = mc.ImageUpdate
@@ -596,7 +618,7 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 	if mc.Patch.on() {
 		patchCfg = mc.Patch
 	}
-	rt := &managedRuntime{patchCfg: patchCfg, imageUpdateCfg: iuCfg, proto: api.NewHandler(), keys: keys, backend: backend, targets: targets, backupCfg: mc.Backup, imageCfg: mc.ImageBuild, imageRunner: newImageRunner(), vulnCfg: mc.Vuln,
+	rt := &managedRuntime{bootstrapCfg: bootCfg, composerOn: mc.ImageComposer.on(), agentTransport: mc.AgentTransport, patchCfg: patchCfg, imageUpdateCfg: iuCfg, proto: api.NewHandler(), keys: keys, backend: backend, targets: targets, backupCfg: mc.Backup, imageCfg: mc.ImageBuild, imageRunner: newImageRunner(), vulnCfg: mc.Vuln,
 		proxyWriters: map[string]proxyWriterConfig{}, provisioning: mc.ExperimentalProvisioning, kubernetesProvisioning: mc.ExperimentalKubernetesProvisioning,
 		forwardTLS: scfg.PeerTLS, forwardPeers: map[string]peerConfig{}}
 	for _, w := range mc.ProxyWriters {
@@ -629,6 +651,14 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 	}
 	if patchCfg != nil {
 		scfg.Reconcilers = append(scfg.Reconcilers, manager.PatchScheduler{Poll: rt.pollPatch, Interval: patchCfg.interval(), Logf: log.Warn})
+	}
+	if bootCfg != nil || patchCfg != nil {
+		// Expired sealed credentials of bootstrap and SSH install drafts.
+		every := defaultBootstrapSweep * time.Second
+		if bootCfg != nil {
+			every = bootCfg.sweepEvery()
+		}
+		scfg.Reconcilers = append(scfg.Reconcilers, manager.DraftSweeper{Poll: rt.pollBootstrap, Interval: every, Logf: log.Warn})
 	}
 	if iuCfg != nil {
 		scfg.Reconcilers = append(scfg.Reconcilers, manager.ImageUpdateScheduler{Poll: rt.pollImageUpdate, Interval: iuCfg.interval(), Logf: log.Warn})
@@ -753,6 +783,8 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 			rt.hostSources.Store(nil)
 			rt.vuln.Store(nil)
 			rt.patch.Store(nil)
+			rt.installer.Store(nil)
+			rt.bootstrap.Store(nil)
 			rt.imageUpdate.Store(nil)
 			rt.setHandler(rt.notLeader())
 			return
@@ -963,9 +995,15 @@ func (rt *managedRuntime) leaderAPI(pk passkey.Config, keys manager.KeyProvider,
 	}
 	// Without manager.patch the interface stays nil and the routes answer 503.
 	if svc.patch != nil {
-		// The SSH installer needs a sealed draft store and an enrollment token
-		// source that are not wired yet: its routes answer 503.
-		acfg.Patch = &api.PatchBackend{Svc: svc.patch}
+		// The SSH installer needs the enrollment token source of the agent
+		// transport; without it its routes answer 503.
+		acfg.Patch = &api.PatchBackend{Svc: svc.patch, Installer: svc.installer}
+	}
+	if svc.bootstrap != nil {
+		acfg.Bootstrap = svc.bootstrap
+	}
+	if svc.composer {
+		acfg.ImageComposer = &api.ImageComposerBackend{Builds: svc.builds}
 	}
 	if svc.imageUpdate != nil {
 		iub := &api.ImageUpdateBackend{Svc: svc.imageUpdate}
@@ -994,6 +1032,15 @@ func (rt *managedRuntime) leaderAPI(pk passkey.Config, keys manager.KeyProvider,
 			log.Warn("manager: marked patch runs interrupted by a restart or failover as failed", "count", n)
 		}
 		rt.patch.Store(svc.patch)
+		rt.installer.Store(svc.installer)
+	}
+	if svc.bootstrap != nil {
+		// Drafts of a previous process or leader: credentials past their
+		// expiry are deleted, a run without a recorded end becomes unknown.
+		if err := svc.bootstrap.Restore(context.Background()); err != nil {
+			log.Warn("manager: bootstrap drafts not restored", "err", err)
+		}
+		rt.bootstrap.Store(svc.bootstrap)
 	}
 	if svc.imageUpdate != nil {
 		if n, err := svc.imageUpdate.RecoverInterrupted(context.Background()); err != nil {
@@ -1024,6 +1071,9 @@ type commandSet struct {
 	patch       *patch.Service       // nil without manager.patch.enabled
 	imageUpdate *imageupdate.Service // nil without manager.imageUpdate.enabled
 	builds      *imagebuild.Service  // nil without manager.imageBuild
+	installer   *patch.Installer     // nil without manager.patch and the agent transport
+	bootstrap   *provision.BootstrapService
+	composer    bool
 }
 
 // newBackups builds the backup service with copy targets, the metastore
@@ -1083,6 +1133,12 @@ func (rt *managedRuntime) commandServices(st *manager.AuthStack) (commandSet, er
 	}
 	if rt.patchCfg != nil {
 		set.patch = rt.newPatchService()
+		if rt.pki != nil {
+			set.installer = rt.newPatchInstaller()
+		}
+	}
+	if rt.bootstrapCfg != nil && rt.pki != nil {
+		set.bootstrap = rt.newBootstrapService(ops.Swarms)
 	}
 	if builder != nil {
 		set.builds = builds
@@ -1090,6 +1146,7 @@ func (rt *managedRuntime) commandServices(st *manager.AuthStack) (commandSet, er
 	if rt.imageUpdateCfg != nil {
 		set.imageUpdate = rt.newImageUpdateService(set.services, regs)
 	}
+	set.composer = rt.composerOn && builder != nil
 	return set, nil
 }
 

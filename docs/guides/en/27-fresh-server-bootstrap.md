@@ -6,7 +6,7 @@ title: Fresh-server bootstrap
 
 The bootstrap wizard ([ADR 0027](../../decisions/0027-fresh-server-bootstrap.md), requirement X18) turns a freshly installed Linux server that you administer into a managed host. You enter root (or sudo) SSH access once; the manager checks the server, shows you a plan made of reviewed scripts, and changes nothing until you confirm the SSH host key and approve the plan. It builds on the SSH plan flow of [guide 19](19-provisioning.md) and the agents of [guide 24](24-agent-runtimes.md).
 
-**Status.** The plan generator, executor, API and wizard are tested against an in-memory simulated host only. No script has run on a real server, no Docker repository key has been downloaded and no VM was used. The manager does not wire the backend yet: the routes answer 503 until it is configured. Do not point it at a server you cannot rebuild.
+**Status.** The plan generator, executor, API and wizard are tested against an in-memory simulated host only. No script has run on a real server, no Docker repository key has been downloaded and no VM was used. The managed manager wires the backend behind `manager.serverBootstrap.enabled` (default off, see "Enabling it"); with the switch off the routes answer 503. The wiring is verified with fakes only. Do not point it at a server you cannot rebuild.
 
 ## Supported systems
 
@@ -29,9 +29,22 @@ Every step is a shell script with a marker line, a SHA-256 digest, an idempotenc
 
 Secrets: the enrollment token and the Swarm join token travel on standard input, never in a command line. The plan and every API response are free of credentials.
 
+## Enabling it
+
+Add the section (the shipped `deploy/manager.example.json` carries it with `enabled: false`):
+
+```json
+"serverBootstrap": { "enabled": true, "sweepSeconds": 60,
+  "agentRelease": { "version": "0.1.0", "binaryUrl": "https://releases.example.org/dbcm-agent-linux-amd64", "sha256": "<64 hex>" } }
+```
+
+The key is `serverBootstrap` because `manager.bootstrap` already starts the metastore cluster. It needs `auth.enabled`, `manager.agentTransport` (the installed native agent enrolls there) and the reviewed native agent release; the manager refuses to start otherwise. Drafts and credentials are sealed with the data keyring in the replicated metastore: the draft document holds the plan and the pinned host key but no credential, the credentials are a second document that is deleted after the run, on cancel, on a fingerprint mismatch and when the one-hour lifetime ends (the leader sweeps every `sweepSeconds`; a failed deletion is retried). Only the leader runs a bootstrap, and a run that finishes after the leadership changed does not write its result. Administrator only.
+
 ## Limits
 
 - Simulation only; scripts are syntax-checked with `sh -n` but never executed on a real system. Package names, repository URLs, service names, firewall commands and the pinned Docker key fingerprint are unverified assumptions.
-- Drafts and the journal are in memory; a manager restart drops drafts and credentials. The backend, token source and container-agent deployment are not wired in the manager yet.
+- Drafts are durable (ADR 0028) but the step journal is in memory. After a restart or failover the new leader marks a run whose end was not recorded as `unknown`; running it again resumes it, and every step is checked on the host before it is repeated (the steps recorded as succeeded are restored, the step that was in flight is checked again). The wiring has only run against fakes, never across two real manager processes.
+- The enrollment token is issued only for a host with an enrolled host record whose node ID equals the host ID of the bootstrap. A server that is not yet a Swarm node has none, so the native agent step fails with "enrollment token unavailable" until the node is known (join the Swarm first, sync, enroll it, then run again). This is a known gap, not yet verified on a lab host.
+- The container agent step enrolls the node and runs the existing agent deployment for its Swarm (labels, agent service); a revoked host is never re-enrolled.
 - One host per bootstrap; k3s is blocked; an existing Docker engine is kept as it is; a firewall does not filter ports published by Docker.
 - A reboot of the server within the three minutes after disabling root login drops the automatic revert; the dedicated key must work then.

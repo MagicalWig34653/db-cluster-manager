@@ -6,7 +6,7 @@ title: Frischen Server aufnehmen
 
 Der Bootstrap-Assistent ([ADR 0027](../../decisions/0027-fresh-server-bootstrap.md), Anforderung X18) macht einen frisch installierten Linux-Server, den Sie administrieren, zu einem verwalteten Host. Sie geben einmal Root-Zugang (oder sudo) per SSH ein; der Manager prüft den Server, zeigt einen Plan aus geprüften Skripten und ändert nichts, bis Sie den SSH-Hostschlüssel bestätigen und den Plan freigeben. Er baut auf dem SSH-Plan-Ablauf aus [Anleitung 19](19-provisioning.md) und den Agenten aus [Anleitung 24](24-agent-runtimes.md) auf.
 
-**Stand.** Plan-Generator, Ausführung, API und Assistent sind nur gegen einen simulierten Host im Arbeitsspeicher getestet. Kein Skript lief auf einem echten Server, es wurde kein Docker-Repository-Schlüssel heruntergeladen und keine VM benutzt. Der Manager verdrahtet das Backend noch nicht: Die Routen antworten mit 503, bis es konfiguriert ist. Richten Sie ihn nicht auf einen Server, den Sie nicht neu aufsetzen können.
+**Stand.** Plan-Generator, Ausführung, API und Assistent sind nur gegen einen simulierten Host im Arbeitsspeicher getestet. Kein Skript lief auf einem echten Server, es wurde kein Docker-Repository-Schlüssel heruntergeladen und keine VM benutzt. Der Managed-Manager verdrahtet das Backend hinter `manager.serverBootstrap.enabled` (Standard aus, siehe „Aktivieren“); bei ausgeschaltetem Schalter antworten die Routen mit 503. Die Verdrahtung ist nur mit Fakes geprüft. Richten Sie ihn nicht auf einen Server, den Sie nicht neu aufsetzen können.
 
 ## Unterstützte Systeme
 
@@ -29,9 +29,22 @@ Jeder Schritt ist ein Shell-Skript mit Markierungszeile, SHA-256-Prüfsumme, Ide
 
 Geheimnisse: Das Enrollment-Token und das Swarm-Beitritts-Token laufen über die Standardeingabe, nie in einer Kommandozeile. Plan und jede API-Antwort enthalten keine Zugangsdaten.
 
+## Aktivieren
+
+Abschnitt ergänzen (die mitgelieferte `deploy/manager.example.json` enthält ihn mit `enabled: false`):
+
+```json
+"serverBootstrap": { "enabled": true, "sweepSeconds": 60,
+  "agentRelease": { "version": "0.1.0", "binaryUrl": "https://releases.example.org/dbcm-agent-linux-amd64", "sha256": "<64 hex>" } }
+```
+
+Der Schlüssel heißt `serverBootstrap`, weil `manager.bootstrap` bereits den Metastore-Cluster startet. Er braucht `auth.enabled`, `manager.agentTransport` (der installierte native Agent schreibt sich dort ein) und das geprüfte Release des nativen Agenten; sonst startet der Manager nicht. Entwürfe und Zugangsdaten werden mit dem Datenschlüsselring versiegelt im replizierten Metastore gehalten: Das Entwurfsdokument enthält Plan und festgehaltenen Host-Schlüssel, aber keine Zugangsdaten; diese liegen in einem zweiten Dokument, das nach dem Lauf, beim Abbruch, bei falschem Fingerabdruck und nach Ablauf der einen Stunde gelöscht wird (der Leader räumt alle `sweepSeconds` auf; ein fehlgeschlagenes Löschen wird wiederholt). Nur der Leader führt einen Bootstrap aus, und ein Lauf, der nach einem Leaderwechsel endet, schreibt kein Ergebnis. Nur Administratoren.
+
 ## Grenzen
 
 - Nur Simulation; Skripte sind mit `sh -n` auf Syntax geprüft, aber nie auf einem echten System gelaufen. Paketnamen, Repository-URLs, Dienstnamen, Firewall-Befehle und der fest hinterlegte Docker-Schlüssel-Fingerabdruck sind ungeprüfte Annahmen.
-- Entwürfe und Journal liegen im Arbeitsspeicher; ein Neustart des Managers verwirft Entwürfe und Zugangsdaten. Backend, Token-Quelle und Bereitstellung des Container-Agenten sind im Manager noch nicht verdrahtet.
+- Entwürfe sind dauerhaft (ADR 0028), das Schrittjournal liegt im Speicher. Nach Neustart oder Failover markiert der neue Leader einen Lauf ohne aufgezeichnetes Ende als `unknown`; erneutes Ausführen setzt ihn fort, und jeder Schritt wird auf dem Host geprüft, bevor er wiederholt wird (als erfolgreich vermerkte Schritte werden wiederhergestellt, der laufende Schritt wird neu geprüft). Die Verdrahtung lief nur gegen Fakes, nie über zwei echte Manager-Prozesse.
+- Das Enrollment-Token gibt es nur für einen Host mit eingeschriebenem Host-Datensatz, dessen Node-ID der Host-ID des Bootstraps entspricht. Ein Server, der noch kein Swarm-Node ist, hat keinen; der Schritt für den nativen Agenten scheitert dann mit „enrollment token unavailable“, bis der Node bekannt ist (erst dem Swarm beitreten, synchronisieren, einschreiben, dann erneut ausführen). Das ist eine bekannte Lücke und noch nicht auf einem Lab-Host geprüft.
+- Der Schritt für den Container-Agenten schreibt den Node ein und führt die vorhandene Agent-Bereitstellung seines Swarms aus (Labels, Agent-Dienst); ein gesperrter Host wird nie erneut eingeschrieben.
 - Ein Host pro Aufnahme; k3s ist blockiert; eine vorhandene Docker Engine bleibt unverändert; eine Firewall filtert von Docker veröffentlichte Ports nicht.
 - Ein Neustart des Servers in den drei Minuten nach dem Abschalten des Root-Logins verwirft das automatische Zurücksetzen; dann muss der eigene Schlüssel funktionieren.

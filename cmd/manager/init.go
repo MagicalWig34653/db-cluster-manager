@@ -198,6 +198,10 @@ func buildInitConfig(o initOptions) (fileConfig, error) {
 		Patch: &patchConfig{Enabled: false, AgentPort: defaultPatchPort, PollIntervalSeconds: defaultPatchInterval},
 		// Image updates ship disabled and explicit; see imageupdate.go.
 		ImageUpdate: &imageUpdateConfig{Enabled: false, PollIntervalSeconds: defaultImageUpdateInterval},
+		// The image composer and the fresh-server bootstrap ship disabled;
+		// see bootstrap.go. Enabling the bootstrap also needs agentRelease.
+		ImageComposer:   &imageComposerConfig{Enabled: false},
+		ServerBootstrap: &bootstrapConfig{Enabled: false, SweepSeconds: defaultBootstrapSweep},
 	}
 	if net.ParseIP(host) == nil {
 		mc.AgentTransport.ServerDNS = []string{host}

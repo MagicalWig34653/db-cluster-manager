@@ -17,6 +17,8 @@ type svcFixture struct {
 	svc *BootstrapService
 	mgr *simManager
 	now time.Time
+	// store is set by the durable fixtures.
+	store *memDraftStore
 }
 
 func newSvcFixture(t *testing.T) *svcFixture {

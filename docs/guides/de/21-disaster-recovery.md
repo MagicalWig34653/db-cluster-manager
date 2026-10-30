@@ -43,7 +43,7 @@ Eine Kopie ändert nichts: keinen Cluster, keine Route, keinen Proxy.
 2. Eine Person prüft ihn. Die Freigabe bindet an den genauen Digest; der Wiederherstellungsplan erzeugt immer einen **neuen** Cluster mit neuer Identität, verweigert Identität, Namen, Netze und Volumes des Quellclusters, und jeder zerstörerische Schritt wartet auf die Freigabe ([Backups und Wiederherstellung](05-backup-restore.md)).
 3. Clients auf den wiederhergestellten Cluster umzustellen ist eine getrennte, manuelle Entscheidung. Der wiederhergestellte Cluster beginnt eine neue Galera-Historie.
 
-[Fakes]: Vorschlag, Freigabe und Plan existieren in Code und Tests; der HTTP-Endpunkt liefert nur den Vorschlag. Die Ausführung der Wiederherstellung einer Kopie über die API ist noch nicht angeschlossen.
+[Fakes]: Vorschlag, Freigabe und Plan existieren in Code und Tests; der HTTP-Endpunkt liefert nur den Vorschlag. Die Ausführung der Wiederherstellung einer Kopie über die API ist noch nicht angeschlossen. Die Kopier-Routen (`/backup-copies`, `/clusters/{id}/backup-copies`, `/backup-copies/{id}/restore-proposal`) und die Metastore-Backup-Routen sind in der Managed-Laufzeit eingehängt, sobald `manager.backup` konfiguriert ist (ein Test startet die echte Laufzeit mit einem `targets`-Eintrag und erreicht sie; das Anlegen eines Metastore-Backups antwortet weiterhin mit 409 `settings_incomplete`, bis `settings.backup.recipientKey` gesetzt ist).
 
 ## Geplante Wiederherstellungsprüfung
 
