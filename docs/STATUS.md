@@ -1,6 +1,25 @@
 # Current status
 
-Updated: 2026-10-29.
+Updated: 2026-10-30.
+
+## Managed runtime wiring of composer, bootstrap and SSH install (2026-10-30, ADR 0028, fakes only; no VM, network or registry used)
+
+[ADR 0028](decisions/0028-managed-runtime-wiring.md). Closes the 503 gaps of the X17, X18 and X15 work. Tests were written before the code.
+
+Implemented:
+
+- `manager.imageComposer` (default off; needs `auth.enabled` and `manager.imageBuild`): `ImageComposerBackend` on the image build service; 503 while off or without a docker builder.
+- `manager.serverBootstrap` (default off; the key is not `bootstrap` because that already starts the metastore cluster; needs `auth.enabled`, `manager.agentTransport` and a reviewed `agentRelease`): `provision.BootstrapService` now has a durable store. The draft document holds the plan and the pinned host key but no credential; the credentials are a separate document sealed with the data keyring in the replicated metastore, with a one-hour expiry. They are deleted after the run, on cancel, on a fingerprint mismatch and at expiry (leader sweeper; a failed deletion is retried). `Restore` loads drafts after a restart or failover, deletes expired credentials, marks a run without a recorded end `unknown` and restores succeeded steps into the new journal; running again resumes. Only the leader runs (term 0 refused with `ErrNotLeader`); a run that finishes after the term changed writes nothing. The plan environment (installation, CA fingerprint, manager URL, agent release) is read at plan time.
+- Enrollment token source (`manager.HostEnrollmentTokens`: one host, single use, two-hour TTL, plain token not stored) and container-agent deployment (`BootstrapManagerActions`: enrolls the Swarm node, never a revoked one, then the existing `Swarms.DeployAgents` as the manager system subject; dedicated key sealed).
+- Patch SSH install routes: `patch.Installer` on a sealed, replicated store (`PatchInstallSealer`), one-hour draft expiry with sweeper, credential deleted after any attempt that reached the host, same token source.
+- Backup copies: no missing wiring found. A test starts the real runtime with a `targets` entry and reaches `/backup-copies`, the copy start, the restore proposal and the metastore backup routes (the latter answers 409 `settings_incomplete` until `settings.backup.recipientKey` is set).
+- `deploy/manager.example.json` and `manager init` emit `imageComposer` and `serverBootstrap` with `enabled: false`; guides 21, 23, 26 and 27 (EN/DE) updated.
+
+Actual checks (final tree): `gofmt -l .` (no output), `go vet ./...` (no output), `go test -race -count=1 -p 4 ./...` (all packages ok in the last full run except two timing-dependent tests that failed once each under that load and passed when run alone: `TestDeleteSurvivesLeaderLossWhileVolumeBusy` in `internal/manager` (5 repeated runs ok; it also failed once with an unrelated version conflict before any change to it) and `TestManagedModeAgentTransport` in `cmd/manager` (3 repeated runs ok); `go test -race -count=1 ./cmd/manager` alone passed), `python3 scripts/check_docs.py`, `python3 scripts/check_docs.py` (108 Markdown files, 74 requirements, 0 errors), `python3 scripts/check_deploy.py` (passed, static only). Web checks not run (no frontend change).
+
+Limits: fakes only. The sealed round trip ran on a one-replica in-memory Raft cluster and through the real runtime restarted on the same data directory; a failover between two real manager processes was not run. The step journal is in memory; only steps stored as succeeded survive a restart and the step in flight is re-checked on the host. A server that is not yet a Swarm node gets no enrollment token, so the native agent step fails until the node is enrolled (needs a product decision). Everything in the earlier X17 and X18 limits (unverified catalog and scripts, no real build, no real host) still holds.
+
+Next action: run a bootstrap and a composer build once in a budgeted lab VM after the owner's go; decide how a not-yet-enrolled server obtains its first enrollment token.
 
 ## Fresh-server bootstrap (2026-10-29, X18, ADR 0027, simulated host only; no VM, network or real host used)
 
@@ -61,7 +80,7 @@ Implemented:
 - Manager: `manager.ImageUpdateAdapter` lists managed services and updates through the existing approval-gated `service/update` operation (agent `update-service` with UpdateConfig/RollbackConfig, `await-service`, health gate), maps Swarm's `rollback_completed` to a rolled-back plan and records the executing runtime; `ImageUpdateScheduler` reconciler on the leader; `manager.imageUpdate` config (default off, `manager init` writes `enabled: false`, needs `auth.enabled`).
 - API: 11 routes under `/image-updates/*`, authz resource `image_update` (viewer read; operator check; administrator policies, approval, apply, rollback, offers), `api/openapi.yaml`, route-contract, role-matrix and end-to-end tests; 503 when disabled.
 
-Actual checks (final tree): `gofmt -l .` (no output), `go vet ./...` (no output), `go test -race -count=1 -p 4 ./...` (all packages ok), `python3 scripts/check_docs.py` (101 Markdown files, 72 requirements, 0 errors), `python3 scripts/check_deploy.py` (passed, static only). Web checks not run (no frontend change).
+Actual checks (final tree): `gofmt -l .` (no output), `go vet ./...` (no output), `go test -race -count=1 -p 4 ./...` (all packages ok), `python3 scripts/check_docs.py` (101 Markdown files, 72 requirements, 0 errors), `python3 scripts/check_docs.py` (108 Markdown files, 74 requirements, 0 errors), `python3 scripts/check_deploy.py` (passed, static only). Web checks not run (no frontend change).
 
 Limits: fakes only (no registry, Swarm or VM). Multi-arch manifest lists are compared by the registry's digest header only; the running digest is not read from Swarm (baseline from the first check). Automatic hand-off from a vulnerability build to an offer is not wired (API only). No UI, no registry webhooks. Only the container agent executes updates.
 

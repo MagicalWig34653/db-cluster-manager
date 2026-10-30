@@ -6,7 +6,7 @@ title: Image composer
 
 The image composer ([ADR 0026](../../decisions/0026-image-composer.md), requirement X17) lets you assemble the contents of a service image by selecting components instead of writing a Dockerfile: base distribution, nginx with version and settings, PHP with version, extensions, `php.ini` and PHP-FPM pool settings, Composer and a few utilities. The manager validates the choice, generates a Dockerfile and configuration files, shows them for review and builds only after an administrator approves the exact plan, through the existing image build service (the **Image builds** page lists the resulting jobs).
 
-**Status.** Fakes and the development mock server only. The component catalog (version 2026.10.29-2) is marked `unverified`: package names and versions were written from knowledge and not checked against live repositories, and no image has been built from a generated recipe. The real build is the final check and may reject an entry. The manager does not wire the composer endpoints yet (503 until it is constructed with a build service).
+**Status.** Fakes and the development mock server only. The component catalog (version 2026.10.29-2) is marked `unverified`: package names and versions were written from knowledge and not checked against live repositories, and no image has been built from a generated recipe. The real build is the final check and may reject an entry. The managed manager can serve the endpoints behind `manager.imageComposer.enabled` (default off; needs `auth.enabled` and `manager.imageBuild`); with the switch off, or without a docker builder, they answer 503. The wiring is verified with fakes only (no real build).
 
 ## Use the page
 
@@ -35,6 +35,14 @@ Open **Image composer** in the navigation.
 | `POST /api/v1/image-composer/builds` | administrator | Without `approvalDigest`: the build plan (200); with the plan's digest: starts the build (202). A changed recipe or target gives 409 `approval_mismatch` |
 
 A recipe has `name`, `base {distro, release, digest}`, optional `platforms` and `components [{id, version, features, settings}]`. The full schema is in `api/openapi.yaml`.
+
+## Enabling it
+
+```json
+"imageComposer": { "enabled": false }
+```
+
+Set `enabled` to true. It needs `auth.enabled` and `manager.imageBuild` (builds run through the image build service and its approval flow); otherwise the manager refuses to start. Without a docker builder the endpoints stay at 503. The recipe is always generated on the server; the client never sends a Dockerfile.
 
 ## Limits
 

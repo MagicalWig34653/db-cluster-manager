@@ -43,7 +43,7 @@ A copy changes nothing: no cluster, no route, no proxy.
 2. A person reviews it. Approval binds to the exact digest; the restore plan always creates a **new** cluster with a new identity, refuses the source cluster's identity, names, networks and volumes, and every destructive step waits for the approval ([Backups and restore](05-backup-restore.md)).
 3. Switching clients to the restored cluster is a separate, manual decision. The restored cluster starts a new Galera history.
 
-[Fakes]: the proposal, approval and plan exist in code and tests; the HTTP endpoint returns the proposal only. Executing the restore of a copy through the API is not wired yet.
+[Fakes]: the proposal, approval and plan exist in code and tests; the HTTP endpoint returns the proposal only. Executing the restore of a copy through the API is not wired yet. The copy routes (`/backup-copies`, `/clusters/{id}/backup-copies`, `/backup-copies/{id}/restore-proposal`) and the metastore backup routes are mounted in the managed runtime whenever `manager.backup` is configured (a test starts the real runtime with a `targets` entry and reaches them; creating a metastore backup still answers 409 `settings_incomplete` until `settings.backup.recipientKey` is set).
 
 ## Scheduled restore verification
 

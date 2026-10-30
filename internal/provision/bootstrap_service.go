@@ -20,9 +20,12 @@ const (
 	StatusApproved            Status = "approved"
 	StatusRunning             Status = "running"
 	StatusPaused              Status = "paused"
-	StatusMainComplete        Status = "main-complete"
-	StatusCompleted           Status = "completed"
-	StatusCancelled           Status = "cancelled"
+	// StatusUnknown marks a run whose end was never recorded (manager restart
+	// or leadership change while a step ran). Run resumes it.
+	StatusUnknown      Status = "unknown"
+	StatusMainComplete Status = "main-complete"
+	StatusCompleted    Status = "completed"
+	StatusCancelled    Status = "cancelled"
 )
 
 // CredentialTTL is how long write-only credentials stay in memory without
@@ -60,11 +63,16 @@ type bootDraft struct {
 	mainApproved     bool
 	lockdownApproved bool
 	errText          string
+	// wipePending: the stored credentials must still be deleted.
+	wipePending bool
 }
 
-// BootstrapService holds drafts in memory and drives the flow: draft, host
-// key confirmation, plan, approve, run, lockdown approval. Drafts and their
-// credentials are lost on a manager restart by design (ADR 0027).
+// BootstrapService drives the flow: draft, host key confirmation, plan,
+// approve, run, lockdown approval. Without Store, drafts and credentials live
+// in memory only and a restart drops them (ADR 0027). With Store they are
+// durable (ADR 0028): the draft document holds no credential, the credentials
+// are a separate sealed document that is deleted after the run, on cancel and
+// at expiry.
 type BootstrapService struct {
 	deps   BootstrapDeps
 	env    BootstrapEnv
@@ -72,10 +80,19 @@ type BootstrapService struct {
 	agents AgentScripts
 
 	// Spawn runs the executor; the default starts a goroutine. Term returns
-	// the current leader term. Now is the clock. Tests replace all three.
+	// the current leader term, or 0 when this replica is not the leader: a
+	// run is refused then, and a run that finishes after the term changed does
+	// not write its result (the new leader owns the draft). Now is the clock.
+	// Tests replace all three.
 	Spawn func(func())
 	Term  func() uint64
 	Now   func() time.Time
+	// Store, if set, makes drafts durable. Call Restore after setting it.
+	Store DraftStore
+	// EnvFunc, if set, supplies the plan environment at plan time instead of
+	// the fixed one (installation settings may appear after the manager
+	// started).
+	EnvFunc func() (BootstrapEnv, error)
 
 	mu     sync.Mutex
 	drafts map[string]*bootDraft
@@ -92,11 +109,15 @@ func NewBootstrapService(deps BootstrapDeps, env BootstrapEnv, probe HostKeyProb
 
 func (s *BootstrapService) wipe(d *bootDraft) {
 	d.secrets = BootstrapSecrets{}
+	d.wipePending = true
+	s.finishWipe(d)
 }
 
 func (s *BootstrapService) expire(d *bootDraft) {
 	if d.secrets != (BootstrapSecrets{}) && s.Now().After(d.expires) {
 		s.wipe(d)
+	} else if d.wipePending {
+		s.finishWipe(d)
 	}
 }
 
@@ -160,6 +181,14 @@ func (s *BootstrapService) Draft(ctx context.Context, in DraftInput) (BootstrapV
 	cred.KnownHosts = ""
 	d := &bootDraft{req: in.Request, status: StatusAwaitingFingerprint, hostKey: hk,
 		secrets: BootstrapSecrets{Root: cred, JoinToken: in.JoinToken}, expires: s.Now().Add(CredentialTTL)}
+	if err := s.saveSecrets(d); err != nil {
+		_ = s.Store.DeleteSecrets(d.req.ID)
+		return BootstrapView{}, err
+	}
+	if err := s.save(d); err != nil {
+		s.wipe(d)
+		return BootstrapView{}, err
+	}
 	s.drafts[in.Request.ID] = d
 	return s.view(d), nil
 }
@@ -182,6 +211,7 @@ func (s *BootstrapService) ConfirmFingerprint(ctx context.Context, id, fingerpri
 	if fingerprint == "" || fingerprint != d.hostKey.Fingerprint {
 		s.wipe(d)
 		d.status, d.errText = StatusCancelled, "host key fingerprint mismatch"
+		_ = s.save(d)
 		s.mu.Unlock()
 		return BootstrapView{}, ErrHostKeyMismatch
 	}
@@ -205,13 +235,24 @@ func (s *BootstrapService) ConfirmFingerprint(ctx context.Context, id, fingerpri
 	d.secrets.Root = root
 	if ierr != nil {
 		d.status, d.errText = StatusBlocked, ierr.Error()
+		_ = s.save(d)
 		return s.view(d), ierr
 	}
 	req.HostKeyFingerprint = hk.Fingerprint
 	d.req = req
-	plan, err := BuildBootstrapPlan(req, chk, s.env, s.agents, dedPub)
+	env := s.env
+	if s.EnvFunc != nil {
+		var eerr error
+		if env, eerr = s.EnvFunc(); eerr != nil {
+			d.status, d.errText = StatusBlocked, eerr.Error()
+			_ = s.save(d)
+			return s.view(d), eerr
+		}
+	}
+	plan, err := BuildBootstrapPlan(req, chk, env, s.agents, dedPub)
 	if err != nil {
 		d.status, d.errText = StatusBlocked, err.Error()
+		_ = s.save(d)
 		return s.view(d), err
 	}
 	d.plan = &plan
@@ -223,6 +264,9 @@ func (s *BootstrapService) ConfirmFingerprint(ctx context.Context, id, fingerpri
 		d.status = StatusBlocked
 	}
 	d.expires = s.Now().Add(CredentialTTL)
+	if err := errors.Join(s.saveSecrets(d), s.save(d)); err != nil {
+		return BootstrapView{}, err
+	}
 	return s.view(d), nil
 }
 
@@ -258,6 +302,10 @@ func (s *BootstrapService) Approve(id, digest string) (BootstrapView, error) {
 		return BootstrapView{}, ErrDigest
 	}
 	d.mainApproved, d.status = true, StatusApproved
+	if err := s.save(d); err != nil {
+		d.mainApproved, d.status = false, StatusPlanned
+		return BootstrapView{}, err
+	}
 	return s.view(d), nil
 }
 
@@ -280,6 +328,10 @@ func (s *BootstrapService) ApproveLockdown(id, digest string) (BootstrapView, er
 		return BootstrapView{}, ErrCredentialsExpired
 	}
 	d.lockdownApproved = true
+	if err := s.save(d); err != nil {
+		d.lockdownApproved = false
+		return BootstrapView{}, err
+	}
 	return s.view(d), nil
 }
 
@@ -298,6 +350,11 @@ func (s *BootstrapService) SupplyCredentials(id string, c Credential) (Bootstrap
 	c.KnownHosts = d.hostKey.KnownHosts
 	d.secrets.Root = c
 	d.expires = s.Now().Add(CredentialTTL)
+	if err := s.saveSecrets(d); err != nil {
+		d.secrets.Root = Credential{}
+		return BootstrapView{}, err
+	}
+	d.wipePending = false
 	return s.view(d), nil
 }
 
@@ -316,7 +373,7 @@ func (s *BootstrapService) Run(ctx context.Context, id string) (BootstrapView, e
 	}
 	lockdown := false
 	switch d.status {
-	case StatusApproved, StatusPaused:
+	case StatusApproved, StatusPaused, StatusUnknown:
 		if progressOf(*d.plan, s.deps.Journal).MainDone {
 			lockdown = true
 		}
@@ -334,8 +391,21 @@ func (s *BootstrapService) Run(ctx context.Context, id string) (BootstrapView, e
 		s.mu.Unlock()
 		return BootstrapView{}, ErrCredentialsExpired
 	}
+	term := s.Term()
+	if term == 0 {
+		s.mu.Unlock()
+		return BootstrapView{}, ErrNotLeader
+	}
+	prevStatus, prevErr := d.status, d.errText
 	d.status, d.errText = StatusRunning, ""
-	plan, sec, term := *d.plan, d.secrets, s.Term()
+	// The running state is durable before the host is touched: a failover
+	// during the run then finds it and marks the run unknown.
+	if err := s.save(d); err != nil {
+		d.status, d.errText = prevStatus, prevErr
+		s.mu.Unlock()
+		return BootstrapView{}, err
+	}
+	plan, sec := *d.plan, d.secrets
 	deps := s.deps
 	s.mu.Unlock()
 
@@ -343,6 +413,12 @@ func (s *BootstrapService) Run(ctx context.Context, id string) (BootstrapView, e
 		pr, err := ExecuteBootstrap(context.WithoutCancel(ctx), deps, plan, sec, term, lockdown)
 		s.mu.Lock()
 		defer s.mu.Unlock()
+		if s.Term() != term {
+			// Leadership moved on while the host was being changed. The new
+			// leader marks the run unknown; this process records nothing.
+			d.status, d.errText = StatusUnknown, interruptedText
+			return
+		}
 		switch {
 		case err != nil:
 			d.status, d.errText = StatusPaused, err.Error()
@@ -353,6 +429,10 @@ func (s *BootstrapService) Run(ctx context.Context, id string) (BootstrapView, e
 			d.status = StatusMainComplete
 		}
 		d.expires = s.Now().Add(CredentialTTL)
+		if d.secrets != (BootstrapSecrets{}) {
+			_ = s.saveSecrets(d)
+		}
+		_ = s.save(d)
 	})
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -396,6 +476,9 @@ func (s *BootstrapService) Cancel(id string) (BootstrapView, error) {
 	}
 	s.wipe(d)
 	d.status = StatusCancelled
+	if err := s.save(d); err != nil {
+		return s.view(d), err
+	}
 	return s.view(d), nil
 }
 
