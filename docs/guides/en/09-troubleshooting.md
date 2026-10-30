@@ -32,6 +32,9 @@ Entries marked "seen in lab" were observed in experiments E4-E6 (see `tests/p0/r
 | Proxy: about two aborted handshakes per second per node in node logs | Proxy health probes | Expected; one log line each (E5). |
 | After a writer failure no write works for about 6 s | Galera failure detection (E5) | Expected; the proxy itself switched within 0.2 s. |
 | Redundant proxies show `writer: none` and `coordination.pending` | A coordinated switch is frozen while at least one configured proxy has not acknowledged | Check each proxy's `/status`, manager connectivity and local Galera health. Restore the unreachable proxy; do not remove its membership merely to clear a partition. |
+| `429` or "Too many attempts" when signing in | The per-address limiter: 5 unfinished or failed sign-in attempts in 15 minutes lock that address for 15 minutes (doubling up to 24 hours). Completed sign-ins reset the counter | The UI shows the remaining time. Wait for it; do not retry in a loop (every retry while locked is rejected). Behind a reverse proxy all users share the proxy address. |
+| Abort of a rolling restart, minor upgrade or scale-in answers `409` | The operation stopped a database service (scaled it to 0) and has not started it again; aborting would leave the node down (seen in lab E13) | Resume the operation so it starts the node, or start the node by hand (`docker service scale <service>=1` on the manager node), then abort. |
+| An operation shows state `unknown` | Its start was refused before anything ran (for example another operation held the lock) | Abort it on the Operations page; this only closes the record. |
 
 ## Collecting evidence
 

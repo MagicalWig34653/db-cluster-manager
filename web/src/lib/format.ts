@@ -71,7 +71,10 @@ export function errorMessage(e: ApiError): { key: MessageKey; params?: Params } 
 		case 'conflict':
 			return { key: 'errConflict' };
 		case 'rate_limited':
-			return e.retryAfter ? { key: 'errRateLimitedSeconds', params: { seconds: e.retryAfter } } : { key: 'errRateLimited' };
+			if (!e.retryAfter) return { key: 'errRateLimited' };
+			return e.retryAfter >= 120
+				? { key: 'errRateLimitedMinutes', params: { minutes: Math.ceil(e.retryAfter / 60) } }
+				: { key: 'errRateLimitedSeconds', params: { seconds: e.retryAfter } };
 		case 'unavailable':
 			return { key: 'errUnavailable' };
 		case 'invalid_response':

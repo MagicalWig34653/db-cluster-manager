@@ -17,6 +17,8 @@ describe('format', () => {
 	it('maps errors to localized keys only', () => {
 		expect(errorMessage(new ApiError('unavailable', 503)).key).toBe('errUnavailable');
 		expect(errorMessage(new ApiError('rate_limited', 429, 12))).toEqual({ key: 'errRateLimitedSeconds', params: { seconds: 12 } });
+		expect(errorMessage(new ApiError('rate_limited', 429, 840))).toEqual({ key: 'errRateLimitedMinutes', params: { minutes: 14 } });
+		expect(errorMessage(new ApiError('rate_limited', 429)).key).toBe('errRateLimited');
 		expect(errorMessage(new ApiError('server_error', 500)).key).toBe('errServer');
 	});
 	it('maps every documented command code to its own localized key', () => {

@@ -11,9 +11,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/MagicalWig34653/db-cluster-manager/internal/agent"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/api"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/authz"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/dbbackup"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/opjournal"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/runner"
 )
 
@@ -174,6 +176,59 @@ func (o *Operations) Approve(actor authz.Subject, opID, digest string) (Approval
 	return a, nil
 }
 
+// ErrAbortLeavesNodeStopped: the operation stopped a database service
+// (scaled it to 0) and has not started it again. Aborting now would leave
+// that node down with no operation left to bring it back.
+var ErrAbortLeavesNodeStopped = errors.New("manager: the operation stopped a node that it has not started again; resume it, or start the node by hand, before aborting")
+
+// nodeLeftStopped reports a node-restarting Galera operation (rolling
+// restart, minor upgrade, scale-in) in which a stop-db step ran (or may have
+// run) and no later start-service step succeeded.
+func nodeLeftStopped(rec OperationRecord, r *runner.Runner) bool {
+	switch rec.Kind {
+	case "galera/rolling-restart", "galera/minor-upgrade", "galera/scale-in", "galera/scale-out":
+	default:
+		return false
+	}
+	view := rec.View
+	if v, err := r.Snapshot(rec.ID); err == nil {
+		view = &v
+	}
+	if view == nil {
+		return false
+	}
+	state := map[string]opjournal.State{}
+	for _, sv := range view.Steps {
+		state[sv.ID] = sv.State
+	}
+	down := false
+	for _, st := range rec.Definition.Steps {
+		switch st.Command {
+		case agent.KindStopDB:
+			switch state[st.ID] {
+			case opjournal.Succeeded, opjournal.Running, opjournal.Unknown:
+				down = true
+			}
+		case agent.KindStartService:
+			if state[st.ID] == opjournal.Succeeded {
+				down = false
+			}
+		case agent.KindRemoveService:
+			// Scale-in removes the stopped service on purpose.
+			if state[st.ID] == opjournal.Succeeded {
+				down = false
+			}
+		}
+	}
+	return down
+}
+
+// neverStarted reports a record whose start was refused: stopped without any
+// step, or without a view at all.
+func neverStarted(rec OperationRecord) bool {
+	return rec.View == nil || (rec.View.Status == runner.StatusStopped && len(rec.View.Steps) == 0)
+}
+
 // Abort ends an operation at a safe step boundary (runner.Runner.Abort).
 // It needs operate permission where the operation is located (audited).
 func (o *Operations) Abort(actor authz.Subject, opID string) error {
@@ -200,7 +255,25 @@ func (o *Operations) Abort(actor authz.Subject, opID string) error {
 			return ErrOperationEnded
 		}
 	}
+	if nodeLeftStopped(cur.Value, l.Runner) {
+		return ErrAbortLeavesNodeStopped
+	}
 	if err := l.Runner.Abort(opID); err != nil {
+		if errors.Is(err, runner.ErrUnknownOperation) && neverStarted(cur.Value) {
+			// The start was refused before the runner journaled anything
+			// (shown as "unknown"): there is nothing to stop, only the
+			// record to close.
+			v := runner.View{ID: opID, Kind: cur.Value.Kind, Status: runner.StatusAborted, Term: l.Term,
+				Reason: "discarded by an operator before it started", Locks: cur.Value.Definition.Locks}
+			if cur.Value.View != nil {
+				v.Term = cur.Value.View.Term
+			}
+			if err := o.Svc.saveView(v); err != nil {
+				return err
+			}
+			o.Svc.recordEvent(cur.Value.Swarm, cur.Value.Cluster, api.SeverityWarning, fmt.Sprintf("%s aborted operation %s", actor.ID, opID))
+			return nil
+		}
 		return err
 	}
 	if v, err := l.Runner.Snapshot(opID); err == nil {

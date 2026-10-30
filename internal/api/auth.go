@@ -296,6 +296,10 @@ func (s *server) handleLoginFinish(w http.ResponseWriter, r *http.Request, _ *ca
 		return
 	}
 	s.cfg.Limiter.Succeed(key)
+	// A completed sign-in also clears the ceremony-start counter, so ordinary
+	// repeated sign-ins (sign out, sign in) never lock a user out; only
+	// ceremonies that are started and not completed accumulate.
+	s.cfg.Limiter.Succeed("login-begin|" + clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"accountId": res.AccountID})
 }
 

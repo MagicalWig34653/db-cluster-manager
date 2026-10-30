@@ -286,7 +286,7 @@ func MapCommandError(err error) error {
 		sentinel = api.ErrNotFound
 	case errors.Is(err, ErrNoApproval), errors.Is(err, ErrOperationEnded), errors.Is(err, runner.ErrFinished),
 		errors.Is(err, runner.ErrNotPaused), errors.Is(err, galera.ErrNodeNotFailed), errors.Is(err, galera.ErrNotFullOutage),
-		errors.Is(err, galera.ErrReplacementPaused), errors.Is(err, ErrMissingServiceID), errors.Is(err, ErrConflict),
+		errors.Is(err, galera.ErrReplacementPaused), errors.Is(err, ErrMissingServiceID), errors.Is(err, ErrConflict), errors.Is(err, ErrAbortLeavesNodeStopped),
 		errors.Is(err, galera.ErrNoCandidate), errors.Is(err, ErrCandidateMismatch), errors.Is(err, ErrNoKeyring),
 		errors.Is(err, galera.ErrMaintenanceUnsafe), errors.Is(err, ErrInMaintenance), errors.Is(err, ErrNotInMaintenance),
 		errors.Is(err, dbbackup.ErrNoSource), errors.Is(err, dbbackup.ErrProductionTarget), errors.Is(err, dbbackup.ErrIdentityMismatch):

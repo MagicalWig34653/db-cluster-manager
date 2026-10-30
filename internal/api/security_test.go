@@ -27,6 +27,13 @@ func TestAuthEndpointLockouts(t *testing.T) {
 		f.clock.Advance(16 * time.Minute)
 		wantStatus(t, c.do("POST", "/api/v1/auth/login/begin", nil), http.StatusOK)
 	})
+	t.Run("successful logins do not exhaust the begin limit", func(t *testing.T) {
+		f := newFixture(t)
+		c, a, _ := f.setupAdmin("admin")
+		for i := 0; i < 12; i++ {
+			wantStatus(t, f.login(c, a), http.StatusOK)
+		}
+	})
 	t.Run("login finish", func(t *testing.T) {
 		f := newFixture(t)
 		c := f.client()
