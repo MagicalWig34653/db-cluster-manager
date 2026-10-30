@@ -123,6 +123,7 @@ func (inv Inventory) cluster(r ClusterRecord, idx backupIndex) api.Cluster {
 	if r.AutoReplace {
 		c.AutomationPolicy = "auto-replace"
 	}
+	c.AutoRecover = r.AutoRecover
 	// No proxy is deployed yet: the configured endpoints are the node
 	// services on the cluster network.
 	for _, n := range r.Nodes {

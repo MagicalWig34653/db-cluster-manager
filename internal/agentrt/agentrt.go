@@ -184,7 +184,7 @@ var table = func() map[string]Requirement {
 		"remove-cluster-service", "remove-secret", "check-restore-target", "set-deny-list")
 	add(GaleraSteps, containerOnly,
 		"init-identity", "verify-identity", "collect-health", "read-grastate", "init-volume-dirs",
-		"exec-sql", "mark-safe-to-bootstrap", "wsrep-recover")
+		"exec-sql", "mark-safe-to-bootstrap", "wsrep-recover", "snapshot-data")
 	add(Restic, nativeFirst,
 		"restic-backup", "restic-snapshots", "restic-forget", "restic-check", "restic-restore", "restic-stats")
 	add(Patch, nativeOnly,

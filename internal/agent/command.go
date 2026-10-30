@@ -101,7 +101,7 @@ func AllKinds() []Kind {
 		KindResticBackup, KindResticSnapshots, KindResticForget, KindResticCheck, KindResticRestore, KindResticStats,
 		KindCreateConfig, KindRemoveConfig, KindWsrepRecover, KindSetDenyList, KindRunBackup, KindRunRestore,
 		KindRemoveJob, KindAwaitStopped, KindStartService, KindMarkSafeToBootstrap, KindRemoveClusterService,
-		KindRemoveSecret, KindCheckRestoreTarget,
+		KindRemoveSecret, KindCheckRestoreTarget, KindSnapshotData,
 	}
 }
 
@@ -416,6 +416,8 @@ func decodeCommand(cmd Command, volumeBase string) (decoded, error) {
 		args = &MarkSafeArgs{}
 	case KindWsrepRecover:
 		args = &WsrepRecoverArgs{}
+	case KindSnapshotData:
+		args = &SnapshotDataArgs{}
 	case KindSetDenyList:
 		args = &SetDenyListArgs{}
 	default:
@@ -577,6 +579,8 @@ func checkArgs(args any, volumeBase string) error {
 		return checkMarkSafe(a, volumeBase)
 	case *WsrepRecoverArgs:
 		return checkWsrepRecover(a, volumeBase)
+	case *SnapshotDataArgs:
+		return checkSnapshotData(a, volumeBase)
 	case *AllowObjectsArgs:
 		if len(a.IDs) == 0 {
 			return invalid("ids required")

@@ -32,7 +32,107 @@ func recoveryPlan(t *testing.T) galera.Plan {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return p
+	return p.WithSnapshot("pre-recovery-op-rec")
+}
+
+func zeroRecoveryPlan(t *testing.T) galera.Plan {
+	t.Helper()
+	cp := createPlan(t)
+	z := &galera.Grastate{Version: "2.1", UUID: galera.ZeroUUID, Seqno: -1}
+	rec := func(n int64) *galera.Position { return &galera.Position{UUID: galera.ZeroUUID, Seqno: n} }
+	d, err := galera.DiagnoseFullOutage([]galera.NodeInfo{
+		{Slot: "n1", Grastate: z, Recovered: rec(1303)}, {Slot: "n2", Grastate: z, Recovered: rec(1304)}, {Slot: "n3", Grastate: z, Recovered: rec(1302)},
+	})
+	if err != nil || d.Candidate != "n2" || d.Kind != galera.PlanZeroUUIDRecovery {
+		t.Fatalf("diagnosis %+v, %v", d, err)
+	}
+	p, err := galera.RecoveryPlan(d, cp.Cluster, cp.Nodes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p.WithSnapshot("pre-recovery-op-rec")
+}
+
+func TestZeroUUIDRecoveryConversion(t *testing.T) {
+	p := zeroRecoveryPlan(t)
+	b := recoveryBindings()
+	nb := b
+	nb.ApprovalID = ""
+	if _, err := FromGaleraPlan(p, nb); !errors.Is(err, ErrInvalidOperation) {
+		t.Fatalf("without approval ID: %v", err)
+	}
+	op, err := FromGaleraPlan(p, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if op.Kind != "galera/zero-uuid-recovery" {
+		t.Fatalf("kind %q", op.Kind)
+	}
+	snaps, marks, checks := 0, 0, 0
+	for i, s := range op.Steps {
+		switch p.Steps[i].Kind {
+		case galera.StepSnapshotData:
+			snaps++
+			var a agent.SnapshotDataArgs
+			if err := json.Unmarshal(s.Args, &a); err != nil || a.Name != "pre-recovery-op-rec" || s.Command != agent.KindSnapshotData ||
+				a.Expected.NodeUUID != p.Steps[i].NodeUUID || s.Target != p.Steps[i].HostID {
+				t.Errorf("snapshot step %+v args %+v (%v)", s, a, err)
+			}
+		case galera.StepMarkSafe:
+			marks++
+			var a agent.MarkSafeArgs
+			if err := json.Unmarshal(s.Args, &a); err != nil || !a.AllowZeroUUID || a.UUID != galera.ZeroUUID || a.Seqno != -1 || a.SetSeqno != nil {
+				t.Errorf("mark-safe args %+v (%v)", a, err)
+			}
+		case galera.StepCheckState:
+			checks++
+			if s.Command != "" || !slices.ContainsFunc(s.Preconditions, func(c Condition) bool { return c.Kind == CondStateRecovered && c.ClusterSize == 3 }) {
+				t.Errorf("check step %+v", s)
+			}
+		}
+	}
+	if snaps != 3 || marks != 1 || checks != 1 {
+		t.Fatalf("snapshots %d, mark-safe %d, checks %d", snaps, marks, checks)
+	}
+	// A snapshot step without a name is invalid.
+	bad := p
+	bad.Steps = slices.Clone(p.Steps)
+	for i := range bad.Steps {
+		bad.Steps[i].Snapshot = ""
+	}
+	if _, err := FromGaleraPlan(bad, b); !errors.Is(err, ErrInvalidOperation) {
+		t.Fatalf("unnamed snapshot: %v", err)
+	}
+	if !Idempotent(agent.KindSnapshotData) {
+		t.Error("snapshot-data must be repeatable under a new step ID")
+	}
+}
+
+func TestZeroUUIDPrepareConversion(t *testing.T) {
+	cp := createPlan(t)
+	p, err := galera.BuildZeroUUIDPrepare(cp.Cluster, cp.Nodes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p = p.WithSnapshot("pre-recovery-op-rec")
+	b := recoveryBindings()
+	b.ApprovalID = ""
+	if _, err := FromGaleraPlan(p, b); !errors.Is(err, ErrInvalidOperation) {
+		t.Fatalf("without approval ID: %v", err)
+	}
+	op, err := FromGaleraPlan(p, recoveryBindings())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if op.Kind != "galera/zero-uuid-prepare" || len(op.Steps) != 12 {
+		t.Fatalf("op %s with %d steps", op.Kind, len(op.Steps))
+	}
+	for i, s := range op.Steps {
+		approved := slices.ContainsFunc(s.Preconditions, func(c Condition) bool { return c.Kind == CondApproved })
+		if approved != (i == 0) {
+			t.Errorf("step %s approval = %v", s.ID, approved)
+		}
+	}
 }
 
 func recoveryBindings() GaleraBindings {
@@ -124,9 +224,10 @@ func TestRecoveryPlanConversion(t *testing.T) {
 	want := []agent.Kind{agent.KindStopDB, agent.KindStopDB, agent.KindStopDB,
 		agent.KindAwaitStopped, agent.KindAwaitStopped, agent.KindAwaitStopped,
 		agent.KindVerifyIdentity, agent.KindVerifyIdentity, agent.KindVerifyIdentity,
+		agent.KindSnapshotData, agent.KindSnapshotData, agent.KindSnapshotData,
 		agent.KindMarkSafeToBootstrap, agent.KindUpdateService, agent.KindStartService, "",
 		agent.KindStartService, "", agent.KindStartService, "",
-		agent.KindUpdateService, agent.KindAwaitService, ""}
+		agent.KindUpdateService, agent.KindAwaitService, "", ""}
 	var wantS []string
 	for _, k := range want {
 		wantS = append(wantS, string(k))

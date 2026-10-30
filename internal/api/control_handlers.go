@@ -285,7 +285,12 @@ func (s *server) writeOutageError(w http.ResponseWriter, r *http.Request, err er
 		reason = "conflict"
 	}
 	if reason != "" {
-		writeJSON(w, http.StatusConflict, ErrorBody{Error: errConflict, Reason: reason})
+		body := ErrorBody{Error: errConflict, Reason: reason}
+		if reason == "zero_cluster_uuid_primary" {
+			// ADR 0028: the guided recovery for this state.
+			body.Offer = "zero-uuid-recovery"
+		}
+		writeJSON(w, http.StatusConflict, body)
 		return
 	}
 	s.writeServiceError(w, r, err)

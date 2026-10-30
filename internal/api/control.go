@@ -149,6 +149,13 @@ type Diagnosis struct {
 	Reasons          []string              `json:"reasons"`
 	Risks            []galera.Risk         `json:"risks,omitempty"`
 	RequiresApproval bool                  `json:"requires_approval"`
+	// RecoveryKind is "zero-uuid-recovery" when every node holds the zero
+	// state (ADR 0028); the recovery is offered instead of a missing
+	// candidate. Empty for the ordinary full-outage recovery.
+	RecoveryKind string `json:"recovery_kind,omitempty"`
+	// AutoEligible reports that the autoRecover policy may run the recovery
+	// without an approval: every position readable, one unique highest seqno.
+	AutoEligible bool `json:"auto_eligible"`
 }
 
 // RecoveryInput requests the guided full-outage recovery. Candidate must
@@ -215,7 +222,7 @@ func ApprovalPermission(kind, swarm, cluster string) (authz.Action, authz.Resour
 		return authz.ActionDelete, authz.Resource{Type: authz.ResourceCluster, Scope: authz.ClusterScope(swarm, cluster)}
 	case "galera/scale-out", "galera/scale-in", "galera/rolling-restart", "galera/minor-upgrade":
 		return authz.ActionOperate, authz.Resource{Type: authz.ResourceCluster, Scope: authz.ClusterScope(swarm, cluster)}
-	case OperationKindOutageRecovery:
+	case OperationKindOutageRecovery, OperationKindZeroUUIDPrepare, OperationKindZeroUUIDRecovery:
 		return authz.ActionRecover, authz.Resource{Type: authz.ResourceCluster, Scope: authz.ClusterScope(swarm, cluster)}
 	}
 	return authz.ActionRestore, backupResource(swarm, cluster)

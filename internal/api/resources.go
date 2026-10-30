@@ -132,6 +132,10 @@ type Cluster struct {
 	// AutomationPolicy is "auto-replace" or "manual" (automatic node
 	// replacement; the quorum rules apply either way).
 	AutomationPolicy string `json:"automationPolicy,omitempty"`
+	// AutoRecover is the per-cluster opt-in that lets the guided Galera
+	// recovery run without an approval when every node position is
+	// readable and the highest seqno is unique (ADR 0028). Default off.
+	AutoRecover bool `json:"autoRecover"`
 }
 
 // Endpoint is one client address of a cluster.

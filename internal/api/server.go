@@ -336,6 +336,18 @@ func (s *server) coreEndpoints() []endpoint {
 			action: authz.ActionOperate, resolve: s.resolveCluster, hideUnreadable: true, handle: s.handleOutageRecovery,
 		},
 		{
+			method: "GET", path: "/clusters/{id}/zero-uuid-recovery", access: accessPermission,
+			action: authz.ActionRead, resolve: s.resolveCluster, hideDenied: true, handle: s.handleZeroUUIDRecoveryStatus,
+		},
+		{
+			method: "POST", path: "/clusters/{id}/zero-uuid-recovery", access: accessPermission,
+			action: authz.ActionOperate, resolve: s.resolveCluster, hideUnreadable: true, handle: s.handleZeroUUIDRecoveryStart,
+		},
+		{
+			method: "PUT", path: "/clusters/{id}/auto-recover", access: accessPermission,
+			action: authz.ActionRecover, resolve: s.resolveCluster, hideUnreadable: true, handle: s.handleAutoRecover,
+		},
+		{
 			method: "POST", path: "/operations/{id}/resume", access: accessPermission,
 			action: authz.ActionOperate, resolve: s.resolveOperation, hideUnreadable: true, handle: s.handleOperationControl(true),
 		},

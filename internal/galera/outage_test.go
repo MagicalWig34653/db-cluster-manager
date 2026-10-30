@@ -393,8 +393,8 @@ func TestRecoveryPlanAttachesSpecs(t *testing.T) {
 }
 
 // assertRecoveryPlan checks the guided recovery step order: approval, stop
-// all, verify identities, bootstrap candidate, then others one at a time,
-// then remove the bootstrap flag.
+// all, verify identities, snapshot, bootstrap candidate, then others one at a time,
+// then remove the bootstrap flag and check the recovered state.
 func assertRecoveryPlan(t *testing.T, p Plan, cand string, others []string) {
 	t.Helper()
 	if p.Kind != PlanFullOutageRecovery || !p.RequiresApproval || len(p.Steps) == 0 {
@@ -409,7 +409,7 @@ func assertRecoveryPlan(t *testing.T, p Plan, cand string, others []string) {
 	}
 	all := append([]string{cand}, others...)
 	var want []string
-	for _, k := range []string{"stop-all", "await-stopped", "verify-identity"} {
+	for _, k := range []string{"stop-all", "await-stopped", "verify-identity", "snapshot-data"} {
 		for _, s := range all {
 			want = append(want, k+":"+s)
 		}
@@ -418,7 +418,7 @@ func assertRecoveryPlan(t *testing.T, p Plan, cand string, others []string) {
 	for _, o := range others {
 		want = append(want, "start-node:"+o, "wait-synced:"+o)
 	}
-	want = append(want, "update-service:"+cand, "await-update:"+cand, "wait-synced:"+cand)
+	want = append(want, "update-service:"+cand, "await-update:"+cand, "wait-synced:"+cand, "check-recovered-state:")
 	if !slices.Equal(seq, want) {
 		t.Errorf("steps =\n%v\nwant\n%v", seq, want)
 	}

@@ -24,6 +24,13 @@ const (
 	PlanCreateCluster      PlanKind = "create-cluster"
 	PlanReplaceNode        PlanKind = "replace-node"
 	PlanFullOutageRecovery PlanKind = "full-outage-recovery"
+	// PlanZeroUUIDPrepare stops every node of a cluster in a zero-UUID
+	// incident and snapshots the data directories (ADR 0028, phase 1).
+	PlanZeroUUIDPrepare PlanKind = "zero-uuid-prepare"
+	// PlanZeroUUIDRecovery bootstraps the highest-seqno node of a cluster
+	// whose Galera group history is lost (zero cluster UUID) and rebuilds
+	// the others by SST (ADR 0028, phase 2).
+	PlanZeroUUIDRecovery PlanKind = "zero-uuid-recovery"
 )
 
 // StepKind names one operation step. The steps map onto agent commands
@@ -61,6 +68,13 @@ const (
 	// StepStartNode scales the node's stopped service to one replica
 	// (agent KindStartService); full-outage recovery only.
 	StepStartNode StepKind = "start-node"
+	// StepSnapshotData copies a stopped node's data directory to a named
+	// snapshot on the same volume (agent KindSnapshotData); idempotent per
+	// name, refuses without free space.
+	StepSnapshotData StepKind = "snapshot-data"
+	// StepCheckState verifies the recovered cluster: all nodes Synced in one
+	// Primary component with the same non-zero state UUID.
+	StepCheckState StepKind = "check-recovered-state"
 )
 
 // DirOwner is the numeric owner of the database directories.
@@ -107,6 +121,9 @@ const (
 	PreApproved PreconditionKind = "approved"
 	// PreNoNodeRunning: no database task of the cluster runs.
 	PreNoNodeRunning PreconditionKind = "no-node-running"
+	// PreStateRecovered: ClusterSize nodes are Synced Primary members that
+	// agree on one non-zero cluster state UUID.
+	PreStateRecovered PreconditionKind = "state-recovered"
 )
 
 // Precondition is one condition of a step.
@@ -135,7 +152,13 @@ type Step struct {
 	// Recovered is the wsrep-recover position mark-safe-to-bootstrap writes
 	// into a grastate.dat that has no saved seqno (-1 after a crash): a
 	// bootstrap from seqno -1 starts a new cluster history (lab E6).
-	Recovered     *Position      `json:"recovered,omitempty"`
+	Recovered *Position `json:"recovered,omitempty"`
+	// ZeroUUID lets mark-safe-to-bootstrap accept the zero cluster UUID
+	// (Position then is {ZeroUUID, -1}); only the flag is set and Galera
+	// creates a new state UUID at the bootstrap (ADR 0028).
+	ZeroUUID bool `json:"zero_uuid,omitempty"`
+	// Snapshot names the data snapshot of a snapshot-data step.
+	Snapshot      string         `json:"snapshot,omitempty"`
 	Preconditions []Precondition `json:"preconditions,omitempty"`
 	Note          string         `json:"note,omitempty"`
 }

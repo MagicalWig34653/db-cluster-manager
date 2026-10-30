@@ -65,6 +65,9 @@ const (
 	CondQuorum        = string(galera.PreQuorum)
 	CondApproved      = string(galera.PreApproved)
 	CondNoNodeRunning = string(galera.PreNoNodeRunning)
+	// CondStateRecovered: ClusterSize nodes are Synced Primary members with
+	// one common non-zero state UUID (galeraprobe.Checker).
+	CondStateRecovered = string(galera.PreStateRecovered)
 )
 
 // FromGaleraPlan converts a Galera plan into a fenced Operation.
@@ -84,7 +87,7 @@ func FromGaleraPlan(p galera.Plan, b GaleraBindings) (Operation, error) {
 			return Operation{}, fmt.Errorf("%w: missing first approval gate", ErrInvalidOperation)
 		}
 	case galera.PlanCreateCluster, galera.PlanReplaceNode, galera.PlanHostMaintenance, galera.PlanHostMaintenanceEnd:
-	case galera.PlanFullOutageRecovery:
+	case galera.PlanFullOutageRecovery, galera.PlanZeroUUIDRecovery, galera.PlanZeroUUIDPrepare:
 		// Guided recovery (A06): only with an approval to wait for, and the
 		// plan must start with the approved stop.
 		if b.ApprovalID == "" || !p.RequiresApproval {
@@ -225,7 +228,10 @@ func convertStep(p galera.Plan, gs galera.Step, b GaleraBindings) (Step, error) 
 		if gs.Position == nil {
 			return Step{}, fmt.Errorf("%w: mark-safe without the diagnosed position", ErrInvalidOperation)
 		}
-		ma := agent.MarkSafeArgs{VolumeRoot: root(),
+		if gs.ZeroUUID && (gs.Position.UUID != galera.ZeroUUID || gs.Position.Seqno != -1 || gs.Recovered != nil) {
+			return Step{}, fmt.Errorf("%w: zero-UUID mark-safe needs the zero position and no recovered seqno", ErrInvalidOperation)
+		}
+		ma := agent.MarkSafeArgs{VolumeRoot: root(), AllowZeroUUID: gs.ZeroUUID,
 			Expected: agent.Identity{InstallationID: b.InstallationID, ClusterID: p.ClusterID, NodeUUID: gs.NodeUUID},
 			UUID:     gs.Position.UUID, Seqno: gs.Position.Seqno}
 		if r := gs.Recovered; r != nil {
@@ -237,6 +243,15 @@ func convertStep(p galera.Plan, gs galera.Step, b GaleraBindings) (Step, error) 
 			ma.SetSeqno = &seq
 		}
 		s.Command, args = agent.KindMarkSafeToBootstrap, ma
+	case galera.StepSnapshotData:
+		if gs.Snapshot == "" {
+			return Step{}, fmt.Errorf("%w: snapshot-data without a snapshot name", ErrInvalidOperation)
+		}
+		s.Command, args = agent.KindSnapshotData, agent.SnapshotDataArgs{VolumeRoot: root(),
+			Expected: agent.Identity{InstallationID: b.InstallationID, ClusterID: p.ClusterID, NodeUUID: gs.NodeUUID},
+			Name:     gs.Snapshot}
+	case galera.StepCheckState:
+		// Gate: the state-recovered condition below is the whole step.
 	case galera.StepWaitSynced:
 		s.Preconditions = append(s.Preconditions, Condition{Kind: CondNodeSynced, Target: gs.Slot, ClusterSize: gs.ClusterSize})
 	case galera.StepVerifyDonor, galera.StepRetainVolume:

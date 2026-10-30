@@ -63,6 +63,9 @@ type Config struct {
 	// A native agent (agentrt.Native) needs no Docker API; the executor
 	// refuses every command whose capability Info does not list.
 	Info agentrt.Info
+	// DiskFree reports the bytes available below a directory; nil uses
+	// statfs. snapshot-data refuses when it is too small.
+	DiskFree func(dir string) (uint64, error)
 }
 
 // StatusQuerier runs SHOW GLOBAL STATUS LIKE 'wsrep_%' against a local
@@ -315,6 +318,8 @@ func (e *Executor) execute(ctx context.Context, d decoded) Result {
 		return e.markSafe(*a)
 	case *WsrepRecoverArgs:
 		return e.wsrepRecover(ctx, *a)
+	case *SnapshotDataArgs:
+		return e.snapshotData(ctx, *a)
 	case *SetDenyListArgs:
 		return e.setDenyList(*a)
 	case *AllowObjectsArgs:

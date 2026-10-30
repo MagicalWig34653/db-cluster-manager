@@ -194,6 +194,15 @@ type Diagnosis struct {
 	// Plan is the guided recovery plan without service specs (see
 	// RecoveryPlan); empty when there is no candidate.
 	Plan Plan `json:"plan"`
+	// Kind is PlanZeroUUIDRecovery when every node holds the zero state
+	// (the Galera group history is lost, ADR 0028); empty for the ordinary
+	// full-outage recovery.
+	Kind PlanKind `json:"recovery_kind,omitempty"`
+	// AutoEligible reports that the per-cluster autoRecover policy may run
+	// the recovery without a human approval: zero-UUID state, every
+	// position readable and a unique highest seqno. It never waives the
+	// approval by itself; the policy does, and it is always notified.
+	AutoEligible bool `json:"auto_eligible"`
 }
 
 func evaluate(n NodeInfo) (NodePosition, []Risk) {
@@ -274,6 +283,9 @@ func DiagnoseFullOutage(nodes []NodeInfo) (Diagnosis, error) {
 			return Diagnosis{}, fmt.Errorf("%w: %s reports Primary", ErrNotFullOutage, n.Slot)
 		}
 	}
+	if zeroStateOutage(nodes) {
+		return diagnoseZeroUUID(nodes), nil
+	}
 	d := Diagnosis{RequiresApproval: true}
 	var known []NodePosition
 	uuids := map[string][]string{}
@@ -333,7 +345,7 @@ func DiagnoseFullOutage(nodes []NodeInfo) (Diagnosis, error) {
 	if !c.SafeToBootstrap {
 		d.Reasons = append(d.Reasons, c.Slot+" has safe_to_bootstrap: 0 (normal after a crash of all nodes); the plan sets it after approval")
 	}
-	d.Plan = recoverySteps(nodes, c)
+	d.Plan = recoverySteps(nodes, c, false)
 	return d, nil
 }
 
@@ -366,7 +378,7 @@ func sortedKeys(m map[string][]string) []string {
 // The candidate's grastate.dat must have been read: mark-safe-to-bootstrap
 // binds the bootstrap to the position the diagnosis saw (seqno -1 after a
 // crash whose position came from wsrep-recover).
-func recoverySteps(nodes []NodeInfo, c NodePosition) Plan {
+func recoverySteps(nodes []NodeInfo, c NodePosition, zero bool) Plan {
 	order := []string{c.Slot}
 	for _, n := range nodes {
 		if n.Slot != c.Slot {
@@ -378,6 +390,11 @@ func recoverySteps(nodes []NodeInfo, c NodePosition) Plan {
 		if n.Slot == c.Slot && n.Grastate != nil {
 			mark = Position{UUID: n.Grastate.UUID, Seqno: n.Grastate.Seqno}
 		}
+	}
+	if zero {
+		// The zero state stays as it is; only safe_to_bootstrap is set and
+		// Galera creates a new state UUID at the bootstrap (E12).
+		mark = Position{UUID: ZeroUUID, Seqno: -1}
 	}
 	var l stepList
 	for i, s := range order {
@@ -393,12 +410,22 @@ func recoverySteps(nodes []NodeInfo, c NodePosition) Plan {
 	for _, s := range order {
 		l.add(Step{Kind: StepVerifyIdentity, Slot: s})
 	}
+	// A snapshot of every data directory precedes any change (owner
+	// decision 2026-10-30); the agent refuses without free space.
+	for _, s := range order {
+		l.add(Step{Kind: StepSnapshotData, Slot: s, Note: "copy the data directory to a snapshot on the same volume (idempotent per name)"},
+			Precondition{Kind: PreNoNodeRunning})
+	}
 	note := "set safe_to_bootstrap: 1 in the candidate's grastate.dat if it still holds the diagnosed position"
 	if c.SafeToBootstrap {
 		note = "re-check that the candidate's grastate.dat still holds the diagnosed position (already safe_to_bootstrap: 1)"
 	}
 	ms := Step{Kind: StepMarkSafe, Slot: c.Slot, Position: &mark, Note: note}
-	if c.Source == SourceWsrepRecover && mark.Seqno < 0 {
+	if zero {
+		ms.ZeroUUID = true
+		ms.Note = "set safe_to_bootstrap: 1 in the candidate's zero-state grastate.dat; the bootstrap creates a new state UUID (recovered local seqno " +
+			strconv.FormatInt(c.Seqno, 10) + ")"
+	} else if c.Source == SourceWsrepRecover && mark.Seqno < 0 {
 		// Lab E6: a bootstrap from "seqno: -1" (safe_to_bootstrap set, no
 		// start position) started a new cluster state UUID; the joiners then
 		// took a full SST from it. Writing the recovered seqno keeps the
@@ -422,7 +449,14 @@ func recoverySteps(nodes []NodeInfo, c NodePosition) Plan {
 	l.add(Step{Kind: StepUpdateService, Slot: c.Slot, Note: "steady-state spec without " + BootstrapFlag}, all...)
 	l.add(Step{Kind: StepAwaitUpdate, Slot: c.Slot, Note: "Swarm replaced the bootstrap task"})
 	l.add(Step{Kind: StepWaitSynced, Slot: c.Slot, ClusterSize: len(order)})
-	return Plan{Kind: PlanFullOutageRecovery, Steps: l.steps, RequiresApproval: true}
+	l.add(Step{Kind: StepCheckState, ClusterSize: len(order),
+		Note: "state check: every node Synced in one Primary component with the same non-zero state UUID"},
+		Precondition{Kind: PreStateRecovered, ClusterSize: len(order)})
+	kind := PlanFullOutageRecovery
+	if zero {
+		kind = PlanZeroUUIDRecovery
+	}
+	return Plan{Kind: kind, Steps: l.steps, RequiresApproval: true}
 }
 
 // RecoveryPlan attaches service specs, host IDs and node UUIDs to the
@@ -432,14 +466,20 @@ func RecoveryPlan(d Diagnosis, c Cluster, nodes []Node) (Plan, error) {
 	if d.Candidate == "" || len(d.Plan.Steps) == 0 {
 		return Plan{}, ErrNoCandidate
 	}
+	return attachPlan(d.Plan, d.Candidate, d.Positions, c, nodes)
+}
+
+// attachPlan binds the host, node and service facts to a plan skeleton.
+// Every position's slot and every step's slot must name a node.
+func attachPlan(skeleton Plan, candidate string, positions []NodePosition, c Cluster, nodes []Node) (Plan, error) {
 	bySlot := map[string]Node{}
 	for _, n := range nodes {
 		bySlot[n.Slot] = n
 	}
-	p := d.Plan
+	p := skeleton
 	p.ClusterID, p.Cluster, p.Nodes, p.RequiresApproval = c.ClusterID, c, slices.Clone(nodes), true
-	p.Steps = slices.Clone(d.Plan.Steps)
-	for _, pos := range d.Positions {
+	p.Steps = slices.Clone(skeleton.Steps)
+	for _, pos := range positions {
 		if _, ok := bySlot[pos.Slot]; !ok {
 			return Plan{}, fmt.Errorf("%w: no node for slot %s", ErrBadRecoveryInput, pos.Slot)
 		}
@@ -476,7 +516,7 @@ func RecoveryPlan(d Diagnosis, c Cluster, nodes []Node) (Plan, error) {
 		default:
 			continue
 		}
-		boot := s.Slot == d.Candidate && !bootDone
+		boot := s.Slot == candidate && !bootDone
 		spec, err := BuildServiceSpec(c, n, SpecOptions{Bootstrap: boot})
 		if err != nil {
 			return Plan{}, err
@@ -491,4 +531,17 @@ func RecoveryPlan(d Diagnosis, c Cluster, nodes []Node) (Plan, error) {
 		s.Spec = specPtr(spec)
 	}
 	return p, nil
+}
+
+// WithSnapshot returns the plan with every snapshot-data step naming the
+// snapshot. The manager derives the name from the operation ID so a
+// repeated step finds its snapshot again.
+func (p Plan) WithSnapshot(name string) Plan {
+	p.Steps = slices.Clone(p.Steps)
+	for i := range p.Steps {
+		if p.Steps[i].Kind == StepSnapshotData {
+			p.Steps[i].Snapshot = name
+		}
+	}
+	return p
 }

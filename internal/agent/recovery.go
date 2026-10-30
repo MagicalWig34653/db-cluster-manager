@@ -69,13 +69,21 @@ type MarkSafeArgs struct {
 	// position of a node whose grastate.dat says -1); only allowed when
 	// Seqno is -1.
 	SetSeqno *int64 `json:"set_seqno,omitempty"`
+	// AllowZeroUUID accepts the zero cluster UUID as the approved position
+	// (zero-UUID recovery, ADR 0028): the file must hold exactly UUID and
+	// Seqno, both unchanged by the command; only the flag is set.
+	AllowZeroUUID bool `json:"allow_zero_uuid,omitempty"`
 }
 
 func checkMarkSafe(a *MarkSafeArgs, volumeBase string) error {
 	if a.DataDir != "" && !filepath.IsLocal(a.DataDir) {
 		return invalid("data_dir %q must be a local relative path", a.DataDir)
 	}
-	if a.UUID == "" || a.UUID == galera.ZeroUUID {
+	if a.AllowZeroUUID {
+		if a.UUID != galera.ZeroUUID || a.SetSeqno != nil {
+			return invalid("allow_zero_uuid needs the zero uuid and no set_seqno")
+		}
+	} else if a.UUID == "" || a.UUID == galera.ZeroUUID {
 		return invalid("uuid of the approved position required")
 	}
 	if a.Seqno < -1 {
@@ -222,7 +230,7 @@ func (e *Executor) markSafe(a MarkSafeArgs) Result {
 	if err != nil {
 		return Result{Status: StatusRefused, Code: CodePositionChanged, Message: err.Error()}
 	}
-	if g.Empty() || g.UUID != a.UUID || g.Seqno != a.Seqno {
+	if (g.Empty() && !a.AllowZeroUUID) || g.UUID != a.UUID || g.Seqno != a.Seqno {
 		return Result{Status: StatusRefused, Code: CodePositionChanged,
 			Message: fmt.Sprintf("grastate.dat holds %s:%d, the approved diagnosis saw %s:%d", g.UUID, g.Seqno, a.UUID, a.Seqno)}
 	}

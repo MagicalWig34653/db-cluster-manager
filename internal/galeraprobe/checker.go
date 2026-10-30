@@ -34,6 +34,9 @@ type Topology interface {
 //     Joined, flow-control-throttled or unknown node does not qualify, so a
 //     donor must be fully Synced), and wsrep_cluster_size equals the
 //     condition's ClusterSize.
+//   - state-recovered (zero-UUID recovery check): exactly ClusterSize nodes
+//     answer, each is Synced and healthy in a Primary component of that
+//     size, and all report one common non-zero wsrep_cluster_state_uuid.
 //   - quorum: at least ClusterSize nodes are members of the Primary
 //     component and they agree on wsrep_cluster_state_uuid (differing UUIDs
 //     indicate split clusters and fail).
@@ -60,6 +63,8 @@ func (k *Checker) Check(ctx context.Context, opID string, step runner.Step, c ru
 		return k.nodeSynced(ctx, opID, c)
 	case runner.CondQuorum:
 		return k.quorum(ctx, opID, c)
+	case runner.CondStateRecovered:
+		return k.stateRecovered(ctx, opID, c)
 	}
 	if k.Fallback != nil {
 		return k.Fallback.Check(ctx, opID, step, c)
@@ -122,6 +127,50 @@ func (k *Checker) quorum(ctx context.Context, opID string, c runner.Condition) (
 	}
 	if in < c.ClusterSize {
 		return false, fmt.Sprintf("%d of %d nodes in the Primary component, need %d", in, len(addrs), c.ClusterSize), nil
+	}
+	return true, "", nil
+}
+
+func (k *Checker) stateRecovered(ctx context.Context, opID string, c runner.Condition) (bool, string, error) {
+	if c.ClusterSize < 1 {
+		return false, "state-recovered needs a positive cluster size", nil
+	}
+	addrs, err := k.Topology.ClusterAddresses(ctx, opID)
+	if err != nil {
+		return false, "", fmt.Errorf("resolving cluster nodes: %w", err)
+	}
+	healths := make([]galera.NodeHealth, len(addrs))
+	errs := make([]error, len(addrs))
+	var wg sync.WaitGroup
+	for i, a := range addrs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			healths[i], errs[i] = k.Prober.Probe(ctx, a)
+		}()
+	}
+	wg.Wait()
+	synced := 0
+	uuids := map[string]bool{}
+	for i, h := range healths {
+		switch {
+		case errs[i] != nil:
+			return false, fmt.Sprintf("node %s unreachable: %v", addrs[i], errs[i]), nil
+		case !h.DonorCapable():
+			return false, fmt.Sprintf("node %s is not Synced (%s, %s)", addrs[i], h.State, strings.Join(h.Reasons, "; ")), nil
+		case h.ClusterSize != c.ClusterSize:
+			return false, fmt.Sprintf("node %s: wsrep_cluster_size is %d, want %d", addrs[i], h.ClusterSize, c.ClusterSize), nil
+		case h.StateUUID == "" || h.StateUUID == galera.ZeroUUID:
+			return false, fmt.Sprintf("node %s still reports the zero cluster UUID", addrs[i]), nil
+		}
+		synced++
+		uuids[h.StateUUID] = true
+	}
+	if len(uuids) > 1 {
+		return false, "nodes disagree on wsrep_cluster_state_uuid", nil
+	}
+	if synced < c.ClusterSize {
+		return false, fmt.Sprintf("%d of %d nodes Synced", synced, c.ClusterSize), nil
 	}
 	return true, "", nil
 }

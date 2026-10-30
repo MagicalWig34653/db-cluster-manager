@@ -137,6 +137,9 @@ const (
 type ErrorBody struct {
 	Error  string `json:"error"`
 	Reason string `json:"reason,omitempty"`
+	// Offer names the guided operation that applies to a conflict, for
+	// example zero-uuid-recovery for reason zero_cluster_uuid_primary.
+	Offer string `json:"offer,omitempty"`
 }
 
 func writeError(w http.ResponseWriter, status int, code string) {

@@ -185,6 +185,10 @@ func Idempotent(k agent.Kind) bool {
 	case agent.KindInspect, agent.KindListOwned, agent.KindVerifyIdentity, agent.KindAllowObjects,
 		agent.KindCollectHealth, agent.KindReadGrastate, agent.KindCheckRestoreTarget:
 		return true
+	case agent.KindSnapshotData:
+		// Keeps a complete snapshot of that name and redoes an incomplete
+		// one; the stopped node's data is only read.
+		return true
 	case agent.KindAwaitService:
 		// Changes nothing: polled until Swarm finished replacing the task.
 		return true

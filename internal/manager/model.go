@@ -192,7 +192,11 @@ type ClusterRecord struct {
 	LastKnownSize int `json:"lastKnownSize"`
 	// AutoReplace enables automatic replacement (A02); the quorum rules of
 	// galera.PlanReplacement apply either way.
-	AutoReplace bool         `json:"autoReplace,omitempty"`
+	AutoReplace bool `json:"autoReplace,omitempty"`
+	// AutoRecover lets the guided Galera recovery run without an approval
+	// when every node position is readable and the highest seqno is unique;
+	// it always notifies and is never used for upgrades (ADR 0028).
+	AutoRecover bool         `json:"autoRecover,omitempty"`
 	Observed    *Observation `json:"observed,omitempty"`
 	CreatedBy   string       `json:"createdBy"`
 	CreatedAt   time.Time    `json:"createdAt"`
@@ -250,11 +254,22 @@ type OperationRecord struct {
 	GaleraPlan *galera.Plan `json:"galeraPlan,omitempty"`
 	// ApprovalID and ApprovalDigest are set for operations whose
 	// destructive steps wait for an explicit approval (approvals.go).
-	ApprovalID     string       `json:"approvalId,omitempty"`
-	ApprovalDigest string       `json:"approvalDigest,omitempty"`
-	View           *runner.View `json:"view,omitempty"`
-	UpdatedAt      time.Time    `json:"updatedAt,omitzero"`
-	EndedAt        time.Time    `json:"endedAt,omitzero"`
+	ApprovalID     string `json:"approvalId,omitempty"`
+	ApprovalDigest string `json:"approvalDigest,omitempty"`
+	// Snapshot names the pre-recovery data snapshot of a guided recovery;
+	// both phases of a zero-UUID recovery share it (ADR 0028).
+	Snapshot string `json:"snapshot,omitempty"`
+	// AutoApproved marks a recovery operation that the cluster's autoRecover
+	// policy approves instead of a human.
+	AutoApproved bool `json:"autoApproved,omitempty"`
+	// FollowUp is the recovery operation created after this prepare phase
+	// (or "none" when the positions allowed no candidate).
+	FollowUp string `json:"followUp,omitempty"`
+	// Diagnosis is the diagnosis a recovery operation was planned from.
+	Diagnosis *galera.Diagnosis `json:"diagnosis,omitempty"`
+	View      *runner.View      `json:"view,omitempty"`
+	UpdatedAt time.Time         `json:"updatedAt,omitzero"`
+	EndedAt   time.Time         `json:"endedAt,omitzero"`
 }
 
 // EventRecord is one stored event.
