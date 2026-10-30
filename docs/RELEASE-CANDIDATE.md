@@ -14,7 +14,8 @@ Draft of 2026-10-30. **This is not a release.** No tag, image or release was cre
 | Container images (`deploy/Dockerfile`, `Dockerfile.jobs`) | Not built in this cycle | Earlier arm64 manager image ran in E7 only |
 | `tests/p0/rc-demo.sh up` | Ran: three HA replicas up, token printed, forward works | Lab VMs (arm64); not the manual INSTALL.md path |
 | Real-browser UI end-to-end (Playwright, virtual passkey): setup, login, connect, enroll, deploy agents, create Galera, rolling restart with approval; 360 px and tab order | Ran; three bugs fixed | Lab VMs. Real screenshots in `docs/assets/screenshots/real/`; the guides still use mock screenshots |
-| Backup, restore and PITR with local and MinIO target | **Not run** | See below for earlier partial evidence |
+| Backup, inspection restore, scheduled verification, retention and copy with S3 (MinIO, TLS) and local target; failure cases | Ran (E14), five fixes | Lab VMs; [e14-backup-restore.md](../tests/p0/results/e14-backup-restore.md) |
+| PITR; executing a restore of a copy into a new cluster | **Not run** | No API/UI route; the copy restore ends at the proposal |
 
 ## What is verified on VMs (earlier cycles, arm64, Docker 29.9.2, MariaDB 11.4.13)
 

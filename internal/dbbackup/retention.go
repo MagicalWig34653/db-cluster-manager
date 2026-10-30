@@ -127,7 +127,8 @@ func ApplyRetention(ctx context.Context, b backup.Backend, remove []BackupSet) e
 	sort.SliceStable(remove, func(i, j int) bool { return remove[i].BaseBackupID != "" && remove[j].BaseBackupID == "" })
 	for _, s := range remove {
 		for _, o := range s.Objects {
-			for _, name := range []string{ManifestName(o), o} {
+			// The job status report goes last: lab E14 found one orphan per deleted set.
+			for _, name := range []string{ManifestName(o), o, StatusName(o)} {
 				if err := b.Delete(ctx, name); err != nil && !errors.Is(err, backup.ErrNotFound) {
 					return fmt.Errorf("delete %s: %w", name, err)
 				}

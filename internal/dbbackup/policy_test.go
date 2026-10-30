@@ -123,7 +123,7 @@ func TestRetentionProtectsVerifiedPinnedAndNewest(t *testing.T) {
 func TestApplyRetentionDeletesManifestAndStream(t *testing.T) {
 	ctx := context.Background()
 	b := backup.NewMemBackend()
-	for _, n := range []string{"o-x", ManifestName("o-x"), "o-y"} {
+	for _, n := range []string{"o-x", ManifestName("o-x"), StatusName("o-x"), "o-y"} {
 		_ = b.Put(ctx, n, bytes.NewReader([]byte("1")))
 	}
 	if err := ApplyRetention(ctx, b, []BackupSet{set("x", t0), set("z", t0)}); err != nil {

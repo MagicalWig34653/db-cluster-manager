@@ -6,7 +6,7 @@ title: Disaster recovery and backup copies
 
 [Guide index](index.md) | Previous: [Provisioning](19-provisioning.md)
 
-Everything in this guide is verified with fakes only [Fakes]: in-memory stores, an `httptest` S3 server, an in-process SFTP server and an in-memory Raft replica. Nothing ran on a real Swarm, S3 service or SFTP server. Design: [ADR 0021](../../decisions/0021-backup-targets-copies-and-metastore-backup.md).
+Most of this guide is verified with fakes only [Fakes]: in-memory stores, an `httptest` S3 server, an in-process SFTP server and an in-memory Raft replica. Lab E14 ([results](../../../tests/p0/results/e14-backup-restore.md)) additionally ran, on three real VMs with MinIO over TLS: backup copy to a `local` target with deep digest verification (a flipped byte was caught by the restore proposal), the restore proposal, scheduled restore verification and retention [Lab VMs]. Not run on real systems: executing a restore of a copy, metastore backup and import, SFTP, PITR. Design: [ADR 0021](../../decisions/0021-backup-targets-copies-and-metastore-backup.md).
 
 ## What you need to keep outside the manager
 
@@ -53,7 +53,7 @@ Add `verify` to the backup policy of a cluster (`PUT /api/v1/clusters/{id}/backu
 {"enabled": true, "schedule": "0 2 * * *", "verify": {"enabled": true, "schedule": "0 4 * * 0", "maxMinutes": 90}}
 ```
 
-On that schedule the leader restores the newest completed physical backup into an isolated inspection instance (same plan as a manual inspection: wsrep off, own network, production accounts locked), lets the verification gate probe it and tears it down again. Enabling it needs the restore permission and is recorded as the approval of these isolated inspections. A failed check, a failed or aborted operation, a run that exceeds `maxMinutes` or one that cannot start records an event and sends a notification (`backup.restore_verification_failed`); a pass sends `backup.restore_verification_passed` (info). Limits: the report is instance-level; table contents are not compared, and an inspection host must be given (`verify.host`) because free disk space is not observed.
+On that schedule the leader restores the newest completed physical backup into an isolated inspection instance (same plan as a manual inspection: wsrep off, own network, production accounts locked), lets the verification gate probe it and tears it down again. Enabling it needs the restore permission and is recorded as the approval of these isolated inspections. A failed check, a failed or aborted operation, a run that exceeds `maxMinutes` or one that cannot start records an event and sends a notification (`backup.restore_verification_failed`); a pass sends `backup.restore_verification_passed` (info). Limits: the report is instance-level; table contents are not compared, and an inspection host must be given (`verify.host`, the Swarm **node ID** shown by `GET /api/v1/hosts`, not the host name; a name fails with "not enrolled in the cluster's Swarm") because free disk space is not observed.
 
 ## Back up the manager's own metastore
 
@@ -83,7 +83,7 @@ Not covered: a lost recovery key (then neither cluster backups nor metastore bac
 | Part | Level |
 | --- | --- |
 | Signed documents, client-side encrypted backend over local, S3 (`httptest`) and SFTP (in-process) targets, tamper/truncation/swap tests | [Fakes] |
-| Copy between backends, verification, retention coupling, restore proposal with approval gate, API, OpenAPI and authorization tests | [Fakes] |
-| Scheduled restore verification with failure notification | [Fakes] (fake agents; no real inspection instance) |
+| Copy between backends, verification, retention coupling, restore proposal with approval gate, API, OpenAPI and authorization tests | [Fakes]; copy, deep verification, proposal and retention also [Lab VMs] (E14) |
+| Scheduled restore verification with failure notification | [Fakes]; a scheduled verification passed on real VMs, and a wrong host produced the failure event [Lab VMs] (E14) |
 | Metastore export/import, offline `metastore-import`, scheduled metastore backup | [Fakes] (one in-memory Raft replica); the runbook has never been run on a real manager |
 | Restore from a copy executed through the API; cross-installation verification; UI | [Untested] |

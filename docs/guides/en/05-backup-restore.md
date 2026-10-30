@@ -21,9 +21,9 @@ Backend settings (`manager.backup.backendConfigFile`), a recovery-key Swarm secr
 - Now: `POST /api/v1/clusters/{id}/backups` (permission: backup on the cluster). The manager picks an eligible source node and creates an owned job pinned to that host.
 - Schedule: `PUT /api/v1/clusters/{id}/backup-policy` with `enabled`, a five-field cron-like `schedule`, `timezone`, `missed` (`skip` or `run-once`), `method: physical` or `logical` (logical needs `databases`, at most 64), and an optional `retention` with `keepLast` (1-1000), `keepDaily` and `keepWeekly`. A manual logical backup is `POST /api/v1/clusters/{id}/backups` with `{"method": "logical", "databases": ["app"]}`. `GET /api/v1/backups` lists `lastBackupAt`, `nextRunAt`, `lastVerifiedRestoreAt`; absent means unknown, not "none".
 
-![Backups page](../../assets/screenshots/en-light-backups.png)
+![Backups page after Start backup now](../../assets/screenshots/real/real-backups.png)
 
-*Screenshot from the development mock server (`npm run dev:mock`, invented sample data), not from a real manager.*
+*Real screenshot: the UI against a real manager on lab VMs (E14, 2026-10-30).*
 
 ## Retention
 
@@ -31,11 +31,9 @@ After each scheduler pass the manager deletes older complete backup sets accordi
 
 In the schedule form you choose the method (physical, or logical with the databases to export) and optional retention (keep the latest N sets, one per day for N days, one per week for N weeks). The form states that the newest set, the newest verified set and sets used by an open inspection are always kept.
 
-![Schedule form with logical method and retention](../../assets/screenshots/en-light-backup-policy.png)
+![Schedule form with retention](../../assets/screenshots/real/real-backup-policy.png)
 
-*Screenshot from the development mock server (`npm run dev:mock`, invented sample data), not from a real manager.*
-
-Mock-server view only [Mock only].
+*Real screenshot: the UI against a real manager on lab VMs (E14, 2026-10-30).*
 
 ## Restore with inspection and approval
 
@@ -51,13 +49,15 @@ Mock-server view only [Mock only].
 
 | Part | Level |
 | --- | --- |
+| Stage 3 on a three-node Galera cluster (E14): physical backup to **S3 (MinIO, TLS, private CA)** through the UI and the scheduler, inspection restore with approval through the UI (200,000 + 1,000 rows, identical `CHECKSUM TABLE`), scheduled restore verification, retention (`keepLast`), copy to a second target with digest check, restore proposal; failure cases wrong credentials, unreachable target and full target | [Lab VMs] ([results](../../../tests/p0/results/e14-backup-restore.md)) |
 | Physical backup to SFTP on a worker-hosted source (about 15 s, 55.7 MB stream, manifest with checkpoints) | [Lab VMs] (E4) |
 | Inspection restore with approval digest, wrong digest `409`, restored rows readable, `wsrep_on 0` | [Lab VMs] (E4, on the manager node's host) |
 | Restore and inspection jobs on worker hosts (job on the manager node's agent, check of the target host) | [Fakes] |
 | Restore verification gate, instance-level report, `lastVerifiedRestoreAt`, teardown with secret removal | [Fakes]; table contents are not compared even in the design |
 | Galera position in the manifest read from the stream | [Fakes]; unconfirmed assumption for MariaDB 11.4 |
-| Backup scheduler, logical backup (manual and scheduled), retention, S3 backend, restore into a **new cluster** | [Fakes] |
-| PITR archive/planning/fake replay, data-key rotation and re-encryption | [Fakes] only; no real binlog replay |
+| Backup scheduler, retention and S3 backend | [Lab VMs] (E14) |
+| Logical backup (manual and scheduled), restore into a **new cluster** | [Fakes]; the restore of a copy ends at the proposal (not executed through the API) |
+| PITR archive/planning/fake replay, data-key rotation and re-encryption | [Fakes] only; no real binlog replay. Not reachable through the API or UI, so E14 could not run it |
 | Selective restore through the manager API | [Untested] (not integrated) |
 | Full restore of production-size data, restore timing | [Untested] |
 

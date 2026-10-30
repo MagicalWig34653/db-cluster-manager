@@ -30,7 +30,7 @@ Lab E7 ([results](../tests/p0/results/e7-stack-deploy.md)) ran exactly these ste
 1. **Images.** Build or pull the manager image and the job image and make both available on every node (registry, or `docker save | docker load` as in E4):
    `docker buildx build -f deploy/Dockerfile -t db-cluster-manager:local --build-arg VERSION=0.0.0-dev --load .`
    `docker buildx build -f deploy/Dockerfile.jobs -t db-cluster-manager-jobs:local --load .`
-   Beyond a trial, pin both by digest in the configuration (`-agent-image`, `-job-image`).
+   Beyond a trial, pin both by digest in the configuration (`-agent-image`, `-job-image`). The database image the cluster wizard asks for (for example `mariadb:11.4.13`, the same version as the job image) must be on every node as well (`docker pull` or load it): the manager never pulls images, and a missing image shows as service tasks stuck in `preparing`.
 2. **Configuration skeleton.** With the `manager` binary (or `docker run --rm db-cluster-manager:local init ...`):
 
    ```sh
@@ -38,6 +38,7 @@ Lab E7 ([results](../tests/p0/results/e7-stack-deploy.md)) ran exactly these ste
    ```
 
    `-rp-id` is the host name users open the UI on (passkey relying party; origin `https://<rp-id>` unless `-origin` is given). `-manager-addr` is the address of the pinned manager node that agents reach (enrollment endpoint `https://<addr>:7444`). Without `-installation` a random ID is chosen. The command writes the JSON (mode 0600, never overwriting a file; without `-out` to stdout) and prints first-run instructions to stderr: host directories, the Swarm secrets and networks to create, the deploy command and how to read the setup token. It prints no secret values; the configuration holds only Swarm secret **names** and container paths. `deploy/manager.example.json` is exactly the output of the command above.
+   When you run it from the image, give the container your own uid and a writable directory, because the image runs as uid 65532 and cannot write to a root-owned bind mount: `docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/out" db-cluster-manager:local init ... -out /out/manager.json`. For a trial on one machine use `-rp-id localhost -origin http://localhost:8080` and reach the UI with an SSH forward (`ssh -L 8080:127.0.0.1:8080 <node>`); passkeys accept `http://localhost`.
    With `-backup -recovery-key-out <file>` it also configures backups: it generates a recovery key into the new file (0600; keep a copy outside the Swarm) and puts only its public half into `settings.backup.recipientKey`; `-backup -recipient-key <dbcmpk1:...>` uses an existing key instead. The manager then reads the backend configuration from `/run/secrets/dbcm-backend.json`: uncomment the `backend` secret in `deploy/stack.yaml` and set `DBCM_BACKEND_SECRET` to the backend secret's name.
 3. **Prerequisites** listed by `init` (the manager creates or checks none of them): `/var/lib/dbcm-agent` and the volume base on every node; the root, monitoring and backup password secrets and the cluster network, labelled `dbcm.installation=<installation ID>`; for backups also the backup option file (`[client]` section with `user=dbcm_backup` and `password=`), the backend configuration (`dbbackup.BackendConfig` JSON) and the recovery key as secrets, and the inspection network. See also the E4 observations below.
 4. **Store the configuration** as a Swarm config. Configs are immutable: use a new name per change and redeploy with it. `docker config create dbcm-manager-config-1 manager.json`
@@ -76,6 +77,32 @@ Lab E4 ([results](../tests/p0/results/e4-manager-galera.md)) ran the manager as 
 - At least one enrolled **Swarm manager node** with an agent: service and backup-job commands are sent to its agent, because workers cannot change services.
 - The cluster's attachable overlay network and the root, monitoring and backup password secrets (plus the backup option file, backend configuration and recovery key secrets) must exist with the label `dbcm.installation=<installation ID>`; the secrets the agent reads for `exec-sql` are listed in `manager.agentTransport.dbSecrets` before the agent service is created.
 - Images are referenced by tag or digest; without a registry they must be present on every node (E4 used `docker save | docker load`).
+
+## Backups: targets, secrets and stack changes [ran on a lab Swarm, E14]
+
+`manager init -backup` only writes the configuration. Everything below you create yourself; names follow the `init` output for installation `<inst>`. Lab E14 ([results](../tests/p0/results/e14-backup-restore.md)) ran this with MinIO over TLS as main target and a `local` target for copies.
+
+1. **Backup account password and option file.** The password secret `dbcm-<inst>-backup-pw` and the option file secret (`settings.backup.dbCredentialSecret`) must hold the **same** password. The generic loop printed by `init` would give the first one a random value, so create both from one value:
+
+   ```sh
+   BPW=$(head -c 24 /dev/urandom | base64 | tr -d '\n')
+   printf '%s' "$BPW" | docker secret create --label dbcm.installation=<inst> dbcm-<inst>-backup-pw -
+   printf '[client]\nuser=dbcm_backup\npassword=%s\n' "$BPW" | docker secret create --label dbcm.installation=<inst> dbcm-<inst>-backup-cred -
+   ```
+
+2. **Backend configuration** (`dbbackup.BackendConfig`; a Swarm secret named in `settings.backup.backendSecret`, which the manager also mounts at `/run/secrets/dbcm-backend.json`). Backup jobs write from their own containers, so the main target must be `s3` or `sftp` (a `local` target does not work for jobs). S3 with a private CA, the PEM as JSON string in `ca_pem`:
+
+   ```json
+   {"type": "s3", "s3": {"endpoint": "https://192.0.2.20:9000", "region": "us-east-1", "bucket": "dbcm-backups",
+     "prefix": "<inst>", "addressing_style": "path", "access_key": "...", "secret_key": "...", "ca_pem": "-----BEGIN CERTIFICATE-----\n..."}}
+   ```
+
+   The bucket must already exist; the manager does not create it.
+3. **Copy targets** (optional, for `POST /clusters/{id}/backup-copies`): add `"targets": {"<name>": "<path of a backend file inside the manager container>"}` below `manager.backup`. The manager itself writes these, so `{"type": "local", "dir": "/var/lib/dbcm/copies"}` (in the manager data volume) works.
+4. **Mount the secrets into the manager.** In `deploy/stack.yaml` uncomment **both** the service-level `secrets:` block and the top-level `secrets:` block (the file's comment names only one), set the external names and add one entry per extra target (`target: dbcm-target-<name>.json`, uid/gid 65532, mode 0400). Deploy with a new config name.
+5. Create the recovery-key secret from the file `init` wrote and the inspection network; keep a copy of the recovery key outside the Swarm.
+
+Check the chain before trusting it: start a backup on the Backups page, look for the objects in the bucket, run an inspection restore and compare row counts and `CHECKSUM TABLE` with the source.
 
 ## Three-replica HA stack (static checks and in-process tests only)
 

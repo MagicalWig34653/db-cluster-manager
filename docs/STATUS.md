@@ -2,6 +2,10 @@
 
 Updated: 2026-10-30.
 
+## E14: stage 3 on lab VMs (2026-10-30; see [e14-backup-restore.md](../tests/p0/results/e14-backup-restore.md))
+
+Ran on three fresh VMs with the manager installed from INSTALL.md: backup now through the UI to a TLS MinIO target, inspection restore with approval (200,000 + 1,000 rows, identical checksums), scheduled backups with retention, scheduled restore verification, copy to a second target with digest verification (a flipped byte is caught by the restore proposal), wrong credentials, unreachable and full target. Fixed: corrupt copy reported as copied, orphan status objects after retention, login limiter exhausted by successful sign-ins plus a clear 429 message (EN/DE), abort of never-started operations, abort refused while a node is left stopped. **Not run:** PITR (no API/UI route), executing a restore of a copy into a new cluster (ends at the proposal), mid-stream interruption. Open: a dead backup job is invisible to its operation and abort leaves the job service behind (documented in troubleshooting). Real screenshots now replace mock ones for clusters, operations, hosts, wizard, backups and policy (English); German and other screens remain mock. VMs removed with `bin/lab cleanup --apply`.
+
 ## Release candidate attempt E13 (2026-10-30; lab ran partly, see [e13-rc-lab.md](../tests/p0/results/e13-rc-lab.md))
 
 Update: later the same day the lab ran: rc-demo up, real-browser setup/login/connect/enroll/create Galera/rolling restart with approval passed after three fixes (wizard limits validation, polled await-stopped, paused operation still blocking planning). Backup/restore/PITR (stage 3) and the manual INSTALL.md walkthrough did not run. VMs removed. The text below describes the earlier non-start.
