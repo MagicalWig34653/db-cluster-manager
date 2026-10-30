@@ -35,7 +35,7 @@ func (s *server) kubernetesEndpoints() []endpoint {
 	}
 }
 func (s *server) handleKubernetesList(w http.ResponseWriter, r *http.Request, _ *caller) {
-	if !s.cfg.ExperimentalKubernetes || s.cfg.Kubernetes == nil {
+	if s.cfg.Kubernetes == nil {
 		writeError(w, http.StatusServiceUnavailable, errUnavailable)
 		return
 	}
@@ -47,7 +47,7 @@ func (s *server) handleKubernetesList(w http.ResponseWriter, r *http.Request, _ 
 	writeJSON(w, http.StatusOK, out)
 }
 func (s *server) handleKubernetesRegister(w http.ResponseWriter, r *http.Request, _ *caller) {
-	if !s.cfg.ExperimentalKubernetes || s.cfg.Kubernetes == nil {
+	if s.cfg.Kubernetes == nil {
 		writeError(w, http.StatusServiceUnavailable, errUnavailable)
 		return
 	}

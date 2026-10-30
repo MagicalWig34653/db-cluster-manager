@@ -85,6 +85,11 @@ func (c *bootstrapConfig) validate(m *managerConfig, authEnabled bool) error {
 	if !authEnabled {
 		return errors.New("manager.bootstrap needs auth.enabled")
 	}
+	return c.releaseErr()
+}
+
+// releaseErr checks the reviewed native agent release.
+func (c *bootstrapConfig) releaseErr() error {
 	r := c.AgentRelease
 	if r == nil {
 		return errors.New("manager.bootstrap.agentRelease is required (version, binaryUrl, sha256 of the reviewed native agent)")
@@ -163,6 +168,8 @@ func (rt *managedRuntime) newBootstrapService(sw *manager.Swarms) *provision.Boo
 // pollBootstrap is the scheduler's run: delete expired credentials and retry
 // failed deletions. It runs on the leader only.
 func (rt *managedRuntime) pollBootstrap(ctx context.Context) error {
+	// Drafts hold sealed credentials: they expire even when the module is
+	// off, so there is no module check here.
 	if svc := rt.bootstrap.Load(); svc != nil {
 		svc.Sweep()
 	}

@@ -112,7 +112,7 @@ func (rt *managedRuntime) newPatchService() *patch.Service {
 // deliver a changed deny list first, then poll the hosts that are due.
 func (rt *managedRuntime) pollPatch(ctx context.Context) error {
 	svc := rt.patch.Load()
-	if svc == nil {
+	if svc == nil || !rt.on("patch") {
 		return nil
 	}
 	var errs []error

@@ -51,3 +51,5 @@ Plans record who approved, the executing agent runtime (`executedBy`) and the op
 ## Limits
 
 Fakes only; no UI yet; no registry webhooks; the automatic hand-off from vulnerability builds is not wired; the running digest is not read from Swarm (baseline from the first check). See the ADR.
+
+**Module switch.** Since [ADR 0030](../../decisions/0030-optional-modules.md) this feature is a module that an administrator switches at runtime ([guide 28](28-modules.md)). The configuration section above only sets its initial state, and the routes of a disabled feature answer `404 module_disabled` (not 503).

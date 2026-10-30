@@ -6,6 +6,7 @@
 	import X from '@lucide/svelte/icons/x';
 	import Info from '@lucide/svelte/icons/info';
 	import { auth } from '../../lib/auth.svelte';
+	import { modules } from '../../lib/modules.svelte';
 	import { t } from '../../lib/locale.svelte';
 	import { Button } from '../../lib/components/ui/button/index.js';
 	import * as Sheet from '../../lib/components/ui/sheet/index.js';
@@ -23,6 +24,10 @@
 	$effect(() => {
 		if (st.status === 'anonymous') void goto(st.setupRequired ? '/setup' : '/login', { replaceState: true });
 		else if (st.status === 'signedIn' && st.session.restricted) void goto('/recover/passkey', { replaceState: true });
+	});
+
+	$effect(() => {
+		if (st.status === 'signedIn' && !st.session.restricted) void modules.refresh();
 	});
 
 	// After client-side navigation, move focus to the new page's heading so

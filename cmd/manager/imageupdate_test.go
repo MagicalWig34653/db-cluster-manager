@@ -42,7 +42,7 @@ func TestImageUpdateIsOffByDefault(t *testing.T) {
 				t.Fatal(err)
 			}
 			waitUntil(t, "api", func() bool { return rt.stack.Load() != nil })
-			if rt.imageUpdate.Load() != nil {
+			if rt.on("image-update") {
 				t.Fatal("image update service runs although it was not enabled")
 			}
 			if rec := serve(t, newMux(rt), http.MethodGet, "/api/v1/image-updates/services", ""); rec.Code != http.StatusUnauthorized {

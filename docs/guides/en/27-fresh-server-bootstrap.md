@@ -48,3 +48,5 @@ The key is `serverBootstrap` because `manager.bootstrap` already starts the meta
 - The container agent step enrolls the node and runs the existing agent deployment for its Swarm (labels, agent service); a revoked host is never re-enrolled.
 - One host per bootstrap; k3s is blocked; an existing Docker engine is kept as it is; a firewall does not filter ports published by Docker.
 - A reboot of the server within the three minutes after disabling root login drops the automatic revert; the dedicated key must work then.
+
+**Module switch.** Since [ADR 0030](../../decisions/0030-optional-modules.md) this feature is a module that an administrator switches at runtime ([guide 28](28-modules.md)). The configuration section above only sets its initial state, and the routes of a disabled feature answer `404 module_disabled` (not 503).

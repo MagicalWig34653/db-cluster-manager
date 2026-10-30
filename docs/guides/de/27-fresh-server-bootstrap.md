@@ -48,3 +48,5 @@ Der Schlüssel heißt `serverBootstrap`, weil `manager.bootstrap` bereits den Me
 - Der Schritt für den Container-Agenten schreibt den Node ein und führt die vorhandene Agent-Bereitstellung seines Swarms aus (Labels, Agent-Dienst); ein gesperrter Host wird nie erneut eingeschrieben.
 - Ein Host pro Aufnahme; k3s ist blockiert; eine vorhandene Docker Engine bleibt unverändert; eine Firewall filtert von Docker veröffentlichte Ports nicht.
 - Ein Neustart des Servers in den drei Minuten nach dem Abschalten des Root-Logins verwirft das automatische Zurücksetzen; dann muss der eigene Schlüssel funktionieren.
+
+**Modulschalter.** Seit [ADR 0030](../../decisions/0030-optional-modules.md) ist diese Funktion ein Modul, das eine Administratorin im Betrieb schaltet ([Anleitung 28](28-modules.md)). Der Konfigurationsabschnitt oben legt nur den Anfangszustand fest; die Routen einer ausgeschalteten Funktion antworten `404 module_disabled` (nicht 503).

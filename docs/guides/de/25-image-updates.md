@@ -51,3 +51,5 @@ Pläne halten fest, wer genehmigt hat, die ausführende Agent-Laufzeit (`execute
 ## Grenzen
 
 Nur Fakes; noch keine Oberfläche; keine Registry-Webhooks; die automatische Übergabe aus Schwachstellen-Builds ist nicht verdrahtet; der laufende Digest wird nicht aus Swarm gelesen (Ausgangswert der ersten Prüfung). Siehe ADR.
+
+**Modulschalter.** Seit [ADR 0030](../../decisions/0030-optional-modules.md) ist diese Funktion ein Modul, das eine Administratorin im Betrieb schaltet ([Anleitung 28](28-modules.md)). Der Konfigurationsabschnitt oben legt nur den Anfangszustand fest; die Routen einer ausgeschalteten Funktion antworten `404 module_disabled` (nicht 503).

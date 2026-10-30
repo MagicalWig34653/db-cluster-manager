@@ -295,7 +295,7 @@ func (rt *managedRuntime) seedVuln(ctx context.Context, svc *vuln.Service, log *
 // pollVuln is the scheduler's poll of the current leadership's service.
 func (rt *managedRuntime) pollVuln(ctx context.Context) error {
 	svc := rt.vuln.Load()
-	if svc == nil {
+	if svc == nil || !rt.on("vuln") {
 		return nil
 	}
 	_, err := svc.Poll(ctx, "manager")

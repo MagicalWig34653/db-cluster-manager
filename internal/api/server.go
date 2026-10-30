@@ -8,11 +8,13 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/MagicalWig34653/db-cluster-manager/internal/authz"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/modules"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/passkey"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/recovery"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/version"
@@ -85,13 +87,14 @@ type Config struct {
 	ImageUpdates ImageUpdates
 	// HostSources manages restic host filesystem sources; nil answers 503.
 	HostSources HostSources
-	// ExperimentalKubernetes gates metadata-only W10 registration.
-	ExperimentalKubernetes bool
-	Kubernetes             KubernetesRegistrations
-	// ExperimentalProvisioning requires an explicit backend. SSH credentials
-	// are write-only and the routes return 503 by default.
-	ExperimentalProvisioning bool
-	Provisioning             Provisioning
+	// Kubernetes backs the metadata-only W10 registration; nil answers 503.
+	Kubernetes KubernetesRegistrations
+	// Provisioning backs SSH provisioning (credentials are write-only); nil
+	// answers 503.
+	Provisioning Provisioning
+	// Modules switches optional features: routes of a disabled module answer
+	// 404 module_disabled. Nil leaves every module on (prototype and tests).
+	Modules *modules.Registry
 	// Bootstrap backs the fresh-server bootstrap endpoints (X18, ADR 0027,
 	// fakes only); nil answers 503.
 	Bootstrap Bootstrap
@@ -202,7 +205,7 @@ type server struct {
 // endpoints is the route table. It is safe to call on a nil server: method
 // values are only bound, not invoked.
 func (s *server) endpoints() []endpoint {
-	return append(append(append(append(append(append(append(s.coreEndpoints(), s.vulnEndpoints()...), s.patchEndpoints()...), s.imageUpdateEndpoints()...), s.kubernetesEndpoints()...), s.provisioningEndpoints()...), s.hostSourceEndpoints()...), s.bootstrapEndpoints()...)
+	return slices.Concat(s.coreEndpoints(), s.vulnEndpoints(), s.moduleEndpoints(), s.patchEndpoints(), s.imageUpdateEndpoints(), s.kubernetesEndpoints(), s.provisioningEndpoints(), s.hostSourceEndpoints(), s.bootstrapEndpoints())
 }
 
 func (s *server) coreEndpoints() []endpoint {
@@ -551,6 +554,7 @@ func (s *server) wrap(ep endpoint) http.Handler {
 	default:
 		panic(fmt.Sprintf("api: endpoint %s %s declares no access", ep.method, ep.path))
 	}
+	module := modules.ForRoute(ep.path)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !safeMethod(r.Method) {
 			if !s.originAllowed(r) {
@@ -572,6 +576,10 @@ func (s *server) wrap(ep endpoint) http.Handler {
 		}
 		if c.restricted && ep.access != accessReenrol {
 			writeError(w, http.StatusForbidden, errEnrollmentNeeded)
+			return
+		}
+		if module != "" && s.cfg.Modules != nil && !s.cfg.Modules.Enabled(module) {
+			writeError(w, http.StatusNotFound, errModuleDisabled)
 			return
 		}
 		if ep.adminOnly {

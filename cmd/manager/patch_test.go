@@ -46,7 +46,7 @@ func TestPatchIsOffByDefault(t *testing.T) {
 			}
 			// The API is built on leadership; wait until it serves.
 			waitUntil(t, "api", func() bool { return rt.stack.Load() != nil })
-			if rt.patch.Load() != nil {
+			if rt.on("patch") {
 				t.Fatal("patch service is running although it was not enabled")
 			}
 			// The routes exist (session required) and are not served by a backend.

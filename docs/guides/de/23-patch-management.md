@@ -72,3 +72,5 @@ Pakete der Docker-Engine (docker-ce, docker-ce-cli, containerd.io, docker-buildx
 - Die [Seite für Docker-Engine-Updates](18-docker-engine-updates.md) bleibt die lesende Kompatibilitätsvorschau mit Runbook.
 
 Grenzen: Der ausgelieferte Manager hat noch keine Quelle für docker info, Tasks und Live-Restore; der Wächter lehnt daher derzeit jeden Engine-Plan ab. Das Verhalten ist nur mit Fakes geprüft, keine echte Docker-Engine und kein Swarm.
+
+**Modulschalter.** Seit [ADR 0030](../../decisions/0030-optional-modules.md) ist diese Funktion ein Modul, das eine Administratorin im Betrieb schaltet ([Anleitung 28](28-modules.md)). Der Konfigurationsabschnitt oben legt nur den Anfangszustand fest; die Routen einer ausgeschalteten Funktion antworten `404 module_disabled` (nicht 503).

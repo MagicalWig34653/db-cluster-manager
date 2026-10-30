@@ -18,20 +18,21 @@
 	import CircleDashed from '@lucide/svelte/icons/circle-dashed';
 	import type { MessageKey } from '../../i18n';
 
-	export const navItems: { href: string; label: MessageKey; icon: typeof Settings; available: boolean }[] = [
+	/** `module` names the optional module (internal/modules) the page belongs to. */
+	export const navItems: { href: string; label: MessageKey; icon: typeof Settings; available: boolean; module?: string }[] = [
 		{ href: '/', label: 'navOverview', icon: LayoutDashboard, available: true },
-		{ href: '/kubernetes', label: 'kubeTitle', icon: Boxes, available: true },
-		{ href: '/bootstrap', label: 'navBootstrap', icon: Server, available: true },
-		{ href: '/provision', label: 'provisionTitle', icon: Server, available: true },
+		{ href: '/kubernetes', label: 'kubeTitle', icon: Boxes, available: true, module: 'kubernetes' },
+		{ href: '/bootstrap', label: 'navBootstrap', icon: Server, available: true, module: 'bootstrap' },
+		{ href: '/provision', label: 'provisionTitle', icon: Server, available: true, module: 'provisioning' },
 		{ href: '/swarms', label: 'navSwarms', icon: Boxes, available: true },
 		{ href: '/clusters', label: 'navClusters', icon: Database, available: true },
 		{ href: '/hosts', label: 'navHosts', icon: Server, available: true },
 		{ href: '/engine-updates', label: 'engineTitle', icon: Server, available: true },
 		{ href: '/databases', label: 'navDatabases', icon: HardDrive, available: true },
 		{ href: '/services', label: 'navServices', icon: Layers, available: true },
-		{ href: '/images', label: 'navImages', icon: Hammer, available: true },
-		{ href: '/image-composer', label: 'navComposer', icon: Blocks, available: true },
-		{ href: '/vulnerabilities', label: 'navVulnerabilities', icon: ShieldAlert, available: true },
+		{ href: '/images', label: 'navImages', icon: Hammer, available: true, module: 'image-build' },
+		{ href: '/image-composer', label: 'navComposer', icon: Blocks, available: true, module: 'image-composer' },
+		{ href: '/vulnerabilities', label: 'navVulnerabilities', icon: ShieldAlert, available: true, module: 'vuln' },
 		{ href: '/registries', label: 'navRegistries', icon: PackageOpen, available: true },
 		{ href: '/backups', label: 'navBackups', icon: Archive, available: true },
 		{ href: '/dashboards', label: 'navDashboards', icon: ChartColumn, available: true },
@@ -50,13 +51,14 @@
 	import { page } from '$app/state';
 	import { t } from '../../locale.svelte';
 	import { cn } from '../../utils';
+	import { modules } from '../../modules.svelte';
 
 	let { onnavigate }: { onnavigate?: () => void } = $props();
 </script>
 
 <nav aria-label={t('mainNavigation')}>
 	<ul class="flex flex-col gap-0.5">
-		{#each navItems as item (item.href)}
+		{#each navItems.filter((i) => !i.module || modules.enabled(i.module)) as item (item.href)}
 			{@const current = isCurrent(item.href, page.url.pathname)}
 			<li>
 				<a

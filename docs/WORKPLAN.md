@@ -44,6 +44,8 @@ For the active task, maintain: objective, changed files/contracts, executed chec
 
 ## Current next action
 
+Optional modules (2026-10-30, ADR 0030, fakes only): registry, runtime switch API, UI page and guide 28 are done; see [STATUS](STATUS.md#optional-modules-2026-10-30-adr-0030-fakes-and-in-process-manager-only-no-vm-used). Next: check the page in a browser at 360 px and test a switched state across a leader change.
+
 Zero-UUID recovery (2026-10-30, ADR 0029, fakes only): guided two-phase Galera recovery, mandatory snapshot, per-cluster `autoRecover` policy, REST API and guides are implemented and tested with fakes; see [STATUS](STATUS.md#guided-galera-recovery-from-the-zero-cluster-uuid-2026-10-30-adr-0029-fakes-only-no-vm-used). Next: run it on lab VMs against the E12 power-loss setup, then add the UI.
 
 Agent runtimes (2026-10-28, W12, ADR 0024, fakes only): per-runtime certificate slots, pinning, renewal, revocation, deny-list delivery and a single-runtime revocation API are implemented with backward compatibility for legacy container records ([STATUS](STATUS.md#per-runtime-agent-identities-and-outage-test-stabilization-2026-10-28-adr-0024-addendum-fakes-only-no-vm)). Staging/commit was denied by the sandbox's shared Git index lock; no push. Next: commit in a writable checkout and rerun listener-backed race tests where local binds are permitted; then trial simultaneous native/container agents and native restic/install flags in an owned lab when the VM budget allows, and add per-function UI.
