@@ -6,7 +6,7 @@ title: Image-Composer
 
 Mit dem Image-Composer ([ADR 0026](../../decisions/0026-image-composer.md), Anforderung X17) stellen Sie den Inhalt eines Service-Images per Auswahl zusammen, statt ein Dockerfile zu schreiben: Basis-Distribution, nginx mit Version und Einstellungen, PHP mit Version, Erweiterungen, `php.ini`- und PHP-FPM-Pool-Einstellungen, Composer und einige Hilfsprogramme. Der Manager prüft die Auswahl, erzeugt Dockerfile und Konfigurationsdateien, zeigt sie zur Durchsicht und baut erst, nachdem ein Administrator genau diesen Plan freigegeben hat, über den vorhandenen Image-Build-Dienst (die Seite **Image-Builds** listet die entstandenen Jobs).
 
-**Stand.** Nur Fakes und der Entwicklungs-Mock-Server. Der Komponentenkatalog (Version 2026.10.29-2) ist als `unverified` markiert: Paketnamen und Versionen wurden aus Wissen geschrieben und nicht gegen echte Paketquellen geprüft, und aus einem erzeugten Rezept wurde noch kein Image gebaut. Der echte Build ist die letzte Prüfung und kann einen Eintrag ablehnen. Der Manager verdrahtet die Composer-Endpunkte noch nicht (503, bis er mit einem Build-Dienst aufgebaut wird).
+**Stand.** Nur Fakes und der Entwicklungs-Mock-Server. Der Komponentenkatalog (Version 2026.10.29-2) ist als `unverified` markiert: Paketnamen und Versionen wurden aus Wissen geschrieben und nicht gegen echte Paketquellen geprüft, und aus einem erzeugten Rezept wurde noch kein Image gebaut. Der echte Build ist die letzte Prüfung und kann einen Eintrag ablehnen. Der Managed-Manager kann die Endpunkte hinter `manager.imageComposer.enabled` bereitstellen (Standard aus; braucht `auth.enabled` und `manager.imageBuild`); bei ausgeschaltetem Schalter oder ohne Docker-Builder antworten sie mit 503. Die Verdrahtung ist nur mit Fakes geprüft (kein echter Build).
 
 ## Die Seite benutzen
 
@@ -35,6 +35,14 @@ Mit dem Image-Composer ([ADR 0026](../../decisions/0026-image-composer.md), Anfo
 | `POST /api/v1/image-composer/builds` | Administrator | Ohne `approvalDigest`: Build-Plan (200); mit dem Digest des Plans: startet den Build (202). Geändertes Rezept oder Ziel ergibt 409 `approval_mismatch` |
 
 Ein Rezept hat `name`, `base {distro, release, digest}`, optional `platforms` und `components [{id, version, features, settings}]`. Das vollständige Schema steht in `api/openapi.yaml`.
+
+## Aktivieren
+
+```json
+"imageComposer": { "enabled": false }
+```
+
+`enabled` auf true setzen. Es braucht `auth.enabled` und `manager.imageBuild` (Builds laufen über den Image-Build-Dienst und seinen Freigabeablauf); sonst startet der Manager nicht. Ohne Docker-Builder bleiben die Endpunkte bei 503. Das Rezept wird immer auf dem Server erzeugt; der Client sendet nie ein Dockerfile.
 
 ## Grenzen
 

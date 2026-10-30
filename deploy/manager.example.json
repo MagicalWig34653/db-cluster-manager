@@ -53,6 +53,13 @@
     "imageUpdate": {
       "enabled": false,
       "pollIntervalSeconds": 300
+    },
+    "imageComposer": {
+      "enabled": false
+    },
+    "serverBootstrap": {
+      "enabled": false,
+      "sweepSeconds": 60
     }
   }
 }
