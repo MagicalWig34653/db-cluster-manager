@@ -329,6 +329,31 @@ func TestReplaceNodeWithQuorumUpdatesDesiredStateOnSuccess(t *testing.T) {
 	}
 }
 
+// RC lab run: a failed rolling restart was adopted as paused by a new leader
+// but kept the EndedAt of its failure. Planning accepted a second operation,
+// whose approval then sat in "unknown" forever (runner lock held by the first).
+func TestPausedOperationWithEndedAtStillBlocksPlanning(t *testing.T) {
+	agents := newFakeAgents()
+	c := newCluster(t, 1, func(_ string, cfg *Config) { cfg.Agents, cfg.Checker = agents, okChecker{} })
+	l := c.leader()
+	ops, _ := replaceFixture(t, l, 3)
+	rec := OperationRecord{ID: "op-paused", Cluster: "clu-1", EndedAt: l.cfg.Now(), View: &runner.View{ID: "op-paused", Status: runner.StatusPaused}}
+	if _, err := Put(l.Store(), CollOperations, "op-paused", rec, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ops.ReplaceNode(adminSubject, "clu-1", "n3"); !errors.Is(err, runner.ErrBusy) {
+		t.Fatalf("a paused operation must still block a new one: %v", err)
+	}
+	rec.View.Status = runner.StatusAborted
+	if _, err := Put(l.Store(), CollOperations, "op-paused", rec, nil); err != nil {
+		t.Fatal(err)
+	}
+	busy, err := ops.unfinishedFor("clu-1")
+	if err != nil || busy != "" {
+		t.Fatalf("an aborted operation must not block: %q %v", busy, err)
+	}
+}
+
 func TestDiagnoseOutageIsReadOnly(t *testing.T) {
 	agents := newFakeAgents()
 	c := newCluster(t, 1, func(_ string, cfg *Config) { cfg.Agents = agents })

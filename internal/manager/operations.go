@@ -384,7 +384,13 @@ func (o *Operations) unfinishedFor(clusterID string) (string, error) {
 	}
 	for _, r := range recs {
 		v := r.Value
-		if v.Cluster != clusterID || !v.EndedAt.IsZero() {
+		if v.Cluster != clusterID {
+			continue
+		}
+		// EndedAt is set when an operation fails and stays set when a new
+		// leader adopts it as paused; such an operation still holds its
+		// runner locks until it is resumed or aborted.
+		if !v.EndedAt.IsZero() && (v.View == nil || terminal(v.View.Status) || v.View.Status == runner.StatusStopped) {
 			continue
 		}
 		if v.View != nil && v.View.Status == runner.StatusStopped && len(v.View.Steps) == 0 {
