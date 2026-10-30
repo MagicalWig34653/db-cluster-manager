@@ -97,7 +97,7 @@ func (rt *managedRuntime) newImageUpdateService(svcs *manager.Services, regs ima
 // pollImageUpdate is the scheduler's run of the current leadership's service.
 func (rt *managedRuntime) pollImageUpdate(ctx context.Context) error {
 	svc := rt.imageUpdate.Load()
-	if svc == nil {
+	if svc == nil || !rt.on("image-update") {
 		return nil
 	}
 	_, err := svc.RunDue(ctx)

@@ -386,6 +386,24 @@ const listOf =
 	(v): v is { items: T[] } =>
 		isObj(v) && Array.isArray(v.items) && v.items.every(item);
 
+export interface ModuleInfo {
+	id: string;
+	title: { de: string; en: string };
+	description: { de: string; en: string };
+	requires: string[];
+	enabled: boolean;
+	missingConfig: string[];
+	missingModules: string[];
+	dependents: string[];
+	by?: string;
+	at?: string;
+}
+const isStrs = (v: unknown): v is string[] => Array.isArray(v) && v.every(isStr);
+const isText = (v: unknown) => isObj(v) && isStr(v.de) && isStr(v.en);
+export const isModuleInfo = (v: unknown): v is ModuleInfo =>
+	isObj(v) && isStr(v.id) && isText(v.title) && isText(v.description) && isStrs(v.requires) && typeof v.enabled === 'boolean' &&
+	isStrs(v.missingConfig) && isStrs(v.missingModules) && isStrs(v.dependents);
+
 const isAny = (_v: unknown): _v is unknown => true;
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const optNum = (v: unknown) => v === undefined || isNum(v);
@@ -1931,6 +1949,8 @@ export function createClient(fetchFn: FetchFn) {
 			call('POST', `/hosts/${encodeURIComponent(nodeId)}/maintenance`, isMaintenanceStarted, reason ? { reason } : {}),
 		leaveMaintenance: (nodeId: string) => call('DELETE', `/hosts/${encodeURIComponent(nodeId)}/maintenance`, isMaintenanceStarted),
 		clusterDrift: (id: string) => call('GET', `/clusters/${encodeURIComponent(id)}/drift`, isDriftReport),
+		modules: () => call('GET', '/modules', listOf(isModuleInfo)),
+		setModule: (id: string, enabled: boolean) => call('PUT', `/modules/${encodeURIComponent(id)}`, isModuleInfo, { enabled }),
 		kubernetesRegistrations: () => call('GET', '/kubernetes-clusters', listOfArray(isKubernetesRegistration)),
 		planProvision: (input: ProvisionPlanInput) => call('POST', '/provision/plans', isProvisionPlan, input),
 		bootstrapSupport: () => call('GET', '/bootstrap/support', isBootstrapOSList),

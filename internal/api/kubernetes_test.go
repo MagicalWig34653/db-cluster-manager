@@ -41,11 +41,14 @@ func TestKubernetesRegistrationContract(t *testing.T) {
 	backend := &fakeKubernetesRegistrations{}
 	f.srv.cfg.Kubernetes = backend
 	body := map[string]any{"id": "lab", "name": "Lab", "endpoint": "https://kube.example.test", "namespace": "sandbox", "token": "synthetic-test-token"}
-	wantError(t, admin.do("POST", "/api/v1/kubernetes-clusters", body), http.StatusServiceUnavailable, errUnavailable)
+	reg := f.useModules(t, nil)
+	wantError(t, admin.do("POST", "/api/v1/kubernetes-clusters", body), http.StatusNotFound, errModuleDisabled)
 	if backend.calls != 0 {
 		t.Fatal("disabled feature reached backend")
 	}
-	f.srv.cfg.ExperimentalKubernetes = true
+	if err := reg.Set("kubernetes", true, "admin"); err != nil {
+		t.Fatal(err)
+	}
 	wantError(t, viewer.do("GET", "/api/v1/kubernetes-clusters", nil), http.StatusForbidden, errForbidden)
 	wantError(t, viewer.do("POST", "/api/v1/kubernetes-clusters", body), http.StatusForbidden, errForbidden)
 	r := admin.do("POST", "/api/v1/kubernetes-clusters", body)

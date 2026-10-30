@@ -5,6 +5,16 @@ Updated: 2026-10-30.
 ## Release candidate attempt E13 (2026-10-30; lab not run)
 
 The planned lab run (fresh-install walkthrough, real-browser end-to-end, backup/restore/PITR with local and MinIO target) **did not start**: the host had 8-10 GiB free disk, swap about 91 % used and load 18-584, so no VM was created ([record](../tests/p0/results/e13-not-run.md)). Executed on the host: `scripts/rc-package.sh 0.1.0-rc1` produced two linux archives, six CycloneDX SBOMs, verified checksums and release notes (bsdtar archives, SBOMs from a throwaway repo with a local tag; no image built; nothing tagged, pushed or published). Written but **never executed**: `tests/p0/rc-demo.sh` (only `bash -n`). [RELEASE-CANDIDATE.md](RELEASE-CANDIDATE.md) lists verified, fake-only and unverified items and an owner quickstart. No UI, backup or restore result was gained in this cycle.
+## Optional modules (2026-10-30, ADR 0030; fakes and in-process manager only, no VM used)
+
+Implements the owner requirement that every optional feature is a module that can be enabled and disabled. Done and tested:
+
+- `internal/modules`: catalog of ten modules (patch, host-backups, backup-copies, image-build, image-composer, image-update, vuln, bootstrap, provisioning, kubernetes) with DE/EN texts, dependencies (composer needs image-build) and owned routes; registry with fail-closed `Enabled`, `Set` with precise `BlockedError`. State per module in the replicated metastore (`modules/<id>`: enabled, who, when); the config sections only seed modules never switched.
+- API: `GET /modules` (any session), `PUT /modules/{id}` (administrator, audited), `409 module_blocked`; routes of a disabled module answer `404 module_disabled` in the endpoint wrapper. OpenAPI and contract tests updated.
+- Runtime: `cmd/manager` builds each optional service whenever its configuration allows and lets the registry gate routes and pollers; no restart. The experimental provisioning/Kubernetes API flags and the per-feature "nil means off" wiring were removed (net code reduction). Bootstrap draft expiry still sweeps while the module is off.
+- UI: Settings > Optional modules (DE/EN, switch per card with reasons), navigation hides entries of disabled modules, mock server updated. Guide 28 DE+EN, guides 23/25/26/27 note, ADR 0030.
+
+Limits: running operations are not cancelled on disable; no multi-replica or restart test of switched state; the 360 px layout was not inspected in a browser; behaviour change: routes of a disabled feature now answer 404 instead of 503/401-then-503, and host-backups/backup-copies default to on only when `manager.backup` is configured.
 
 ## Guided Galera recovery from the zero cluster UUID (2026-10-30, ADR 0029; fakes only, no VM used)
 

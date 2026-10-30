@@ -27,11 +27,14 @@ func TestProvisioningContractAndAuthz(t *testing.T) {
 	backend := &fakeProvisioning{}
 	fixture.srv.cfg.Provisioning = backend
 	body := map[string]any{"id": "lab", "platform": "swarm", "hosts": []map[string]any{{"id": "a", "address": "a.example.test", "user": "admin", "role": "manager"}}, "credentials": map[string]any{"a": map[string]string{"privateKey": "synthetic-private-key", "knownHosts": "a.example.test ssh-ed25519 synthetic"}}}
-	wantError(t, admin.do("POST", "/api/v1/provision/plans", body), http.StatusServiceUnavailable, errUnavailable)
+	reg := fixture.useModules(t, nil)
+	wantError(t, admin.do("POST", "/api/v1/provision/plans", body), http.StatusNotFound, errModuleDisabled)
 	if backend.calls != 0 {
 		t.Fatal("disabled backend called")
 	}
-	fixture.srv.cfg.ExperimentalProvisioning = true
+	if err := reg.Set("provisioning", true, "admin"); err != nil {
+		t.Fatal(err)
+	}
 	wantError(t, viewer.do("POST", "/api/v1/provision/plans", body), http.StatusForbidden, errForbidden)
 	r := admin.do("POST", "/api/v1/provision/plans", body)
 	wantStatus(t, r, http.StatusCreated)

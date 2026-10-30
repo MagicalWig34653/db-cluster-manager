@@ -72,3 +72,5 @@ Packages of the Docker engine (docker-ce, docker-ce-cli, containerd.io, docker-b
 - The [Docker engine update page](18-docker-engine-updates.md) remains the read-only compatibility preview and runbook.
 
 Limits: the shipping manager has no source for docker info, tasks and live-restore yet, so the guard currently refuses every engine plan; the behaviour is verified with fakes only, no real Docker engine or Swarm.
+
+**Module switch.** Since [ADR 0030](../../decisions/0030-optional-modules.md) this feature is a module that an administrator switches at runtime ([guide 28](28-modules.md)). The configuration section above only sets its initial state, and the routes of a disabled feature answer `404 module_disabled` (not 503).

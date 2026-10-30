@@ -3705,6 +3705,46 @@ paths:
         '403': { $ref: '#/components/responses/Error' }
         '409': { $ref: '#/components/responses/Error' }
         '503': { $ref: '#/components/responses/Error' }
+  /modules:
+    get:
+      summary: List the optional modules with their state
+      description: Any session. A module is enabled only when switched on, its configuration is present and every required module is enabled. Routes of a disabled module answer 404 module_disabled.
+      responses:
+        '200':
+          description: Modules in catalog order
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Module' } }
+        '503': { $ref: '#/components/responses/Error' }
+  /modules/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    put:
+      summary: Enable or disable one module
+      description: Administrator only, audited, applied on the leader without a restart. Disabling keeps all data and stops new work only. 409 module_blocked when configuration or a required module is missing (enable) or an enabled module depends on it (disable); GET /modules gives the reasons.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              properties:
+                enabled: { type: boolean }
+      responses:
+        '200':
+          description: The module after the change
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Module' }
+        '400': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
   /host-sources:
     get:
       summary: List visible restic host filesystem sources
@@ -4514,6 +4554,26 @@ components:
         acked: { type: boolean }
         acknowledged: { type: boolean, description: Same as acked (UI name) }
         ackedAt: { type: string, format: date-time }
+    Module:
+      type: object
+      required: [id, title, description, requires, enabled, missingConfig, missingModules, dependents]
+      properties:
+        id: { type: string }
+        title: { $ref: '#/components/schemas/ModuleText' }
+        description: { $ref: '#/components/schemas/ModuleText' }
+        requires: { type: array, items: { type: string } }
+        enabled: { type: boolean }
+        missingConfig: { type: array, items: { type: string }, description: Configuration keys that block enabling }
+        missingModules: { type: array, items: { type: string }, description: Required modules that are not enabled }
+        dependents: { type: array, items: { type: string }, description: Switched-on modules that block disabling }
+        by: { type: string }
+        at: { type: string, format: date-time }
+    ModuleText:
+      type: object
+      required: [de, en]
+      properties:
+        de: { type: string }
+        en: { type: string }
     HostSource:
       type: object
       required: [id, name, kind, transport, hostId, paths, backend, repository, passwordSecret]

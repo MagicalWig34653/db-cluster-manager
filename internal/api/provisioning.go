@@ -33,7 +33,7 @@ func (s *server) provisioningEndpoints() []endpoint {
 	}
 }
 func (s *server) handleProvisionPlan(w http.ResponseWriter, r *http.Request, _ *caller) {
-	if !s.cfg.ExperimentalProvisioning || s.cfg.Provisioning == nil {
+	if s.cfg.Provisioning == nil {
 		writeError(w, http.StatusServiceUnavailable, errUnavailable)
 		return
 	}
@@ -57,7 +57,7 @@ func (s *server) handleProvisionPlan(w http.ResponseWriter, r *http.Request, _ *
 	writeJSON(w, http.StatusCreated, plan)
 }
 func (s *server) handleProvisionExecute(w http.ResponseWriter, r *http.Request, c *caller) {
-	if !s.cfg.ExperimentalProvisioning || s.cfg.Provisioning == nil {
+	if s.cfg.Provisioning == nil {
 		writeError(w, http.StatusServiceUnavailable, errUnavailable)
 		return
 	}

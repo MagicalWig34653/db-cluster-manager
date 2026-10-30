@@ -36,6 +36,7 @@ import (
 	"github.com/MagicalWig34653/db-cluster-manager/internal/manager/swarm"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/managertls"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/metastore"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/modules"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/notify"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/passkey"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/patch"
@@ -115,7 +116,8 @@ type managerConfig struct {
 	ServerBootstrap *bootstrapConfig `json:"serverBootstrap,omitempty"`
 	// ProxyWriters enables the replicated writer-choice protocol.
 	ProxyWriters []proxyWriterConfig `json:"proxyWriters,omitempty"`
-	// ExperimentalProvisioning enables approval-gated SSH host provisioning.
+	// ExperimentalProvisioning and ExperimentalKubernetesProvisioning are the
+	// initial state of the "provisioning" and "kubernetes" modules.
 	ExperimentalProvisioning           bool `json:"experimentalProvisioning,omitempty"`
 	ExperimentalKubernetesProvisioning bool `json:"experimentalKubernetesProvisioning,omitempty"`
 }
@@ -513,19 +515,19 @@ type managedRuntime struct {
 	// the current leadership's service.
 	vulnCfg *vulnConfig
 	vuln    atomic.Pointer[vuln.Service]
-	// patchCfg is nil when OS patch management is disabled; patch is the
-	// current leadership's service.
-	patchCfg               *patchConfig
-	imageUpdateCfg         *imageUpdateConfig
-	imageUpdate            atomic.Pointer[imageupdate.Service]
-	patch                  atomic.Pointer[patch.Service]
-	installer              atomic.Pointer[patch.Installer]
-	bootstrap              atomic.Pointer[provision.BootstrapService]
-	bootstrapCfg           *bootstrapConfig // nil: fresh-server bootstrap disabled
-	composerOn             bool
-	agentTransport         *agentTransportConfig
-	provisioning           bool
-	kubernetesProvisioning bool
+	// The optional services are the current leadership's.
+	patchCfg       *patchConfig
+	imageUpdateCfg *imageUpdateConfig
+	imageUpdate    atomic.Pointer[imageupdate.Service]
+	patch          atomic.Pointer[patch.Service]
+	installer      atomic.Pointer[patch.Installer]
+	bootstrap      atomic.Pointer[provision.BootstrapService]
+	bootstrapCfg   *bootstrapConfig
+	agentTransport *agentTransportConfig
+	// modules is the current leadership's module registry; nil without one,
+	// so nothing optional runs on a replica that does not lead.
+	modules        atomic.Pointer[modules.Registry]
+	moduleDefaults map[string]bool
 
 	enroll           *http.Server
 	forwardServer    *http.Server
@@ -606,21 +608,13 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 	if err := mc.ServerBootstrap.validate(mc, cfg.Auth.Enabled); err != nil {
 		return nil, err
 	}
-	var bootCfg *bootstrapConfig
-	if mc.ServerBootstrap.on() {
-		bootCfg = mc.ServerBootstrap
-	}
-	var iuCfg *imageUpdateConfig
-	if mc.ImageUpdate.on() {
-		iuCfg = mc.ImageUpdate
-	}
-	var patchCfg *patchConfig
-	if mc.Patch.on() {
-		patchCfg = mc.Patch
-	}
-	rt := &managedRuntime{bootstrapCfg: bootCfg, composerOn: mc.ImageComposer.on(), agentTransport: mc.AgentTransport, patchCfg: patchCfg, imageUpdateCfg: iuCfg, proto: api.NewHandler(), keys: keys, backend: backend, targets: targets, backupCfg: mc.Backup, imageCfg: mc.ImageBuild, imageRunner: newImageRunner(), vulnCfg: mc.Vuln,
-		proxyWriters: map[string]proxyWriterConfig{}, provisioning: mc.ExperimentalProvisioning, kubernetesProvisioning: mc.ExperimentalKubernetesProvisioning,
-		forwardTLS: scfg.PeerTLS, forwardPeers: map[string]peerConfig{}}
+	// Every optional feature is built when its configuration allows it; the
+	// module registry (internal/modules) decides whether it runs. The
+	// sections only supply the default of a module nobody switched yet.
+	patchCfg, iuCfg, bootCfg := orDefault(mc.Patch), orDefault(mc.ImageUpdate), orDefault(mc.ServerBootstrap)
+	rt := &managedRuntime{bootstrapCfg: bootCfg, moduleDefaults: mc.moduleDefaults(), agentTransport: mc.AgentTransport, patchCfg: patchCfg, imageUpdateCfg: iuCfg, proto: api.NewHandler(), keys: keys, backend: backend, targets: targets, backupCfg: mc.Backup, imageCfg: mc.ImageBuild, imageRunner: newImageRunner(), vulnCfg: mc.Vuln,
+		proxyWriters: map[string]proxyWriterConfig{},
+		forwardTLS:   scfg.PeerTLS, forwardPeers: map[string]peerConfig{}}
 	for _, w := range mc.ProxyWriters {
 		rt.proxyWriters[w.ClusterID] = w
 	}
@@ -646,23 +640,15 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 			return rt.monitoring.Notify(ctx, e)
 		}},
 	}
+	// The pollers skip while their module is off.
 	if mc.Vuln != nil {
 		scfg.Reconcilers = append(scfg.Reconcilers, manager.VulnScheduler{Poll: rt.pollVuln, Interval: mc.Vuln.pollInterval(), Logf: log.Warn})
 	}
-	if patchCfg != nil {
-		scfg.Reconcilers = append(scfg.Reconcilers, manager.PatchScheduler{Poll: rt.pollPatch, Interval: patchCfg.interval(), Logf: log.Warn})
-	}
-	if bootCfg != nil || patchCfg != nil {
+	scfg.Reconcilers = append(scfg.Reconcilers,
+		manager.PatchScheduler{Poll: rt.pollPatch, Interval: patchCfg.interval(), Logf: log.Warn},
 		// Expired sealed credentials of bootstrap and SSH install drafts.
-		every := defaultBootstrapSweep * time.Second
-		if bootCfg != nil {
-			every = bootCfg.sweepEvery()
-		}
-		scfg.Reconcilers = append(scfg.Reconcilers, manager.DraftSweeper{Poll: rt.pollBootstrap, Interval: every, Logf: log.Warn})
-	}
-	if iuCfg != nil {
-		scfg.Reconcilers = append(scfg.Reconcilers, manager.ImageUpdateScheduler{Poll: rt.pollImageUpdate, Interval: iuCfg.interval(), Logf: log.Warn})
-	}
+		manager.DraftSweeper{Poll: rt.pollBootstrap, Interval: bootCfg.sweepEvery(), Logf: log.Warn},
+		manager.ImageUpdateScheduler{Poll: rt.pollImageUpdate, Interval: iuCfg.interval(), Logf: log.Warn})
 	if keyring != nil {
 		rt.keyring = keyring
 		scfg.Reconcilers = append(scfg.Reconcilers, manager.KeyringReconciler{Keyring: keyring})
@@ -755,9 +741,7 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 			RequireSourceAddr: !at.AllowAnySource}
 		rt.pki = pki
 		dir := &manager.AgentDirectory{Store: svc.Store(), PKI: pki, Port: at.AgentPort}
-		if patchCfg != nil {
-			dir.NativePort = patchCfg.port() // restic may run on the native agent (ADR 0024)
-		}
+		dir.NativePort = patchCfg.port() // restic may run on the native agent (ADR 0024)
 		denyDistributor.Native = &manager.PatchAgentDirectory{Dir: dir}
 		agentClient = dir
 		swarms.Transport = &manager.AgentTransport{PKI: pki, ManagerURL: at.ManagerURL, Port: at.AgentPort,
@@ -768,9 +752,7 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 			return nil, err
 		}
 	}
-	if mc.ExperimentalProvisioning {
-		agentClient = manager.ProvisionAgentClient{Next: agentClient, Store: svc.Store(), Keys: keys, Commands: provision.SSHRunner{}}
-	}
+	agentClient = manager.ProvisionAgentClient{Next: agentClient, Store: svc.Store(), Keys: keys, Commands: provision.SSHRunner{}}
 	agentClient = manager.HostSourceSSHClient{Next: agentClient, Store: svc.Store(), Keys: keys, Commands: provision.SSHRunner{}}
 	if agentClient != nil {
 		svc.SetAgents(agentClient)
@@ -789,6 +771,7 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 	svc.OnLeadership(func(l *manager.Leadership) {
 		if l == nil {
 			rt.stack.Store(nil)
+			rt.modules.Store(nil)
 			rt.backups.Store(nil)
 			rt.hostSources.Store(nil)
 			rt.vuln.Store(nil)
@@ -982,10 +965,14 @@ func (rt *managedRuntime) leaderAPI(pk passkey.Config, keys manager.KeyProvider,
 		Services:    svc.services,
 		HostSources: svc.hostSources,
 	}
-	if rt.provisioning {
-		acfg.ExperimentalProvisioning = true
-		acfg.Provisioning = &manager.Provisioning{Ops: svc.control.Ops, Keys: keys, Commands: provision.SSHRunner{}, AllowKubernetes: rt.kubernetesProvisioning}
+	reg, err := modules.New(moduleStore{rt.svc.Store()}, rt.moduleDefaults, rt.missingConfig)
+	if err != nil {
+		return nil, nil, fmt.Errorf("module states: %w", err)
 	}
+	acfg.Modules = reg
+	acfg.Kubernetes = manager.KubernetesRegistrations{Enabled: true, Store: rt.svc.Store(), Keys: keys}
+	acfg.Provisioning = &manager.Provisioning{Ops: svc.control.Ops, Keys: keys, Commands: provision.SSHRunner{},
+		AllowKubernetes: func() bool { return reg.Enabled("kubernetes") }}
 	// Registries are always available; builds only with manager.imageBuild.
 	// The interfaces stay nil otherwise, so the routes answer 503.
 	if svc.images != nil {
@@ -1012,7 +999,7 @@ func (rt *managedRuntime) leaderAPI(pk passkey.Config, keys manager.KeyProvider,
 	if svc.bootstrap != nil {
 		acfg.Bootstrap = svc.bootstrap
 	}
-	if svc.composer {
+	if svc.builds != nil {
 		acfg.ImageComposer = &api.ImageComposerBackend{Builds: svc.builds}
 	}
 	if svc.imageUpdate != nil {
@@ -1029,6 +1016,7 @@ func (rt *managedRuntime) leaderAPI(pk passkey.Config, keys manager.KeyProvider,
 	if err != nil {
 		return nil, nil, err
 	}
+	rt.modules.Store(reg)
 	rt.backups.Store(svc.backups)
 	rt.hostSources.Store(svc.hostSources)
 	if svc.vuln != nil {
@@ -1077,13 +1065,12 @@ type commandSet struct {
 	settings    *manager.SettingsService
 	services    *manager.Services
 	images      *api.ImageBuildBackend
-	vuln        *vuln.Service        // nil without manager.vuln
-	patch       *patch.Service       // nil without manager.patch.enabled
-	imageUpdate *imageupdate.Service // nil without manager.imageUpdate.enabled
-	builds      *imagebuild.Service  // nil without manager.imageBuild
-	installer   *patch.Installer     // nil without manager.patch and the agent transport
+	vuln        *vuln.Service  // nil without manager.vuln
+	patch       *patch.Service // nil without the agent transport
+	imageUpdate *imageupdate.Service
+	builds      *imagebuild.Service // nil without manager.imageBuild
+	installer   *patch.Installer    // nil without the agent transport
 	bootstrap   *provision.BootstrapService
-	composer    bool
 }
 
 // newBackups builds the backup service with copy targets, the metastore
@@ -1146,22 +1133,16 @@ func (rt *managedRuntime) commandServices(st *manager.AuthStack) (commandSet, er
 		}
 		set.vuln = v
 	}
-	if rt.patchCfg != nil {
-		set.patch = rt.newPatchService()
-		if rt.pki != nil {
-			set.installer = rt.newPatchInstaller()
+	if rt.pki != nil {
+		set.patch, set.installer = rt.newPatchService(), rt.newPatchInstaller()
+		if rt.bootstrapCfg.releaseErr() == nil {
+			set.bootstrap = rt.newBootstrapService(ops.Swarms)
 		}
-	}
-	if rt.bootstrapCfg != nil && rt.pki != nil {
-		set.bootstrap = rt.newBootstrapService(ops.Swarms)
 	}
 	if builder != nil {
 		set.builds = builds
 	}
-	if rt.imageUpdateCfg != nil {
-		set.imageUpdate = rt.newImageUpdateService(set.services, regs)
-	}
-	set.composer = rt.composerOn && builder != nil
+	set.imageUpdate = rt.newImageUpdateService(set.services, regs)
 	return set, nil
 }
 

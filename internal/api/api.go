@@ -106,6 +106,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 // account, credential or check failed.
 const (
 	errNotFound          = "not_found"
+	errModuleDisabled    = "module_disabled"
 	errConflict          = "conflict"
 	errBadRequest        = "bad_request"
 	errAuthFailed        = "authentication_failed"
@@ -131,6 +132,7 @@ const (
 	errApprovalMismatch       = "approval_mismatch"
 	errNotLeader              = "not_leader"
 	errRuntimeUnavailable     = "agent_runtime_unavailable"
+	errModuleBlocked          = "module_blocked"
 )
 
 // ErrorBody is the JSON body of every error response.

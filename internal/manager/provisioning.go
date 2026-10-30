@@ -42,14 +42,14 @@ type Provisioning struct {
 	Ops             *Operations
 	Keys            KeyProvider
 	Commands        provision.CommandRunner
-	AllowKubernetes bool
+	AllowKubernetes func() bool
 }
 
 func (p *Provisioning) Plan(ctx context.Context, req provision.Request, creds map[string]provision.Credential) (provision.Plan, error) {
 	if _, err := p.Ops.leadership(); err != nil {
 		return provision.Plan{}, err
 	}
-	if err := req.Validate(p.AllowKubernetes); err != nil {
+	if err := req.Validate(p.AllowKubernetes()); err != nil {
 		return provision.Plan{}, err
 	}
 	if p.Keys == nil || p.Commands == nil || len(creds) != len(req.Hosts) {
@@ -67,7 +67,7 @@ func (p *Provisioning) Plan(ctx context.Context, req provision.Request, creds ma
 		}
 		checks = append(checks, c)
 	}
-	plan, err := provision.Build(req, checks, p.AllowKubernetes)
+	plan, err := provision.Build(req, checks, p.AllowKubernetes())
 	if err != nil {
 		return provision.Plan{}, err
 	}

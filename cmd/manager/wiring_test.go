@@ -32,8 +32,8 @@ func TestImageComposerIsOffByDefault(t *testing.T) {
 				t.Fatal(err)
 			}
 			admin := sessionFor(t, rt, "admin", authz.RoleAdministrator)
-			if rec := call(t, rt, admin, "GET", "/image-composer/catalog", ""); rec.Code != http.StatusServiceUnavailable {
-				t.Fatalf("catalog = %d, want 503 while off", rec.Code)
+			if rec := call(t, rt, admin, "GET", "/image-composer/catalog", ""); rec.Code != http.StatusNotFound {
+				t.Fatalf("catalog = %d, want 404 module_disabled while off", rec.Code)
 			}
 		})
 	}
@@ -127,8 +127,8 @@ func TestBootstrapIsOffByDefault(t *testing.T) {
 				t.Fatal(err)
 			}
 			admin := sessionFor(t, rt, "admin", authz.RoleAdministrator)
-			if rec := call(t, rt, admin, "GET", "/bootstrap/drafts", ""); rec.Code != http.StatusServiceUnavailable {
-				t.Fatalf("GET /bootstrap = %d, want 503 while off", rec.Code)
+			if rec := call(t, rt, admin, "GET", "/bootstrap/drafts", ""); rec.Code != http.StatusNotFound {
+				t.Fatalf("GET /bootstrap = %d, want 404 module_disabled while off", rec.Code)
 			}
 		})
 	}
