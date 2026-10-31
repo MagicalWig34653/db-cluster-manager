@@ -10,6 +10,8 @@ Der Manager führt nie selbst Befehle auf Hosts aus. Auf jedem eingebundenen Hos
 
 ## Swarm anbinden
 
+In der Oberfläche: Seite **Swarms**, Abschnitt „Swarm verbinden“: Anzeigename und Docker-Endpunkt (`unix:///var/run/docker.sock`), **Verbinden**, danach in der Tabelle **Synchronisieren**. Der Zustand wechselt von „Unbekannt“ auf „Gesund“, und die Seite Hosts listet jeden Knoten als „Entdeckt (nicht verwaltet)“ [Lab-VMs, E16]. Dasselbe über die API:
+
 `POST /api/v1/swarms` mit dem Docker-Endpunkt (E4: `unix:///var/run/docker.sock` auf einem Swarm-Manager-Knoten), dann `POST /api/v1/swarms/{id}/sync`. Der Swarm steht auf `healthy`, `GET /api/v1/hosts` listet Knoten mit Rolle, CPUs, Speicher und Docker-Version [Lab-VMs] (3 Knoten). Die Anbindung an eine entfernte, gegenseitig authentifizierte Docker-API ist ein offener Entwurfspunkt (P04) [Ungetestet]. Eine Docker-Version außerhalb der Kompatibilitätsmatrix (nur Docker 29.x) wird markiert [Fakes].
 
 Die Seite **Hosts** zeigt je Host die Agent-Version und den Zeitpunkt, zu dem der Manager zuletzt eine HTTP-Antwort dieses Agents erhalten hat (`agentVersion`, `agentSeenAt` in `GET /api/v1/hosts`) [Fakes]. Der Manager speichert beides bei jedem Kontakt mit dem Agent, höchstens etwa einmal pro Minute. Es gibt keinen Heartbeat: Ein alter oder fehlender Wert beweist nicht, dass der Agent ausgefallen ist; ein Host ohne bisherigen Kontakt zeigt „noch nicht kontaktiert“. „Zuletzt beobachtet“ bleibt der Zeitpunkt des Swarm-Inventareintrags.
@@ -26,15 +28,15 @@ Der Manager legt sie noch nicht an und prüft sie nicht. Fehlendes führt zu ver
 
 ## Hosts einbinden
 
-1. `POST /api/v1/hosts/{id}/enroll` je Host (`id` ist die Swarm-Knoten-ID). Erfordert die Berechtigung „Host ändern“, wird auditiert. Die Host-Seite der Oberfläche tut dasselbe.
+1. `POST /api/v1/hosts/{id}/enroll` je Host (`id` ist die Swarm-Knoten-ID). Erfordert die Berechtigung „Host ändern“, wird auditiert. In der Oberfläche drücken Sie in der Host-Tabelle je Zeile **Einschreiben** und danach auf der Seite Swarms **Agents bereitstellen** (Schritt 2); die Meldung nennt den Agent-Dienst und wie viele Hosts das Label erhielten.
 2. `POST /api/v1/swarms/{id}/agents/deploy` legt bei Bedarf den Agent-Global-Service an und setzt das Einbindungs-Label je Host. Die Antwort listet `labeled`, `unlabeled` und `failed`.
 3. Jeder Agent bindet sich selbst ein: Einmal-Token als Swarm-Secret, Pinning des CA-Fingerabdrucks, Zertifikatsanforderung (CSR) und Prüfung der Quelladresse. Danach spricht der Manager per **mTLS 1.3** mit dem Agenten.
 
 Beobachtet: drei Agenten innerhalb von 2 s eingebunden, `agentIdentity: true` [Lab-VMs]. Die Host-Seite der Oberfläche lief nur gegen Fakes [Fakes].
 
-![Host-Seite mit Einbindungsstatus](../../assets/screenshots/de-light-hosts.png)
+![Host-Seite mit Einbindungsstatus (deutsch, nach "Agents bereitstellen")](../../assets/screenshots/real/real-de-hosts.png)
 
-*Bildschirmfoto aus dem Entwicklungs-Mock-Server (`npm run dev:mock`, erfundene Beispieldaten), nicht von einem echten Manager.*
+*Echter Screenshot der deutschen Oberfläche: Manager auf Lab-VMs (E16, 2026-10-31).*
 
 ## Host sperren
 

@@ -185,7 +185,7 @@
          {@const health = serviceHealth(s.health, healthNow)}
          <Badge variant={health === 'unhealthy' ? 'destructive' : health === 'healthy' ? 'default' : 'secondary'}>{t(healthLabels[health])}</Badge>
          {#if s.health}<p class="text-xs">{s.health.running}/{s.health.desired} · {s.health.updateState ?? ''}</p><Freshness at={s.health.observedAt} />{#each s.health.reasons ?? [] as reason}<p class="text-xs text-muted-foreground">{reason}</p>{/each}{/if}
-        </Table.Cell><Table.Cell><Freshness at={s.createdAt} /></Table.Cell>
+        </Table.Cell><Table.Cell><Freshness plain at={s.createdAt} /></Table.Cell>
 							<Table.Cell>
 								{#if s.type === 'galera'}<a class="text-sm underline" href={'/clusters/' + encodeURIComponent(s.id)}>{t('svcOpenCluster')}</a>{/if}
         {#if canUpdateService(s)}<Button size="sm" variant="outline" onclick={() => updating = s}>{t('svcUpdate')}</Button>{/if}

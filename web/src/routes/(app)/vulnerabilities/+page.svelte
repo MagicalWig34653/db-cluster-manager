@@ -181,7 +181,7 @@
 								<Table.Cell class={h === 'error' ? toneText.bad : h === 'stale' ? toneText.warn : h === 'ok' ? toneText.ok : ''}>
 									{#if h === 'error'}{feedText(f)}{:else if h === 'stale'}{t('vulnFeedStale')}{:else if h === 'never'}{t('vulnFeedNever')}{:else}{t('vulnFeedOk')}{/if}
 								</Table.Cell>
-								<Table.Cell><Freshness at={f.lastSuccess} /></Table.Cell>
+								<Table.Cell><Freshness plain at={f.lastSuccess} /></Table.Cell>
 								<Table.Cell>{f.advisories ?? 0}</Table.Cell>
 							</Table.Row>
 						{/each}

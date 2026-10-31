@@ -143,11 +143,11 @@
 						{:else}{@render notReported()}{/if}
 					</dd>
 					<dt class="text-muted-foreground">{t('lastBackup')}</dt>
-					<dd>{#if c.lastBackupAt}<Freshness at={c.lastBackupAt} />{:else}{@render notReported()}{/if}</dd>
+					<dd>{#if c.lastBackupAt}<Freshness plain at={c.lastBackupAt} />{:else}{@render notReported()}{/if}</dd>
 					<dt class="text-muted-foreground">{t('lastVerifiedRestore')}</dt>
-					<dd>{#if c.lastVerifiedRestoreAt}<Freshness at={c.lastVerifiedRestoreAt} />{:else}{@render notReported()}{/if}</dd>
+					<dd>{#if c.lastVerifiedRestoreAt}<Freshness plain at={c.lastVerifiedRestoreAt} />{:else}{@render notReported()}{/if}</dd>
 					<dt class="text-muted-foreground">{t('automationPolicy')}</dt>
-					<dd>{#if c.automationPolicy}{c.automationPolicy}{:else}{@render notReported()}{/if}</dd>
+					<dd>{#if c.automationPolicy}{c.automationPolicy === 'auto-replace' ? t('autoPolicyReplace') : t('autoPolicyManual')}{:else}{@render notReported()}{/if}</dd>
 				</dl>
 				<p class="mt-4 text-xs text-muted-foreground">{t('notReportedHint')}</p>
 			</Card.Content>

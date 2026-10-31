@@ -121,7 +121,7 @@
 								<Table.Cell class="font-medium">{r.id}{#if r.leader}<span class="ml-1 rounded bg-primary/10 px-1.5 py-0.5 text-xs">{t('keyLeader')}</span>{/if}</Table.Cell>
 								<Table.Cell class="font-mono text-xs">{r.address ?? t('notReported')}</Table.Cell>
 								<Table.Cell class="font-mono text-xs">{r.publicKeyId ?? '—'}</Table.Cell>
-								<Table.Cell>{#if r.registeredAt}<Freshness at={r.registeredAt} />{#if r.registeredBy}<span class="text-xs text-muted-foreground"> · {r.registeredBy}</span>{/if}{:else}—{/if}</Table.Cell>
+								<Table.Cell>{#if r.registeredAt}<Freshness plain at={r.registeredAt} />{#if r.registeredBy}<span class="text-xs text-muted-foreground"> · {r.registeredBy}</span>{/if}{:else}—{/if}</Table.Cell>
 								<Table.Cell><span class="font-medium {stateClass[st]}">{t(stateLabel[st])}</span></Table.Cell>
 								<Table.Cell>
 									{#if revoking !== r.id}

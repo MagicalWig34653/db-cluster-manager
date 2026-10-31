@@ -166,6 +166,17 @@
 					</div>
 				{/if}
 			</div>
+			<div class="space-y-2">
+				<label class="flex items-center gap-2"><input type="checkbox" class={checkClass} bind:checked={form.archiveEnabled} />{t('policyArchive')}</label>
+				<p class="text-xs text-muted-foreground">{t('policyArchiveHint')}</p>
+				{#if form.archiveEnabled}
+					<div class="space-y-1.5">
+						<Label for="bp-arch-{cluster}">{t('policyArchiveSchedule')}</Label>
+						<Input id="bp-arch-{cluster}" class="font-mono" bind:value={form.archiveSchedule} autocomplete="off" aria-invalid={invalid.includes('archiveSchedule')} />
+						{#if invalid.includes('archiveSchedule')}<p class="text-xs text-red-700 dark:text-red-400">{t('valCron')}</p>{/if}
+					</div>
+				{/if}
+			</div>
 			<div class="flex gap-2">
 				<Button type="submit" size="sm" disabled={saving}>{t('save')}</Button>
 				<Button type="button" size="sm" variant="ghost" onclick={() => (editing = false)}>{t('cancel')}</Button>

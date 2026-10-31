@@ -4,7 +4,7 @@ title: Release candidate (R1 slice) - state, limits and owner quickstart
 
 # Release candidate (R1 slice)
 
-Draft of 2026-10-30. **This is not a release.** No tag, image or release was created or pushed; the owner decides. The R1 exit gates in [RELEASES.md](RELEASES.md) are not met, and the release-candidate lab run (E13) first could not start (host resources, [e13-not-run.md](../tests/p0/results/e13-not-run.md)) and later ran only partly ([e13-rc-lab.md](../tests/p0/results/e13-rc-lab.md)). The honest state: the components were verified earlier on lab VMs and with fakes; the **assembled** candidate has not been walked through by a fresh user, in a real browser, or with real backup data in this cycle.
+Draft of 2026-10-30. **This is not a release.** No tag, image or release was created or pushed; the owner decides. The R1 exit gates in [RELEASES.md](RELEASES.md) are not met, and the release-candidate lab run (E13) first could not start (host resources, [e13-not-run.md](../tests/p0/results/e13-not-run.md)) and later ran only partly ([e13-rc-lab.md](../tests/p0/results/e13-rc-lab.md)). The honest state: the components were verified earlier on lab VMs and with fakes; the **assembled** candidate was walked through once (E16) by someone who knew the code, in a real browser with real backup data; an independent first-time reader has still not tried it.
 
 ## What was run for this candidate
 
@@ -15,7 +15,11 @@ Draft of 2026-10-30. **This is not a release.** No tag, image or release was cre
 | `tests/p0/rc-demo.sh up` | Ran: three HA replicas up, token printed, forward works | Lab VMs (arm64); not the manual INSTALL.md path |
 | Real-browser UI end-to-end (Playwright, virtual passkey): setup, login, connect, enroll, deploy agents, create Galera, rolling restart with approval; 360 px and tab order | Ran; three bugs fixed | Lab VMs. Real screenshots in `docs/assets/screenshots/real/`; the guides still use mock screenshots |
 | Backup, inspection restore, scheduled verification, retention and copy with S3 (MinIO, TLS) and local target; failure cases | Ran (E14), five fixes | Lab VMs; [e14-backup-restore.md](../tests/p0/results/e14-backup-restore.md) |
-| PITR; executing a restore of a copy into a new cluster | **Not run** | No API/UI route; the copy restore ends at the proposal |
+| PITR through the real manager and UI (E16): binlog cluster, backup, archive, coverage check, approval, restore into an inspection instance, row/checksum comparison with the state at T | Ran, matched | Lab VMs; [e16-install-walkthrough.md](../tests/p0/results/e16-install-walkthrough.md) |
+| INSTALL.md walkthrough on fresh VMs by a reader who had seen the code (E16): 14 gaps corrected in INSTALL, guides (EN, DE), stack file and `init` output | Ran | Lab VMs; not an independent novice |
+| German UI: 11 pages checked, real German screenshots in the German guides | Ran | Lab VMs; three UI defects fixed |
+| Archive schedule in the backup policy | Fakes and unit tests only | Not run on VMs |
+| Executing a restore of a copy into a new cluster | **Not run** | The copy restore ends at the proposal |
 
 ## What is verified on VMs (earlier cycles, arm64, Docker 29.9.2, MariaDB 11.4.13)
 

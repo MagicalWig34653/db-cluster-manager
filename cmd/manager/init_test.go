@@ -117,6 +117,13 @@ func TestInitHAWithBackup(t *testing.T) {
 	if mc.Backup == nil || mc.Backup.BackendConfigFile != containerBackendFile || mc.Settings.Backup.BackendSecret != "dbcm-prod-1-backend" {
 		t.Fatalf("backup %+v %+v", mc.Backup, mc.Settings.Backup)
 	}
+	// E16: the generic loop must not give the backup password secret a random
+	// value that differs from the option file's.
+	ins := stderr.String()
+	if strings.Contains(ins, "for s in dbcm-prod-1-root-pw dbcm-prod-1-monitor-pw dbcm-prod-1-backup-pw") ||
+		!strings.Contains(ins, `printf '%s' "$BPW" | docker secret create --label dbcm.installation=prod-1 dbcm-prod-1-backup-pw -`) {
+		t.Fatalf("backup password instructions:\n%s", ins)
+	}
 	raw, err := os.ReadFile(keyFile)
 	if err != nil {
 		t.Fatal(err)

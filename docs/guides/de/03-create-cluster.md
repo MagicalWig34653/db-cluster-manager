@@ -8,13 +8,13 @@ title: Galera-Cluster anlegen
 
 ## Anfrage
 
-`POST /api/v1/clusters` (oder der Cluster-Assistent der Oberfläche). Pflichtfelder: `swarm`, `name` (Kleinbuchstaben, Ziffern, Bindestriche, höchstens 48 Zeichen), `size` (**3 oder 5**), `image` (MariaDB-Image, per Digest festgelegt), `network` (vorhandenes anhängbares Overlay), `rootPasswordSecret` (Name eines vorhandenen Swarm-Secrets, nie das Passwort), `resources.limits` und `resources.reservations` sowie `placement` (Positivliste, Ausschluss, Präferenz, `reserve`). Optional: `gcacheSize`, `autoReplace`.
+`POST /api/v1/clusters` (oder der Cluster-Assistent der Oberfläche). Pflichtfelder: `swarm`, `name` (Kleinbuchstaben, Ziffern, Bindestriche, höchstens 48 Zeichen), `size` (**3 oder 5**), `image` (MariaDB-Image; ein Tag wie `mariadb:11.4.13` funktioniert, über einen Test hinaus wird ein Digest empfohlen; das Image muss auf jedem Knoten vorhanden sein), `network` (vorhandenes anhängbares Overlay), `rootPasswordSecret` (Name eines vorhandenen Swarm-Secrets, nie das Passwort), `resources.limits` und `resources.reservations` sowie `placement` (Positivliste, Ausschluss, Präferenz, `reserve`). Optional: `gcacheSize`, `autoReplace`, `binlog` (das Kontrollkästchen „Binärlog (Wiederherstellung zu einem Zeitpunkt)“: jeder Knoten schreibt das Binärlog; es lässt sich später nicht einschalten und ist Voraussetzung für die [Wiederherstellung zu einem Zeitpunkt](05-backup-restore.md)). Der Schritt „Ressourcen“ des Assistenten verlangt ein CPU- und ein Speicherlimit oder eine Reservierung; ohne sie stoppt die Vorabprüfung. Ein Drei-Knoten-Cluster mit Binärlog, 1 CPU / 1 GiB je Knoten, erreichte auf Labor-VMs mit 2 vCPU / 4 GiB in etwa zwei Minuten 23 von 23 Schritten [Lab-VMs, E16].
 
 Vorrang bei der Platzierung: Positivliste, Ausschluss, Präferenz, dann automatische Bewertung; derselbe Host in Positivliste und Ausschluss ergibt `policy_conflict`. Weitere grobe Fehler: `no_capacity`, `settings_incomplete`, `cluster_exists`. Die Antwort ist eine Operation (`202`); verfolgen Sie sie mit `GET /api/v1/operations` (der Fortschritt zeigt aktuellen Schritt, Versuche und die letzte ungeklärte Vorbedingung).
 
-![Assistent zum Anlegen eines Clusters, erster Schritt](../../assets/screenshots/de-light-create-wizard.png)
+![Assistent zum Anlegen eines Clusters mit der Option Binärlog (deutsch)](../../assets/screenshots/real/real-de-wizard.png)
 
-*Bildschirmfoto aus dem Entwicklungs-Mock-Server (`npm run dev:mock`, erfundene Beispieldaten), nicht von einem echten Manager.*
+*Echter Screenshot der deutschen Oberfläche: Manager auf Lab-VMs (E16, 2026-10-31).*
 
 ## Was die Operation tut
 

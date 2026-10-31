@@ -2,6 +2,17 @@
 
 Updated: 2026-10-31.
 
+## E16: install walkthrough and PITR through the real manager (2026-10-31; see [e16-install-walkthrough.md](../tests/p0/results/e16-install-walkthrough.md))
+
+Three fresh lab VMs, manager installed from INSTALL.md (single-instance stack, S3 backup target on MinIO over plain HTTP), real Chromium with a virtual passkey: administrator, Swarm, three agents, 3-node Galera with `binlog: true` (23/23 steps), backup, writes, time T, archive, PITR coverage check, approval, restore into an inspection instance. **Result:** the restored table at T equals the cluster at T (2920 rows, sums, `CHECKSUM TABLE` 1109488220), later writes absent. Done in this change:
+
+- 14 documentation gaps fixed (INSTALL.md, guides 1, 2, 3, 5 in EN and DE, `deploy/stack.yaml` comments, `manager init -backup` output now gives one shared backup password).
+- German UI checked on 11 pages; real German screenshots replace mock images in the German guides 1, 2, 3, 5, 6. UI fixes: bare relative times for backups/expiry/next run ("beobachtet" prefix removed there), backup-policy column no longer shows the automation policy, the schedule form keeps a `verify` policy set via the API.
+- **Archive schedule** in the backup policy (`archive {enabled, schedule, timezone}`, scheduler, UI form, OpenAPI, tests). Fakes and unit tests only, not run on VMs.
+- Limits: the walker knew the code (not an independent novice); one archive file and one time T; agents refuse connections for a few seconds when jobs start (not investigated); plain-HTTP S3 only; amd64, HA stack and HTTPS S3 not run here.
+
+Next: run the archive schedule on VMs, investigate the agent blips, restore of a copy into a new cluster, an independent first-time reader.
+
 ## Point-in-time recovery (2026-10-31, ADR 0031; real job helper in lab E15, manager path with fakes)
 
 Task W16 follow-up to E14. Done:
@@ -13,7 +24,7 @@ Task W16 follow-up to E14. Done:
 - **Evidence**: Go and vitest tests (chain/gap cases, job helper with fake tools, planning accepted by the real agent executor, manager proposal/start/teardown/retention, API permissions); lab **E15 passed**: real `dbcm-job`, MariaDB 11.4 Galera on three VMs, restore to T equals the state at T (2960 rows, identical `CHECKSUM TABLE`), later state differs ([results](../tests/p0/results/e15-pitr.md)). E15 found that MariaDB 11.4 streams `mariadb_backup_binlog_info` in the xbstream; fixed.
 - **Not done / limits**: manager, agent and UI path never ran against real Swarm services; no scheduled archiving (recovery point is the last archive run); one source node per backup, no GTID continuation; binary log cannot be enabled on an existing cluster; one archive file and one time point in the lab. DE/EN guide 05, ADR 0031, 0009 pointer.
 
-Next: run the PITR path through the real manager (E14 setup, `binlog: true` cluster), add an archive schedule to the backup policy.
+Update: the PITR path ran through the real manager in E16 (below); the archive schedule was added there.
 
 ## Cleanup pass without behaviour change (2026-10-31)
 

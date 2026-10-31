@@ -163,6 +163,25 @@ describe('backup policy form', () => {
 		expect(validatePolicy({ ...r, keepDaily: '-1', keepWeekly: '1001' })).toEqual(['keepDaily', 'keepWeekly']);
 		expect(validatePolicy({ ...f, keepLast: 'x' })).toEqual([]);
 	});
+	it('edits the archive schedule and keeps the verification policy it does not edit', () => {
+		const stored = {
+			enabled: true,
+			schedule: '0 3 * * *',
+			verify: { enabled: true, schedule: '0 4 * * *', maxMinutes: 30 },
+			archive: { enabled: true, schedule: '*/30 * * * *' }
+		};
+		expect(isBackupSummary({ cluster: 'c', backupPolicy: stored })).toBe(true);
+		expect(isBackupSummary({ cluster: 'c', backupPolicy: { ...stored, archive: { enabled: true } } })).toBe(false);
+		const f = policyFormOf(stored);
+		expect(f).toMatchObject({ archiveEnabled: true, archiveSchedule: '*/30 * * * *' });
+		const built = buildPolicy(f);
+		expect(built.verify).toEqual(stored.verify);
+		expect(built.archive).toEqual({ enabled: true, schedule: '*/30 * * * *', timezone: 'UTC' });
+		expect(validatePolicy({ ...f, archiveSchedule: 'hourly' })).toEqual(['archiveSchedule']);
+		// Off and untouched: nothing is sent.
+		expect(buildPolicy(policyFormOf(undefined))).not.toHaveProperty('archive');
+		expect(validatePolicy({ ...policyFormOf(undefined), archiveSchedule: 'hourly' })).toEqual([]);
+	});
 	it('round-trips a stored logical policy with retention', () => {
 		const stored = { enabled: true, schedule: '0 3 * * *', method: 'logical' as const, databases: ['app'], retention: { keepLast: 3, keepDaily: 7, keepWeekly: 4 } };
 		expect(isBackupSummary({ cluster: 'c', backupPolicy: stored })).toBe(true);

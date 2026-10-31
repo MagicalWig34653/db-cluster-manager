@@ -523,6 +523,22 @@ export interface RetentionPolicy {
 	keepWeekly?: number;
 }
 
+/** Mirrors api.RestoreVerifyPolicy; the UI form does not edit it but must send it back unchanged. */
+export interface RestoreVerifyPolicy {
+	enabled: boolean;
+	schedule: string;
+	timezone?: string;
+	maxMinutes?: number;
+	host?: string;
+}
+
+/** Mirrors api.ArchivePolicy: schedule of the binary log archive (clusters created with binlog). */
+export interface ArchivePolicy {
+	enabled: boolean;
+	schedule: string;
+	timezone?: string;
+}
+
 export interface BackupPolicy {
 	enabled: boolean;
 	/** Five-field cron-like spec. */
@@ -534,6 +550,8 @@ export interface BackupPolicy {
 	/** Logical method only (required there): one export per database. */
 	databases?: string[];
 	retention?: RetentionPolicy;
+	verify?: RestoreVerifyPolicy;
+	archive?: ArchivePolicy;
 }
 
 export interface BackupSummary {
@@ -817,7 +835,9 @@ export const isBackupPolicy = (v: unknown): v is BackupPolicy =>
 	(v.method === undefined || oneOf(backupMethods)(v.method)) &&
 	(v.databases === undefined || strArray(v.databases)) &&
 	(v.retention === undefined ||
-		(isObj(v.retention) && isNum(v.retention.keepLast) && optNum(v.retention.keepDaily) && optNum(v.retention.keepWeekly)));
+		(isObj(v.retention) && isNum(v.retention.keepLast) && optNum(v.retention.keepDaily) && optNum(v.retention.keepWeekly))) &&
+	(v.verify === undefined || (isObj(v.verify) && isBool(v.verify.enabled) && isStr(v.verify.schedule))) &&
+	(v.archive === undefined || (isObj(v.archive) && isBool(v.archive.enabled) && isStr(v.archive.schedule) && optStr(v.archive.timezone)));
 
 export const isBackupSummary: Guard<BackupSummary> = (v): v is BackupSummary =>
 	isObj(v) &&

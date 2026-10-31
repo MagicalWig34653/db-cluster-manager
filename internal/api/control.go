@@ -283,6 +283,21 @@ type BackupPolicy struct {
 	// person who enables it is recorded as approver of the scheduled
 	// inspections (they are isolated and never touch production).
 	Verify *RestoreVerifyPolicy `json:"verify,omitempty"`
+	// Archive schedules the binary log archive (point-in-time recovery) of
+	// a cluster created with binlog. A restore reaches only as far as the
+	// last archive run.
+	Archive *ArchivePolicy `json:"archive,omitempty"`
+}
+
+// ArchivePolicy is the schedule of the binary log archive job (the same
+// operation as POST /clusters/{id}/binlog-archives). A run that cannot
+// start (no completed backup with a binlog position, another operation
+// unfinished) records a warning event and is not retried before the next
+// scheduled time.
+type ArchivePolicy struct {
+	Enabled  bool   `json:"enabled"`
+	Schedule string `json:"schedule"`
+	Timezone string `json:"timezone,omitempty"`
 }
 
 // RestoreVerifyPolicy is the schedule of automatic restore verification.

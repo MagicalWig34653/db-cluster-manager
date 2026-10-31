@@ -126,7 +126,7 @@
 								<Table.Cell class="font-mono text-xs break-all">{j.reference}</Table.Cell>
 								<Table.Cell class="font-mono text-xs">{j.imageDigest ? shortDigest(j.imageDigest) : t('stateUnknown')}</Table.Cell>
 								<Table.Cell class="text-xs">{j.sbom.status === 'not_generated' || !j.sbom.status ? t('imgSbomNone') : j.sbom.status}</Table.Cell>
-								<Table.Cell><Freshness at={j.createdAt} /></Table.Cell>
+								<Table.Cell><Freshness plain at={j.createdAt} /></Table.Cell>
 							</Table.Row>
 						{/each}
 					</Table.Body>

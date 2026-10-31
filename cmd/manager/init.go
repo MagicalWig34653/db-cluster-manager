@@ -366,13 +366,17 @@ No secret values are printed here. Create each secret from a file or stdin you c
      install -d -m 0755 /var/lib/dbcm-agent {{.VolumeBase}}
 2. On a Swarm manager node, create the database secrets and the cluster network
    (labelled with the installation):
-     for s in {{.N.Root}} {{.N.Monitor}} {{.N.Backup}}; do
+     for s in {{.N.Root}} {{.N.Monitor}}{{if not .Backup}} {{.N.Backup}}{{end}}; do
        head -c 24 /dev/urandom | base64 | tr -d '\n' | docker secret create --label dbcm.installation={{.Inst}} "$s" -
      done
      docker network create --driver overlay --attachable --label dbcm.installation={{.Inst}} {{.N.ClusterNet}}
 {{- if .Backup}}
-   Backups additionally need (contents: see docs/INSTALL.md, "Backups"):
-     docker secret create --label dbcm.installation={{.Inst}} {{.N.BackupCred}} <option file with the backup account password>
+   Backups additionally need (contents: see docs/INSTALL.md, "Backups: targets, secrets and stack changes").
+   The backup account password secret {{.N.Backup}} and the option file {{.N.BackupCred}} must hold the SAME
+   password, so create both from one value instead of the loop's random one:
+     BPW=$(head -c 24 /dev/urandom | base64 | tr -d '\n')
+     printf '%s' "$BPW" | docker secret create --label dbcm.installation={{.Inst}} {{.N.Backup}} -
+     printf '[client]\nuser=dbcm_backup\npassword=%s\n' "$BPW" | docker secret create --label dbcm.installation={{.Inst}} {{.N.BackupCred}} -
      docker secret create --label dbcm.installation={{.Inst}} {{.N.Backend}} <backend.json>
      docker secret create --label dbcm.installation={{.Inst}} {{.N.RecoveryKey}} <recovery key file{{if .RecoveryOut}} {{.RecoveryOut}}{{end}}>
      docker network create --driver overlay --attachable --label dbcm.installation={{.Inst}} {{.N.InspectNet}}

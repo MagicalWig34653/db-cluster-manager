@@ -4,7 +4,15 @@ title: Installation and packaging
 
 # Installation and packaging
 
-Technical guide for installing the manager. The arm64 manager image and single-instance stack ran on lab VMs in [E7](../tests/p0/results/e7-stack-deploy.md). Native amd64 deployment, Compose, the new three-service HA stack and the updated CI/release workflows remain unverified. Static deployment checks do not prove image builds or runtime compatibility. No release image or signature exists yet; manager configuration backup has no scheduler or API.
+Technical guide for installing the manager. The arm64 manager image and single-instance stack ran on lab VMs in [E7](../tests/p0/results/e7-stack-deploy.md); the whole path below, including backups and a point-in-time restore, was followed by a reader who used only this page and the linked guides in [E16](../tests/p0/results/e16-install-walkthrough.md) (three lab VMs, arm64, Docker 29.9.2). Native amd64 deployment, Compose, the new three-service HA stack and the updated CI/release workflows remain unverified. Static deployment checks do not prove image builds or runtime compatibility. No release image or signature exists yet; manager configuration backup has no scheduler or API.
+
+## Before you start
+
+- **A Docker Swarm that you own**, at least three nodes for a three-node Galera cluster (the manager does not create the Swarm): `docker swarm init --advertise-addr <ip>` on the first node, then `docker swarm join` on the others (as managers if you want a redundant Swarm). Docker 29.x with Buildx (`docker buildx version`) on the node that builds the images.
+- **The repository** (a `git clone` or an unpacked source archive) on the node where you build the images and deploy the stack: the commands below use `deploy/Dockerfile`, `deploy/Dockerfile.jobs` and `deploy/stack.yaml` from it. There is no release image yet.
+- **Docker access.** The commands assume your user may run `docker` (group `docker`). With `sudo`, environment variables are dropped: write `sudo env DBCM_MANAGER_NODE=... docker stack deploy ...` (step 5), not `VAR=... sudo docker ...`.
+- **Internet access** from every node to pull the database image, or a registry/`docker save | docker load` path (the manager never pulls images).
+- **Names you will reuse.** Choose the installation ID (`-installation`, for example `prod1`) once: the secrets, networks and the agent service are all named after it.
 
 ## What the manager does today
 
@@ -38,7 +46,7 @@ Lab E7 ([results](../tests/p0/results/e7-stack-deploy.md)) ran exactly these ste
    ```
 
    `-rp-id` is the host name users open the UI on (passkey relying party; origin `https://<rp-id>` unless `-origin` is given). `-manager-addr` is the address of the pinned manager node that agents reach (enrollment endpoint `https://<addr>:7444`). Without `-installation` a random ID is chosen. The command writes the JSON (mode 0600, never overwriting a file; without `-out` to stdout) and prints first-run instructions to stderr: host directories, the Swarm secrets and networks to create, the deploy command and how to read the setup token. It prints no secret values; the configuration holds only Swarm secret **names** and container paths. `deploy/manager.example.json` is exactly the output of the command above.
-   When you run it from the image, give the container your own uid and a writable directory, because the image runs as uid 65532 and cannot write to a root-owned bind mount: `docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/out" db-cluster-manager:local init ... -out /out/manager.json`. For a trial on one machine use `-rp-id localhost -origin http://localhost:8080` and reach the UI with an SSH forward (`ssh -L 8080:127.0.0.1:8080 <node>`); passkeys accept `http://localhost`.
+   When you run it from the image, give the container your own uid and a writable directory, because the image runs as uid 65532 and cannot write to a root-owned bind mount: `docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/out" db-cluster-manager:local init ... -out /out/manager.json`. For a trial on one machine use `-rp-id localhost -origin http://localhost:8080` and reach the UI with an SSH forward (`ssh -L 8080:127.0.0.1:8080 <node>`); passkeys accept `http://localhost`. On a Lima VM the guest port is already forwarded to the host's `localhost:8080` and an extra `ssh -L` fails because the port is taken; check `curl http://localhost:8080/api/v1/health` first.
    With `-backup -recovery-key-out <file>` it also configures backups: it generates a recovery key into the new file (0600; keep a copy outside the Swarm) and puts only its public half into `settings.backup.recipientKey`; `-backup -recipient-key <dbcmpk1:...>` uses an existing key instead. The manager then reads the backend configuration from `/run/secrets/dbcm-backend.json`: uncomment the `backend` secret in `deploy/stack.yaml` and set `DBCM_BACKEND_SECRET` to the backend secret's name.
 3. **Prerequisites** listed by `init` (the manager creates or checks none of them): `/var/lib/dbcm-agent` and the volume base on every node; the root, monitoring and backup password secrets and the cluster network, labelled `dbcm.installation=<installation ID>`; for backups also the backup option file (`[client]` section with `user=dbcm_backup` and `password=`), the backend configuration (`dbbackup.BackendConfig` JSON) and the recovery key as secrets, and the inspection network. See also the E4 observations below.
 4. **Store the configuration** as a Swarm config. Configs are immutable: use a new name per change and redeploy with it. `docker config create dbcm-manager-config-1 manager.json`
@@ -51,9 +59,10 @@ Lab E7 ([results](../tests/p0/results/e7-stack-deploy.md)) ran exactly these ste
    docker stack deploy -c deploy/stack.yaml dbcm
    ```
 
-   Optional: `DBCM_IMAGE` (default `db-cluster-manager:local`), `DBCM_PORT` (default 8080). Unset required variables fail the deploy.
-6. **First administrator.** The setup token is printed to the service log only while no administrator exists: `docker service logs dbcm_manager 2>&1 | grep 'setup token'`. Put a TLS reverse proxy on the pinned node in front of `127.0.0.1:8080` for `https://<rp-id>` (passkeys need an https origin) and create the administrator in the UI.
-7. **Register the Swarm** in the UI with the Docker endpoint `unix:///var/run/docker.sock`, then enroll hosts as in the [user guide](guides/en/02-hosts-and-agents.md).
+   Optional: `DBCM_IMAGE` (default `db-cluster-manager:local`), `DBCM_PORT` (default 8080). Unset required variables fail the deploy (also `DBCM_BACKEND_SECRET`, once the backend secret blocks are uncommented, see "Backups" below). Check with `docker service ls` (the manager shows `1/1`) before reading the log.
+6. **First administrator.** The setup token is printed to the service log only while no administrator exists: `docker service logs dbcm_manager 2>&1 | grep 'setup token'`. Put a TLS reverse proxy on the pinned node in front of `127.0.0.1:8080` for `https://<rp-id>` (passkeys need an https origin) and create the administrator in the UI: token, account ID, passkey label, then the browser's passkey dialog. **Ten recovery codes are shown once**; store them before pressing "Continue to the manager".
+7. **Register the Swarm** in the UI (page Swarms, "Connect a Swarm": any display name, Docker endpoint `unix:///var/run/docker.sock`), press **Sync**, then enroll the hosts and press **Deploy agents** as in the [user guide](guides/en/02-hosts-and-agents.md). The Hosts page then shows every host as "Enrolled" with "Certificate recorded" within seconds.
+8. **Create a cluster** on the Clusters page ([guide 3](guides/en/03-create-cluster.md)). The wizard needs the overlay network and the root-password secret from step 3 by name, a CPU and a memory limit or reservation (for example 1 CPU and 1 GiB on 4 GiB hosts), and, if you want point-in-time recovery later, the **Binary log** option, which cannot be switched on afterwards. The image may be given by tag (`mariadb:11.4.13`); a digest is recommended beyond a trial.
 
 What `deploy/stack.yaml` sets: one replica constrained to `node.role == manager` and `node.hostname == ${DBCM_MANAGER_NODE}`; host network; API and healthcheck on `127.0.0.1:${DBCM_PORT}`; metastore on `127.0.0.1:7445` (not 7946, Swarm's gossip port); the configuration as external Swarm config at `/etc/dbcm/manager.json` (`DCM_CONFIG`); the local volume `manager-data` at `/var/lib/dbcm` (metastore, data key `data.key`, monitoring store); the Docker socket; uid 65532 with the socket's group; read-only root filesystem; all capabilities dropped; stop-first updates with rollback; limits 1 CPU and 512 MiB.
 
@@ -90,19 +99,23 @@ Lab E4 ([results](../tests/p0/results/e4-manager-galera.md)) ran the manager as 
    printf '[client]\nuser=dbcm_backup\npassword=%s\n' "$BPW" | docker secret create --label dbcm.installation=<inst> dbcm-<inst>-backup-cred -
    ```
 
-2. **Backend configuration** (`dbbackup.BackendConfig`; a Swarm secret named in `settings.backup.backendSecret`, which the manager also mounts at `/run/secrets/dbcm-backend.json`). Backup jobs write from their own containers, so the main target must be `s3` or `sftp` (a `local` target does not work for jobs). S3 with a private CA, the PEM as JSON string in `ca_pem`:
+2. **Backend configuration** (`dbbackup.BackendConfig`; a Swarm secret named in `settings.backup.backendSecret`, which the manager also mounts at `/run/secrets/dbcm-backend.json`). Backup jobs write from their own containers, so the main target must be `s3` or `sftp` (a `local` target does not work for jobs). The endpoint must be reachable from every Swarm node by address, not `localhost`. S3 with a private CA, the PEM as JSON string in `ca_pem` (a plain `http://` endpoint without `ca_pem` also works, as in E16; use it only on a trusted network):
 
    ```json
    {"type": "s3", "s3": {"endpoint": "https://192.0.2.20:9000", "region": "us-east-1", "bucket": "dbcm-backups",
      "prefix": "<inst>", "addressing_style": "path", "access_key": "...", "secret_key": "...", "ca_pem": "-----BEGIN CERTIFICATE-----\n..."}}
    ```
 
-   The bucket must already exist; the manager does not create it.
+   The bucket must already exist; the manager does not create it. Object names are `<prefix><cluster id>-<backup id>...` (the prefix is concatenated without a slash).
 3. **Copy targets** (optional, for `POST /clusters/{id}/backup-copies`): add `"targets": {"<name>": "<path of a backend file inside the manager container>"}` below `manager.backup`. The manager itself writes these, so `{"type": "local", "dir": "/var/lib/dbcm/copies"}` (in the manager data volume) works.
-4. **Mount the secrets into the manager.** In `deploy/stack.yaml` uncomment **both** the service-level `secrets:` block and the top-level `secrets:` block (the file's comment names only one), set the external names and add one entry per extra target (`target: dbcm-target-<name>.json`, uid/gid 65532, mode 0400). Deploy with a new config name.
+4. **Mount the secrets into the manager.** Work on a copy of `deploy/stack.yaml`. Uncomment **both** the service-level `secrets:` block (below `configs:`, six lines) and the top-level `secrets:` block (at the end, four lines) and keep the YAML indentation: the service-level `secrets:` sits under `manager:` (4 spaces), `- source: backend` 6 spaces, its fields 8 spaces; the top-level `secrets:` has no indentation and `backend:` 2 spaces. Add one entry per extra target (`target: dbcm-target-<name>.json`, uid/gid 65532, mode 0400). Deploy this copy with a new config name and `DBCM_BACKEND_SECRET=<installation secret name of the backend, e.g. dbcm-<inst>-backend>`; the secret must have been created before the deploy.
 5. Create the recovery-key secret from the file `init` wrote and the inspection network; keep a copy of the recovery key outside the Swarm.
 
-Check the chain before trusting it: start a backup on the Backups page, look for the objects in the bucket, run an inspection restore and compare row counts and `CHECKSUM TABLE` with the source.
+Check the chain before trusting it: start a backup on the Backups page ("Start backup now"; about 3 s for a small data set), look for the objects in the bucket, run an inspection restore and compare row counts and `CHECKSUM TABLE` with the source. The restore wizard's "Run inspection" needs a host you choose yourself and an acknowledgement checkbox; the one-time inspection password is shown once. After approval (the card on the Backups or Operations page: tick "I have reviewed this plan", press Approve) a small restore takes under a minute. Connect from the host that runs it: `docker exec -i <inspection container> mariadb -udbcm_inspect -p<password> -S /dbcm/run/mysqld.sock`.
+
+### Point-in-time recovery
+
+Needs the **Binary log** option at cluster creation (step 8) and the backup chain above. Order of operations, each as a button on the Backups page ([guide 5](guides/en/05-backup-restore.md)): backup now, later "Archive binary log now" (or the archive schedule in the backup policy), then "Point in time" in the restore wizard with the time in **UTC**. The archive run closes the open binary log file, so a time shortly before the run is covered. Compare the restored instance with what you wrote before the chosen time (E16).
 
 ## Three-replica HA stack (static checks and in-process tests only)
 

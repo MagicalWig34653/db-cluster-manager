@@ -97,8 +97,11 @@ type BackupPolicyRecord struct {
 	// VerifyLast is the scheduled time of the newest due restore
 	// verification (verifyschedule.go).
 	VerifyLast time.Time `json:"verifyLast,omitzero"`
-	UpdatedBy  string    `json:"updatedBy"`
-	UpdatedAt  time.Time `json:"updatedAt"`
+	// ArchiveLast is the scheduled time of the newest due binary log
+	// archive run (archiveschedule.go).
+	ArchiveLast time.Time `json:"archiveLast,omitzero"`
+	UpdatedBy   string    `json:"updatedBy"`
+	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
 // BackupRecord is one started backup. Its outcome is the outcome of its
@@ -349,6 +352,14 @@ func (b *Backups) setBackupPolicy(_ context.Context, actor authz.Subject, cluste
 			}
 		}
 	}
+	if a := p.Archive; a != nil && a.Enabled {
+		if !c.Spec.Binlog {
+			return api.BackupSummary{}, fmt.Errorf("%w: the cluster was created without binlog, there is no binary log to archive", dbbackup.ErrInvalidRequest)
+		}
+		if _, err := schedulePolicy(api.BackupPolicy{Schedule: a.Schedule, Timezone: a.Timezone}); err != nil {
+			return api.BackupSummary{}, err
+		}
+	}
 	now := b.now()
 	_, _, err = Update(b.store(), CollBackupPolicies, c.ID, func(cur BackupPolicyRecord, exists bool) (BackupPolicyRecord, error) {
 		// A new or changed schedule starts counting now: no catch-up runs
@@ -358,6 +369,9 @@ func (b *Backups) setBackupPolicy(_ context.Context, actor authz.Subject, cluste
 		}
 		if v := p.Verify; v != nil && v.Enabled && (cur.Policy.Verify == nil || !cur.Policy.Verify.Enabled || cur.Policy.Verify.Schedule != v.Schedule || cur.Policy.Verify.Timezone != v.Timezone) {
 			cur.VerifyLast = now
+		}
+		if a := p.Archive; a != nil && a.Enabled && (cur.Policy.Archive == nil || !cur.Policy.Archive.Enabled || cur.Policy.Archive.Schedule != a.Schedule || cur.Policy.Archive.Timezone != a.Timezone) {
+			cur.ArchiveLast = now
 		}
 		cur.Cluster, cur.Policy, cur.UpdatedBy, cur.UpdatedAt = c.ID, p, actor.ID, now
 		return cur, nil
@@ -871,8 +885,8 @@ func (b *Backups) RunSchedules(actor authz.Subject) {
 		}
 		// Advance first (compare-and-set on the version read): two leaders
 		// in a row cannot both start the same scheduled run.
-		if _, err := Put(b.store(), CollBackupPolicies, p.Key, BackupPolicyRecord{Cluster: rec.Cluster, Policy: rec.Policy,
-			Last: d.ScheduledFor, VerifyLast: rec.VerifyLast, UpdatedBy: rec.UpdatedBy, UpdatedAt: rec.UpdatedAt}, IfVersion(p.Version)); err != nil {
+		rec.Last = d.ScheduledFor // keeps every other field (VerifyLast, ArchiveLast)
+		if _, err := Put(b.store(), CollBackupPolicies, p.Key, rec, IfVersion(p.Version)); err != nil {
 			continue
 		}
 		c, _, _ := Get[ClusterRecord](b.store(), CollClusters, rec.Cluster)
@@ -1070,6 +1084,7 @@ func (s BackupScheduler) Run(ctx context.Context, _ *Leadership) error {
 		if b := s.Backups(); b != nil {
 			b.RunSchedules(actor)
 			b.RunVerifications(ctx, actor)
+			b.RunArchives(ctx, actor)
 			b.failInterruptedCopies(ctx)
 			b.RunMetastoreBackup(ctx, actor)
 			b.TeardownExpired(actor)

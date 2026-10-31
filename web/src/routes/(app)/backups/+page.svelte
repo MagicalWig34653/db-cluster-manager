@@ -147,12 +147,12 @@
 						{@const b = summary(c.id)}
 						<Table.Row>
 							<Table.Cell class="font-medium">{c.name}</Table.Cell>
-							<Table.Cell>{b?.policy ?? c.automationPolicy ?? t('notReported')}</Table.Cell>
-							<Table.Cell>{#if b?.lastBackupAt ?? c.lastBackupAt}<Freshness at={b?.lastBackupAt ?? c.lastBackupAt} />{:else}{t('stateUnknown')}{/if}</Table.Cell>
+							<Table.Cell>{b?.policy ?? (b ? t('policyNoSchedule') : t('notReported'))}</Table.Cell>
+							<Table.Cell>{#if b?.lastBackupAt ?? c.lastBackupAt}<Freshness plain at={b?.lastBackupAt ?? c.lastBackupAt} />{:else}{t('stateUnknown')}{/if}</Table.Cell>
 							<Table.Cell>
-								{#if b?.lastVerifiedRestoreAt ?? c.lastVerifiedRestoreAt}<Freshness at={b?.lastVerifiedRestoreAt ?? c.lastVerifiedRestoreAt} />{:else}{t('neverVerifiedUnknown')}{/if}
+								{#if b?.lastVerifiedRestoreAt ?? c.lastVerifiedRestoreAt}<Freshness plain at={b?.lastVerifiedRestoreAt ?? c.lastVerifiedRestoreAt} />{:else}{t('neverVerifiedUnknown')}{/if}
 							</Table.Cell>
-							<Table.Cell>{#if b?.nextRunAt}<Freshness at={b.nextRunAt} />{:else}{t('notReported')}{/if}</Table.Cell>
+							<Table.Cell>{#if b?.nextRunAt}<Freshness plain at={b.nextRunAt} />{:else}{t('notReported')}{/if}</Table.Cell>
 						</Table.Row>
 					{/each}
 				</Table.Body>
@@ -265,7 +265,7 @@
 					<dt class="text-muted-foreground">{t('inspectionHost')}</dt><dd>{hostName(started.host)}</dd>
 					<dt class="text-muted-foreground">{t('inspectionService')}</dt><dd class="font-mono text-xs">{started.service}:{started.port}</dd>
 					<dt class="text-muted-foreground">{t('inspectionAccount')}</dt><dd class="font-mono text-xs">{started.inspectionAccount}</dd>
-					<dt class="text-muted-foreground">{t('inspectionExpires')}</dt><dd><Freshness at={started.expiresAt} /></dd>
+					<dt class="text-muted-foreground">{t('inspectionExpires')}</dt><dd><Freshness plain at={started.expiresAt} /></dd>
 				</dl>
 				{#if password !== undefined}
 					<Alert.Root variant="destructive">

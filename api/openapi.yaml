@@ -4936,6 +4936,7 @@ components:
             keepDaily: { type: integer, minimum: 0, maximum: 1000 }
             keepWeekly: { type: integer, minimum: 0, maximum: 1000 }
         verify: { $ref: "#/components/schemas/RestoreVerifyPolicy" }
+        archive: { $ref: "#/components/schemas/ArchivePolicy" }
     BackupCopy:
       type: object
       required: [id, cluster, swarm, backup, target, status, objects, by, startedAt]
@@ -4981,6 +4982,19 @@ components:
         collections: { type: integer }
         by: { type: string }
         verified: { type: boolean }
+    ArchivePolicy:
+      type: object
+      additionalProperties: false
+      required: [enabled, schedule]
+      description: >-
+        Schedule of the binary log archive job (point-in-time recovery) of a
+        cluster created with binlog; the same operation as POST
+        /clusters/{id}/binlog-archives. A run that cannot start records a
+        warning event and is not retried before the next scheduled time.
+      properties:
+        enabled: { type: boolean }
+        schedule: { type: string, maxLength: 128 }
+        timezone: { type: string, maxLength: 64 }
     RestoreVerifyPolicy:
       type: object
       additionalProperties: false
