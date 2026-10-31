@@ -2,6 +2,16 @@
 
 Updated: 2026-10-31.
 
+## E18: agent blips and zero-UUID recovery on real VMs (2026-10-31)
+
+Three lab VMs, real manager and agents, 3-node Galera; VMs removed with `bin/lab cleanup --apply` (unrelated Lima/Colima entries intact). No product code changed.
+
+- **Agent port 7443 blips** ([results](../tests/p0/results/e18-agent-blips.md), `tests/p0/e18-agent-blips.sh`): four backups with a 5 Hz probe of the port, `docker events`, `docker stats`, task history and kernel log on every VM at host load 12-14: no agent restart, no OOM, port never closed, no "became unknown" event during the backups. Both hypotheses of the E16 entry are not confirmed for the backup path; the E16 blips most likely came from freshly deployed agents settling (not proven). No hysteresis added. Archive and inspection not re-measured.
+- **Zero-UUID recovery** ([results](../tests/p0/results/e18-zero-uuid.md), `tests/p0/e18-zero-uuid.sh`): default (autoRecover off) passed end to end: no automatic action, both phases approval-gated by digest, new non-zero UUID, sentinels intact, incident and `recovery.*` notifications in the inbox. autoRecover on: the script reported failure because of harness faults (passkey counter rolled back by the power loss so every status call was unauthenticated; the script waited 20 minutes but the policy has a one-hour cooldown after any run). Read afterwards: the policy started phase 1 59 minutes after the manual run, auto-approved both phases (`policy:autoRecover`), succeeded, all nodes Synced, sentinels 1-4 on all nodes. Limits: API only, no webhook/mail channel, unambiguous candidate only, cooldown surprising for a second incident within an hour.
+- **Fresh-server bootstrap through the API/wizard**: not run ([record](../tests/p0/results/e18-bootstrap-not-run.md)).
+
+Next: bootstrap through the manager API (join the Swarm before the native-agent step), harden the zero-UUID script (large counter bump, wait for the cooldown), archive and inspection under the samplers.
+
 ## E16 follow-ups: dead job, "Paused" flash, agent blips, copy restore (2026-10-31; Go and vitest tests with fakes, no lab VM used)
 
 - **Dead backup/restore job (fixed).** Root cause: the result gates (`backup-complete`, `restore-complete`) only polled. A job that reported a failure, vanished or crashed without a report stayed "unmet" until `MaxRetries` (30 polls, about 13 minutes) and then paused the operation. Now `runner.ErrConditionFatal` lets a checker end a gate: the gate step and the operation fail at once with the cause. `dbbackup.Checker` returns it when the job's status report says failed; `RoutingChecker.jobDead` (`internal/manager/joblive.go`) returns it when the job's Swarm service no longer exists, or has had no running task for `JobIdleGrace` (default 10 min, covers image pull) without any result; before failing it reads the backend once more, so a result written in between wins. The reason names the job and `docker service ps`. Tests: `TestFatalPreconditionFailsGateWithoutPolling`, the extended failed-job gate check in `internal/dbbackup/job_test.go`, `TestResultGateFailsWhenJobIsDead`. Limit: no task states are read (the Docker client has no task listing), so "idle for the grace period" is the signal; a job that is stuck but has a running task is still only ended by the step timeout.
