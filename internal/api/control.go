@@ -364,6 +364,10 @@ type InspectionInput struct {
 	// PointInTime restores the newest backup that ended before it and
 	// replays the archived binary log up to its second (Backup must be empty).
 	PointInTime *time.Time `json:"pointInTime,omitempty"`
+	// Copy restores a verified backup copy (backup-copies ID of this
+	// cluster) from its target into the isolated instance instead of a
+	// backup of the primary backend. Backup and PointInTime must be empty.
+	Copy string `json:"copy,omitempty"`
 }
 
 // InspectionStarted is the result of starting an inspection. The

@@ -62,6 +62,10 @@ type BackupSettings struct {
 	// KeySecret is the default Swarm secret with the recovery key for
 	// restores (a request may name another one).
 	KeySecret string `json:"keySecret,omitempty"`
+	// TargetSecrets maps a backup target name (Backups.Targets) to the
+	// Swarm secret with that target's backend configuration. A restore of a
+	// copy mounts it instead of BackendSecret; without an entry it is refused.
+	TargetSecrets map[string]string `json:"targetSecrets,omitempty"`
 	// InspectionNetwork is a non-production network for inspection
 	// instances.
 	InspectionNetwork string `json:"inspectionNetwork,omitempty"`
@@ -700,11 +704,22 @@ func (b *Backups) startInspectionAs(ctx context.Context, actor authz.Subject, in
 	if b.Backend == nil || bs.JobImage == "" || bs.BackendSecret == "" || bs.InspectionNetwork == "" || keySecret == "" {
 		return api.InspectionStarted{}, fmt.Errorf("%w: backup backend, jobImage, backendSecret, inspectionNetwork and a key secret required", ErrSettingsIncomplete)
 	}
+	backendSecret, target := bs.BackendSecret, ""
 	res := c.Resources
 	if res.Limits.MilliCPU <= 0 || res.Limits.MemoryBytes <= 0 {
 		return api.InspectionStarted{}, fmt.Errorf("%w: the cluster has no resource limits to size the instance", ErrSettingsIncomplete)
 	}
-	br, m, pitr, err := b.restoreBase(ctx, c.ID, in)
+	var (
+		br   BackupRecord
+		m    dbbackup.Manifest
+		pitr *dbbackup.PITRRequest
+	)
+	if in.Copy != "" {
+		br, m, target, err = b.copyBase(ctx, c.ID, in, bs)
+		backendSecret = bs.TargetSecrets[target]
+	} else {
+		br, m, pitr, err = b.restoreBase(ctx, c.ID, in)
+	}
 	if err != nil {
 		return api.InspectionStarted{}, err
 	}
@@ -732,7 +747,7 @@ func (b *Backups) startInspectionAs(ctx context.Context, actor authz.Subject, in
 	now := b.now()
 	plan, err := dbbackup.InspectionRestorePlan(dbbackup.InspectionRequest{
 		OpID: opID, SessionID: session, ApprovalID: approvalID,
-		Source: dbbackup.RestoreSource{Manifest: m, ClusterID: c.ID, BackendSecret: bs.BackendSecret, KeySecret: keySecret},
+		Source: dbbackup.RestoreSource{Manifest: m, ClusterID: c.ID, BackendSecret: backendSecret, KeySecret: keySecret},
 		Host:   host, InstallationID: st.InstallationID, VolumeBase: st.VolumeBase, Image: c.Spec.Image, JobImage: bs.JobImage,
 		Network: bs.InspectionNetwork, InitSecret: initSecret, Resources: res, Job: bs.job(), TTL: ttl, Now: now,
 		TokenID: newID("tok"), StepTimeout: b.Ops.StepTimeout, MaxRetries: b.Ops.MaxRetries, ServiceHost: svcHost, PITR: pitr,
@@ -776,7 +791,7 @@ func (b *Backups) startInspectionAs(ctx context.Context, actor authz.Subject, in
 	}
 	// The allow-objects step is not destructive (no approval) and is part
 	// of the approved definition, so it is added before the digest.
-	secrets := []string{bs.BackendSecret, keySecret, initSecret}
+	secrets := []string{backendSecret, keySecret, initSecret}
 	if replaySecret != "" {
 		secrets = append(secrets, replaySecret)
 	}
@@ -789,7 +804,7 @@ func (b *Backups) startInspectionAs(ctx context.Context, actor authz.Subject, in
 		return api.InspectionStarted{}, err
 	}
 	rec := OperationRecord{ID: opID, Kind: plan.Operation.Kind, Swarm: c.Swarm, Cluster: c.ID, RequestedBy: actor.ID,
-		RequestedAt: now, Definition: plan.Operation, ApprovalID: approvalID, ApprovalDigest: digest}
+		RequestedAt: now, Definition: plan.Operation, Backend: target, ApprovalID: approvalID, ApprovalDigest: digest}
 	ir := InspectionRecord{Session: plan.Session, Cluster: c.ID, Swarm: c.Swarm, OpID: opID, InitSecret: initSecret, ReplaySecret: replaySecret, By: actor.ID}
 	if err := b.commit(rec, PutOpOf(CollInspections, session, ir)); err != nil {
 		return api.InspectionStarted{}, err
@@ -797,6 +812,9 @@ func (b *Backups) startInspectionAs(ctx context.Context, actor authz.Subject, in
 	what := ""
 	if pitr != nil {
 		what = " as of " + pitr.At.UTC().Format(time.RFC3339) + " (binlog replay)"
+	}
+	if in.Copy != "" {
+		what = " from copy " + in.Copy + " on target " + target
 	}
 	b.Ops.Svc.recordEvent(c.Swarm, c.ID, api.SeverityWarning, fmt.Sprintf("%s requested inspection %s of backup %s%s on host %s, operation %s (waits for approval)",
 		actor.ID, session, br.ID, what, host.ID, opID))

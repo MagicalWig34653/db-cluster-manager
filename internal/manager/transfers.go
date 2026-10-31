@@ -331,6 +331,43 @@ func (b *Backups) proposeCopyRestore(ctx context.Context, actor authz.Subject, c
 		Steps: p.Steps, Digest: p.Digest}, nil
 }
 
+// copyBase resolves the restore source of an inspection of a backup copy:
+// a succeeded, not deleted copy of this cluster whose transfer record,
+// manifest and stored object verify deeply (the restore job reads the same
+// bytes through the target's Swarm secret). It returns the target name. The
+// copy is never promoted: the result is an isolated inspection instance.
+func (b *Backups) copyBase(ctx context.Context, clusterID string, in api.InspectionInput, bs BackupSettings) (BackupRecord, dbbackup.Manifest, string, error) {
+	if in.Backup != "" || in.PointInTime != nil {
+		return BackupRecord{}, dbbackup.Manifest{}, "", fmt.Errorf("%w: a copy restore takes neither a backup nor a point in time (the binary log archive is not copied)", dbbackup.ErrInvalidRequest)
+	}
+	r, ok, err := Get[BackupCopyRecord](b.store(), CollBackupCopies, in.Copy, Consistent())
+	if err != nil {
+		return BackupRecord{}, dbbackup.Manifest{}, "", err
+	}
+	if !ok || !r.Value.DeletedAt.IsZero() || r.Value.Cluster != clusterID {
+		return BackupRecord{}, dbbackup.Manifest{}, "", fmt.Errorf("%w: backup copy %q of cluster %q", api.ErrNotFound, in.Copy, clusterID)
+	}
+	cp := r.Value
+	if cp.Status != CopySucceeded || len(cp.Objects) == 0 {
+		return BackupRecord{}, dbbackup.Manifest{}, "", fmt.Errorf("%w: copy %s is %s", ErrConflict, cp.ID, cp.Status)
+	}
+	dst, ok := b.Targets[cp.Target]
+	if !ok || b.Keys == nil {
+		return BackupRecord{}, dbbackup.Manifest{}, "", fmt.Errorf("%w: backup target %q or the data keyring is not configured", ErrSettingsIncomplete, cp.Target)
+	}
+	if bs.TargetSecrets[cp.Target] == "" {
+		return BackupRecord{}, dbbackup.Manifest{}, "", fmt.Errorf("%w: settings.backup.targetSecrets has no Swarm secret for target %q", ErrSettingsIncomplete, cp.Target)
+	}
+	_, m, err := dbbackup.VerifyTransfer(ctx, dst, cp.Objects[0], b.Keys, true)
+	if errors.Is(err, dbbackup.ErrNotTransferred) || errors.Is(err, dbbackup.ErrTransferMismatch) {
+		return BackupRecord{}, dbbackup.Manifest{}, "", fmt.Errorf("%w: %v", ErrConflict, err)
+	}
+	if err != nil {
+		return BackupRecord{}, dbbackup.Manifest{}, "", err
+	}
+	return BackupRecord{ID: cp.Backup, Cluster: cp.Cluster, Swarm: cp.Swarm, Objects: cp.Objects}, m, cp.Target, nil
+}
+
 // removeCopiesOf deletes the copies of a backup that retention removed.
 // The transfer record goes first, so a half-deleted copy never verifies.
 func (b *Backups) removeCopiesOf(ctx context.Context, backupID string) error {

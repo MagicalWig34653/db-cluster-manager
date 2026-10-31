@@ -1851,6 +1851,23 @@ paths:
                 host: { type: string, description: Explicitly approved Swarm node ID }
                 keySecret: { type: string, description: Swarm secret with the recovery key; default from settings }
                 ttlMinutes: { type: integer, minimum: 0, maximum: 1440 }
+                copy:
+                  type: string
+                  description: >-
+                    Restores a succeeded backup copy of this cluster (ID from
+                    GET /backup-copies) from its target instead of a backup of
+                    the primary backend. The manager verifies the copy deeply
+                    (signed transfer record, manifest, stored object digest)
+                    before the plan is made and refuses with 409 when it does
+                    not verify, 404 when the copy is unknown or belongs to
+                    another cluster, and 503 settings_incomplete when
+                    settings.backup.targetSecrets has no Swarm secret for the
+                    target. The restore job mounts that secret and the
+                    operation reads the job status from the target. The
+                    result is always a NEW isolated instance, never the
+                    cluster; the approval digest binds the secret and the
+                    object. backup and pointInTime must be empty (the binary
+                    log archive is not copied).
                 pointInTime:
                   type: string
                   format: date-time

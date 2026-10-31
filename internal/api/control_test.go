@@ -818,6 +818,14 @@ func TestPointInTimeEndpoints(t *testing.T) {
 	}
 	// A time and a named backup contradict each other.
 	wantError(t, admin.do("POST", "/api/v1/restores/inspect", map[string]any{"cluster": "c1", "backup": "b1", "pointInTime": "2026-10-22T01:30:00Z"}), http.StatusBadRequest, errBadRequest)
+	// A copy replaces the backup choice and excludes a point in time.
+	r = admin.do("POST", "/api/v1/restores/inspect", map[string]any{"cluster": "c1", "copy": "cp-1"})
+	wantStatus(t, r, http.StatusAccepted)
+	if cf.bak.lastInsp.Copy != "cp-1" {
+		t.Fatalf("%+v", cf.bak.lastInsp)
+	}
+	wantError(t, admin.do("POST", "/api/v1/restores/inspect", map[string]any{"cluster": "c1", "copy": "cp-1", "backup": "b1"}), http.StatusBadRequest, errBadRequest)
+	wantError(t, admin.do("POST", "/api/v1/restores/inspect", map[string]any{"cluster": "c1", "copy": "cp-1", "pointInTime": "2026-10-22T01:30:00Z"}), http.StatusBadRequest, errBadRequest)
 	// A reason from the planner reaches the caller as a conflict.
 	cf.bak.err = fmt.Errorf("%w: the archive ends at 02:00", ErrConflict)
 	wantError(t, admin.do("POST", "/api/v1/restores/inspect", map[string]any{"cluster": "c1", "pointInTime": "2026-10-22T05:30:00Z"}), http.StatusConflict, errConflict)

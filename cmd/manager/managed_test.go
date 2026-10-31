@@ -277,6 +277,8 @@ func TestManagedModeMonitoringAndBackupConfig(t *testing.T) {
 		"bad target name":          {"backup": map[string]any{"targets": map[string]any{"DR!": good}}},
 		"invalid target file":      {"backup": map[string]any{"targets": map[string]any{"dr": bad}}},
 		"unknown metastore target": {"backup": map[string]any{"targets": map[string]any{"dr": good}, "metastoreTarget": "other"}},
+		"target secret for unknown target": {"backup": map[string]any{"targets": map[string]any{"dr": good}},
+			"settings": map[string]any{"backup": map[string]any{"targetSecrets": map[string]any{"other": "dbcm-backend-dr"}}}},
 		"negative metastore hours": {"backup": map[string]any{"metastoreBackupHours": -1}},
 	} {
 		m["dataDir"], m["bind"] = t.TempDir(), "127.0.0.1:0"

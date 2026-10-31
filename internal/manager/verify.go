@@ -58,7 +58,11 @@ func (c *RoutingChecker) restoreVerified(ctx context.Context, session string) (b
 	if err != nil {
 		return false, "", err
 	}
-	streamOK, err := c.restoreStreamVerified(ctx, sess.JobName)
+	be, err := c.opBackend(ir.Value.OpID)
+	if err != nil {
+		return false, err.Error(), nil
+	}
+	streamOK, err := c.restoreStreamVerified(ctx, be, sess.JobName)
 	if err != nil {
 		return false, "", err
 	}
@@ -109,8 +113,8 @@ func (c *RoutingChecker) restoreVerified(ctx context.Context, session string) (b
 }
 
 // restoreStreamVerified reads the restore job's status report.
-func (c *RoutingChecker) restoreStreamVerified(ctx context.Context, job string) (bool, error) {
-	rc, err := c.Backup.Backend.Get(ctx, dbbackup.StatusName(job))
+func (c *RoutingChecker) restoreStreamVerified(ctx context.Context, be backup.Backend, job string) (bool, error) {
+	rc, err := be.Get(ctx, dbbackup.StatusName(job))
 	if errors.Is(err, backup.ErrNotFound) {
 		return false, nil
 	}

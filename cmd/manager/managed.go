@@ -179,6 +179,9 @@ type backupSettings struct {
 	RecipientKey       string `json:"recipientKey"`
 	KeySecret          string `json:"keySecret"`
 	InspectionNetwork  string `json:"inspectionNetwork"`
+	// TargetSecrets maps a manager.backup.targets name to the Swarm secret
+	// with that target's backend configuration (restore of a copy).
+	TargetSecrets map[string]string `json:"targetSecrets"`
 }
 
 func (c *settingsConfig) configured() manager.ConfiguredSettings {
@@ -191,7 +194,7 @@ func (c *settingsConfig) configured() manager.ConfiguredSettings {
 	if b := c.Backup; b != nil {
 		out.Backup = &manager.BackupSettings{JobImage: b.JobImage, BackendSecret: b.BackendSecret,
 			DBCredentialSecret: b.DBCredentialSecret, RecipientKey: b.RecipientKey, KeySecret: b.KeySecret,
-			InspectionNetwork: b.InspectionNetwork}
+			InspectionNetwork: b.InspectionNetwork, TargetSecrets: b.TargetSecrets}
 	}
 	return out
 }
@@ -254,6 +257,15 @@ func (b *backupConfig) validate() error {
 		return errors.New("manager.backup.metastoreBackupHours and metastoreBackupKeep must not be negative")
 	}
 	return nil
+}
+
+// targetFile is the backend config file of a named target; the receiver may be nil.
+func (b *backupConfig) targetFile(name string) (string, bool) {
+	if b == nil {
+		return "", false
+	}
+	f, ok := b.Targets[name]
+	return f, ok
 }
 
 // openTargets reads and opens the named copy targets (no network I/O).
@@ -370,6 +382,13 @@ func (m *managerConfig) validate() error {
 	if m.Backup != nil {
 		if err := m.Backup.validate(); err != nil {
 			return err
+		}
+	}
+	if m.Settings != nil && m.Settings.Backup != nil {
+		for name := range m.Settings.Backup.TargetSecrets {
+			if _, ok := m.Backup.targetFile(name); !ok {
+				return fmt.Errorf("manager.settings.backup.targetSecrets[%q] names no manager.backup.targets entry", name)
+			}
 		}
 	}
 	if m.Vuln != nil {
@@ -667,6 +686,7 @@ func newManagedRuntime(cfg fileConfig, log *slog.Logger, tokenOut io.Writer) (*m
 	checker := &manager.RoutingChecker{}
 	if backend != nil {
 		checker.Backup = &dbbackup.Checker{Backend: backend}
+		checker.Targets = targets
 	}
 	scfg.Checker = checker
 	// Zero-UUID recovery (ADR 0029): plans phase 2, runs the opt-in

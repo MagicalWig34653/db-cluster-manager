@@ -89,6 +89,12 @@ const hosts: Record<string, unknown>[] = [
 	{ swarm: 'mock-swarm-a', nodeId: 'mock-host-3', hostname: 'mock-host-3', enrollment: 'enrolled', state: 'down', availability: 'active', nanoCpus: 2e9, memoryBytes: 4 * GiB, agentIdentity: true, agentVersion: '0.0.0-mock', agentSeenAt: ago(45) },
 	{ swarm: 'mock-swarm-a', nodeId: 'mock-host-4', hostname: 'mock-host-4', enrollment: 'discovered', state: 'ready', availability: 'active' }
 ];
+fixtures['/api/v1/backup-copies'] = {
+	items: [
+		{ id: 'mock-copy-1', cluster: 'mock-galera', swarm: 'mock-swarm-a', backup: 'mock-backup-1', target: 'mock-dr', status: 'succeeded', objects: ['mock-object-1'], by: 'mock-admin', startedAt: ago(120), finishedAt: ago(118) },
+		{ id: 'mock-copy-2', cluster: 'mock-galera', swarm: 'mock-swarm-a', backup: 'mock-backup-0', target: 'mock-dr', status: 'failed', error: 'mock failure', objects: ['mock-object-0'], by: 'mock-admin', startedAt: ago(900) }
+	]
+};
 fixtures['/api/v1/backups'] = {
 	items: [
 		{

@@ -43,7 +43,15 @@ A copy changes nothing: no cluster, no route, no proxy.
 2. A person reviews it. Approval binds to the exact digest; the restore plan always creates a **new** cluster with a new identity, refuses the source cluster's identity, names, networks and volumes, and every destructive step waits for the approval ([Backups and restore](05-backup-restore.md)).
 3. Switching clients to the restored cluster is a separate, manual decision. The restored cluster starts a new Galera history.
 
-[Fakes]: the proposal, approval and plan exist in code and tests; the HTTP endpoint returns the proposal only. Executing the restore of a copy through the API is not wired yet. The copy routes (`/backup-copies`, `/clusters/{id}/backup-copies`, `/backup-copies/{id}/restore-proposal`) and the metastore backup routes are mounted in the managed runtime whenever `manager.backup` is configured (a test starts the real runtime with a `targets` entry and reaches them; creating a metastore backup still answers 409 `settings_incomplete` until `settings.backup.recipientKey` is set).
+### Test a copy in an isolated instance
+
+To prove that a copy can be read, restore it into an isolated inspection instance (the same operation as an [inspection restore](05-backup-restore.md); nothing is promoted and the cluster is not touched):
+
+1. Give every target its own Swarm secret with the backend configuration of that target and name it in `settings.backup.targetSecrets` (`{"dr": "dbcm-backend-dr"}`; each name must exist in `manager.backup.targets`). Without an entry the restore is refused with `settings_incomplete`; the manager never uses the primary secret for a copy.
+2. `POST /api/v1/restores/inspect` with `{"cluster": "...", "host": "...", "copy": "<copy id>"}` (permission: restore on the source cluster, audited). In the UI choose "Copy on a second target" in the restore wizard. `backup` and `pointInTime` must stay empty: the binary log archive is not copied, so a point in time is refused for copies.
+3. Before planning, the manager verifies the copy completely (signed record, manifest, digest of the stored object); a copy that does not verify answers `409`. The approval digest covers the secret and the object. The restore job reads the copy through the target secret, and the operation reads its result from that target.
+
+[Fakes]: the proposal, approval and plan exist in code and tests; the HTTP endpoint returns the proposal only. Executing the restore of a copy into a **new cluster** through the API is not wired yet. The inspection restore of a copy is tested with fakes and in-memory backends only (no VM, no real second target). The copy routes (`/backup-copies`, `/clusters/{id}/backup-copies`, `/backup-copies/{id}/restore-proposal`) and the metastore backup routes are mounted in the managed runtime whenever `manager.backup` is configured (a test starts the real runtime with a `targets` entry and reaches them; creating a metastore backup still answers 409 `settings_incomplete` until `settings.backup.recipientKey` is set).
 
 ## Scheduled restore verification
 
@@ -86,4 +94,5 @@ Not covered: a lost recovery key (then neither cluster backups nor metastore bac
 | Copy between backends, verification, retention coupling, restore proposal with approval gate, API, OpenAPI and authorization tests | [Fakes]; copy, deep verification, proposal and retention also [Lab VMs] (E14) |
 | Scheduled restore verification with failure notification | [Fakes]; a scheduled verification passed on real VMs, and a wrong host produced the failure event [Lab VMs] (E14) |
 | Metastore export/import, offline `metastore-import`, scheduled metastore backup | [Fakes] (one in-memory Raft replica); the runbook has never been run on a real manager |
-| Restore from a copy executed through the API; cross-installation verification; UI | [Untested] |
+| Inspection restore of a copy (`copy`, `targetSecrets`, deep verification, backend routing of the gates, PITR refused, UI choice) | [Fakes] only; no VM run |
+| Restore from a copy into a new cluster executed through the API; cross-installation verification | [Untested] |

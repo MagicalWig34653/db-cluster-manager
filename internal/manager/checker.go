@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/MagicalWig34653/db-cluster-manager/internal/agent"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/backup"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/galera"
 
 	"github.com/MagicalWig34653/db-cluster-manager/internal/dbbackup"
@@ -33,6 +34,10 @@ type RoutingChecker struct {
 	// Backup evaluates backend conditions; its Nodes and Approvals are
 	// replaced per call. Nil leaves them unmet.
 	Backup *dbbackup.Checker
+	// Targets are the named backup targets (Backups.Targets). An operation
+	// that carries a Backend reads its job status and manifest there; an
+	// unknown name is unmet, never the primary backend.
+	Targets map[string]backup.Backend
 	// Ops resolves an operation's cluster and hosts for CondSourceEligible
 	// (Svc), and observes services for runner.CondServiceHealthy (Svc and
 	// Swarms; without Swarms the condition is unmet).
@@ -68,6 +73,11 @@ func (c *RoutingChecker) Check(ctx context.Context, opID string, step runner.Ste
 			return false, "no backup backend configured", nil
 		}
 		bc := *c.Backup
+		be, err := c.opBackend(opID)
+		if err != nil {
+			return false, err.Error(), nil
+		}
+		bc.Backend = be
 		bc.Approvals = StoreApprovals{Store: c.Store}
 		bc.Nodes = func(context.Context) ([]dbbackup.NodeState, error) { return c.opNodes(opID) }
 		if cond.Kind == dbbackup.CondSourceEligible && (bc.Policy.Job.MilliCPU <= 0 || bc.Policy.Job.MemoryBytes <= 0) {
@@ -97,6 +107,26 @@ func (c *RoutingChecker) Check(ctx context.Context, opID string, step runner.Ste
 		return false, "no checker for " + cond.Kind, nil
 	}
 	return c.Cluster.Check(ctx, opID, step, cond)
+}
+
+// opBackend is the backend the operation's job reports to: the primary
+// one, or the target named by the operation record (restore of a copy).
+func (c *RoutingChecker) opBackend(opID string) (backup.Backend, error) {
+	if c.Store == nil {
+		return c.Backup.Backend, nil
+	}
+	rec, ok, err := Get[OperationRecord](c.Store, CollOperations, opID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok || rec.Value.Backend == "" {
+		return c.Backup.Backend, nil
+	}
+	be, ok := c.Targets[rec.Value.Backend]
+	if !ok {
+		return nil, fmt.Errorf("backup target %q of this operation is not configured", rec.Value.Backend)
+	}
+	return be, nil
 }
 
 // opNodes is the source-selection view of the operation's cluster from

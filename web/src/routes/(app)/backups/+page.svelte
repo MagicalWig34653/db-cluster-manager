@@ -3,6 +3,7 @@
 
 	import { api, asApiError, type ApiError, type InspectionStarted, type PointInTimeProposal } from '../../../lib/api';
 	import { restoreHosts } from '../../../lib/operations';
+	import { copyChoices } from '../../../lib/copies';
 	import { formatUtc, pitrReady, utcInputToRfc3339 } from '../../../lib/pitr';
 	import { Input } from '../../../lib/components/ui/input/index.js';
 	import { load } from '../../../lib/load.svelte';
@@ -52,18 +53,25 @@
 	// can reach. The coverage is checked read-only (GET /clusters/{id}/pitr-proposal)
 	// before the restore may start; it still goes to a new isolated instance and
 	// waits for the approval like every inspection.
-	let mode = $state<'latest' | 'time'>('latest');
+	let mode = $state<'latest' | 'time' | 'copy'>('latest');
+	let copyId = $state('');
+	const copies = load(api.backupCopies);
+	// Only verified copies of the chosen cluster can be restored (the manager verifies them again at the start).
+	const clusterCopies = $derived(copies.state.status === 'ok' ? copyChoices(copies.state.value, cluster) : []);
+	const copyReady = $derived(mode !== 'copy' || clusterCopies.some((c) => c.id === copyId));
 	let atInput = $state('');
 	let atTouched = $state(false);
 	let proposal = $state<PointInTimeProposal | undefined>();
 	let proposing = $state(false);
 	let proposalError = $state<ApiError | undefined>();
 	const at = $derived(utcInputToRfc3339(atInput));
-	const timeReady = $derived(mode === 'latest' || pitrReady(at, proposal));
+	const timeReady = $derived(mode !== 'time' || pitrReady(at, proposal));
 	const stale = $derived(proposal !== undefined && at !== undefined && Date.parse(proposal.at) !== Date.parse(at));
 	function pickCluster(id: string) {
 		cluster = id;
 		host = '';
+		copyId = '';
+		if (mode === 'copy') mode = 'latest';
 		proposal = undefined;
 	}
 	async function check() {
@@ -81,11 +89,11 @@
 		}
 	}
 	async function inspect() {
-		if (!cluster || !host || !timeReady) return;
+		if (!cluster || !host || !timeReady || !copyReady) return;
 		inspecting = true;
 		inspectError = undefined;
 		try {
-			started = await api.inspectRestore({ cluster, host, ...(mode === 'time' && at ? { pointInTime: at } : {}) });
+			started = await api.inspectRestore({ cluster, host, ...(mode === 'time' && at ? { pointInTime: at } : {}), ...(mode === 'copy' ? { copy: copyId } : {}) });
 			password = started.inspectionPassword;
 			saved = false;
 			copyState = 'idle';
@@ -115,6 +123,7 @@
 		password = undefined;
 		confirmed = false;
 		host = '';
+		copyId = '';
 		step = 0;
 	}
 	const steps = ['restoreSelect', 'restoreInspect', 'restoreApprove'] as const;
@@ -205,6 +214,17 @@
 					<legend class="text-sm font-medium">{t('restorePoint')}</legend>
 					<label class="flex items-center gap-2 text-sm"><input type="radio" name="rs-mode" value="latest" bind:group={mode} />{t('restorePointLatest')}</label>
 					<label class="flex items-center gap-2 text-sm"><input type="radio" name="rs-mode" value="time" bind:group={mode} />{t('restorePointTime')}</label>
+					<label class="flex items-center gap-2 text-sm"><input type="radio" name="rs-mode" value="copy" bind:group={mode} />{t('restorePointCopy')}</label>
+					{#if mode === 'copy'}
+						<div class="space-y-1.5 pl-6">
+							<Label for="rs-copy">{t('copyPick')}</Label>
+							<select id="rs-copy" class={selectClass} bind:value={copyId} disabled={clusterCopies.length === 0} aria-describedby="rs-copy-hint">
+								<option value="">{t('choose')}</option>
+								{#each clusterCopies as c (c.id)}<option value={c.id}>{t('copyOption', { backup: c.backup, target: c.target, when: formatUtc(c.finishedAt ?? c.startedAt) })}</option>{/each}
+							</select>
+							<p id="rs-copy-hint" class="text-xs text-muted-foreground">{clusterCopies.length === 0 ? t('copyNone') : t('copyHint')}</p>
+						</div>
+					{/if}
 					{#if mode === 'time'}
 						<div class="space-y-1.5 pl-6">
 							<Label for="rs-at">{t('pitrAt')}</Label>
@@ -242,10 +262,14 @@
 						</div>
 					{/if}
 				</fieldset>
-				<Button disabled={!cluster || !host || !timeReady} onclick={() => (step = 1)}>{t('continue')}</Button>
+				<Button disabled={!cluster || !host || !timeReady || !copyReady} onclick={() => (step = 1)}>{t('continue')}</Button>
 			{:else if step === 1}
 				<p class="text-sm text-muted-foreground">{t('inspectHint')}</p>
 				<p class="text-sm">{t('inspectionHost')}: <span class="font-medium">{hostName(host)}</span></p>
+				{#if mode === 'copy'}
+					<p class="text-sm">{t('inspectionCopy')}: <span class="font-mono text-xs">{copyId}</span></p>
+					<p class="text-sm text-muted-foreground">{t('copyHint')}</p>
+				{/if}
 				{#if mode === 'time' && at}
 					<p class="text-sm">{t('inspectionPointInTime')}: <span class="font-medium">{formatUtc(at)}</span></p>
 					<p class="text-sm text-muted-foreground">{t('pitrNewInstance')}</p>

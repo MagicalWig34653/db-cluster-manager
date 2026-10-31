@@ -56,7 +56,7 @@ In the schedule form you choose the method (physical, or logical with the databa
 | Restore verification gate, instance-level report, `lastVerifiedRestoreAt`, teardown with secret removal | [Fakes]; table contents are not compared even in the design |
 | Galera position in the manifest read from the stream | [Fakes]; unconfirmed assumption for MariaDB 11.4 |
 | Backup scheduler, retention and S3 backend | [Lab VMs] (E14) |
-| Logical backup (manual and scheduled), restore into a **new cluster** | [Fakes]; the restore of a copy ends at the proposal (not executed through the API) |
+| Logical backup (manual and scheduled), restore into a **new cluster** | [Fakes]; a restore of a copy into a new cluster ends at the proposal; a copy can be restored into an isolated inspection instance (wizard option "Copy on a second target", needs `settings.backup.targetSecrets`, no point in time); [Fakes] only |
 | PITR (archive job, replay, API, UI) | [Lab VMs] (E16): real manager, agents and UI, one backup, one archive run, one time T, row/checksum comparison; archive schedule in the policy [Fakes]; the job helper alone in E15 |
 | Data-key rotation and re-encryption | [Fakes] only |
 | Selective restore through the manager API | [Untested] (not integrated) |
@@ -66,7 +66,7 @@ A backup is not proven good until a restore has been tested. Until a verified re
 
 ## Copies, scheduled verification and the manager's own backup
 
-Backups can be copied to other targets (another cluster's or Swarm's storage) with signed, verified transfer records, restored from a copy only through an explicit, digest-approved proposal into a new cluster, verified on a schedule with a notification on failure, and the manager's own metastore can be backed up and restored offline. Targets may be local, S3-compatible or SFTP with optional client-side encryption. All of this is described in [Disaster recovery and backup copies](21-disaster-recovery.md) [Fakes].
+Backups can be copied to other targets (another cluster's or Swarm's storage) with signed, verified transfer records, restored from a copy into a new cluster only through an explicit, digest-approved proposal, or into an isolated inspection instance (restore wizard, "Copy on a second target"), verified on a schedule with a notification on failure, and the manager's own metastore can be backed up and restored offline. Targets may be local, S3-compatible or SFTP with optional client-side encryption. All of this is described in [Disaster recovery and backup copies](21-disaster-recovery.md) [Fakes].
 
 The older library `internal/backup` (encrypted manager-configuration snapshots with inspection-mode restore) is not what the API calls; the metastore backup replaces its role for disaster recovery.
 

@@ -57,6 +57,7 @@ Die Aufnahme zeigt das Formular gegen einen echten Manager; der Zeitplan wurde d
 | Verifikationstor, Bericht auf Instanzebene, `lastVerifiedRestoreAt`, Abbau mit Secret-Entfernung | [Fakes]; Tabelleninhalte werden auch im Entwurf nicht verglichen |
 | Galera-Position im Manifest aus dem Stream gelesen | [Fakes]; unbestätigte Annahme für MariaDB 11.4 |
 | Backup-Zeitplaner, logisches Backup (manuell und geplant), Aufbewahrung, S3-Ziel, Wiederherstellung in einen **neuen Cluster** | [Fakes] |
+| Inspektions-Wiederherstellung einer Backup-Kopie (`settings.backup.targetSecrets`, kein Zeitpunkt) | Nur [Fakes]; kein VM-Lauf |
 | PITR (Archiv-Job, Wiedergabe, API, UI) | [Lab-VMs] (E16): echter Manager, Agents und UI, ein Backup, ein Archivlauf, eine Zeit T, Zeilen-/Prüfsummenvergleich; Archiv-Zeitplan in der Richtlinie [Fakes]; der Job-Helfer allein in E15 |
 | Datenschlüsselrotation und Neuverschlüsselung | Nur [Fakes] |
 | Selektive Wiederherstellung über die Manager-API | [Ungetestet] (nicht integriert) |
@@ -66,7 +67,7 @@ Ein Backup gilt erst als gut, wenn eine Wiederherstellung getestet wurde. Bis zu
 
 ## Kopien, geplante Prüfung und das Backup des Managers selbst
 
-Backups lassen sich mit signierten, geprüften Transfer-Records auf andere Ziele kopieren (Speicher eines anderen Clusters oder Swarms), aus einer Kopie nur über einen ausdrücklichen, per Digest freigegebenen Vorschlag in einen neuen Cluster wiederherstellen, nach Zeitplan prüfen (mit Benachrichtigung bei Fehlschlag), und das Metastore des Managers lässt sich sichern und offline wiederherstellen. Ziele können lokal, S3-kompatibel oder SFTP sein, optional mit clientseitiger Verschlüsselung. Alles steht in [Notfallwiederherstellung und Backup-Kopien](21-disaster-recovery.md) [Fakes].
+Backups lassen sich mit signierten, geprüften Transfer-Records auf andere Ziele kopieren (Speicher eines anderen Clusters oder Swarms), aus einer Kopie in einen neuen Cluster nur über einen ausdrücklichen, per Digest freigegebenen Vorschlag oder in eine isolierte Inspektionsinstanz (Wiederherstellungs-Assistent, „Kopie auf einem zweiten Ziel“) wiederherstellen, nach Zeitplan prüfen (mit Benachrichtigung bei Fehlschlag), und das Metastore des Managers lässt sich sichern und offline wiederherstellen. Ziele können lokal, S3-kompatibel oder SFTP sein, optional mit clientseitiger Verschlüsselung. Alles steht in [Notfallwiederherstellung und Backup-Kopien](21-disaster-recovery.md) [Fakes].
 
 Die ältere Bibliothek `internal/backup` (verschlüsselte Konfigurations-Snapshots mit Wiederherstellung im Inspektionsmodus) wird von der API nicht aufgerufen; das Metastore-Backup übernimmt ihre Rolle für die Notfallwiederherstellung.
 

@@ -574,6 +574,23 @@ export interface InspectionInput {
 	ttlMinutes?: number;
 	/** UTC time (RFC 3339): restore the newest backup before it and replay the archived binary log up to its second. Excludes `backup`. */
 	pointInTime?: string;
+	/** ID of a succeeded backup copy of the cluster: restore it from its target into the isolated instance. Excludes `backup` and `pointInTime`. */
+	copy?: string;
+}
+
+/** Mirrors api.BackupCopy: a verified copy of a backup on a named target; data only, never promoted. */
+export interface BackupCopy {
+	id: string;
+	cluster: string;
+	swarm: string;
+	backup: string;
+	target: string;
+	status: 'running' | 'succeeded' | 'failed' | string;
+	error?: string;
+	objects: string[];
+	by: string;
+	startedAt: string;
+	finishedAt?: string;
 }
 
 /** Mirrors api.PITRCoverage: what the binary log archive of one backup covers. */
@@ -798,6 +815,20 @@ export const isInspectionStarted = (v: unknown): v is InspectionStarted =>
 	isStr(v.inspectionAccount) &&
 	isStr(v.inspectionPassword) &&
 	(v.pointInTime === undefined || isDate(v.pointInTime));
+
+export const isBackupCopy: Guard<BackupCopy> = (v): v is BackupCopy =>
+	isObj(v) &&
+	isStr(v.id) &&
+	isStr(v.cluster) &&
+	isStr(v.swarm) &&
+	isStr(v.backup) &&
+	isStr(v.target) &&
+	isStr(v.status) &&
+	optStr(v.error) &&
+	strArray(v.objects) &&
+	isStr(v.by) &&
+	isDate(v.startedAt) &&
+	optDate(v.finishedAt);
 
 export const isPointInTimeProposal = (v: unknown): v is PointInTimeProposal =>
 	isObj(v) &&
@@ -1955,6 +1986,7 @@ export function createClient(fetchFn: FetchFn) {
 				{ channel }
 			),
 		backups: () => items(call('GET', '/backups', listOf(isBackupSummary))),
+		backupCopies: () => items(call('GET', '/backup-copies', listOf(isBackupCopy))),
 		inspectRestore: (req: InspectionInput) => call('POST', '/restores/inspect', isInspectionStarted, req),
 		/** Read-only: can the cluster be restored to this UTC time (RFC 3339), and from which backup? */
 		pitrProposal: (cluster: string, at: string) =>

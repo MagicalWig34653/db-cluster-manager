@@ -148,7 +148,7 @@ Merged by the leader at every leadership start; empty fields leave stored values
 | `accounts` | object | Database accounts of new clusters: `monitorUser`, `monitorSecret`, `backupUser`, `backupSecret` (names of Swarm secrets) and `backupLogical` (bool, also grants the read privileges `mariadb-dump` needs). |
 | `backup` | object | Backup settings, see below. |
 
-`settings.backup` (all required before a backup can start): `jobImage` (image with `dbcm-job` and the backup tools), `backendSecret` (Swarm secret with the backend JSON), `dbCredentialSecret` (backup account credential), `recipientKey` (public half of the recovery key; backups are encrypted for it, and the same key is the recovery envelope of the data keyring). Further: `keySecret` (default Swarm secret with the recovery key for restores), `inspectionNetwork` (non-production network for inspection restores; required for them).
+`settings.backup` (all required before a backup can start): `jobImage` (image with `dbcm-job` and the backup tools), `backendSecret` (Swarm secret with the backend JSON), `dbCredentialSecret` (backup account credential), `recipientKey` (public half of the recovery key; backups are encrypted for it, and the same key is the recovery envelope of the data keyring). Further: `keySecret` (default Swarm secret with the recovery key for restores), `inspectionNetwork` (non-production network for inspection restores; required for them), `targetSecrets` (map of a `manager.backup.targets` name to the Swarm secret with that target's backend JSON; required to restore a copy from that target, see [Disaster recovery](21-disaster-recovery.md)).
 
 ## Vulnerability response
 

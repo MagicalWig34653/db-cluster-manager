@@ -65,6 +65,41 @@ full-cluster recovery needs explicit approval.
    Rejected as the only mechanism: they are not encrypted for an external
    key and carry sessions and operations.
 
+## Addendum 2026-10-31: restore of a copy into an inspection instance
+
+Context: item 4 only produced a proposal for a new cluster. A copy can now also
+be restored into an isolated inspection instance (the same path as any
+inspection restore), to prove that the second target is readable.
+
+Decision:
+
+1. `settings.backup.targetSecrets` maps a target name to the Swarm secret with
+   that target's backend configuration (checked against `manager.backup.targets`
+   at start-up). Without an entry the restore of that copy is refused
+   (`settings_incomplete`); the primary `backendSecret` is never substituted.
+2. `InspectionInput.copy` names a succeeded, not deleted copy of the request's
+   cluster. At the start the manager runs `VerifyTransfer` with `deep` on the
+   target (HMAC, manifest digest and fields, stored object digest) and needs the
+   restore permission on the source cluster. `backup` and `pointInTime` must be
+   empty: the binary log archive is not copied, so PITR for copies is refused.
+3. The operation record has a `backend` field (the target name). The routing
+   checker reads job status and the restore-verified report input from that
+   target; an unknown name is unmet and never falls back to the primary backend.
+   The dead-job check of the result gates works unchanged.
+4. The job mounts the target secret; the secret is part of the approved
+   definition, so the digest binds object and secret. The result is an isolated
+   instance that expires; nothing is promoted, routed or started in place.
+   Item 4 above (proposal for a NEW cluster) stays the only path to a cluster.
+
+Alternatives: reading the copy through the primary secret (rejected: the secret
+points at a different storage); mounting several secrets in one job (rejected:
+the job helper takes one backend configuration); copying the object back to the
+primary backend first (rejected: writes to the primary storage and hides which
+bytes were verified).
+
+Evidence: Go tests with fakes and in-memory backends only; no VM, no real
+second target.
+
 ## Consequences and limits
 
 - Evidence: fakes, `httptest` S3, an in-process SFTP server, in-memory Raft.

@@ -43,7 +43,15 @@ Eine Kopie ändert nichts: keinen Cluster, keine Route, keinen Proxy.
 2. Eine Person prüft ihn. Die Freigabe bindet an den genauen Digest; der Wiederherstellungsplan erzeugt immer einen **neuen** Cluster mit neuer Identität, verweigert Identität, Namen, Netze und Volumes des Quellclusters, und jeder zerstörerische Schritt wartet auf die Freigabe ([Backups und Wiederherstellung](05-backup-restore.md)).
 3. Clients auf den wiederhergestellten Cluster umzustellen ist eine getrennte, manuelle Entscheidung. Der wiederhergestellte Cluster beginnt eine neue Galera-Historie.
 
-[Fakes]: Vorschlag, Freigabe und Plan existieren in Code und Tests; der HTTP-Endpunkt liefert nur den Vorschlag. Die Ausführung der Wiederherstellung einer Kopie über die API ist noch nicht angeschlossen. Die Kopier-Routen (`/backup-copies`, `/clusters/{id}/backup-copies`, `/backup-copies/{id}/restore-proposal`) und die Metastore-Backup-Routen sind in der Managed-Laufzeit eingehängt, sobald `manager.backup` konfiguriert ist (ein Test startet die echte Laufzeit mit einem `targets`-Eintrag und erreicht sie; das Anlegen eines Metastore-Backups antwortet weiterhin mit 409 `settings_incomplete`, bis `settings.backup.recipientKey` gesetzt ist).
+### Kopie in einer isolierten Instanz testen
+
+Um zu belegen, dass eine Kopie lesbar ist, stellen Sie sie in einer isolierten Inspektionsinstanz wieder her (dieselbe Operation wie eine [Inspektions-Wiederherstellung](05-backup-restore.md); nichts wird befördert, der Cluster bleibt unberührt):
+
+1. Legen Sie für jedes Ziel ein eigenes Swarm-Secret mit der Backend-Konfiguration dieses Ziels an und tragen Sie es in `settings.backup.targetSecrets` ein (`{"dr": "dbcm-backend-dr"}`; jeder Name muss in `manager.backup.targets` stehen). Ohne Eintrag wird die Wiederherstellung mit `settings_incomplete` abgelehnt; der Manager nimmt für eine Kopie nie das Haupt-Secret.
+2. `POST /api/v1/restores/inspect` mit `{"cluster": "...", "host": "...", "copy": "<Kopie-ID>"}` (Berechtigung: restore auf dem Quellcluster, auditiert). In der Oberfläche wählen Sie im Wiederherstellungs-Assistenten „Kopie auf einem zweiten Ziel“. `backup` und `pointInTime` müssen leer bleiben: Das Binärlog-Archiv wird nicht kopiert, daher ist ein Zeitpunkt für Kopien nicht möglich.
+3. Vor der Planung prüft der Manager die Kopie vollständig (signierter Record, Manifest, Digest des gespeicherten Objekts); eine Kopie, die nicht verifiziert, antwortet mit `409`. Der Freigabe-Digest umfasst Secret und Objekt. Der Restore-Job liest die Kopie über das Ziel-Secret, und die Operation liest ihr Ergebnis von diesem Ziel.
+
+[Fakes]: Vorschlag, Freigabe und Plan existieren in Code und Tests; der HTTP-Endpunkt liefert nur den Vorschlag. Die Ausführung der Wiederherstellung einer Kopie in einen **neuen Cluster** über die API ist noch nicht angeschlossen. Die Inspektions-Wiederherstellung einer Kopie ist nur mit Fakes und In-Memory-Backends getestet (keine VM, kein echtes zweites Ziel). Die Kopier-Routen (`/backup-copies`, `/clusters/{id}/backup-copies`, `/backup-copies/{id}/restore-proposal`) und die Metastore-Backup-Routen sind in der Managed-Laufzeit eingehängt, sobald `manager.backup` konfiguriert ist (ein Test startet die echte Laufzeit mit einem `targets`-Eintrag und erreicht sie; das Anlegen eines Metastore-Backups antwortet weiterhin mit 409 `settings_incomplete`, bis `settings.backup.recipientKey` gesetzt ist).
 
 ## Geplante Wiederherstellungsprüfung
 
@@ -86,4 +94,5 @@ Nicht abgedeckt: ein verlorener Wiederherstellungsschlüssel (dann sind weder Cl
 | Kopie zwischen Backends, Prüfung, Kopplung an die Aufbewahrung, Wiederherstellungsvorschlag mit Freigabe-Gate, API-, OpenAPI- und Berechtigungstests | [Fakes] |
 | Geplante Wiederherstellungsprüfung mit Fehlerbenachrichtigung | [Fakes] (Fake-Agents; keine echte Inspektionsinstanz) |
 | Metastore-Export/-Import, Offline-Befehl `metastore-import`, geplantes Metastore-Backup | [Fakes] (ein In-Memory-Raft-Replikat); die Anleitung lief nie auf einem echten Manager |
-| Ausführung der Wiederherstellung einer Kopie über die API; installationsübergreifende Prüfung; UI | [Ungetestet] |
+| Inspektions-Wiederherstellung einer Kopie (`copy`, `targetSecrets`, tiefe Prüfung, Backend-Routing der Tore, PITR abgelehnt, Auswahl in der UI) | Nur [Fakes]; kein VM-Lauf |
+| Ausführung der Wiederherstellung einer Kopie in einen neuen Cluster über die API; installationsübergreifende Prüfung | [Ungetestet] |

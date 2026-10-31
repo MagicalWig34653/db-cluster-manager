@@ -256,6 +256,10 @@ type OperationRecord struct {
 	// destructive steps wait for an explicit approval (approvals.go).
 	ApprovalID     string `json:"approvalId,omitempty"`
 	ApprovalDigest string `json:"approvalDigest,omitempty"`
+	// Backend names the backup target (Backups.Targets) the operation's
+	// restore job reads; empty is the primary backend. The result gates read
+	// the job status from it.
+	Backend string `json:"backend,omitempty"`
 	// Snapshot names the pre-recovery data snapshot of a guided recovery;
 	// both phases of a zero-UUID recovery share it (ADR 0028).
 	Snapshot string `json:"snapshot,omitempty"`
