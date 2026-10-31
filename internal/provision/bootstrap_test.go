@@ -290,7 +290,7 @@ func TestFreshAlmaLinuxUsesDnfAndFirewalld(t *testing.T) {
 		t.Fatalf("%+v", plan.Findings)
 	}
 	d := plan.Step("runtime-docker").Script
-	if !strings.Contains(d, "dnf") || !strings.Contains(d, "download.docker.com/linux/centos") || !strings.Contains(d, DockerKeyFingerprint) || strings.Contains(d, "apt-get") {
+	if !strings.Contains(d, "dnf") || !strings.Contains(d, "download.docker.com/linux/centos") || !strings.Contains(d, DockerRPMKeyFingerprint) || strings.Contains(d, DockerKeyFingerprint) || strings.Contains(d, "apt-get") {
 		t.Fatalf("docker script:\n%s", d)
 	}
 	if fw := plan.Step("firewall").Script; !strings.Contains(fw, "firewall-cmd") || strings.Contains(fw, "ufw") {

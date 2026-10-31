@@ -2,6 +2,20 @@
 
 Updated: 2026-10-31.
 
+## E17: fake-only features checked on real VMs (2026-10-31)
+
+Two lab VMs (Debian 12, AlmaLinux 9.8, arm64), a real manager, SSH installation, enrollment and mTLS, MinIO over TLS; VMs removed with `bin/lab cleanup --apply` (unrelated Lima/Colima entries intact). Five result files under `tests/p0/results/e17-*.md` plus raw data in `tests/p0/results/e17/`.
+
+- **(a) Fresh-server bootstrap** ([results](../tests/p0/results/e17-bootstrap.md)): completed on both hosts (ufw/firewalld, Docker from the vendor repository, Swarm init, on AlmaLinux also unattended upgrades and the separately approved lockdown: root refused over SSH, dedicated key works). Three bugs fixed that only a real host shows: preflight memory parsed as 0 under mawk, base-packages step skipped without gpg, and a separate Docker rpm key fingerprint (every dnf bootstrap failed). Driven by a harness (`cmd/bootlab`), not the HTTP API or UI wizard.
+- **(b) Image composer** ([results](../tests/p0/results/e17-composer.md)): all 9 base releases audited (every package spec the catalog can emit simulated in the real base image, with negative controls): 3 wrong entries corrected (nginx brotli on Ubuntu 22.04, ImageMagick/msmtp and curl on AlmaLinux/Rocky; new catalog field `without`). Four generated images built and ran on Debian 12 and AlmaLinux 9 (nginx + PHP, database clients). Two generator defects made every nginx image unstartable and every PHP-FPM build check fail; both fixed. Catalog stays `unverified` (version 2026.10.31-1).
+- **(c) Patch management** ([results](../tests/p0/results/e17-patch.md)): SSH install, enrollment, mTLS poll, apt and dnf scans (76 dnf updates, 64 with advisory IDs), container-runtime class from a real `docker-ce` update, engine and policy refusals, approved apply on Debian through the apply-mode agent, report-mode agent refuses apply. Not run: reboot after a kernel update, engine apply (the guard has no runtime source), Galera guard.
+- **(d) restic** ([results](../tests/p0/results/e17-restic.md)): backup, retention, check, approved restore and verification through the host-source API and the native agent against MinIO over TLS. Two bugs fixed: the apply-mode agent had no writable restic cache (every command failed) and the error was reported as a locked repository.
+- **(e) Modules** ([results](../tests/p0/results/e17-modules.md)): `404 module_disabled`, `409 module_blocked`, `404` for an unknown id, data kept across off/on, UI toggles; one bug fixed: `PUT /modules/{id}` without `enabled` switched the module off.
+- Checks after the change (all passed): gofmt, `go vet ./...`, `go test -race -count=1 -p 2 ./...`, svelte-check (0 errors), vitest (248 tests), `check_docs.py`.
+- Limits: arm64 only; one run each; lab-own credentials and CA; the bootstrap, restic and patch features still have no UI (the module switch has one); nothing of this ran on HA managers.
+
+Next: bootstrap through the manager API with the native agent and cluster-join steps, composer build through the build service, patch reboot on a real kernel update, restic SFTP/rest-server through the manager.
+
 ## E16: install walkthrough and PITR through the real manager (2026-10-31; see [e16-install-walkthrough.md](../tests/p0/results/e16-install-walkthrough.md))
 
 Three fresh lab VMs, manager installed from INSTALL.md (single-instance stack, S3 backup target on MinIO over plain HTTP), real Chromium with a virtual passkey: administrator, Swarm, three agents, 3-node Galera with `binlog: true` (23/23 steps), backup, writes, time T, archive, PITR coverage check, approval, restore into an inspection instance. **Result:** the restored table at T equals the cluster at T (2920 rows, sums, `CHECKSUM TABLE` 1109488220), later writes absent. Done in this change:

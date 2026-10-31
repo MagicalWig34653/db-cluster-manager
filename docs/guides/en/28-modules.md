@@ -2,9 +2,11 @@
 title: Optional modules
 ---
 
-# Optional modules [Fakes and in-process manager only]
+# Optional modules [In-process tests and one lab run on a real manager]
 
 Optional features are modules ([ADR 0030](../../decisions/0030-optional-modules.md)): OS patch management, host backups (restic), backup copies, image build, image composer, image updates, vulnerabilities and AI response, server bootstrap, SSH provisioning and Kubernetes. An administrator switches each one on or off while the manager runs; no restart is needed.
+
+**Status.** Besides the in-process tests, lab [E17](../../../tests/p0/results/e17-modules.md) ran the switch against a real manager with real agents behind patch management and host backups: a disabled module answers `404 module_disabled`, enabling with a missing prerequisite answers `409 module_blocked`, the records of a switched-off module are listed again after switching it back on, and the settings page toggles work. A `PUT` without `enabled` is a `400` (it used to switch the module off). Not run: several replicas, other roles, a module whose prerequisite chain is satisfied (image build needs a build configuration).
 
 ## Switch a module
 

@@ -4,8 +4,8 @@ FROM docker.io/library/almalinux:9@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 LABEL org.opencontainers.image.title="shop" \
       org.opencontainers.image.base.name="docker.io/library/almalinux:9" \
       org.opencontainers.image.base.digest="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
-      dbcm.recipe-digest="sha256:8592b299e708bbb68af6d9c80cdb37b84054757d6dc606357b3d91491d976fa8" \
-      dbcm.catalog-version="2026.10.30-2" \
+      dbcm.recipe-digest="sha256:524d3e2f5c2db06b350271a1ad77fa8858602cb80bcb64e478a138fa0bac753e" \
+      dbcm.catalog-version="2026.10.31-1" \
       dbcm.generator-version="2"
 RUN dnf -y module enable nginx:1.26 php:8.3 \
  && dnf -y install --setopt=install_weak_deps=False --setopt=tsflags=nodocs \
@@ -28,8 +28,8 @@ COPY php/pool.conf /etc/dbcm/php/pool.d/www.conf
 COPY entrypoint.sh /usr/local/bin/dbcm-entrypoint
 ENV HOME=/tmp
 ENV PHP_INI_SCAN_DIR=:/etc/dbcm/php/conf.d
-RUN nginx -t -c /etc/dbcm/nginx/nginx.conf
-RUN php-fpm -t -y /etc/dbcm/php/php-fpm.conf
+RUN nginx -t -c /etc/dbcm/nginx/nginx.conf && rm -rf /tmp/nginx.pid /tmp/nginx-*
+RUN php-fpm -R -t -y /etc/dbcm/php/php-fpm.conf
 USER 10001:10001
 EXPOSE 8080
 STOPSIGNAL SIGQUIT

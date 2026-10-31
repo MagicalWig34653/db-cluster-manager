@@ -4,8 +4,8 @@ FROM docker.io/library/ubuntu:22.04@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 LABEL org.opencontainers.image.title="shop" \
       org.opencontainers.image.base.name="docker.io/library/ubuntu:22.04" \
       org.opencontainers.image.base.digest="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
-      dbcm.recipe-digest="sha256:67e84f75ec269574ebb86618d61f21e341df526c3a588776019aa1da825e058b" \
-      dbcm.catalog-version="2026.10.30-2" \
+      dbcm.recipe-digest="sha256:ac4ba0e5ab910cd329787f83e126580d4cc4e20734695f970dc1828e6bae77c3" \
+      dbcm.catalog-version="2026.10.31-1" \
       dbcm.generator-version="2"
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -30,8 +30,8 @@ ENV HOME=/tmp
 ENV LANG=C.UTF-8
 ENV PHP_INI_SCAN_DIR=:/etc/dbcm/php/conf.d
 ENV TZ=UTC
-RUN nginx -t -c /etc/dbcm/nginx/nginx.conf
-RUN php-fpm8.1 -t -y /etc/dbcm/php/php-fpm.conf
+RUN nginx -t -c /etc/dbcm/nginx/nginx.conf && rm -rf /tmp/nginx.pid /tmp/nginx-*
+RUN php-fpm8.1 -R -t -y /etc/dbcm/php/php-fpm.conf
 USER 10001:10001
 EXPOSE 8080
 HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 CMD ["curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8080/dbcm-ping"]

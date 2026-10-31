@@ -4,8 +4,8 @@ FROM docker.io/library/alpine:3.20@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 LABEL org.opencontainers.image.title="shop" \
       org.opencontainers.image.base.name="docker.io/library/alpine:3.20" \
       org.opencontainers.image.base.digest="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
-      dbcm.recipe-digest="sha256:513faeb83a7797fbd1c89b3ff2bd321c997a5b48bfa55c31665756868e7da700" \
-      dbcm.catalog-version="2026.10.30-2" \
+      dbcm.recipe-digest="sha256:2ef0b49ebc966bbd4594fdc9d52278895839901f2daba09303bfd537654eddff" \
+      dbcm.catalog-version="2026.10.31-1" \
       dbcm.generator-version="2"
 RUN apk add --no-cache \
       nginx~=1.26 \
@@ -27,8 +27,8 @@ COPY php/pool.conf /etc/dbcm/php/pool.d/www.conf
 COPY entrypoint.sh /usr/local/bin/dbcm-entrypoint
 ENV HOME=/tmp
 ENV PHP_INI_SCAN_DIR=:/etc/dbcm/php/conf.d
-RUN nginx -t -c /etc/dbcm/nginx/nginx.conf
-RUN php-fpm83 -t -y /etc/dbcm/php/php-fpm.conf
+RUN nginx -t -c /etc/dbcm/nginx/nginx.conf && rm -rf /tmp/nginx.pid /tmp/nginx-*
+RUN php-fpm83 -R -t -y /etc/dbcm/php/php-fpm.conf
 USER 10001:10001
 EXPOSE 8080
 STOPSIGNAL SIGQUIT

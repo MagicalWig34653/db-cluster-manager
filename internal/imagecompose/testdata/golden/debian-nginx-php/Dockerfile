@@ -4,8 +4,8 @@ FROM docker.io/library/debian:bookworm-slim@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 LABEL org.opencontainers.image.title="shop" \
       org.opencontainers.image.base.name="docker.io/library/debian:bookworm-slim" \
       org.opencontainers.image.base.digest="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
-      dbcm.recipe-digest="sha256:007f61545557e90bf8661fd5f8dee4582279616e58232a993fcd19c82df2f5b0" \
-      dbcm.catalog-version="2026.10.30-2" \
+      dbcm.recipe-digest="sha256:e66173bb5d70b88481c2d6198cd2c727c3cdf256bb1ec9edb0629be090a1904b" \
+      dbcm.catalog-version="2026.10.31-1" \
       dbcm.generator-version="2"
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -28,8 +28,8 @@ COPY php/pool.conf /etc/dbcm/php/pool.d/www.conf
 COPY entrypoint.sh /usr/local/bin/dbcm-entrypoint
 ENV HOME=/tmp
 ENV PHP_INI_SCAN_DIR=:/etc/dbcm/php/conf.d
-RUN nginx -t -c /etc/dbcm/nginx/nginx.conf
-RUN php-fpm8.2 -t -y /etc/dbcm/php/php-fpm.conf
+RUN nginx -t -c /etc/dbcm/nginx/nginx.conf && rm -rf /tmp/nginx.pid /tmp/nginx-*
+RUN php-fpm8.2 -R -t -y /etc/dbcm/php/php-fpm.conf
 USER 10001:10001
 EXPOSE 8080
 STOPSIGNAL SIGQUIT

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2026.10.30-2",
+  "version": "2026.10.31-1",
   "evidence": "unverified",
   "distros": [
     {"id": "alpine", "name": "Alpine Linux", "family": "alpine", "releases": [
@@ -48,7 +48,7 @@
           {"distro": "rocky", "release": "9", "architectures": ["amd64", "arm64"], "modules": ["nginx:1.22"], "packages": [{"name": "nginx"}]}
         ]},
         {"version": "1.18", "support": [
-          {"distro": "ubuntu", "release": "22.04", "architectures": ["amd64", "arm64"], "packages": [{"name": "nginx", "constraint": "1.18"}]}
+          {"distro": "ubuntu", "release": "22.04", "architectures": ["amd64", "arm64"], "packages": [{"name": "nginx", "constraint": "1.18"}], "without": ["brotli"]}
         ]}
       ],
       "features": [
@@ -523,11 +523,11 @@
       "features": [
         {"id": "bash", "packages": {"alpine": ["bash"], "debian": ["bash"], "rhel": ["bash"]}},
         {"id": "ca-certificates", "packages": {"alpine": ["ca-certificates"], "debian": ["ca-certificates"], "rhel": ["ca-certificates"]}},
-        {"id": "curl", "packages": {"alpine": ["curl"], "debian": ["curl"], "rhel": ["curl"]}},
+        {"id": "curl", "packages": {"alpine": ["curl"], "debian": ["curl"], "rhel": []}},
         {"id": "ghostscript", "packages": {"alpine": ["ghostscript"], "debian": ["ghostscript"], "rhel": ["ghostscript"]}},
-        {"id": "imagemagick", "packages": {"alpine": ["imagemagick"], "debian": ["imagemagick"], "rhel": ["ImageMagick"]}},
+        {"id": "imagemagick", "packages": {"alpine": ["imagemagick"], "debian": ["imagemagick"]}},
         {"id": "jq", "packages": {"alpine": ["jq"], "debian": ["jq"], "rhel": ["jq"]}},
-        {"id": "msmtp", "packages": {"alpine": ["msmtp"], "debian": ["msmtp"], "rhel": ["msmtp"]}},
+        {"id": "msmtp", "packages": {"alpine": ["msmtp"], "debian": ["msmtp"]}},
         {"id": "tzdata", "packages": {"alpine": ["tzdata"], "debian": ["tzdata"], "rhel": ["tzdata"]}}
       ]
     }

@@ -4,8 +4,8 @@ FROM docker.io/library/rockylinux:9@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 LABEL org.opencontainers.image.title="tools" \
       org.opencontainers.image.base.name="docker.io/library/rockylinux:9" \
       org.opencontainers.image.base.digest="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
-      dbcm.recipe-digest="sha256:6f3fd4925904540ffb3a958d6ac88c1d172f175a056ce5e79e8662c64ba071e4" \
-      dbcm.catalog-version="2026.10.30-2" \
+      dbcm.recipe-digest="sha256:ad454a3e7565181d2082a3ae5f80d3b4906c34c6802084362e933c47999528b1" \
+      dbcm.catalog-version="2026.10.31-1" \
       dbcm.generator-version="2"
 RUN dnf -y module enable nginx:1.24 php:8.3 \
  && dnf -y install --setopt=install_weak_deps=False --setopt=tsflags=nodocs \
@@ -28,8 +28,8 @@ COPY php/pool.conf /etc/dbcm/php/pool.d/www.conf
 COPY entrypoint.sh /usr/local/bin/dbcm-entrypoint
 ENV HOME=/tmp
 ENV PHP_INI_SCAN_DIR=:/etc/dbcm/php/conf.d
-RUN nginx -t -c /etc/dbcm/nginx/nginx.conf
-RUN php-fpm -t -y /etc/dbcm/php/php-fpm.conf
+RUN nginx -t -c /etc/dbcm/nginx/nginx.conf && rm -rf /tmp/nginx.pid /tmp/nginx-*
+RUN php-fpm -R -t -y /etc/dbcm/php/php-fpm.conf
 USER 10001:10001
 EXPOSE 8080
 STOPSIGNAL SIGQUIT

@@ -1,0 +1,13 @@
+DRAFT status=awaiting-fingerprint hostkey=ssh-ed25519 SHA256:HIRHr7VMwCLdUBnB7g03KspN7WokgI2+1o2FEM8/viA
+PLAN status=planned blocked=false os=debian 12 arch=arm64 privilege=root docker="none" digest=d2754c40b1c73bc25e76687690a153cc450078ae4dd8b4ae268f3a3cc157acc6
+FINDING warn firewall-docker: Docker publishes container ports through its own firewall rules, which can bypass ufw and firewalld rules.
+STEP base-packages phase=baseline runAs=root mutating=true gate="": Install base packages (curl, sudo, certificates)
+STEP service-user phase=baseline runAs=root mutating=true gate="": Create the service user dbcm with sudo
+STEP sshd-audit phase=baseline runAs=root mutating=false gate="": Audit sshd settings (read-only, changes nothing)
+STEP firewall phase=baseline runAs=root mutating=true gate="": Enable the ufw firewall (SSH is allowed first)
+STEP runtime-docker phase=runtime runAs=root mutating=true gate="": Install the Docker engine (download.docker.com/linux/debian (apt))
+STEP cluster-swarm phase=cluster runAs=root mutating=true gate="": Swarm init
+PROGRESS status=running base-packages=pending service-user=pending sshd-audit=pending firewall=pending runtime-docker=pending cluster-swarm=pending 
+PROGRESS status=running base-packages=succeeded service-user=succeeded sshd-audit=succeeded firewall=running runtime-docker=pending cluster-swarm=pending 
+PROGRESS status=paused base-packages=succeeded service-user=succeeded sshd-audit=succeeded firewall=succeeded runtime-docker=unknown cluster-swarm=pending 
+RESULT stopped status=paused error="provision: remote outcome unknown: step runtime-docker"

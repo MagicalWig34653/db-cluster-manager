@@ -1,6 +1,6 @@
 # ADR 0026: Image composer (point-and-click image recipes)
 
-Status: **Implemented with fakes only; no VM, registry, network or real build used**, 2026-10-29. Implements the owner addition of 2026-10-29: the contents of a service image are assembled by selecting components (for a web server: distribution/base, nginx with version and settings, PHP with version, extensions and php.ini settings, further components), with variants per distribution. Requirement X17. Builds on X08 (image build service, approval flow), X04 (web server composition, `internal/imagebuild`), X13 (vulnerability inventory) and [ADR 0025](0025-image-update-service.md) (rollout of built images stays a reviewed update).
+Status: **Implemented; fakes in the tests, plus lab E17 (2026-10-31): every catalog package spec simulated in the 9 real base images and four generated images built and run on Debian 12 and AlmaLinux 9 ([results](../../tests/p0/results/e17-composer.md))**, 2026-10-29. Implements the owner addition of 2026-10-29: the contents of a service image are assembled by selecting components (for a web server: distribution/base, nginx with version and settings, PHP with version, extensions and php.ini settings, further components), with variants per distribution. Requirement X17. Builds on X08 (image build service, approval flow), X04 (web server composition, `internal/imagebuild`), X13 (vulnerability inventory) and [ADR 0025](0025-image-update-service.md) (rollout of built images stays a reviewed update).
 
 ## Scope
 
@@ -24,7 +24,7 @@ In: a versioned component catalog as data, a typed recipe, validation with allow
 
 ## Known limits
 
-- Fakes only. The catalog is unverified: package names, versions and dnf module streams were written from knowledge and never checked against live repositories or built; the build is the check. Some entries are probably wrong or stale (especially `almalinux` module streams and the Ubuntu/Debian PHP versions).
+- Lab E17 (2026-10-31) checked the package names and version constraints against the real base images (3 entries corrected; catalog 2026.10.31-1, new `without` field) and built four recipes (2 generator defects fixed). `evidence` stays `unverified` because the validator accepts nothing else and not every combination was built. Earlier text: the catalog is unverified: package names, versions and dnf module streams were written from knowledge and never checked against live repositories or built; the build is the check. Some entries are probably wrong or stale (especially `almalinux` module streams and the Ubuntu/Debian PHP versions).
 - No image has been built from a generated recipe; the `RUN nginx -t`/`php-fpm -t` lines have never executed. The entrypoint behaviour (backgrounded PHP-FPM, `exec nginx`) is untested in a container.
 - Distributions are the four above (Alpine 3.20, Debian 12, Ubuntu 24.04, AlmaLinux 9). Official upstream images (`nginx`, `php`) are not used as bases; the distribution's own packages are.
 - PHP extensions are a curated list of 16, no PECL or source builds. nginx modules, TLS certificates, multiple sites, PHP-FPM pools beyond `www` and cron jobs are not selectable.

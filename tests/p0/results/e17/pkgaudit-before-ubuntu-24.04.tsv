@@ -1,0 +1,57 @@
+OK	apache	2.4			apache2
+OK	backuptools	distro	openssh-client		openssh-client
+OK	backuptools	distro	rclone		rclone
+OK	backuptools	distro	restic		restic
+OK	backuptools	distro	rsync		rsync
+OK	caddy	2			caddy
+OK	composer	2			composer
+OK	dbclients	distro	mariadb-client		mariadb-client
+OK	dbclients	distro	postgresql-client		postgresql-client
+OK	dbclients	distro	redis-cli		redis-tools
+OK	dbclients	distro	sqlite		sqlite3
+OK	java	17			openjdk-17-jre-headless
+OK	java	21			openjdk-21-jre-headless
+OK	minecraft	1.21.11			openjdk-21-jre-headless
+OK	minecraft	26.1.2			openjdk-25-jre-headless
+OK	minecraft	26.3			openjdk-25-jre-headless
+OK	nginx	1.24	brotli		libnginx-mod-http-brotli-filter
+OK	nginx	1.24			nginx=1.24.*
+OK	php	8.3	apcu		php-apcu
+OK	php	8.3	bcmath		php8.3-bcmath
+OK	php	8.3	bz2		php8.3-bz2
+OK	php	8.3	curl		php8.3-curl
+OK	php	8.3	dom		php8.3-xml
+OK	php	8.3	gd		php8.3-gd
+OK	php	8.3	gmp		php8.3-gmp
+OK	php	8.3	imagick		php-imagick
+OK	php	8.3	intl		php8.3-intl
+OK	php	8.3	ldap		php8.3-ldap
+OK	php	8.3	mbstring		php8.3-mbstring
+OK	php	8.3	memcached		php-memcached
+OK	php	8.3	mysqli		php8.3-mysql
+OK	php	8.3	opcache		php8.3-opcache
+OK	php	8.3	pdo_mysql		php8.3-mysql
+OK	php	8.3	pdo_pgsql		php8.3-pgsql
+OK	php	8.3	pdo_sqlite		php8.3-sqlite3
+OK	php	8.3	pgsql		php8.3-pgsql
+OK	php	8.3	redis		php-redis
+OK	php	8.3	simplexml		php8.3-xml
+OK	php	8.3	soap		php8.3-soap
+OK	php	8.3	sqlite3		php8.3-sqlite3
+OK	php	8.3	xml		php8.3-xml
+OK	php	8.3	xsl		php8.3-xml
+OK	php	8.3	zip		php8.3-zip
+OK	php	8.3			php8.3-cli=8.3.*
+OK	php	8.3			php8.3-fpm=8.3.*
+OK	python	3.12	pip		python3-pip
+OK	python	3.12			gunicorn
+OK	python	3.12			python3=3.12.*
+OK	sftp	distro			openssh-server
+OK	utilities	distro	bash		bash
+OK	utilities	distro	ca-certificates		ca-certificates
+OK	utilities	distro	curl		curl
+OK	utilities	distro	ghostscript		ghostscript
+OK	utilities	distro	imagemagick		imagemagick
+OK	utilities	distro	jq		jq
+OK	utilities	distro	msmtp		msmtp
+OK	utilities	distro	tzdata		tzdata

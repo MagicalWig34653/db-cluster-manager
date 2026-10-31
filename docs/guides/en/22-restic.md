@@ -2,7 +2,7 @@
 title: Restic host backups
 ---
 
-# Restic host backups [Lab-verified on arm64 Debian 12; deployment wiring partly open]
+# Restic host backups [Lab-verified on arm64 Debian 12 and through the manager with the native agent; deployment wiring partly open]
 
 The manager has a native restic source model for filesystem backups of an individual managed host. A source belongs to a host, not a MariaDB cluster. It records source paths, a local/SFTP/S3/rest-server repository, UTC cron schedule, retention and an optional `check --read-data-subset` percentage. The manager seals password and backend credentials in replicated metadata and never returns them through the API. Its runner sends fenced steps to the enrolled host agent; errors trigger a notification. [ADR 0022](../../decisions/0022-native-restic-host-backups.md) records the decision and limits.
 
@@ -15,7 +15,7 @@ The agent execution environment (normally its container) needs a restic binary, 
 - **Not automated.** The manager does not create the Swarm secrets from the sealed source credentials, does not update an already created global agent service (the deployment call only creates it; changing roots needs a service update or a re-create), and does not initialize repositories or provision SFTP keys. The operator runs `restic init` once per repository. The wiring of `AgentRestic` into a manager configuration file or UI is not implemented (library level only; unit-tested).
 - **Bounded start.** Each restic command is preceded by a bounded `restic cat config` probe (2 minutes). Real runs showed that wrong S3 credentials made restic retry for more than ten minutes; the step now fails with a clear "did not answer in time" message instead of hanging. A cancelled or killed command is reported as interrupted and warns about a possible stale lock; the wrapper never runs `unlock`.
 
-[Lab run E11](../../../tests/p0/results/e11-restic.md) exercised the real restic wrappers against local, SFTP, rest-server (TLS) and S3 (MinIO, TLS) repositories, and an external host over SSH. See "Verified" there for exactly what was and was not covered.
+[Lab run E17](../../../tests/p0/results/e17-restic.md) went through the product path (module switch, host-source API, native agent as root with the unit hardening, S3 on MinIO over TLS): backup, retention, check, approved restore into a new path and verification passed after two fixes; S3 locations must use https (`s3:http://` is refused). [Lab run E11](../../../tests/p0/results/e11-restic.md) exercised the real restic wrappers against local, SFTP, rest-server (TLS) and S3 (MinIO, TLS) repositories, and an external host over SSH. See "Verified" there for exactly what was and was not covered.
 
 ## API and permission
 

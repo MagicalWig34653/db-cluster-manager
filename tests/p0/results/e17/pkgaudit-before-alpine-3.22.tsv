@@ -1,0 +1,162 @@
+OK	apache	2.4			apache2
+OK	apache	2.4			apache2-proxy
+OK	backuptools	distro	mc		minio-client
+OK	backuptools	distro	openssh-client		openssh-client
+OK	backuptools	distro	rclone		rclone
+OK	backuptools	distro	restic		restic
+OK	backuptools	distro	rsync		rsync
+OK	caddy	2			caddy
+OK	composer	2			composer
+OK	dbclients	distro	mariadb-client		mariadb-client
+OK	dbclients	distro	postgresql-client		postgresql-client
+OK	dbclients	distro	redis-cli		redis
+OK	dbclients	distro	sqlite		sqlite
+OK	java	17			openjdk17-jre-headless
+OK	java	21			openjdk21-jre-headless
+OK	minecraft	1.21.11			openjdk21-jre-headless
+OK	nginx	1.28	brotli		nginx-mod-http-brotli
+OK	nginx	1.28			nginx~=1.28
+OK	node	22	npm		npm
+OK	node	22			nodejs~=22
+OK	php	8.2	apcu		php82-pecl-apcu
+OK	php	8.2	bcmath		php82-bcmath
+OK	php	8.2	bz2		php82-bz2
+OK	php	8.2	calendar		php82-calendar
+OK	php	8.2	ctype		php82-ctype
+OK	php	8.2	curl		php82-curl
+OK	php	8.2	dom		php82-dom
+OK	php	8.2	exif		php82-exif
+OK	php	8.2	fileinfo		php82-fileinfo
+OK	php	8.2	ftp		php82-ftp
+OK	php	8.2	gd		php82-gd
+OK	php	8.2	gettext		php82-gettext
+OK	php	8.2	gmp		php82-gmp
+OK	php	8.2	iconv		php82-iconv
+OK	php	8.2	imagick		php82-pecl-imagick
+OK	php	8.2	intl		php82-intl
+OK	php	8.2	ldap		php82-ldap
+OK	php	8.2	mbstring		php82-mbstring
+OK	php	8.2	memcached		php82-pecl-memcached
+OK	php	8.2	mysqli		php82-mysqli
+OK	php	8.2	opcache		php82-opcache
+OK	php	8.2	openssl		php82-openssl
+OK	php	8.2	pcntl		php82-pcntl
+OK	php	8.2	pdo_mysql		php82-pdo_mysql
+OK	php	8.2	pdo_pgsql		php82-pdo_pgsql
+OK	php	8.2	pdo_sqlite		php82-pdo_sqlite
+OK	php	8.2	pgsql		php82-pgsql
+OK	php	8.2	phar		php82-phar
+OK	php	8.2	posix		php82-posix
+OK	php	8.2	redis		php82-pecl-redis
+OK	php	8.2	simplexml		php82-simplexml
+OK	php	8.2	soap		php82-soap
+OK	php	8.2	sockets		php82-sockets
+OK	php	8.2	sodium		php82-sodium
+OK	php	8.2	sqlite3		php82-sqlite3
+OK	php	8.2	tokenizer		php82-tokenizer
+OK	php	8.2	xml		php82-dom
+OK	php	8.2	xml		php82-simplexml
+OK	php	8.2	xml		php82-xml
+OK	php	8.2	xsl		php82-xsl
+OK	php	8.2	zip		php82-zip
+OK	php	8.2			php82
+OK	php	8.2			php82-fpm
+OK	php	8.3	apcu		php83-pecl-apcu
+OK	php	8.3	bcmath		php83-bcmath
+OK	php	8.3	bz2		php83-bz2
+OK	php	8.3	calendar		php83-calendar
+OK	php	8.3	ctype		php83-ctype
+OK	php	8.3	curl		php83-curl
+OK	php	8.3	dom		php83-dom
+OK	php	8.3	exif		php83-exif
+OK	php	8.3	fileinfo		php83-fileinfo
+OK	php	8.3	ftp		php83-ftp
+OK	php	8.3	gd		php83-gd
+OK	php	8.3	gettext		php83-gettext
+OK	php	8.3	gmp		php83-gmp
+OK	php	8.3	iconv		php83-iconv
+OK	php	8.3	imagick		php83-pecl-imagick
+OK	php	8.3	intl		php83-intl
+OK	php	8.3	ldap		php83-ldap
+OK	php	8.3	mbstring		php83-mbstring
+OK	php	8.3	memcached		php83-pecl-memcached
+OK	php	8.3	mysqli		php83-mysqli
+OK	php	8.3	opcache		php83-opcache
+OK	php	8.3	openssl		php83-openssl
+OK	php	8.3	pcntl		php83-pcntl
+OK	php	8.3	pdo_mysql		php83-pdo_mysql
+OK	php	8.3	pdo_pgsql		php83-pdo_pgsql
+OK	php	8.3	pdo_sqlite		php83-pdo_sqlite
+OK	php	8.3	pgsql		php83-pgsql
+OK	php	8.3	phar		php83-phar
+OK	php	8.3	posix		php83-posix
+OK	php	8.3	redis		php83-pecl-redis
+OK	php	8.3	simplexml		php83-simplexml
+OK	php	8.3	soap		php83-soap
+OK	php	8.3	sockets		php83-sockets
+OK	php	8.3	sodium		php83-sodium
+OK	php	8.3	sqlite3		php83-sqlite3
+OK	php	8.3	tokenizer		php83-tokenizer
+OK	php	8.3	xml		php83-dom
+OK	php	8.3	xml		php83-simplexml
+OK	php	8.3	xml		php83-xml
+OK	php	8.3	xsl		php83-xsl
+OK	php	8.3	zip		php83-zip
+OK	php	8.3			php83
+OK	php	8.3			php83-fpm
+OK	php	8.4	apcu		php84-pecl-apcu
+OK	php	8.4	bcmath		php84-bcmath
+OK	php	8.4	bz2		php84-bz2
+OK	php	8.4	calendar		php84-calendar
+OK	php	8.4	ctype		php84-ctype
+OK	php	8.4	curl		php84-curl
+OK	php	8.4	dom		php84-dom
+OK	php	8.4	exif		php84-exif
+OK	php	8.4	fileinfo		php84-fileinfo
+OK	php	8.4	ftp		php84-ftp
+OK	php	8.4	gd		php84-gd
+OK	php	8.4	gettext		php84-gettext
+OK	php	8.4	gmp		php84-gmp
+OK	php	8.4	iconv		php84-iconv
+OK	php	8.4	imagick		php84-pecl-imagick
+OK	php	8.4	intl		php84-intl
+OK	php	8.4	ldap		php84-ldap
+OK	php	8.4	mbstring		php84-mbstring
+OK	php	8.4	memcached		php84-pecl-memcached
+OK	php	8.4	mysqli		php84-mysqli
+OK	php	8.4	opcache		php84-opcache
+OK	php	8.4	openssl		php84-openssl
+OK	php	8.4	pcntl		php84-pcntl
+OK	php	8.4	pdo_mysql		php84-pdo_mysql
+OK	php	8.4	pdo_pgsql		php84-pdo_pgsql
+OK	php	8.4	pdo_sqlite		php84-pdo_sqlite
+OK	php	8.4	pgsql		php84-pgsql
+OK	php	8.4	phar		php84-phar
+OK	php	8.4	posix		php84-posix
+OK	php	8.4	redis		php84-pecl-redis
+OK	php	8.4	simplexml		php84-simplexml
+OK	php	8.4	soap		php84-soap
+OK	php	8.4	sockets		php84-sockets
+OK	php	8.4	sodium		php84-sodium
+OK	php	8.4	sqlite3		php84-sqlite3
+OK	php	8.4	tokenizer		php84-tokenizer
+OK	php	8.4	xml		php84-dom
+OK	php	8.4	xml		php84-simplexml
+OK	php	8.4	xml		php84-xml
+OK	php	8.4	xsl		php84-xsl
+OK	php	8.4	zip		php84-zip
+OK	php	8.4			php84
+OK	php	8.4			php84-fpm
+OK	python	3.12	pip		py3-pip
+OK	python	3.12			py3-gunicorn
+OK	python	3.12			python3~=3.12
+OK	sftp	distro			openssh-keygen
+OK	sftp	distro			openssh-server
+OK	utilities	distro	bash		bash
+OK	utilities	distro	ca-certificates		ca-certificates
+OK	utilities	distro	curl		curl
+OK	utilities	distro	ghostscript		ghostscript
+OK	utilities	distro	imagemagick		imagemagick
+OK	utilities	distro	jq		jq
+OK	utilities	distro	msmtp		msmtp
+OK	utilities	distro	tzdata		tzdata

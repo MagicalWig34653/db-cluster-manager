@@ -512,7 +512,7 @@ func (c *Catalog) php(b *build) {
 	b.copies = append(b.copies,
 		fmt.Sprintf("COPY php/php-fpm.conf %s/php/php-fpm.conf", confRoot),
 		fmt.Sprintf("COPY php/pool.conf %s/php/pool.d/www.conf", confRoot))
-	b.checks = append(b.checks, fmt.Sprintf("RUN %s -t -y %s/php/php-fpm.conf", phpBin, confRoot))
+	b.checks = append(b.checks, fmt.Sprintf("RUN %s -R -t -y %s/php/php-fpm.conf", phpBin, confRoot))
 	if b.role == RoleFPM {
 		b.writable = append(b.writable, "/var/www/html")
 		b.expose = fpmPort

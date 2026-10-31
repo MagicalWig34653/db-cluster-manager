@@ -64,3 +64,17 @@ func TestModuleSwitchAndRoutes(t *testing.T) {
 	wantStatus(t, admin.do("PUT", "/api/v1/modules/vuln", map[string]bool{"enabled": false}), http.StatusOK)
 	wantError(t, admin.do("GET", "/api/v1/vuln/findings", nil), http.StatusNotFound, errModuleDisabled)
 }
+
+// Lab E17: a body without "enabled" used to read as false and switched the
+// module off. It is a bad request and changes nothing.
+func TestModulePutRequiresEnabled(t *testing.T) {
+	f := newFixture(t)
+	admin, _, _ := f.setupAdmin("admin")
+	f.useModules(t, func(string) []string { return nil })
+	wantStatus(t, admin.do("PUT", "/api/v1/modules/vuln", map[string]bool{"enabled": true}), http.StatusOK)
+	wantError(t, admin.do("PUT", "/api/v1/modules/vuln", map[string]string{}), http.StatusBadRequest, errBadRequest)
+	wantError(t, admin.do("PUT", "/api/v1/modules/vuln", map[string]any{"enabled": nil}), http.StatusBadRequest, errBadRequest)
+	if r := admin.do("GET", "/api/v1/vuln/findings", nil); r.Code == http.StatusNotFound {
+		t.Fatalf("module was switched off by a body without enabled: %s", r.Body)
+	}
+}

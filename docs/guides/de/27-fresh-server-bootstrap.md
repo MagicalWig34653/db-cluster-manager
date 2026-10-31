@@ -2,11 +2,11 @@
 title: Frischen Server aufnehmen
 ---
 
-# Frischen Server aufnehmen [Nur simulierter Host; nichts lief bisher gegen einen echten Server]
+# Frischen Server aufnehmen [Im Labor mit einem Harness auf Debian 12 und AlmaLinux 9 gelaufen; API und Assistent nicht auf VMs]
 
 Der Bootstrap-Assistent ([ADR 0027](../../decisions/0027-fresh-server-bootstrap.md), Anforderung X18) macht einen frisch installierten Linux-Server, den Sie administrieren, zu einem verwalteten Host. Sie geben einmal Root-Zugang (oder sudo) per SSH ein; der Manager prüft den Server, zeigt einen Plan aus geprüften Skripten und ändert nichts, bis Sie den SSH-Hostschlüssel bestätigen und den Plan freigeben. Er baut auf dem SSH-Plan-Ablauf aus [Anleitung 19](19-provisioning.md) und den Agenten aus [Anleitung 24](24-agent-runtimes.md) auf.
 
-**Stand.** Plan-Generator, Ausführung, API und Assistent sind nur gegen einen simulierten Host im Arbeitsspeicher getestet. Kein Skript lief auf einem echten Server, es wurde kein Docker-Repository-Schlüssel heruntergeladen und keine VM benutzt. Der Managed-Manager verdrahtet das Backend hinter `manager.serverBootstrap.enabled` (Standard aus, siehe „Aktivieren“); bei ausgeschaltetem Schalter antworten die Routen mit 503. Die Verdrahtung ist nur mit Fakes geprüft. Richten Sie ihn nicht auf einen Server, den Sie nicht neu aufsetzen können.
+**Stand.** Plan-Generator, Ausführung, API und Assistent sind gegen einen simulierten Host im Arbeitsspeicher getestet. Im Laborlauf [E17](../../../tests/p0/results/e17-bootstrap.md) liefen Plan und Ausführung mit dem echten SSH-Runner gegen eine frische Debian-12-VM (Schlüssel-Login) und eine frische AlmaLinux-9-VM (Passwort-Login, einschließlich der separat freigegebenen Absicherung): Firewall, Docker aus dem Hersteller-Repository, Swarm-Init und die Absicherung funktionierten nach drei Korrekturen (Speicher-Parsing, gpg, ein eigener Docker-rpm-Schlüssel-Fingerabdruck). Ubuntu, Rocky, Alpine, der Native-Agent-Schritt, die Cluster-Beitritts-Schritte und der Weg über HTTP-API und Assistent liefen nicht auf einem echten Host. Der Managed-Manager verdrahtet das Backend hinter `manager.serverBootstrap.enabled` (Standard aus, siehe „Aktivieren“); bei ausgeschaltetem Schalter antworten die Routen mit 503. Die Verdrahtung ist nur mit Fakes geprüft. Richten Sie ihn nicht auf einen Server, den Sie nicht neu aufsetzen können.
 
 ## Unterstützte Systeme
 

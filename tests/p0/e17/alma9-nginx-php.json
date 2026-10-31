@@ -1,0 +1,38 @@
+{
+ "name": "e17-alma-web",
+ "base": {
+  "distro": "almalinux",
+  "release": "9",
+  "digest": "sha256:245f8aab832fe800aa42bdab5fad75ebbd8e0b4c9f24820a83c638b177857ae2"
+ },
+ "platforms": [
+  "linux/arm64"
+ ],
+ "components": [
+  {
+   "id": "nginx",
+   "version": "1.26"
+  },
+  {
+   "id": "php",
+   "version": "8.3",
+   "features": [
+    "mysqli",
+    "pdo_mysql",
+    "mbstring",
+    "opcache",
+    "zip",
+    "gd",
+    "intl",
+    "curl",
+    "xml"
+   ],
+   "settings": {
+    "memory_limit": "256M",
+    "upload_max_filesize": "64M",
+    "post_max_size": "64M",
+    "date.timezone": "Europe/Berlin"
+   }
+  }
+ ]
+}

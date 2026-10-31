@@ -129,6 +129,22 @@ func parsePatchFlags(args []string) (patchOptions, error) {
 	return o, nil
 }
 
+// ensureResticCacheDir points restic's cache below the agent state directory
+// unless the operator set RESTIC_CACHE_DIR. Without it restic uses
+// $HOME/.cache, and the apply-mode unit (root, ProtectHome=true) has no
+// writable home: every command failed with "unable to open cache: read-only
+// file system" (lab E17).
+func ensureResticCacheDir(stateDir string) error {
+	if os.Getenv("RESTIC_CACHE_DIR") != "" {
+		return nil
+	}
+	dir := filepath.Join(stateDir, "restic-cache")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("restic cache directory: %w", err)
+	}
+	return os.Setenv("RESTIC_CACHE_DIR", dir)
+}
+
 func runPatch(ctx context.Context, args []string, stdout, logw io.Writer, ready func(addr string)) error {
 	o, err := parsePatchFlags(args)
 	if err != nil {
@@ -166,6 +182,9 @@ func runPatch(ctx context.Context, args []string, stdout, logw io.Writer, ready 
 	svc := &patch.AgentService{Collector: col, Guard: guard, AllowApply: o.allowApply, State: state, Info: o.info}
 	var resticHandler agent.Handler
 	if o.info.Has(agentrt.Restic) {
+		if err := ensureResticCacheDir(o.stateDir); err != nil {
+			return err
+		}
 		ex, err := agent.NewExecutor(agent.Config{
 			InstallationID: cmp.Or(o.installation, "native-lab"), StatePath: filepath.Join(o.stateDir, resticStateFileName), VolumeBase: o.stateDir,
 			Guard: guard, Info: o.info, ResticRunner: resticRunner, ResticProbeTimeout: resticProbe, SecretsDir: o.secretsDir, ResticAllowedPaths: o.resticAllowPaths, NodeID: o.hostID,

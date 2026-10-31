@@ -4,8 +4,8 @@ FROM docker.io/library/debian:trixie-slim@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 LABEL org.opencontainers.image.title="mc crossplay" \
       org.opencontainers.image.base.name="docker.io/library/debian:trixie-slim" \
       org.opencontainers.image.base.digest="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
-      dbcm.recipe-digest="sha256:7d95f0c2e5b84a532f37317282840e8640d58efdff3ae06c7d670ead36352b20" \
-      dbcm.catalog-version="2026.10.30-2" \
+      dbcm.recipe-digest="sha256:800fd0f48cade02e112250123ca4f8a5f1a7e25a035279c8e997489856a45760" \
+      dbcm.catalog-version="2026.10.31-1" \
       dbcm.generator-version="2"
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \

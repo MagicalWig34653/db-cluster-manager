@@ -4,8 +4,8 @@ FROM docker.io/library/ubuntu:24.04@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 LABEL org.opencontainers.image.title="fpm only" \
       org.opencontainers.image.base.name="docker.io/library/ubuntu:24.04" \
       org.opencontainers.image.base.digest="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
-      dbcm.recipe-digest="sha256:8abd0524d2271d783894da78c5b7aa8e4fd02f42996a287d1624abde2a37dde9" \
-      dbcm.catalog-version="2026.10.30-2" \
+      dbcm.recipe-digest="sha256:d01014aea815866971aca6ff96f59af3a8402323b812acef77d2478ebf0e6ffd" \
+      dbcm.catalog-version="2026.10.31-1" \
       dbcm.generator-version="2"
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -23,7 +23,7 @@ COPY php/php-fpm.conf /etc/dbcm/php/php-fpm.conf
 COPY php/pool.conf /etc/dbcm/php/pool.d/www.conf
 ENV HOME=/tmp
 ENV PHP_INI_SCAN_DIR=:/etc/dbcm/php/conf.d
-RUN php-fpm8.3 -t -y /etc/dbcm/php/php-fpm.conf
+RUN php-fpm8.3 -R -t -y /etc/dbcm/php/php-fpm.conf
 USER 10001:10001
 EXPOSE 9000
 CMD ["php-fpm8.3", "-F", "-y", "/etc/dbcm/php/php-fpm.conf"]

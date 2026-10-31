@@ -1,0 +1,97 @@
+OK	apache	2.4			httpd
+OK	backuptools	distro	openssh-client		openssh-clients
+OK	backuptools	distro	rsync		rsync
+OK	dbclients	distro	mariadb-client		mariadb
+OK	dbclients	distro	postgresql-client		postgresql
+OK	dbclients	distro	redis-cli		redis
+OK	dbclients	distro	sqlite		sqlite
+OK	java	17			java-17-openjdk-headless
+OK	java	21			java-21-openjdk-headless
+OK	nginx	1.22		nginx:1.22	nginx
+OK	nginx	1.24		nginx:1.24	nginx
+OK	nginx	1.26		nginx:1.26	nginx
+OK	node	20	npm	nodejs:20	npm
+OK	node	20		nodejs:20	nodejs
+OK	node	22	npm	nodejs:22	npm
+OK	node	22		nodejs:22	nodejs
+OK	php	8.1	apcu	php:8.1	php-pecl-apcu
+OK	php	8.1	bcmath	php:8.1	php-bcmath
+OK	php	8.1	dom	php:8.1	php-xml
+OK	php	8.1	gd	php:8.1	php-gd
+OK	php	8.1	gmp	php:8.1	php-gmp
+OK	php	8.1	intl	php:8.1	php-intl
+OK	php	8.1	ldap	php:8.1	php-ldap
+OK	php	8.1	mbstring	php:8.1	php-mbstring
+OK	php	8.1	mysqli	php:8.1	php-mysqlnd
+OK	php	8.1	opcache	php:8.1	php-opcache
+OK	php	8.1	pcntl	php:8.1	php-process
+OK	php	8.1	pdo_mysql	php:8.1	php-mysqlnd
+OK	php	8.1	pdo_pgsql	php:8.1	php-pgsql
+OK	php	8.1	pdo_sqlite	php:8.1	php-pdo
+OK	php	8.1	pgsql	php:8.1	php-pgsql
+OK	php	8.1	posix	php:8.1	php-process
+OK	php	8.1	simplexml	php:8.1	php-xml
+OK	php	8.1	soap	php:8.1	php-soap
+OK	php	8.1	sqlite3	php:8.1	php-pdo
+OK	php	8.1	xml	php:8.1	php-xml
+OK	php	8.1	xsl	php:8.1	php-xml
+OK	php	8.1	zip	php:8.1	php-pecl-zip
+OK	php	8.1		php:8.1	php-cli
+OK	php	8.1		php:8.1	php-fpm
+OK	php	8.2	apcu	php:8.2	php-pecl-apcu
+OK	php	8.2	bcmath	php:8.2	php-bcmath
+OK	php	8.2	dom	php:8.2	php-xml
+OK	php	8.2	gd	php:8.2	php-gd
+OK	php	8.2	gmp	php:8.2	php-gmp
+OK	php	8.2	intl	php:8.2	php-intl
+OK	php	8.2	ldap	php:8.2	php-ldap
+OK	php	8.2	mbstring	php:8.2	php-mbstring
+OK	php	8.2	mysqli	php:8.2	php-mysqlnd
+OK	php	8.2	opcache	php:8.2	php-opcache
+OK	php	8.2	pcntl	php:8.2	php-process
+OK	php	8.2	pdo_mysql	php:8.2	php-mysqlnd
+OK	php	8.2	pdo_pgsql	php:8.2	php-pgsql
+OK	php	8.2	pdo_sqlite	php:8.2	php-pdo
+OK	php	8.2	pgsql	php:8.2	php-pgsql
+OK	php	8.2	posix	php:8.2	php-process
+OK	php	8.2	simplexml	php:8.2	php-xml
+OK	php	8.2	soap	php:8.2	php-soap
+OK	php	8.2	sqlite3	php:8.2	php-pdo
+OK	php	8.2	xml	php:8.2	php-xml
+OK	php	8.2	xsl	php:8.2	php-xml
+OK	php	8.2	zip	php:8.2	php-pecl-zip
+OK	php	8.2		php:8.2	php-cli
+OK	php	8.2		php:8.2	php-fpm
+OK	php	8.3	apcu	php:8.3	php-pecl-apcu
+OK	php	8.3	bcmath	php:8.3	php-bcmath
+OK	php	8.3	dom	php:8.3	php-xml
+OK	php	8.3	gd	php:8.3	php-gd
+OK	php	8.3	gmp	php:8.3	php-gmp
+OK	php	8.3	intl	php:8.3	php-intl
+OK	php	8.3	ldap	php:8.3	php-ldap
+OK	php	8.3	mbstring	php:8.3	php-mbstring
+OK	php	8.3	mysqli	php:8.3	php-mysqlnd
+OK	php	8.3	opcache	php:8.3	php-opcache
+OK	php	8.3	pcntl	php:8.3	php-process
+OK	php	8.3	pdo_mysql	php:8.3	php-mysqlnd
+OK	php	8.3	pdo_pgsql	php:8.3	php-pgsql
+OK	php	8.3	pdo_sqlite	php:8.3	php-pdo
+OK	php	8.3	pgsql	php:8.3	php-pgsql
+OK	php	8.3	posix	php:8.3	php-process
+OK	php	8.3	simplexml	php:8.3	php-xml
+OK	php	8.3	soap	php:8.3	php-soap
+OK	php	8.3	sqlite3	php:8.3	php-pdo
+OK	php	8.3	xml	php:8.3	php-xml
+OK	php	8.3	xsl	php:8.3	php-xml
+OK	php	8.3	zip	php:8.3	php-pecl-zip
+OK	php	8.3		php:8.3	php-cli
+OK	php	8.3		php:8.3	php-fpm
+OK	sftp	distro			openssh-server
+OK	utilities	distro	bash		bash
+OK	utilities	distro	ca-certificates		ca-certificates
+MISSING  Problem: problem with installed package curl-minimal-7.76.1-40.el9_8.8.aarch64	utilities	distro	curl		curl
+OK	utilities	distro	ghostscript		ghostscript
+MISSING No match for argument: ImageMagick	utilities	distro	imagemagick		ImageMagick
+OK	utilities	distro	jq		jq
+MISSING No match for argument: msmtp	utilities	distro	msmtp		msmtp
+OK	utilities	distro	tzdata		tzdata

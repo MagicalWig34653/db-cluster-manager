@@ -4,8 +4,8 @@ FROM docker.io/library/debian:trixie-slim@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 LABEL org.opencontainers.image.title="apache site" \
       org.opencontainers.image.base.name="docker.io/library/debian:trixie-slim" \
       org.opencontainers.image.base.digest="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
-      dbcm.recipe-digest="sha256:fea4cd7a6dee7572c141d21153bfd051074afd886251418b045e431b456334c7" \
-      dbcm.catalog-version="2026.10.30-2" \
+      dbcm.recipe-digest="sha256:3f4a512911aa2718d9c8518d4141cd1f000525001d857b1ae9db00f5e4810e7c" \
+      dbcm.catalog-version="2026.10.31-1" \
       dbcm.generator-version="2"
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -38,7 +38,7 @@ ENV LANG=de_DE.UTF-8
 ENV PHP_INI_SCAN_DIR=:/etc/dbcm/php/conf.d
 ENV TZ=Europe/Berlin
 RUN /usr/sbin/apache2 -t -f /etc/dbcm/apache/httpd.conf
-RUN php-fpm8.4 -t -y /etc/dbcm/php/php-fpm.conf
+RUN php-fpm8.4 -R -t -y /etc/dbcm/php/php-fpm.conf
 USER 10001:10001
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD ["curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8080/"]

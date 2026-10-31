@@ -241,11 +241,17 @@ func classify(err error, stderr []byte) error {
 	}
 	s := strings.ToLower(string(stderr))
 	switch {
-	case strings.Contains(s, "lock"):
+	// Match restic's messages, not bare words: a failure that passes through
+	// the repository opening code prints Go stack frames such as
+	// cmd/restic/lock.go and OpenRepository, so "lock" or "repository" alone
+	// classified an unwritable cache directory as a locked repository (lab
+	// E17).
+	case strings.Contains(s, "already locked"), strings.Contains(s, "unable to create lock"), strings.Contains(s, "failed to lock"):
 		return ErrLocked
 	case strings.Contains(s, "wrong password"), strings.Contains(s, "unauthorized"), strings.Contains(s, "access denied"):
 		return ErrAuthentication
-	case strings.Contains(s, "repository"), strings.Contains(s, "connection"):
+	case strings.Contains(s, "repository does not exist"), strings.Contains(s, "is there a repository at"), strings.Contains(s, "unable to open config file"),
+		strings.Contains(s, "connection"):
 		return ErrRepository
 	default:
 		// The runner error can include a binary path, but never pass through

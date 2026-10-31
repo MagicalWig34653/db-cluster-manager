@@ -1,0 +1,21 @@
+DRAFT status=awaiting-fingerprint hostkey=ssh-ed25519 SHA256:Qzb0Tsqe/ctc8WuusI8L1b7ACmt+s/EY2Wz+2p3w97Q
+PLAN status=planned blocked=false os=almalinux 9.8 arch=arm64 privilege=root docker="none" digest=7dac6c69f832ddca1957e0e04876c880b518ffd62ce56850aba5737153cf8ee6
+FINDING info ssh-audit: sshd currently allows root login (yes) and password authentication (yes). Nothing is changed unless the separately approved lockdown phase is selected.
+FINDING warn firewall-docker: Docker publishes container ports through its own firewall rules, which can bypass ufw and firewalld rules.
+STEP base-packages phase=baseline runAs=root mutating=true gate="": Install base packages (curl, sudo, certificates)
+STEP service-user phase=baseline runAs=root mutating=true gate="": Create the service user dbcm with sudo
+STEP sshd-audit phase=baseline runAs=root mutating=false gate="": Audit sshd settings (read-only, changes nothing)
+STEP firewall phase=baseline runAs=root mutating=true gate="": Enable the firewalld firewall (SSH is allowed first)
+STEP unattended-upgrades phase=baseline runAs=root mutating=true gate="": Enable dnf-automatic (security updates)
+STEP runtime-docker phase=runtime runAs=root mutating=true gate="": Install the Docker engine (download.docker.com/linux/centos (dnf))
+STEP cluster-swarm phase=cluster runAs=root mutating=true gate="": Swarm init
+STEP lockdown-install-key phase=lockdown runAs=root mutating=true gate="lockdown": Install the dedicated public key for dbcm
+STEP lockdown-verify-key phase=lockdown runAs=dedicated mutating=false gate="lockdown": Verify a login with the dedicated key and sudo (new connection)
+STEP lockdown-store-key phase=lockdown runAs=manager mutating=true gate="lockdown": Seal the dedicated private key in the manager (before anything is locked)
+STEP lockdown-disable-root phase=lockdown runAs=root mutating=true gate="lockdown": Disable SSH root login (with an automatic revert if confirmation fails)
+STEP lockdown-confirm phase=lockdown runAs=dedicated mutating=true gate="lockdown": Confirm over a new dedicated-key connection and cancel the automatic revert
+PROGRESS status=running base-packages=pending service-user=pending sshd-audit=pending firewall=pending unattended-upgrades=pending runtime-docker=pending cluster-swarm=pending lockdown-install-key=pending lockdown-verify-key=pending lockdown-store-key=pending lockdown-disable-root=pending lockdown-confirm=pending 
+PROGRESS status=running base-packages=succeeded service-user=succeeded sshd-audit=succeeded firewall=running unattended-upgrades=pending runtime-docker=pending cluster-swarm=pending lockdown-install-key=pending lockdown-verify-key=pending lockdown-store-key=pending lockdown-disable-root=pending lockdown-confirm=pending 
+PROGRESS status=running base-packages=succeeded service-user=succeeded sshd-audit=succeeded firewall=succeeded unattended-upgrades=running runtime-docker=pending cluster-swarm=pending lockdown-install-key=pending lockdown-verify-key=pending lockdown-store-key=pending lockdown-disable-root=pending lockdown-confirm=pending 
+PROGRESS status=paused base-packages=succeeded service-user=succeeded sshd-audit=succeeded firewall=succeeded unattended-upgrades=succeeded runtime-docker=unknown cluster-swarm=pending lockdown-install-key=pending lockdown-verify-key=pending lockdown-store-key=pending lockdown-disable-root=pending lockdown-confirm=pending 
+RESULT stopped status=paused error="provision: remote outcome unknown: step runtime-docker"

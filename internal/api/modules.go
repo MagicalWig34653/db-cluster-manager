@@ -37,13 +37,19 @@ func (s *server) handleModulePut(w http.ResponseWriter, r *http.Request, c *call
 		return
 	}
 	var in struct {
-		Enabled bool `json:"enabled"`
+		Enabled *bool `json:"enabled"`
 	}
 	if !decodeJSON(w, r, &in, false) {
 		return
 	}
+	// `enabled` is required: a body without it used to read as false and
+	// switched the module off (lab E17).
+	if in.Enabled == nil {
+		writeError(w, http.StatusBadRequest, errBadRequest)
+		return
+	}
 	id := r.PathValue("id")
-	switch err := s.cfg.Modules.Set(id, in.Enabled, c.subject.ID); {
+	switch err := s.cfg.Modules.Set(id, *in.Enabled, c.subject.ID); {
 	case errors.Is(err, modules.ErrUnknown):
 		writeError(w, http.StatusNotFound, errNotFound)
 	case errors.As(err, new(*modules.BlockedError)):
