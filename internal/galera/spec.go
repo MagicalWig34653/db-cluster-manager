@@ -9,6 +9,7 @@ import (
 	"math"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -224,9 +225,12 @@ type Cluster struct {
 	// Members are the node slots in cluster-address order. Slots are stable
 	// names ("n1", "n2", ...); a replaced node keeps its slot and therefore
 	// its service and DNS name, but gets a new node UUID and volume.
-	Members    []string   `json:"members"`
-	GcacheSize string     `json:"gcache_size,omitempty"` // default DefaultGcacheSize
-	TLS        TLSOptions `json:"tls"`
+	Members    []string `json:"members"`
+	GcacheSize string   `json:"gcache_size,omitempty"` // default DefaultGcacheSize
+	// Binlog turns the binary log on (ADR 0031): a cluster needs it for
+	// point-in-time recovery. Every node logs every replicated writeset.
+	Binlog bool       `json:"binlog,omitempty"`
+	TLS    TLSOptions `json:"tls"`
 	// DBUID and DBGID own the datadir and the socket directory; both zero
 	// selects DefaultDBUID/DefaultDBGID.
 	DBUID int `json:"db_uid,omitempty"`
@@ -355,8 +359,17 @@ func ServiceName(clusterName, slot string) string { return "dbcm-" + clusterName
 var managedArgs = []string{
 	"datadir", "socket", "wsrep_on", "wsrep_provider", "wsrep_cluster_name", "wsrep_cluster_address",
 	"wsrep_sst_method", "wsrep_sst_donor", "wsrep_new_cluster", "wsrep_provider_options",
-	"binlog_format", "innodb_autoinc_lock_mode",
+	"binlog_format", "innodb_autoinc_lock_mode", "log_bin", "log_slave_updates", "binlog_expire_logs_seconds",
 }
+
+// Binary log of a cluster created with Binlog: the files are named
+// BinlogBase.NNNNNN in the data directory and expire after
+// BinlogExpireSeconds. The archive job must run more often than that, or the
+// archive gets a gap (the job reports it).
+const (
+	BinlogBase          = "dbcm-bin"
+	BinlogExpireSeconds = 14 * 24 * 3600
+)
 
 func argKey(a string) string {
 	k, _, _ := strings.Cut(strings.TrimPrefix(a, "--"), "=")
@@ -469,6 +482,12 @@ func BuildServiceSpec(c Cluster, n Node, opt SpecOptions) (ServiceSpec, error) {
 		// 6 minutes; the pinned image sets skip-name-resolve itself).
 		"--skip_name_resolve=ON",
 		"--wsrep_provider_options=gcache.size=" + gcache,
+	}
+	if c.Binlog {
+		// log_slave_updates: replicated writesets reach the binary log on
+		// every node, so the backup's source node holds the full history.
+		args = append(args, "--log_bin="+DataDir+"/"+BinlogBase, "--log_slave_updates=ON",
+			"--binlog_expire_logs_seconds="+strconv.Itoa(BinlogExpireSeconds))
 	}
 	if opt.SSTDonor != "" {
 		args = append(args, "--wsrep_sst_donor="+ServiceName(c.Name, opt.SSTDonor)+",")

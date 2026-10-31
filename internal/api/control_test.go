@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/MagicalWig34653/db-cluster-manager/internal/authz"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/galera"
@@ -168,6 +169,20 @@ func (f *fakeBackups) StartBackup(_ context.Context, a authz.Subject, c string) 
 	return OperationRef{ID: "op-b", Kind: "dbbackup/backup"}, nil
 }
 
+func (f *fakeBackups) ProposePointInTime(_ context.Context, a authz.Subject, c string, at time.Time) (PointInTimeProposal, error) {
+	if err := f.record(a, "pitr %s %s", c, at.UTC().Format(time.RFC3339)); err != nil {
+		return PointInTimeProposal{}, err
+	}
+	return PointInTimeProposal{Cluster: c, At: at, Covered: true, Backup: "b1", Segments: 2, ApprovalRequired: true}, nil
+}
+
+func (f *fakeBackups) StartBinlogArchive(_ context.Context, a authz.Subject, c string) (OperationRef, error) {
+	if err := f.record(a, "binlog-archive %s", c); err != nil {
+		return OperationRef{}, err
+	}
+	return OperationRef{ID: "op-a", Kind: "dbbackup/binlog-archive"}, nil
+}
+
 func (f *fakeBackups) StartInspection(_ context.Context, a authz.Subject, in InspectionInput) (InspectionStarted, error) {
 	f.lastInsp = in
 	if err := f.record(a, "inspect %s", in.Cluster); err != nil {
@@ -272,6 +287,8 @@ var commandRoutes = []route{
 	{"PUT", "/api/v1/clusters/c1/backup-policy", map[string]any{"enabled": true, "schedule": "0 2 * * *"}},
 	{"POST", "/api/v1/clusters/c1/backups", nil},
 	{"POST", "/api/v1/restores/inspect", map[string]string{"cluster": "c1"}},
+	{"POST", "/api/v1/clusters/c1/binlog-archives", nil},
+	{"GET", "/api/v1/clusters/c1/pitr-proposal?at=2026-10-22T01:30:00Z", nil},
 	{"GET", "/api/v1/settings/notifications", nil},
 	{"PUT", "/api/v1/settings/notifications", map[string]any{"webhook": map[string]any{"enabled": false, "url": ""}, "email": map[string]any{"enabled": false, "recipients": []string{}}}},
 	{"POST", "/api/v1/settings/notifications/test", map[string]string{"channel": "webhook"}},
@@ -770,6 +787,41 @@ func TestBackupEndpoints(t *testing.T) {
 		t.Fatalf("%+v", cf.bak.lastInsp)
 	}
 	wantError(t, admin.do("POST", "/api/v1/restores/inspect", map[string]any{"cluster": "c1", "ttlMinutes": 100000}), http.StatusBadRequest, errBadRequest)
+}
+
+func TestPointInTimeEndpoints(t *testing.T) {
+	cf := newControlFixture(t)
+	op := cf.loggedIn("op", authz.RoleOperator, authz.SwarmScope("s1"))
+	// The operator may archive (backup permission) and look (read), but not restore.
+	wantStatus(t, op.do("POST", "/api/v1/clusters/c1/binlog-archives", nil), http.StatusAccepted)
+	wantStatus(t, op.do("GET", "/api/v1/clusters/c1/pitr-proposal?at=2026-10-22T01:30:00Z", nil), http.StatusOK)
+	viewer := cf.loggedIn("v", authz.RoleViewer, authz.SwarmScope("s1"))
+	wantError(t, viewer.do("POST", "/api/v1/clusters/c1/binlog-archives", nil), http.StatusForbidden, errForbidden)
+	wantStatus(t, viewer.do("GET", "/api/v1/clusters/c1/pitr-proposal?at=2026-10-22T01:30:00Z", nil), http.StatusOK)
+	wantError(t, op.do("POST", "/api/v1/restores/inspect", map[string]any{"cluster": "c1", "pointInTime": "2026-10-22T01:30:00Z"}), http.StatusForbidden, errForbidden)
+
+	admin, _, _ := cf.setupAdmin("admin")
+	r := admin.do("GET", "/api/v1/clusters/c1/pitr-proposal?at=2026-10-22T03:30:00%2B02:00", nil)
+	wantStatus(t, r, http.StatusOK)
+	var p PointInTimeProposal
+	r.decode(t, &p)
+	if !p.Covered || p.Backup != "b1" || !p.ApprovalRequired || p.InPlace || !strings.Contains(strings.Join(cf.bak.Calls(), ","), "admin:pitr c1 2026-10-22T01:30:00Z") {
+		t.Fatalf("%+v %v", p, cf.bak.Calls())
+	}
+	for _, q := range []string{"", "?at=yesterday", "?at=2026-10-22"} {
+		wantError(t, admin.do("GET", "/api/v1/clusters/c1/pitr-proposal"+q, nil), http.StatusBadRequest, errBadRequest)
+	}
+
+	r = admin.do("POST", "/api/v1/restores/inspect", map[string]any{"cluster": "c1", "pointInTime": "2026-10-22T01:30:00Z"})
+	wantStatus(t, r, http.StatusAccepted)
+	if cf.bak.lastInsp.PointInTime == nil || !cf.bak.lastInsp.PointInTime.Equal(time.Date(2026, 10, 22, 1, 30, 0, 0, time.UTC)) {
+		t.Fatalf("%+v", cf.bak.lastInsp)
+	}
+	// A time and a named backup contradict each other.
+	wantError(t, admin.do("POST", "/api/v1/restores/inspect", map[string]any{"cluster": "c1", "backup": "b1", "pointInTime": "2026-10-22T01:30:00Z"}), http.StatusBadRequest, errBadRequest)
+	// A reason from the planner reaches the caller as a conflict.
+	cf.bak.err = fmt.Errorf("%w: the archive ends at 02:00", ErrConflict)
+	wantError(t, admin.do("POST", "/api/v1/restores/inspect", map[string]any{"cluster": "c1", "pointInTime": "2026-10-22T05:30:00Z"}), http.StatusConflict, errConflict)
 }
 
 func TestNotificationSettingsSecretWriteOnly(t *testing.T) {

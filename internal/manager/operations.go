@@ -140,6 +140,7 @@ type CreateClusterRequest struct {
 	Network            string                 `json:"network"`
 	RootPasswordSecret string                 `json:"rootPasswordSecret"`
 	GcacheSize         string                 `json:"gcacheSize,omitempty"`
+	Binlog             bool                   `json:"binlog,omitempty"`
 	Resources          galera.Resources       `json:"resources"`
 	Placement          galera.PlacementPolicy `json:"placement"`
 	AutoReplace        bool                   `json:"autoReplace,omitempty"`
@@ -248,7 +249,7 @@ func (o *Operations) prepareCreateCluster(actor authz.Subject, req CreateCluster
 	clusterID := newID("clu")
 	plan, err := galera.PlanCreate(galera.Topology{
 		Cluster: galera.Cluster{InstallationID: st.InstallationID, ClusterID: clusterID, Name: req.Name, Image: req.Image,
-			Network: req.Network, RootPasswordSecret: req.RootPasswordSecret, GcacheSize: req.GcacheSize,
+			Network: req.Network, RootPasswordSecret: req.RootPasswordSecret, GcacheSize: req.GcacheSize, Binlog: req.Binlog,
 			Accounts: st.Accounts},
 		Size: req.Size, Resources: req.Resources,
 	}, hosts, req.Placement)

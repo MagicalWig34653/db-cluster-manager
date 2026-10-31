@@ -404,6 +404,14 @@ func (s *server) coreEndpoints() []endpoint {
 			action: authz.ActionBackup, resolve: s.resolveClusterBackups, hideUnreadable: true, handle: s.handleBackupStart,
 		},
 		{
+			method: "POST", path: "/clusters/{id}/binlog-archives", access: accessPermission,
+			action: authz.ActionBackup, resolve: s.resolveClusterBackups, hideUnreadable: true, handle: s.handleBinlogArchiveStart,
+		},
+		{
+			method: "GET", path: "/clusters/{id}/pitr-proposal", access: accessPermission,
+			action: authz.ActionRead, resolve: s.resolveClusterBackups, hideUnreadable: true, handle: s.handlePITRProposal,
+		},
+		{
 			method: "POST", path: "/restores/inspect", access: accessPermission,
 			action: authz.ActionRestore, resolve: s.resolveInspection, hideUnreadable: true, handle: s.handleInspectionStart,
 		},

@@ -274,6 +274,41 @@ type InspectionRequest struct {
 	// restore job and the instance service (a Swarm manager node, lab E4
 	// F12); empty keeps them on Host. Volume steps always run on Host.
 	ServiceHost string
+	// PITR, if set, makes this a point-in-time restore: after the instance
+	// is up, a replay job applies the archived binlog files to PITR.At.
+	PITR *PITRRequest
+}
+
+// PITRRequest adds the binlog replay to an inspection restore.
+type PITRRequest struct {
+	// At is the target time (events up to and including its second).
+	At time.Time
+	// Archives are the closed-binlog archives of the backup
+	// (ListBinlogArchives); the plan refuses a target they do not cover.
+	Archives []Manifest
+	// ReplaySecret holds the client option file of the replay account
+	// (RenderReplayOptions). The plan removes it after the replay; teardown
+	// removes it if it is left.
+	ReplaySecret string
+}
+
+// ReplayAccount is the account the replay job connects with. Only a PITR
+// session's init file creates it; the job drops it when the replay ends.
+const ReplayAccount = "dbcm_replay"
+
+// ReplaySecretName is the name of the replay option-file secret of a session.
+func ReplaySecretName(session string) string { return "dbcm-inspect-" + session + "-replay" }
+
+// ReplayJobName is the name of a session's replay job.
+func ReplayJobName(backupID, session string) string { return JobName(backupID, "pitr-"+session) }
+
+// RenderReplayOptions renders the replay job's client option file. The port
+// is the inspection instance's (it differs from 3306).
+func RenderReplayOptions(replayPassword string, port int) (string, error) {
+	if !hexPasswordRe.MatchString(replayPassword) || port < 1024 || port > 65535 {
+		return "", fmt.Errorf("%w: replay password must come from NewInspectionPassword", ErrInvalidRequest)
+	}
+	return "[client]\nuser=" + ReplayAccount + "\npassword=" + replayPassword + "\nport=" + strconv.Itoa(port) + "\n", nil
 }
 
 // InspectionSession is the durable record of an inspection instance. The
@@ -386,6 +421,19 @@ func InspectionRestorePlan(req InspectionRequest, inv Inventory) (InspectionResu
 		return InspectionResult{}, err
 	}
 	m := req.Source.Manifest
+	var segments []string
+	if req.PITR != nil {
+		if req.PITR.ReplaySecret == "" {
+			return InspectionResult{}, bad("replay secret required")
+		}
+		chain, err := ResolvePITR(m, req.PITR.Archives, req.PITR.At)
+		if err != nil {
+			return InspectionResult{}, err
+		}
+		for _, c := range chain {
+			segments = append(segments, c.Object)
+		}
+	}
 	sess := InspectionSession{
 		ID: req.SessionID, BackupID: m.BackupID, ClusterID: InspectionPrefix + req.SessionID, NodeUUID: nodeUUID,
 		HostID: req.Host.ID, Volume: "dbcm-inspect-" + req.SessionID + "-" + nodeUUID[:8],
@@ -420,6 +468,23 @@ func InspectionRestorePlan(req InspectionRequest, inv Inventory) (InspectionResu
 	s.add(gate("wait-restore", runner.Condition{Kind: CondRestoreComplete, Target: sess.JobName}))
 	s.add(command("remove-job", jobHost, agent.KindRemoveJob, agent.RemoveJobArgs{JobName: sess.JobName}))
 	s.add(command("create-instance", serviceTarget(req.ServiceHost, sess.HostID), agent.KindCreateService, spec))
+	if segments != nil {
+		svc := serviceTarget(req.ServiceHost, sess.HostID)
+		replayJob := ReplayJobName(m.BackupID, sess.ID)
+		rp := agent.RunRestoreArgs{
+			JobName: replayJob, Image: req.JobImage, Mode: agent.RestoreBinlog, BackupID: m.BackupID, Object: m.Object,
+			ApprovalID: req.ApprovalID, SourceClusterID: req.Source.ClusterID,
+			Segments: segments, StartOffset: m.BinlogBase.Offset, StopDatetime: ReplayStopDatetime(req.PITR.At),
+			DBHost: sess.ServiceName, Network: sess.Network, DBCredentialSecret: req.PITR.ReplaySecret,
+			BackendSecret: req.Source.BackendSecret, KeySecret: req.Source.KeySecret, Resources: req.Job,
+		}
+		s.add(command("replay", svc, agent.KindRunRestore, rp))
+		s.add(gate("wait-replay", runner.Condition{Kind: CondRestoreComplete, Target: replayJob}))
+		s.add(command("remove-replay-job", svc, agent.KindRemoveJob, agent.RemoveJobArgs{JobName: replayJob}))
+		rs := command("remove-replay-secret", svc, agent.KindRemoveSecret, agent.RemoveSecretArgs{Secret: req.PITR.ReplaySecret})
+		rs.RetryCodes = []agent.Code{agent.CodeSecretInUse}
+		s.add(rs)
+	}
 	// The manager evaluates CondRestoreVerified by probing the instance
 	// through the agent on its host and records a VerifyReport.
 	s.add(gate("verify", runner.Condition{Kind: CondRestoreVerified, Target: sess.ID}))
@@ -447,9 +512,12 @@ type TeardownRequest struct {
 	ServiceHost string
 	// InitSecret is the session's init secret (created by the manager for
 	// this session only); empty skips its removal.
-	InitSecret  string
-	StepTimeout time.Duration
-	MaxRetries  int
+	InitSecret string
+	// ReplaySecret is the session's replay option-file secret (point-in-time
+	// sessions); empty for plain inspections.
+	ReplaySecret string
+	StepTimeout  time.Duration
+	MaxRetries   int
 }
 
 // InitSecretName is the name of the init secret the manager creates for an
@@ -477,15 +545,26 @@ func TeardownPlanFor(req TeardownRequest, inv Inventory) (runner.Operation, erro
 	if err := inv.overlap(s.ClusterID, "", s.Network, []string{s.Volume}, []string{s.NodeUUID}, nil); err != nil {
 		return runner.Operation{}, err
 	}
+	if req.ReplaySecret != "" && req.ReplaySecret != ReplaySecretName(s.ID) {
+		return runner.Operation{}, fmt.Errorf("%w: secret %s is not the replay secret of session %s", ErrProductionTarget, req.ReplaySecret, s.ID)
+	}
 	svc := serviceTarget(req.ServiceHost, s.HostID)
 	st := &steps{b: BackupRequest{StepTimeout: req.StepTimeout, MaxRetries: req.MaxRetries}}
 	st.add(command("remove-job", svc, agent.KindRemoveJob, agent.RemoveJobArgs{JobName: s.JobName}))
+	if req.ReplaySecret != "" {
+		st.add(command("remove-replay-job", svc, agent.KindRemoveJob, agent.RemoveJobArgs{JobName: ReplayJobName(s.BackupID, s.ID)}))
+	}
 	if s.ServiceID != "" {
 		st.add(command("remove-instance", svc, agent.KindRemoveService, agent.ServiceArgs{ServiceID: s.ServiceID}))
 	}
 	if req.InitSecret != "" {
 		// After the instance: Docker refuses to remove a secret in use.
 		rs := command("remove-init-secret", svc, agent.KindRemoveSecret, agent.RemoveSecretArgs{Secret: req.InitSecret})
+		rs.RetryCodes = []agent.Code{agent.CodeSecretInUse}
+		st.add(rs)
+	}
+	if req.ReplaySecret != "" {
+		rs := command("remove-replay-secret", svc, agent.KindRemoveSecret, agent.RemoveSecretArgs{Secret: req.ReplaySecret})
 		rs.RetryCodes = []agent.Code{agent.CodeSecretInUse}
 		st.add(rs)
 	}
@@ -589,10 +668,30 @@ var (
 // verify that the instance answers (restore verification) with the
 // credentials it already has; no password is rendered for it.
 func RenderInspectionInitKeeping(password string, keep ...LocalAccount) (string, error) {
+	return renderInit(password, "", keep)
+}
+
+// RenderInspectionInitReplay is RenderInspectionInitKeeping for a
+// point-in-time session: it also creates ReplayAccount with full privileges,
+// which the replay job needs to apply the binlog files. The account is
+// reachable only on the session's isolated network; its password is known to
+// the replay job's option-file secret alone, and the job drops the account
+// when the replay ends.
+func RenderInspectionInitReplay(password, replayPassword string, keep ...LocalAccount) (string, error) {
+	if !hexPasswordRe.MatchString(replayPassword) {
+		return "", fmt.Errorf("%w: replay password must come from NewInspectionPassword", ErrInvalidRequest)
+	}
+	return renderInit(password, replayPassword, keep)
+}
+
+func renderInit(password, replayPassword string, keep []LocalAccount) (string, error) {
 	if !hexPasswordRe.MatchString(password) {
 		return "", fmt.Errorf("%w: inspection password must come from NewInspectionPassword", ErrInvalidRequest)
 	}
 	exempt := "(User = '" + InspectionAccount + "' AND Host = '%')"
+	if replayPassword != "" {
+		exempt += " OR (User = '" + ReplayAccount + "' AND Host = '%')"
+	}
 	for _, k := range keep {
 		if !accountUserRe.MatchString(k.User) || !localHosts[k.Host] || k.User == InspectionAccount {
 			return "", fmt.Errorf("%w: account %q@%q cannot stay unlocked (local accounts only)", ErrInvalidRequest, k.User, k.Host)
@@ -600,7 +699,16 @@ func RenderInspectionInitKeeping(password string, keep ...LocalAccount) (string,
 		exempt += " OR (User = '" + k.User + "' AND Host = '" + k.Host + "')"
 	}
 	acct := "'" + InspectionAccount + "'@'%'"
-	return strings.Join([]string{
+	var replay []string
+	if replayPassword != "" {
+		racct := "'" + ReplayAccount + "'@'%'"
+		replay = []string{
+			"CREATE USER IF NOT EXISTS " + racct + " IDENTIFIED BY '" + replayPassword + "';",
+			"ALTER USER " + racct + " IDENTIFIED BY '" + replayPassword + "' ACCOUNT UNLOCK;",
+			"GRANT ALL PRIVILEGES ON *.* TO " + racct + ";",
+		}
+	}
+	return strings.Join(append([]string{
 		"SET SESSION sql_log_bin=0;",
 		"STOP ALL SLAVES;",
 		"RESET SLAVE ALL;",
@@ -609,6 +717,13 @@ func RenderInspectionInitKeeping(password string, keep ...LocalAccount) (string,
 		"CREATE USER IF NOT EXISTS " + acct + " IDENTIFIED BY '" + password + "';",
 		"ALTER USER " + acct + " IDENTIFIED BY '" + password + "' ACCOUNT UNLOCK;",
 		"GRANT SELECT, SHOW VIEW, SHOW DATABASES, LOCK TABLES, EVENT, TRIGGER ON *.* TO " + acct + ";",
-		"",
-	}, "\n"), nil
+	}, append(replay, "")...), "\n"), nil
+}
+
+// ReplayStopDatetime is the --stop-datetime of the replay for target time at:
+// mariadb-binlog stops at the first event at or after it, so the second after
+// at's second includes every event of at's second. The job container runs in
+// UTC.
+func ReplayStopDatetime(at time.Time) string {
+	return at.UTC().Truncate(time.Second).Add(time.Second).Format("2006-01-02 15:04:05")
 }

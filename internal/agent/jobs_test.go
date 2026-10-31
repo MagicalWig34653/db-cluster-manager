@@ -282,6 +282,71 @@ func TestRunRestoreLogical(t *testing.T) {
 	}
 }
 
+func TestRunBackupBinlogArchiveMountsTheSourceReadOnly(t *testing.T) {
+	f := jobFixture(t)
+	initVolume(t, f.volume("galera-1"), testIdentity())
+	a := physicalBackupArgs(f)
+	a.Tool, a.JobName = ToolBinlogArchive, "dbcm-job-b1-arch-1"
+	spec := createdSpec(t, f, f.mustDo(1, "op", "s1", KindRunBackup, a))
+	if len(spec.Mounts) != 1 || !spec.Mounts[0].ReadOnly || spec.Mounts[0].Source != "vol-1" {
+		t.Fatalf("mounts %+v", spec.Mounts)
+	}
+	for _, want := range []string{"backup", "--tool=binlog-archive", "--datadir=/dbcm/data", "--object=c1-b1.xbs", "--backup-id=b1"} {
+		if !slices.Contains(spec.Args, want) {
+			t.Fatalf("args %v lack %s", spec.Args, want)
+		}
+	}
+	// Without the volume the job cannot read the files; a foreign node's
+	// volume marker is still verified.
+	a.SourceVolume = ""
+	if _, err := f.do(1, "op", "s2", KindRunBackup, a); !errors.Is(err, ErrInvalidCommand) {
+		t.Fatalf("archive without a source volume: %v", err)
+	}
+}
+
+func binlogRestoreArgs(f *fixture) RunRestoreArgs {
+	a := restoreArgs(f)
+	a.Mode, a.TargetVolume, a.TargetVolumeRoot, a.Expected = RestoreBinlog, "", "", Identity{}
+	a.JobName, a.DBHost, a.Network, a.DBCredentialSecret = "dbcm-job-b1-pitr-s1", "dbcm-inspect-s1", "cl-net", "sec-db"
+	a.Segments, a.StartOffset, a.StopDatetime = []string{"c1-b1-l000001.binlog.dbcms", "c1-b1-l000002.binlog.dbcms"}, 400, "2026-10-22 01:10:01"
+	return a
+}
+
+func TestRunRestoreBinlogReplay(t *testing.T) {
+	f := jobFixture(t)
+	spec := createdSpec(t, f, f.mustDo(1, "op", "s1", KindRunRestore, binlogRestoreArgs(f)))
+	if len(spec.Mounts) != 0 || !slices.Equal(spec.Networks, []string{"net-1"}) {
+		t.Fatalf("mounts %+v networks %v", spec.Mounts, spec.Networks)
+	}
+	for _, want := range []string{"restore", "--mode=binlog", "--db-host=dbcm-inspect-s1", "--db-option-file=/run/secrets/db-cred",
+		"--segments=c1-b1-l000001.binlog.dbcms,c1-b1-l000002.binlog.dbcms", "--start-offset=400", "--stop-datetime=2026-10-22 01:10:01", "--approval-id=appr-1"} {
+		if !slices.Contains(spec.Args, want) {
+			t.Fatalf("args %v lack %s", spec.Args, want)
+		}
+	}
+}
+
+func TestRunRestoreBinlogRefusals(t *testing.T) {
+	f := jobFixture(t)
+	for name, mut := range map[string]func(*RunRestoreArgs){
+		"production host":  func(a *RunRestoreArgs) { a.DBHost = "dbcm-prod-n1" },
+		"no approval":      func(a *RunRestoreArgs) { a.ApprovalID = "" },
+		"no segments":      func(a *RunRestoreArgs) { a.Segments = nil },
+		"bad segment":      func(a *RunRestoreArgs) { a.Segments = []string{"../x"} },
+		"bad stop time":    func(a *RunRestoreArgs) { a.StopDatetime = "tomorrow" },
+		"start in header":  func(a *RunRestoreArgs) { a.StartOffset = 2 },
+		"mounts a volume":  func(a *RunRestoreArgs) { a.TargetVolume = "vol-2" },
+		"names a database": func(a *RunRestoreArgs) { a.Database = "shop" },
+		"no credentials":   func(a *RunRestoreArgs) { a.DBCredentialSecret = "" },
+	} {
+		a := binlogRestoreArgs(f)
+		mut(&a)
+		if _, err := f.do(1, "op", "r-"+strings.ReplaceAll(name, " ", "-"), KindRunRestore, a); !errors.Is(err, ErrInvalidCommand) {
+			t.Fatalf("%s: got %v", name, err)
+		}
+	}
+}
+
 func TestJobLabelReservedAndJobsImmutable(t *testing.T) {
 	f := jobFixture(t)
 	s := spec("dbcm-job-fake")

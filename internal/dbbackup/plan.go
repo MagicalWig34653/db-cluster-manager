@@ -37,6 +37,7 @@ const (
 	OpInspection     = "dbbackup/inspection"
 	OpTeardown       = "dbbackup/inspection-teardown"
 	OpSelective      = "dbbackup/selective-restore"
+	OpBinlogArchive  = "dbbackup/binlog-archive"
 )
 
 // BackupRequest describes one backup run.
@@ -222,6 +223,79 @@ func BackupPlan(req BackupRequest, nodes []NodeState, p SourcePolicy) (BackupPla
 		return BackupPlanResult{}, err
 	}
 	return BackupPlanResult{Operation: op, Source: src, Objects: objects, Rejections: rej}, nil
+}
+
+// BinlogArchiveRequest describes one run of the archive job for a full backup.
+type BinlogArchiveRequest struct {
+	OpID string
+	// Base is the full backup (with a binlog position) the closed binlog
+	// files extend; they are read from the node it was taken from.
+	Base           Manifest
+	InstallationID string
+	ClusterName    string
+	JobImage       string
+	// Network, DBCredentialSecret, BackendSecret, RecipientKey, VolumeBase,
+	// Job, StepTimeout, MaxRetries and ServiceHost are as in BackupRequest.
+	Network            string
+	DBCredentialSecret string
+	BackendSecret      string
+	RecipientKey       string
+	VolumeBase         string
+	Job                agent.JobResources
+	ClusterSize        int
+	StepTimeout        time.Duration
+	MaxRetries         int
+	ServiceHost        string
+}
+
+// BinlogArchivePlan plans the archive job for the node the full backup was
+// taken from (the binlog files exist only there): gate on the node being
+// Synced, verify its volume identity, run the job (it rotates the log and
+// archives the closed files), wait for its report, remove it. A replaced
+// source node ends the chain: the plan refuses and a new full backup is
+// needed. The operation holds the same locks as a backup.
+func BinlogArchivePlan(req BinlogArchiveRequest, nodes []NodeState) (runner.Operation, NodeState, error) {
+	b := req.Base
+	bad := func(f string, a ...any) error { return fmt.Errorf("%w: %s", ErrInvalidRequest, fmt.Sprintf(f, a...)) }
+	switch {
+	case req.OpID == "" || req.InstallationID == "" || req.ClusterName == "":
+		return runner.Operation{}, NodeState{}, bad("op, installation and cluster name required")
+	case b.Method != MethodPhysical || b.BinlogBase == nil:
+		return runner.Operation{}, NodeState{}, bad("backup %s has no binlog position (the binary log was off when it ran)", b.BackupID)
+	case req.JobImage == "" || req.Network == "" || req.DBCredentialSecret == "" || req.BackendSecret == "" || req.RecipientKey == "" || !filepath.IsAbs(req.VolumeBase):
+		return runner.Operation{}, NodeState{}, bad("job image, network, secrets, recipient key and absolute volume base required")
+	case req.Job.NanoCPUs <= 0 || req.Job.MemoryBytes <= 0:
+		return runner.Operation{}, NodeState{}, bad("job CPU and memory limits required")
+	}
+	var src *NodeState
+	for i := range nodes {
+		if nodes[i].NodeUUID == b.SourceNodeUUID {
+			src = &nodes[i]
+		}
+	}
+	if src == nil || src.HostID == "" || src.Volume == "" {
+		return runner.Operation{}, NodeState{}, fmt.Errorf("%w: the node backup %s was taken from no longer exists (replaced); its binlog files are gone, take a new full backup", ErrNoSource, b.BackupID)
+	}
+	expected := agent.Identity{InstallationID: req.InstallationID, ClusterID: b.ClusterID, NodeUUID: src.NodeUUID}
+	root := filepath.Join(req.VolumeBase, src.Volume)
+	a := agent.RunBackupArgs{
+		JobName: JobName(b.BackupID, "arch-"+req.OpID), Image: req.JobImage, Tool: agent.ToolBinlogArchive, BackupID: b.BackupID,
+		Object: b.Object, Expected: expected, SourceVolume: src.Volume, SourceVolumeRoot: root,
+		DBHost: galera.ServiceName(req.ClusterName, src.Slot), Network: req.Network, DBCredentialSecret: req.DBCredentialSecret,
+		BackendSecret: req.BackendSecret, RecipientKey: req.RecipientKey, Resources: req.Job,
+	}
+	jobHost := src.HostID
+	if req.ServiceHost != "" && req.ServiceHost != src.HostID {
+		jobHost, a.NodeID = req.ServiceHost, src.HostID
+	}
+	s := &steps{b: BackupRequest{StepTimeout: req.StepTimeout, MaxRetries: req.MaxRetries}}
+	s.add(gate("check-source"), runner.Condition{Kind: runner.CondNodeSynced, Target: src.Slot, ClusterSize: req.ClusterSize})
+	s.add(command("verify-identity", src.HostID, agent.KindVerifyIdentity, agent.VerifyIdentityArgs{VolumeRoot: root, Expected: expected}))
+	s.add(command("run-archive", jobHost, agent.KindRunBackup, a))
+	s.add(gate("wait-archive", runner.Condition{Kind: CondRestoreComplete, Target: a.JobName}))
+	s.add(command("remove-job", jobHost, agent.KindRemoveJob, agent.RemoveJobArgs{JobName: a.JobName}))
+	op := runner.Operation{ID: req.OpID, Kind: OpBinlogArchive, Locks: []string{"cluster/" + b.ClusterID, "node/" + b.ClusterID + "/" + src.Slot}, Steps: s.list}
+	return op, *src, op.Validate()
 }
 
 // destructive reports whether a step of a restore operation needs approval:

@@ -3,25 +3,28 @@ package dbbackup
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/MagicalWig34653/db-cluster-manager/internal/agent"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/backup"
-	"github.com/MagicalWig34653/db-cluster-manager/internal/runner"
 )
 
-// BinlogPosition is a MariaDB file/byte boundary. Only event boundaries supplied
-// by an inspected archive are meaningful; the groundwork does not parse events.
+// Point-in-time recovery (ADR 0021, ADR 0031): closed binlog files of the
+// backup's source node are archived next to the full backup (archive job),
+// and a restore replays them on top of an isolated restore of that backup
+// (replay job). This file holds the archive model and the pure chain logic.
+
+// BinlogPosition is a MariaDB file/byte boundary.
 type BinlogPosition struct {
 	File   string `json:"file"`
 	Offset uint64 `json:"offset"`
@@ -53,7 +56,9 @@ func ParseBinlogInfo(s string) (BinlogPosition, error) {
 
 // BinlogRange describes a closed file, explicitly tied to one full backup and
 // one source history. From/Until are conservative coverage boundaries, not a
-// claim that event timestamps are monotonic. No source failover is inferred.
+// claim that event timestamps are monotonic: From is the previous file's
+// Until (the first file's first event), Until the file's last event. No
+// source failover is inferred.
 type BinlogRange struct {
 	BasePosition BinlogPosition `json:"base_position"`
 	BaseFinished time.Time      `json:"base_finished"`
@@ -67,7 +72,7 @@ type BinlogRange struct {
 }
 
 func (r BinlogRange) Validate() error {
-	if !r.BasePosition.Valid() || r.BaseFinished.IsZero() || !backupIDRe.MatchString(r.BaseBackupID) || r.HistoryID == "" || r.Sequence == 0 || !r.Start.Valid() || r.Start.Offset != 4 || !r.End.Valid() || r.Start.File != r.End.File || r.End.Offset <= r.Start.Offset || r.From.IsZero() || !r.Until.After(r.From) {
+	if !r.BasePosition.Valid() || r.BaseFinished.IsZero() || !backupIDRe.MatchString(r.BaseBackupID) || r.HistoryID == "" || r.Sequence == 0 || !r.Start.Valid() || r.Start.Offset != 4 || !r.End.Valid() || r.Start.File != r.End.File || r.End.Offset <= r.Start.Offset || r.From.IsZero() || r.Until.Before(r.From) {
 		return fmt.Errorf("%w: closed binlog range", ErrInvalidManifest)
 	}
 	return nil
@@ -79,8 +84,7 @@ func (r BinlogRange) binding() string {
 }
 
 // ArchiveBinlog encrypts supplied closed-file bytes to the full backup's target,
-// writing the manifest last. Callers must establish closure and event boundaries;
-// no continuous archiver or MariaDB configuration is enabled by this function.
+// writing the manifest last. Callers must establish closure and event boundaries.
 func ArchiveBinlog(ctx context.Context, be backup.Backend, pub backup.StreamPublicKey, base Manifest, id string, r BinlogRange, input io.Reader, now time.Time) (Manifest, error) {
 	if err := base.Validate(); err != nil {
 		return Manifest{}, err
@@ -135,201 +139,198 @@ func ArchiveBinlog(ctx context.Context, be backup.Backend, pub backup.StreamPubl
 	return m, nil
 }
 
-// VerifyBinlog checks the authenticated header binding and keyed digests before
-// a fake replay receives a segment. A tampered range cannot redirect a replay.
-func VerifyBinlog(ctx context.Context, be backup.Backend, m Manifest, key backup.RecoveryKey) error {
+// openBinlog opens a segment, authenticates it against its manifest (header
+// binding, keyed chunk digests) and returns the plaintext reader. The caller
+// must read to EOF and then call check, which compares the totals.
+func openBinlog(ctx context.Context, be backup.Backend, m Manifest, key backup.RecoveryKey) (io.Reader, func() error, func() error, error) {
 	if err := m.Validate(); err != nil {
-		return err
+		return nil, nil, nil, err
 	}
 	if m.Method != MethodBinlog {
-		return ErrInvalidManifest
+		return nil, nil, nil, ErrInvalidManifest
 	}
 	raw, err := be.Get(ctx, m.Object)
 	if err != nil {
-		return err
+		return nil, nil, nil, err
 	}
-	defer raw.Close()
 	stream, err := backup.OpenStream(raw, key)
 	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(io.Discard, stream); err != nil {
-		return err
+		_ = raw.Close()
+		return nil, nil, nil, err
 	}
 	meta := stream.Meta()
 	if meta.Binding != m.Binlog.binding() || meta.Kind != string(MethodBinlog) || meta.BackupID != m.BackupID || meta.ClusterID != m.ClusterID || meta.SourceNodeUUID != m.SourceNodeUUID {
-		return fmt.Errorf("%w: binlog metadata binding", ErrInvalidManifest)
+		_ = raw.Close()
+		return nil, nil, nil, fmt.Errorf("%w: binlog metadata binding", ErrInvalidManifest)
 	}
-	return backup.CompareSummary(stream.Summary(), m.Stream)
+	return stream, func() error { return backup.CompareSummary(stream.Summary(), m.Stream) }, raw.Close, nil
 }
 
-// PITRTarget selects exactly one stop condition. Time replay needs MariaDB event
-// semantics validation in the lab; it is deliberately available only to fakes.
-type PITRTarget struct {
-	Time     *time.Time      `json:"time,omitempty"`
-	Position *BinlogPosition `json:"position,omitempty"`
-}
-
-type PITRPlan struct {
-	BasePosition BinlogPosition   `json:"base_position"`
-	Inspection   InspectionResult `json:"inspection"`
-	Segments     []Manifest       `json:"segments"`
-	Target       PITRTarget       `json:"target"`
-	Digest       string           `json:"digest"`
-}
-
-func (p PITRPlan) digest() string {
-	p.Digest = ""
-	b, _ := json.Marshal(p)
-	h := sha256.Sum256(b)
-	return hex.EncodeToString(h[:])
-}
-
-// PlanPITR preserves all inspection isolation and approval gates. Its replay
-// description is separate from agent commands: there is no production executor.
-func PlanPITR(req InspectionRequest, inv Inventory, archives []Manifest, target PITRTarget) (PITRPlan, error) {
-	bad := func() (PITRPlan, error) {
-		return PITRPlan{}, fmt.Errorf("%w: PITR gap, identity or target", ErrInvalidRequest)
-	}
-	base := req.Source.Manifest
-	if base.BinlogBase == nil || (target.Time == nil) == (target.Position == nil) {
-		return bad()
-	}
-	if target.Time != nil && target.Time.Before(base.Finished) {
-		return bad()
-	}
-	if target.Position != nil && !target.Position.Valid() {
-		return bad()
-	}
-	files := append([]Manifest(nil), archives...)
-	sort.Slice(files, func(i, j int) bool {
-		if files[i].Binlog == nil {
-			return false
-		}
-		if files[j].Binlog == nil {
-			return true
-		}
-		return files[i].Binlog.Sequence < files[j].Binlog.Sequence
-	})
-	plan := PITRPlan{Target: target, BasePosition: *base.BinlogBase}
-	var prev *BinlogRange
-	reached := false
-	for _, m := range files {
-		if err := m.Validate(); err != nil {
-			return PITRPlan{}, err
-		}
-		r := m.Binlog
-		if r == nil || m.ClusterID != base.ClusterID || m.SourceNodeUUID != base.SourceNodeUUID || r.BaseBackupID != base.BackupID || r.BasePosition != *base.BinlogBase || !r.BaseFinished.Equal(base.Finished) {
-			return bad()
-		}
-		if prev == nil {
-			if r.Sequence != 1 || r.Start.File != base.BinlogBase.File || r.Start.Offset > base.BinlogBase.Offset || r.End.Offset < base.BinlogBase.Offset || r.From.After(base.Finished) {
-				return bad()
-			}
-		} else {
-			prefix, n, _ := binlogNumber(prev.Start.File)
-			nextPrefix, nextN, _ := binlogNumber(r.Start.File)
-			if r.Sequence != prev.Sequence+1 || r.HistoryID != prev.HistoryID || prefix != nextPrefix || nextN != n+1 || r.Start.Offset != 4 || !r.From.Equal(prev.Until) {
-				return bad()
-			}
-		}
-		plan.Segments = append(plan.Segments, m)
-		if target.Time != nil {
-			reached = !target.Time.After(r.Until)
-		} else {
-			reached = target.Position.File == r.Start.File && target.Position.Offset >= r.Start.Offset && target.Position.Offset <= r.End.Offset
-			if prev == nil && target.Position.File == base.BinlogBase.File && target.Position.Offset < base.BinlogBase.Offset {
-				return bad()
-			}
-		}
-		if reached {
-			break
-		}
-		prev = r
-	}
-	if !reached {
-		return bad()
-	}
-	inspection, err := InspectionRestorePlan(req, inv)
+// VerifyBinlog checks the authenticated header binding and keyed digests of
+// an archived segment. A tampered range cannot redirect a replay.
+func VerifyBinlog(ctx context.Context, be backup.Backend, m Manifest, key backup.RecoveryKey) error {
+	r, check, closeFn, err := openBinlog(ctx, be, m, key)
 	if err != nil {
-		return PITRPlan{}, err
+		return err
 	}
-	// PITR always includes the existing agent target guard explicitly, even
-	// when job and target are on the same host. RunRestore still checks again.
-	for i, step := range inspection.Operation.Steps {
-		if step.Command != agent.KindRunRestore {
+	defer closeFn()
+	if _, err := io.Copy(io.Discard, r); err != nil {
+		return err
+	}
+	return check()
+}
+
+// ErrPITRNotCovered reports that the binlog archive cannot restore a backup
+// to the requested time. The message names the reason (no archive, a missing
+// file, a changed history, or a time later than the last archived event).
+var ErrPITRNotCovered = errors.New("dbbackup: point in time not covered by the binlog archive")
+
+func notCovered(f string, a ...any) error {
+	return fmt.Errorf("%w: %s", ErrPITRNotCovered, fmt.Sprintf(f, a...))
+}
+
+// BinlogArchivePrefix is the object-name prefix of all closed-binlog
+// archives of one full backup.
+func BinlogArchivePrefix(clusterID, baseBackupID string) string {
+	return clusterID + "-" + baseBackupID + "-l"
+}
+
+// BinlogArchiveID is the backup ID of the closed file with the given
+// sequence (1 = the file that holds the base position).
+func BinlogArchiveID(baseBackupID string, sequence uint64) string {
+	return fmt.Sprintf("%s-l%06d", baseBackupID, sequence)
+}
+
+// ListBinlogArchives returns the manifests of all closed-binlog archives of
+// one full backup, in sequence order. A manifest that cannot be read or is
+// not an archive of this backup is an error: skipping it would look like a gap.
+func ListBinlogArchives(ctx context.Context, be backup.Backend, clusterID, baseBackupID string) ([]Manifest, error) {
+	objs, err := be.List(ctx, BinlogArchivePrefix(clusterID, baseBackupID))
+	if err != nil {
+		return nil, err
+	}
+	var out []Manifest
+	for _, o := range objs {
+		object, ok := strings.CutSuffix(o.Name, ".manifest.json")
+		if !ok {
 			continue
 		}
-		if i > 0 && inspection.Operation.Steps[i-1].Command == agent.KindCheckRestoreTarget {
-			break
+		m, err := readManifest(ctx, be, object)
+		if err != nil {
+			return nil, err
 		}
-		var a agent.RunRestoreArgs
-		if err := json.Unmarshal(step.Args, &a); err != nil {
-			return PITRPlan{}, err
+		if m.Method != MethodBinlog || m.Binlog.BaseBackupID != baseBackupID {
+			return nil, fmt.Errorf("%w: %s is not a binlog archive of %s", ErrInvalidManifest, object, baseBackupID)
 		}
-		guard := command("pitr-check-restore-target", req.Host.ID, agent.KindCheckRestoreTarget, agent.CheckRestoreTargetArgs{TargetVolume: a.TargetVolume, TargetVolumeRoot: a.TargetVolumeRoot, Expected: a.Expected})
-		guard.Preconditions = append([]runner.Condition(nil), step.Preconditions...)
-		guard.Timeout, guard.MaxRetries = step.Timeout, step.MaxRetries
-		inspection.Operation.Steps[i].Preconditions = append(inspection.Operation.Steps[i].Preconditions, runner.Condition{Kind: runner.CondStepSucceeded, StepID: guard.ID})
-		inspection.Operation.Steps = slices.Insert(inspection.Operation.Steps, i, guard)
-		break
+		out = append(out, m)
 	}
-	if err := inspection.Operation.Validate(); err != nil {
-		return PITRPlan{}, err
-	}
-	plan.Inspection = inspection
-	plan.Digest = plan.digest()
-	return plan, nil
+	slices.SortFunc(out, func(a, b Manifest) int { return cmp.Compare(a.Binlog.Sequence, b.Binlog.Sequence) })
+	return out, nil
 }
 
-// PITRFakeExecutor is intentionally not an agent transport. Implementations in
-// tests record target checks, the isolated restore and ordered replay requests.
-// There is no implementation that runs mariadb-binlog or promotes a cluster.
-type PITRFakeExecutor interface {
-	CheckRestoreTarget(context.Context, agent.CheckRestoreTargetArgs) error
-	InspectionRestore(context.Context, InspectionResult) error
-	Replay(context.Context, Manifest, BinlogPosition, PITRTarget) error
+// BinlogCoverage is what the archive of one full backup can restore: every
+// time from From (the backup's end) to just before Until.
+type BinlogCoverage struct {
+	Segments int       `json:"segments"`
+	From     time.Time `json:"from"`
+	Until    time.Time `json:"until,omitzero"`
+	// Gap is why the chain stops early; empty when every archived file is
+	// part of the chain.
+	Gap string `json:"gap,omitempty"`
 }
 
-func ExecutePITRFake(ctx context.Context, p PITRPlan, approvedDigest string, be backup.Backend, key backup.RecoveryKey, fake PITRFakeExecutor) error {
-	if approvedDigest == "" || approvedDigest != p.Digest || p.Digest != p.digest() {
-		return ErrApprovalRequired
+// binlogChain returns the contiguous prefix of the archives that starts at
+// the base backup's position, and the reason the chain stops early (empty if
+// all archives are in it). Archives whose identity does not match the base
+// are an error, not a gap: they are not this backup's history.
+func binlogChain(base Manifest, archives []Manifest) (chain []Manifest, gap string, err error) {
+	if base.Method != MethodPhysical || base.BinlogBase == nil {
+		return nil, "", notCovered("backup %s has no binlog position (the binary log was off when it ran)", base.BackupID)
 	}
-	// Verify all segments before the fake target or restore can have effects.
-	for _, m := range p.Segments {
-		if err := VerifyBinlog(ctx, be, m, key); err != nil {
-			return err
+	files := slices.Clone(archives)
+	for _, m := range files {
+		if m.Binlog == nil {
+			return nil, "", fmt.Errorf("%w: %s is not a binlog archive", ErrInvalidManifest, m.BackupID)
 		}
 	}
-	s := p.Inspection.Session
-	var expected agent.Identity
-	for _, step := range p.Inspection.Operation.Steps {
-		if step.Command == agent.KindRunRestore {
-			b, _ := json.Marshal(step.Args)
-			var a agent.RunRestoreArgs
-			if err := json.Unmarshal(b, &a); err != nil {
-				return err
-			}
-			expected = a.Expected
+	slices.SortFunc(files, func(a, b Manifest) int { return cmp.Compare(a.Binlog.Sequence, b.Binlog.Sequence) })
+	var prev *BinlogRange
+	for _, m := range files {
+		if err := m.Validate(); err != nil {
+			return nil, "", err
+		}
+		r := m.Binlog
+		if m.ClusterID != base.ClusterID || m.SourceNodeUUID != base.SourceNodeUUID || r.BaseBackupID != base.BackupID || r.BasePosition != *base.BinlogBase || !r.BaseFinished.Equal(base.Finished) {
+			return nil, "", fmt.Errorf("%w: archive %s does not belong to backup %s", ErrIdentityMismatch, m.BackupID, base.BackupID)
+		}
+		switch {
+		case prev == nil && r.Sequence != 1:
+			gap = fmt.Sprintf("the first archived file has sequence %d; file %s (sequence 1) is missing", r.Sequence, base.BinlogBase.File)
+		case prev == nil && (r.Start.File != base.BinlogBase.File || r.End.Offset < base.BinlogBase.Offset || r.From.After(base.Finished)):
+			gap = fmt.Sprintf("archived file %s does not contain the backup position %s:%d", r.Start.File, base.BinlogBase.File, base.BinlogBase.Offset)
+		case prev != nil && r.Sequence != prev.Sequence+1:
+			gap = fmt.Sprintf("sequence %d is missing after %d", prev.Sequence+1, prev.Sequence)
+		case prev != nil && r.HistoryID != prev.HistoryID:
+			gap = fmt.Sprintf("the binlog history changed after sequence %d (source node or log reset)", prev.Sequence)
+		case prev != nil && !followsFile(prev.Start.File, r.Start.File):
+			gap = fmt.Sprintf("file %s does not follow %s", r.Start.File, prev.Start.File)
+		case prev != nil && !r.From.Equal(prev.Until):
+			gap = fmt.Sprintf("time coverage is not continuous after sequence %d", prev.Sequence)
+		}
+		if gap != "" {
+			return chain, gap, nil
+		}
+		chain = append(chain, m)
+		prev = r
+	}
+	return chain, "", nil
+}
+
+func followsFile(prev, next string) bool {
+	prefix, n, _ := binlogNumber(prev)
+	nextPrefix, nextN, _ := binlogNumber(next)
+	return prefix == nextPrefix && nextN == n+1
+}
+
+// CoverageOf summarizes what the archives of a full backup cover.
+func CoverageOf(base Manifest, archives []Manifest) (BinlogCoverage, error) {
+	chain, gap, err := binlogChain(base, archives)
+	if err != nil {
+		return BinlogCoverage{}, err
+	}
+	c := BinlogCoverage{Segments: len(chain), From: base.Finished, Gap: gap}
+	if len(chain) > 0 {
+		c.Until = chain[len(chain)-1].Binlog.Until
+	}
+	return c, nil
+}
+
+// ResolvePITR returns the segments to replay on top of base to reach at: the
+// chain from the base position up to the first file whose last event is later
+// than at. Replay includes every event up to and including the second of at.
+// Event times are only second-precise and not assumed monotonic, so a time at
+// or after the last archived event is not covered.
+func ResolvePITR(base Manifest, archives []Manifest, at time.Time) ([]Manifest, error) {
+	if at.IsZero() {
+		return nil, fmt.Errorf("%w: target time required", ErrInvalidRequest)
+	}
+	if at.Before(base.Finished) {
+		return nil, notCovered("%s is before backup %s finished (%s); pick an older time or a newer backup", at.UTC().Format(time.RFC3339), base.BackupID, base.Finished.UTC().Format(time.RFC3339))
+	}
+	chain, gap, err := binlogChain(base, archives)
+	if err != nil {
+		return nil, err
+	}
+	for i, m := range chain {
+		if at.Before(m.Binlog.Until) {
+			return chain[:i+1], nil
 		}
 	}
-	if !strings.HasPrefix(expected.ClusterID, InspectionPrefix) {
-		return ErrProductionTarget
+	switch {
+	case gap != "":
+		return nil, notCovered("%s", gap)
+	case len(chain) == 0:
+		return nil, notCovered("no closed binlog file is archived for backup %s", base.BackupID)
 	}
-	if err := fake.CheckRestoreTarget(ctx, agent.CheckRestoreTargetArgs{TargetVolume: s.Volume, TargetVolumeRoot: s.VolumeRoot, Expected: expected}); err != nil {
-		return err
-	}
-	if err := fake.InspectionRestore(ctx, p.Inspection); err != nil {
-		return err
-	}
-	for i, m := range p.Segments {
-		start := m.Binlog.Start
-		if i == 0 {
-			start = p.BasePosition
-		}
-		if err := fake.Replay(ctx, m, start, p.Target); err != nil {
-			return err
-		}
-	}
-	return nil
+	return nil, notCovered("the archive ends at %s; later changes are not archived yet", chain[len(chain)-1].Binlog.Until.UTC().Format(time.RFC3339))
 }

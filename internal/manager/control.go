@@ -289,7 +289,8 @@ func MapCommandError(err error) error {
 		errors.Is(err, galera.ErrReplacementPaused), errors.Is(err, ErrMissingServiceID), errors.Is(err, ErrConflict), errors.Is(err, ErrAbortLeavesNodeStopped),
 		errors.Is(err, galera.ErrNoCandidate), errors.Is(err, ErrCandidateMismatch), errors.Is(err, ErrNoKeyring),
 		errors.Is(err, galera.ErrMaintenanceUnsafe), errors.Is(err, ErrInMaintenance), errors.Is(err, ErrNotInMaintenance),
-		errors.Is(err, dbbackup.ErrNoSource), errors.Is(err, dbbackup.ErrProductionTarget), errors.Is(err, dbbackup.ErrIdentityMismatch):
+		errors.Is(err, dbbackup.ErrNoSource), errors.Is(err, dbbackup.ErrProductionTarget), errors.Is(err, dbbackup.ErrIdentityMismatch),
+		errors.Is(err, dbbackup.ErrPITRNotCovered):
 		sentinel = api.ErrConflict
 	case errors.Is(err, galera.ErrInvalidTopology), errors.Is(err, galera.ErrInvalidSpec), errors.Is(err, ErrUnknownReference), errors.Is(err, dbbackup.ErrInvalidRequest),
 		errors.Is(err, dbbackup.ErrSchedule), errors.Is(err, ErrInvalidSettings), errors.Is(err, ErrNotVoter), errors.Is(err, dbbackup.ErrNoNextRun), errors.Is(err, dbbackup.ErrInvalidManifest):

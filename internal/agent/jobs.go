@@ -75,6 +75,10 @@ const (
 	ToolMariabackup BackupTool = "mariabackup"
 	// ToolMariadbDump takes a logical export of exactly one database.
 	ToolMariadbDump BackupTool = "mariadb-dump"
+	// ToolBinlogArchive archives the closed binlog files of the source node
+	// (point-in-time recovery). It mounts the source volume read-only like a
+	// physical backup; BackupID and Object name the full backup it extends.
+	ToolBinlogArchive BackupTool = "binlog-archive"
 )
 
 // RestoreMode is an allow-listed restore mode.
@@ -87,6 +91,9 @@ const (
 	RestorePhysical RestoreMode = "physical"
 	// RestoreLogical loads one database export into a running target.
 	RestoreLogical RestoreMode = "logical"
+	// RestoreBinlog replays archived binlog files into a running instance
+	// (point-in-time recovery); BackupID and Object name the full backup.
+	RestoreBinlog RestoreMode = "binlog"
 )
 
 // JobResources are the mandatory limits of a job.
@@ -147,6 +154,13 @@ type RunRestoreArgs struct {
 	TargetVolume     string   `json:"target_volume,omitempty"`
 	TargetVolumeRoot string   `json:"target_volume_root,omitempty"`
 	Expected         Identity `json:"expected"`
+	// Binlog: the archived segment objects in replay order, the byte offset
+	// in the first one where the backup ends, and the exclusive stop time
+	// ("2006-01-02 15:04:05", UTC). DBHost, Network and DBCredentialSecret
+	// name the running instance and the account to replay with.
+	Segments     []string `json:"segments,omitempty"`
+	StartOffset  uint64   `json:"start_offset,omitempty"`
+	StopDatetime string   `json:"stop_datetime,omitempty"`
 	// Logical: the export's database and the target database name.
 	Database           string `json:"database,omitempty"`
 	TargetDatabase     string `json:"target_database,omitempty"`
@@ -192,16 +206,27 @@ var (
 )
 
 var (
-	jobNameRe   = regexp.MustCompile(`^dbcm-job-[a-z0-9][a-z0-9-]{0,79}$`)
-	backupIDRe  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
-	objectRe    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,200}$`)
-	dbNameRe    = regexp.MustCompile(`^[A-Za-z0-9_]{1,64}$`)
-	hostRe      = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9.-]{0,252}[A-Za-z0-9])?$`)
-	secretRe    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
-	pubKeyRe    = regexp.MustCompile(`^dbcmpk1:[A-Za-z0-9_-]{43}$`)
-	approvalRe  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
-	reservedDBs = map[string]bool{"mysql": true, "sys": true, "information_schema": true, "performance_schema": true}
+	jobNameRe  = regexp.MustCompile(`^dbcm-job-[a-z0-9][a-z0-9-]{0,79}$`)
+	backupIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+	objectRe   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,200}$`)
+	dbNameRe   = regexp.MustCompile(`^[A-Za-z0-9_]{1,64}$`)
+	hostRe     = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9.-]{0,252}[A-Za-z0-9])?$`)
+	secretRe   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+	pubKeyRe   = regexp.MustCompile(`^dbcmpk1:[A-Za-z0-9_-]{43}$`)
+	approvalRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
+	// stopDatetimeRe is a UTC wall-clock time as mariadb-binlog reads it.
+	stopDatetimeRe = regexp.MustCompile(`^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$`)
+	reservedDBs    = map[string]bool{"mysql": true, "sys": true, "information_schema": true, "performance_schema": true}
 )
+
+// InspectionServicePrefix starts the service name of every inspection
+// instance (dbbackup.InspectionSession.ServiceName); a binlog replay refuses
+// any other target, so it can never write into a production database.
+const InspectionServicePrefix = "dbcm-inspect-"
+
+// maxReplaySegments bounds the binlog files of one replay (the job helper
+// receives them in one argument).
+const maxReplaySegments = 256
 
 func checkResources(r JobResources) error {
 	if r.NanoCPUs <= 0 || r.MemoryBytes <= 0 {
@@ -240,9 +265,9 @@ func checkRunBackup(a *RunBackupArgs, volumeBase string) error {
 		return invalid("recipient_key must be a dbcmpk1 public key")
 	}
 	switch a.Tool {
-	case ToolMariabackup:
+	case ToolMariabackup, ToolBinlogArchive:
 		if a.SourceVolume == "" || a.Database != "" {
-			return invalid("mariabackup needs source_volume and no database")
+			return invalid("%s needs source_volume and no database", a.Tool)
 		}
 		if err := checkVolumeRoot(a.SourceVolumeRoot, volumeBase); err != nil {
 			return err
@@ -284,6 +309,24 @@ func checkRunRestore(a *RunRestoreArgs, volumeBase string) error {
 		if err := checkVolumeRoot(a.TargetVolumeRoot, volumeBase); err != nil {
 			return err
 		}
+	case RestoreBinlog:
+		if a.TargetVolume != "" || a.TargetVolumeRoot != "" || a.Database != "" || a.TargetDatabase != "" {
+			return invalid("binlog replay takes no volume or database")
+		}
+		if !hostRe.MatchString(a.DBHost) || a.Network == "" || !secretRe.MatchString(a.DBCredentialSecret) {
+			return invalid("db_host, network and db_credential_secret required")
+		}
+		if !strings.HasPrefix(a.DBHost, InspectionServicePrefix) {
+			return invalid("binlog replay only targets an inspection instance (db_host %q)", a.DBHost)
+		}
+		if len(a.Segments) == 0 || len(a.Segments) > maxReplaySegments || a.StartOffset < 4 || !stopDatetimeRe.MatchString(a.StopDatetime) {
+			return invalid("binlog replay needs 1..%d segments, a start offset and a stop time", maxReplaySegments)
+		}
+		for _, o := range a.Segments {
+			if !objectRe.MatchString(o) {
+				return invalid("segment %q", o)
+			}
+		}
 	case RestoreLogical:
 		if a.TargetVolume != "" || a.TargetVolumeRoot != "" {
 			return invalid("logical restore does not mount a volume")
@@ -319,7 +362,7 @@ func BackupJobArgs(a RunBackupArgs, dbSecretName, backendSecretName string) []st
 		"--backend-config=" + filepath.Join(SecretsDir, backendSecretName),
 		"--recipient=" + a.RecipientKey,
 	}
-	if a.Tool == ToolMariabackup {
+	if a.Tool == ToolMariabackup || a.Tool == ToolBinlogArchive {
 		args = append(args, "--datadir="+JobDataDir)
 	} else {
 		args = append(args, "--database="+a.Database)
@@ -340,9 +383,13 @@ func RestoreJobArgs(a RunRestoreArgs, secretNames map[string]string) []string {
 		"--backend-config=" + filepath.Join(SecretsDir, secretNames[a.BackendSecret]),
 		"--key-file=" + filepath.Join(SecretsDir, secretNames[a.KeySecret]),
 	}
-	if a.Mode == RestorePhysical {
+	switch a.Mode {
+	case RestorePhysical:
 		args = append(args, "--datadir="+JobDataDir, "--target-cluster-id="+a.Expected.ClusterID)
-	} else {
+	case RestoreBinlog:
+		args = append(args, "--db-host="+a.DBHost, "--db-option-file="+filepath.Join(SecretsDir, secretNames[a.DBCredentialSecret]),
+			"--segments="+strings.Join(a.Segments, ","), "--start-offset="+strconv.FormatUint(a.StartOffset, 10), "--stop-datetime="+a.StopDatetime)
+	default:
 		args = append(args, "--database="+a.Database, "--target-database="+a.TargetDatabase,
 			"--db-host="+a.DBHost, "--db-option-file="+filepath.Join(SecretsDir, secretNames[a.DBCredentialSecret]))
 	}
@@ -419,9 +466,10 @@ func (e *Executor) runBackup(ctx context.Context, cmd Command, a RunBackupArgs) 
 	if !ok {
 		return res
 	}
-	if a.Tool == ToolMariabackup && delegated {
+	hasVolume := a.Tool == ToolMariabackup || a.Tool == ToolBinlogArchive
+	if hasVolume && delegated {
 		spec.Mounts = []Mount{{Type: "volume", Source: a.SourceVolume, Target: JobVolumeTarget, ReadOnly: true}}
-	} else if a.Tool == ToolMariabackup {
+	} else if hasVolume {
 		root, res, ok := e.ownedVolumeAt(ctx, a.SourceVolume, a.SourceVolumeRoot)
 		if !ok {
 			return res

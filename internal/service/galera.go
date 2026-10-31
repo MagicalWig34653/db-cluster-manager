@@ -57,6 +57,7 @@ type GaleraSpec struct {
 	Network            string                 `json:"network"`
 	RootPasswordSecret string                 `json:"rootPasswordSecret"`
 	GcacheSize         string                 `json:"gcacheSize,omitempty"`
+	Binlog             bool                   `json:"binlog,omitempty"`
 	Resources          galera.Resources       `json:"resources"`
 	Placement          galera.PlacementPolicy `json:"placement"`
 	AutoReplace        bool                   `json:"autoReplace,omitempty"`
@@ -113,7 +114,7 @@ func (g Galera) Topology(in GaleraInput) (galera.Topology, galera.PlacementPolic
 	}
 	return galera.Topology{
 		Cluster: galera.Cluster{InstallationID: in.InstallationID, ClusterID: in.ServiceID, Name: in.Name, Image: s.Image,
-			Network: s.Network, RootPasswordSecret: s.RootPasswordSecret, GcacheSize: s.GcacheSize, Accounts: in.Accounts},
+			Network: s.Network, RootPasswordSecret: s.RootPasswordSecret, GcacheSize: s.GcacheSize, Binlog: s.Binlog, Accounts: in.Accounts},
 		Size: s.Size, Resources: s.Resources, NewUUID: g.NewUUID,
 	}, s.Placement, nil
 }

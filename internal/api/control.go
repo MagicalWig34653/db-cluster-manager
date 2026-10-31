@@ -130,6 +130,7 @@ type CreateClusterRequest struct {
 	Network            string                 `json:"network"`
 	RootPasswordSecret string                 `json:"rootPasswordSecret"`
 	GcacheSize         string                 `json:"gcacheSize,omitempty"`
+	Binlog             bool                   `json:"binlog,omitempty"`
 	Resources          galera.Resources       `json:"resources"`
 	Placement          galera.PlacementPolicy `json:"placement"`
 	AutoReplace        bool                   `json:"autoReplace,omitempty"`
@@ -345,6 +346,9 @@ type InspectionInput struct {
 	KeySecret string `json:"keySecret,omitempty"`
 	// TTLMinutes bounds the instance lifetime (default 240).
 	TTLMinutes int `json:"ttlMinutes,omitempty"`
+	// PointInTime restores the newest backup that ended before it and
+	// replays the archived binary log up to its second (Backup must be empty).
+	PointInTime *time.Time `json:"pointInTime,omitempty"`
 }
 
 // InspectionStarted is the result of starting an inspection. The
@@ -362,6 +366,7 @@ type InspectionStarted struct {
 	Approval           OperationApproval `json:"approval"`
 	InspectionAccount  string            `json:"inspectionAccount"`
 	InspectionPassword string            `json:"inspectionPassword"`
+	PointInTime        *time.Time        `json:"pointInTime,omitempty"`
 }
 
 // Backups runs backup commands.

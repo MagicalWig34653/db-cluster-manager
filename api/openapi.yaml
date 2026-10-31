@@ -1753,6 +1753,69 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
+  /clusters/{id}/binlog-archives:
+    post:
+      summary: Archive the closed binary log files now
+      description: >-
+        Point-in-time recovery needs the cluster's binary log (created with
+        binlog true). Starts an owned one-shot job on the node the newest
+        completed physical backup with a binlog position was taken from: it
+        rotates the log and encrypts every closed file from that backup's
+        position on to the backup target (one archive per file, manifest
+        last; files already archived are skipped, so a run with nothing new
+        is a no-op). Archived files expire with their backup under the
+        retention policy. Run it more often than the binary log expires
+        (14 days) or the archive gets a gap; the job fails with the reason
+        instead of archiving across a gap. conflict (409) when the cluster
+        has no completed backup with a binlog position, when the source node
+        was replaced (take a new full backup), or while another operation
+        locks the cluster. Needs the backup permission on the cluster;
+        audited.
+      operationId: startBinlogArchive
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      responses:
+        "202":
+          description: Operation started
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OperationRef" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /clusters/{id}/pitr-proposal:
+    get:
+      summary: Propose a point-in-time restore
+      description: >-
+        Read-only. Chooses the newest completed physical backup that ended
+        before the requested time and checks the binary log archive of that
+        backup for a contiguous chain up to the time. The answer is always
+        200: covered true with the backup and the number of binlog files to
+        replay, or covered false with the reason (no binary log, no archive,
+        a missing file or time range, a changed history, a time after the
+        last archived event) and what the archive does cover. Events up to
+        and including the second of the requested time are replayed. Nothing
+        is started: the restore is POST /restores/inspect with pointInTime,
+        which creates a NEW isolated instance and waits for an approval; a
+        point-in-time restore never overwrites the production cluster. Needs
+        the read permission on the cluster's backups.
+      operationId: proposePointInTimeRestore
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+        - { name: at, in: query, required: true, schema: { type: string, format: date-time } }
+      responses:
+        "200":
+          description: Proposal
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PointInTimeProposal" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
   /restores/inspect:
     post:
       summary: Start an isolated inspection restore
@@ -1788,6 +1851,20 @@ paths:
                 host: { type: string, description: Explicitly approved Swarm node ID }
                 keySecret: { type: string, description: Swarm secret with the recovery key; default from settings }
                 ttlMinutes: { type: integer, minimum: 0, maximum: 1440 }
+                pointInTime:
+                  type: string
+                  format: date-time
+                  description: >-
+                    Point-in-time restore: restores the newest backup that
+                    ended before this time and replays the archived binary
+                    log up to and including its second, in the same new
+                    isolated instance. backup must be empty. The plan is
+                    refused (409, with the reason) when the archive does not
+                    cover the time; see GET /clusters/{id}/pitr-proposal. A
+                    replay step, its gate and the removal of the replay job
+                    and secret join the operation; the approval digest
+                    covers them. The instance is read-only for the inspection
+                    account like any inspection instance.
       responses:
         "202":
           description: Operation started, waiting for approval
@@ -4326,7 +4403,7 @@ components:
           description: >-
             Type-specific desired state; strict, no secret values. galera: the
             fields of the cluster creation request other than swarm and name
-            (size, image, network, rootPasswordSecret, gcacheSize, resources,
+            (size, image, network, rootPasswordSecret, gcacheSize, binlog, resources,
             placement, autoReplace).
     ServiceDeleteInput:
       type: object
@@ -4778,6 +4855,7 @@ components:
         network: { type: string, description: Attachable overlay network }
         rootPasswordSecret: { type: string, description: Name of an existing Swarm secret (never the password) }
         gcacheSize: { type: string }
+        binlog: { type: boolean, description: "Turn the binary log on (point-in-time recovery); every node then logs every replicated writeset" }
         resources:
           type: object
           required: [limits, reservations]
@@ -4946,6 +5024,29 @@ components:
         approval: { $ref: "#/components/schemas/OperationApproval" }
         inspectionAccount: { type: string }
         inspectionPassword: { type: string, description: Returned only once, here }
+        pointInTime: { type: string, format: date-time, description: Set for a point-in-time restore }
+    PointInTimeProposal:
+      type: object
+      required: [cluster, at, covered]
+      properties:
+        cluster: { type: string }
+        at: { type: string, format: date-time }
+        covered: { type: boolean }
+        reason: { type: string, description: Why the time is not covered; empty when covered }
+        backup: { type: string, description: The backup that would be restored; empty when no backup ended before the time }
+        backupFinishedAt: { type: string, format: date-time }
+        segments: { type: integer, description: Binary log files the replay applies }
+        coverage:
+          type: object
+          description: What the archive of that backup covers (earliest = the backup's end)
+          required: [segments, from]
+          properties:
+            segments: { type: integer }
+            from: { type: string, format: date-time }
+            until: { type: string, format: date-time, description: Exclusive end of the covered range }
+            gap: { type: string, description: Why the chain stops before the newest archived file }
+        approvalRequired: { type: boolean, description: Always true; the restore waits for an approval of its plan }
+        inPlace: { type: boolean, description: Always false; the restore goes to a new isolated instance }
     NotificationSettings:
       type: object
       required: [minSeverity, webhook, email]

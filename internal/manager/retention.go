@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/MagicalWig34653/db-cluster-manager/internal/api"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/backup"
@@ -120,7 +121,12 @@ func (b *Backups) retainCluster(ctx context.Context, clusterID string, pol backu
 	if len(remove) == 0 {
 		return nil
 	}
-	err = dbbackup.ApplyRetention(ctx, b.Backend, remove)
+	// The binlog archives of a removed backup go with it, before it.
+	logs, err := b.binlogSets(ctx, clusterID, remove)
+	if err != nil {
+		return err
+	}
+	err = dbbackup.ApplyRetention(ctx, b.Backend, append(slices.Clone(logs), remove...))
 	// Mark only the sets whose manifests are gone; a failed deletion is
 	// retried on the next pass.
 	var removed []string
