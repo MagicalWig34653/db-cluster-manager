@@ -265,13 +265,6 @@ func (s *Server) issue(w http.ResponseWriter, r *http.Request, host string, csr 
 	writeJSON(w, http.StatusOK, Response{Certificate: string(signed.ChainPEM), CA: string(s.Authority.CABundlePEM())})
 }
 
-// HostFromAgentURI extracts the host ID from an agent identity of the
-// installation; ok is false for anything else.
-func HostFromAgentURI(cert *x509.Certificate, installation string) (string, bool) {
-	host, _, ok := RuntimeFromAgentURI(cert, installation)
-	return host, ok
-}
-
 // RuntimeFromAgentURI returns the host and runtime of exactly one agent URI.
 // The historical URI without a runtime suffix is the container slot.
 func RuntimeFromAgentURI(cert *x509.Certificate, installation string) (string, agentrt.Runtime, bool) {

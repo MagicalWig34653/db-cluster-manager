@@ -5,7 +5,6 @@ package imagebuild
 import (
 	"context"
 	"errors"
-	"sync"
 	"time"
 )
 
@@ -24,32 +23,4 @@ type StoredPlan struct {
 type PlanStore interface {
 	Put(ctx context.Context, p StoredPlan) error // insert or replace
 	Get(ctx context.Context, digest string) (StoredPlan, error)
-}
-
-// MemoryPlanStore is an in-memory PlanStore for tests (a fake).
-type MemoryPlanStore struct {
-	mu sync.Mutex
-	m  map[string]StoredPlan
-}
-
-// Put implements PlanStore.
-func (s *MemoryPlanStore) Put(_ context.Context, p StoredPlan) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.m == nil {
-		s.m = map[string]StoredPlan{}
-	}
-	s.m[p.Plan.Digest] = p
-	return nil
-}
-
-// Get implements PlanStore.
-func (s *MemoryPlanStore) Get(_ context.Context, digest string) (StoredPlan, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	p, ok := s.m[digest]
-	if !ok {
-		return StoredPlan{}, ErrPlanNotFound
-	}
-	return p, nil
 }

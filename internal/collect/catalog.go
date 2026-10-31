@@ -2,8 +2,6 @@
 
 package collect
 
-import "sort"
-
 // Type is the kind of a metric.
 type Type string
 
@@ -187,14 +185,4 @@ var catalogIndex = func() map[string]Def {
 func Lookup(name string) (Def, bool) {
 	d, ok := catalogIndex[name]
 	return d, ok
-}
-
-// Names returns all catalog metric names, sorted.
-func Names() []string {
-	out := make([]string, 0, len(Catalog))
-	for _, d := range Catalog {
-		out = append(out, d.Name)
-	}
-	sort.Strings(out)
-	return out
 }

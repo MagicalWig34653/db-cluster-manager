@@ -349,11 +349,7 @@ func RestoreJobArgs(a RunRestoreArgs, secretNames map[string]string) []string {
 	return args
 }
 
-func (e *Executor) jobBase(name, image, kind, backupID string, res JobResources, cluster string) (ServiceSpec, Result, bool) {
-	return e.jobBaseOn(e.cfg.NodeID, name, image, kind, backupID, res, cluster)
-}
-
-// jobBaseOn is jobBase for a job pinned to node.
+// jobBaseOn builds the common job service spec for a job pinned to node.
 func (e *Executor) jobBaseOn(node, name, image, kind, backupID string, res JobResources, cluster string) (ServiceSpec, Result, bool) {
 	if e.cfg.NodeID == "" || node == "" {
 		return ServiceSpec{}, Result{Status: StatusRefused, Code: CodeNodeNotConfigured, Message: ErrNodeNotConfigured.Error()}, false

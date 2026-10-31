@@ -111,10 +111,6 @@ func (a ResourceAmount) sub(b ResourceAmount) ResourceAmount {
 	return ResourceAmount{MilliCPU: a.MilliCPU - b.MilliCPU, MemoryBytes: a.MemoryBytes - b.MemoryBytes}
 }
 
-func (a ResourceAmount) fits(in ResourceAmount) bool {
-	return a.MilliCPU <= in.MilliCPU && a.MemoryBytes <= in.MemoryBytes
-}
-
 // Resources are Swarm task limits and reservations (A04). Zero means unset.
 type Resources struct {
 	Limits       ResourceAmount `json:"limits"`

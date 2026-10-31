@@ -93,8 +93,6 @@ func (c *scanner) space() {
 	}
 }
 
-func (c *scanner) eof() bool { c.space(); return c.i >= len(c.s) }
-
 func isWordByte(b byte) bool {
 	return b == '_' || b == '$' || b >= '0' && b <= '9' || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z'
 }

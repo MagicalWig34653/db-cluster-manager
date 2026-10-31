@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"math"
 	"sort"
-	"time"
 )
 
 // Func is the per-step aggregation over the window (t-Window, t].
@@ -604,6 +603,3 @@ func quantile(phi float64, v []float64) float64 {
 	hi := int(math.Ceil(rank))
 	return v[lo] + (v[hi]-v[lo])*(rank-float64(lo))
 }
-
-// Window helpers for callers that think in durations.
-func Millis(d time.Duration) int64 { return d.Milliseconds() }

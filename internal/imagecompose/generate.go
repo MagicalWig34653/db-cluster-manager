@@ -86,7 +86,6 @@ type build struct {
 	health    string
 	packages  map[string]pkgLine
 	modules   map[string]bool
-	extraW    []string // warnings from renderers
 }
 
 // Generate validates and renders a recipe. It is a pure function: the same

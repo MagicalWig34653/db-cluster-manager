@@ -15,12 +15,6 @@ type CertSource interface {
 	GetCertificate(*tls.ClientHelloInfo) (*tls.Certificate, error)
 }
 
-// CertFunc adapts a provider callback to CertSource.
-type CertFunc func(*tls.ClientHelloInfo) (*tls.Certificate, error)
-
-// GetCertificate calls f.
-func (f CertFunc) GetCertificate(h *tls.ClientHelloInfo) (*tls.Certificate, error) { return f(h) }
-
 // AtomicCertSource holds a certificate that can be swapped at any time, for
 // example with the result of internal/certs Issued.TLSCertificate after a
 // renewal.
