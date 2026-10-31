@@ -146,8 +146,7 @@ func TestRollupQueryAfterRawRetention(t *testing.T) {
 		}
 		// samples at seconds [t-15m, t) => avg of values at those seconds
 		first := float64((p.T - 15*min1 - base) / 1000)
-		want := first + 449.0*10/2 // 90 samples, step 10s: first + 445
-		want = first + (89.0*10)/2
+		want := first + (89.0*10)/2 // 90 samples, step 10s
 		if !near(p.V, want) {
 			t.Fatalf("avg at %d: got %v want %v", p.T, p.V, want)
 		}

@@ -48,7 +48,7 @@ func (f *fakePatchAgent) Do(_ context.Context, _ string, c patch.AgentCommand) (
 	return patch.AgentResult{}, nil
 }
 
-type fakeSealer struct{ m map[string]string }
+type fakeSealer struct{}
 
 func (s *fakeSealer) Put(c, k string, v any) error { return nil }
 func (s *fakeSealer) Get(c, k string, v any) (bool, error) {

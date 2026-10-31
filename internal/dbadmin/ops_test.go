@@ -10,14 +10,6 @@ import (
 	"testing"
 )
 
-func mustPlan(t *testing.T, p *Plan, err error) *Plan {
-	t.Helper()
-	if err != nil {
-		t.Fatal(err)
-	}
-	return p
-}
-
 func planSQL(p *Plan) []string {
 	var out []string
 	for _, s := range p.Statements {
@@ -47,9 +39,7 @@ func TestCreateDatabaseExactSQL(t *testing.T) {
 		{CreateDatabaseRequest{Name: "x", Charset: "utf8mb4", Collation: "utf8mb4_bin"}, "CREATE DATABASE IF NOT EXISTS `x` CHARACTER SET utf8mb4 COLLATE utf8mb4_bin"},
 	}
 	for _, c := range cases {
-		p := mustPlan(t, nil, nil)
-		var err error
-		p, err = a.PlanCreateDatabase(ctx, c.req)
+		p, err := a.PlanCreateDatabase(ctx, c.req)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -10,9 +10,8 @@ import (
 
 type fakeClock struct{ ms atomic.Int64 }
 
-func (c *fakeClock) Now() time.Time          { return time.UnixMilli(c.ms.Load()) }
-func (c *fakeClock) Set(ms int64)            { c.ms.Store(ms) }
-func (c *fakeClock) Advance(d time.Duration) { c.ms.Add(d.Milliseconds()) }
+func (c *fakeClock) Now() time.Time { return time.UnixMilli(c.ms.Load()) }
+func (c *fakeClock) Set(ms int64)   { c.ms.Store(ms) }
 
 const (
 	min1 = int64(60000)

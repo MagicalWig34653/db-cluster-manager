@@ -17,13 +17,12 @@ import (
 
 // fakeControl records commands and returns configured results.
 type fakeControl struct {
-	mu       sync.Mutex
-	hosts    []Host
-	calls    []string
-	err      error
-	diag     Diagnosis
-	lastReq  CreateClusterRequest
-	approval OperationApproval
+	mu      sync.Mutex
+	hosts   []Host
+	calls   []string
+	err     error
+	diag    Diagnosis
+	lastReq CreateClusterRequest
 }
 
 func (f *fakeControl) record(actor authz.Subject, format string, a ...any) error {

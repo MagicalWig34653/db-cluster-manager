@@ -68,7 +68,7 @@ func (d *iuDriver) Status(context.Context, string) (imageupdate.OpStatus, error)
 	return imageupdate.OpStatus{State: imageupdate.OpSucceeded, Runtime: "container"}, nil
 }
 
-type iuBuilds struct{ offered []string }
+type iuBuilds struct{}
 
 func (b *iuBuilds) Built(_ context.Context, jobID, findingID string) (imageupdate.Built, error) {
 	if jobID == "ib-missing" {

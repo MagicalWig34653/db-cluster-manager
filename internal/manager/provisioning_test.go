@@ -12,8 +12,7 @@ import (
 )
 
 type fakeProvisionCommands struct {
-	calls   int
-	cluster bool
+	calls int
 }
 
 func (f *fakeProvisionCommands) Run(_ context.Context, _ provision.Host, _ provision.Credential, cmd, _ string) (string, error) {
