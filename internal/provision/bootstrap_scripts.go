@@ -15,6 +15,11 @@ import (
 // documentation; none has run on a real host yet.
 
 // bootstrapPreflight is read-only. It prints key=value lines.
+// preflightMemCmd prints the memory in bytes as an integer. awk's print would
+// format 4 GiB as 4.12e+09 (found on a real Debian 12 VM in lab E17), which
+// the parser read as 0 and reported as "memory-low".
+const preflightMemCmd = `awk '/^MemTotal:/ {printf "%.0f\n", $2*1024}' /proc/meminfo`
+
 func bootstrapPreflight(p BootstrapProfile) string {
 	var ports []string
 	for _, np := range NeededPorts(p) {
@@ -27,7 +32,7 @@ func bootstrapPreflight(p BootstrapProfile) string {
 printf 'version=%s\n' "${VERSION_ID:-}"
 printf 'arch=%s\n' "$(uname -m)"
 printf 'cpus=%s\n' "$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 0)"
-printf 'mem=%s\n' "$(awk '/^MemTotal:/ {print $2*1024}' /proc/meminfo)"
+printf 'mem=%s\n' "$(` + preflightMemCmd + `)"
 printf 'disk=%s\n' "$(df -PB1 / | awk 'NR==2 {print $4}')"
 if command -v timedatectl >/dev/null 2>&1 && [ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null || true)" = yes ]; then echo time=yes
 elif command -v chronyc >/dev/null 2>&1 && chronyc -n tracking 2>/dev/null | grep -q 'Leap status *: Normal'; then echo time=yes
@@ -218,7 +223,7 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends docker
 systemctl enable --now docker
 `, "rm -f /etc/apt/sources.list.d/dbcm-docker.list /etc/apt/keyrings/dbcm-docker.gpg\n# The Docker engine and its data are not removed automatically. Remove them yourself after checking for containers, volumes and images you need.\n"
 	case "dnf":
-		return `DOCKER_KEY_FPR=` + shellQuote(DockerKeyFingerprint) + `
+		return `DOCKER_KEY_FPR=` + shellQuote(DockerRPMKeyFingerprint) + `
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 curl -fsSL --proto '=https' --tlsv1.2 -o "$tmp/docker.asc" https://download.docker.com/linux/centos/gpg
@@ -285,7 +290,7 @@ func buildSteps(req BootstrapRequest, plan BootstrapPlan, env BootstrapEnv, agen
 	case "dnf":
 		base = []string{"ca-certificates", "sudo", "gnupg2"}
 	}
-	condBase := "command -v curl >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1 && command -v visudo >/dev/null 2>&1"
+	condBase := "command -v curl >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1 && command -v visudo >/dev/null 2>&1 && command -v gpg >/dev/null 2>&1"
 	bodyBase := pkgInstall(pm, base...)
 	if pm == "dnf" {
 		bodyBase += "command -v curl >/dev/null 2>&1 || dnf install -y curl\n"

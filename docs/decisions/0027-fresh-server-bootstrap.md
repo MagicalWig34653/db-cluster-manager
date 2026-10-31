@@ -1,6 +1,6 @@
 # ADR 0027: Fresh-server bootstrap profile
 
-Status: **Implemented with an in-memory simulated host only; nothing has run against a real host, VM or network**, 2026-10-29. Implements part 1 of the owner additions of 2026-10-29 ([ENTSCHEIDUNGEN](../ENTSCHEIDUNGEN.md)): the manager can onboard completely fresh servers the owner administers. Requirement X18. Builds on [ADR 0018](0018-ssh-cluster-provisioning.md) (SSH plans, pinned host keys, digest approval), [ADR 0023](0023-os-patch-management.md) (native agent install), [ADR 0024](0024-agent-runtimes.md) (two agent runtimes, capabilities) and [ADR 0010](0010-agent-transport-and-enrollment.md) (enrollment tokens).
+Status: **Implemented; simulated host in the tests, plus lab E17 (2026-10-31) on a real Debian 12 and AlmaLinux 9 VM driven by `cmd/bootlab` (service, SSH runner and host key probe real; HTTP API, UI wizard and manager wiring not run)**, 2026-10-29. Implements part 1 of the owner additions of 2026-10-29 ([ENTSCHEIDUNGEN](../ENTSCHEIDUNGEN.md)): the manager can onboard completely fresh servers the owner administers. Requirement X18. Builds on [ADR 0018](0018-ssh-cluster-provisioning.md) (SSH plans, pinned host keys, digest approval), [ADR 0023](0023-os-patch-management.md) (native agent install), [ADR 0024](0024-agent-runtimes.md) (two agent runtimes, capabilities) and [ADR 0010](0010-agent-transport-and-enrollment.md) (enrollment tokens).
 
 ## Scope
 
@@ -26,7 +26,7 @@ In: OS detection and a support matrix, a read-only preflight, a bootstrap plan o
 ## Known limits
 
 - Simulation only: the tests use an in-memory host that recognizes the step markers and applies state transitions. It does not interpret shell. The scripts are only syntax-checked with `sh -n`; none has executed on a real system, so quoting, package names, repository URLs, service names (`ssh` versus `sshd`), the `ufw`/`firewalld` commands, the Docker key fingerprint constant and the revert timing are untested assumptions.
-- `DockerKeyFingerprint` was written from the vendor documentation and is not verified against a live download.
+- The Docker key fingerprints were checked against live downloads in lab E17: the apt key (`DockerKeyFingerprint`) on Debian 12 and the **different** rpm key (`DockerRPMKeyFingerprint`) on AlmaLinux 9.8. Before E17 one constant was used for both and every dnf bootstrap failed. E17 also fixed the preflight memory parser (mawk printed 4.12e+09) and the base-packages check (no gpg on a fresh Debian). See [E17 bootstrap results](../../tests/p0/results/e17-bootstrap.md); Ubuntu, Rocky, Debian 13 and Alpine and the native-agent and cluster-join steps are still unrun.
 - Drafts and the journal are in memory: a manager restart loses drafts and credentials (by design); the executor is resumable within the process lifetime. A persistent journal and a leader-fenced runner integration (as ADR 0018) are not wired. The `Bootstrap` backend is not constructed by the manager yet (routes answer 503), and the enrollment-token source and the container-agent deployment hooks are interfaces without a production implementation.
 - A password login needs an SSH server that allows it; many fresh images permit root only by password or key.
 - One host per bootstrap. No concurrency control for several drafts on the same host.

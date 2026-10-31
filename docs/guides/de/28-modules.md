@@ -2,7 +2,7 @@
 title: Optionale Module
 ---
 
-# Optionale Module [Nur Fakes und Manager im selben Prozess]
+# Optionale Module [Tests im selben Prozess und ein Laborlauf mit echtem Manager]
 
 Optionale Funktionen sind Module ([ADR 0030](../../decisions/0030-optional-modules.md)): OS-Patchverwaltung, Host-Backups (restic), Backup-Kopien, Image-Build, Image-Composer, Image-Updates, Schwachstellen und KI-Antwort, Server-Bootstrap, SSH-Provisionierung und Kubernetes. Eine Administratorin oder ein Administrator schaltet jedes Modul im laufenden Betrieb ein oder aus; ein Neustart ist nicht nötig.
 

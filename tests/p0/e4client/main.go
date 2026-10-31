@@ -137,7 +137,7 @@ func fail(err error) {
 
 func load(path, base, origin string) (*client, error) {
 	c := &client{base: strings.TrimRight(base, "/"), origin: origin, path: path,
-		http: &http.Client{Timeout: 60 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+		http: &http.Client{Timeout: 5 * time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 	raw, err := os.ReadFile(path)
 	switch {
 	case errors.Is(err, os.ErrNotExist):

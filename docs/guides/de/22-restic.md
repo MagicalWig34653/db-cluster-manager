@@ -2,7 +2,7 @@
 title: Restic-Backups einzelner Hosts
 ---
 
-# Restic-Backups einzelner Hosts [Im Labor geprüft auf arm64 Debian 12; Bereitstellungsanbindung teilweise offen]
+# Restic-Backups einzelner Hosts [Im Labor geprüft auf arm64 Debian 12 und über den Manager mit dem nativen Agenten; Bereitstellungsanbindung teilweise offen]
 
 Der Manager besitzt ein eigenes Restic-Quellenmodell für Dateisicherungen eines einzelnen verwalteten Hosts. Eine Quelle gehört zu einem Host, nicht zu einem MariaDB-Cluster. Gespeichert werden Quellpfade, ein lokales/SFTP/S3/rest-server-Repository, ein UTC-Cron-Zeitplan, Aufbewahrung und optional ein Prozentsatz für `check --read-data-subset`. Passwort und Backend-Zugangsdaten werden im replizierten Metastore versiegelt und nicht über die API zurückgegeben. Der Runner sendet geschützte Schritte an den eingeschriebenen Host-Agenten; Fehler erzeugen eine Benachrichtigung. Entscheidung und Grenzen: [ADR 0022](../../decisions/0022-native-restic-host-backups.md).
 
@@ -15,7 +15,7 @@ In der Ausführungsumgebung des Agenten (normalerweise seinem Container) braucht
 - **Nicht automatisiert.** Der Manager erzeugt die Swarm-Secrets nicht aus den versiegelten Quellen-Zugangsdaten, aktualisiert keinen bereits angelegten globalen Agent-Dienst (der Aufruf legt ihn nur an; geänderte Wurzeln brauchen ein Service-Update oder Neuanlage) und initialisiert keine Repositories und keine SFTP-Schlüssel. Die Betreiberin führt `restic init` einmal je Repository aus. `AgentRestic` ist weder in der Manager-Konfigurationsdatei noch in einer UI verdrahtet (nur Bibliotheksebene, Unit-Tests).
 - **Begrenzter Start.** Jedem Restic-Befehl geht ein begrenzter Test `restic cat config` voraus (2 Minuten). Echte Läufe zeigten, dass falsche S3-Zugangsdaten Restic länger als zehn Minuten wiederholen ließen; der Schritt endet jetzt mit der klaren Meldung „did not answer in time“. Ein abgebrochener oder beendeter Befehl wird als unterbrochen gemeldet und weist auf ein mögliches veraltetes Lock hin; der Wrapper führt nie `unlock` aus.
 
-Der [Laborlauf E11](../../../tests/p0/results/e11-restic.md) hat die echten Restic-Wrapper gegen lokale, SFTP-, rest-server- (TLS) und S3-Repositories (MinIO, TLS) sowie einen externen Host über SSH ausgeführt. Was genau geprüft wurde und was nicht, steht dort unter „Verified“ und „Not verified“.
+Der [Laborlauf E17](../../../tests/p0/results/e17-restic.md) ging den Produktweg (Modulschalter, Host-Quellen-API, nativer Agent als root mit der Unit-Härtung, S3 auf MinIO über TLS): Backup, Aufbewahrung, Prüfung, freigegebene Wiederherstellung in einen neuen Pfad und Verifikation bestanden nach zwei Korrekturen; S3-Orte müssen https verwenden (`s3:http://` wird abgelehnt). Der [Laborlauf E11](../../../tests/p0/results/e11-restic.md) hat die echten Restic-Wrapper gegen lokale, SFTP-, rest-server- (TLS) und S3-Repositories (MinIO, TLS) sowie einen externen Host über SSH ausgeführt. Was genau geprüft wurde und was nicht, steht dort unter „Verified“ und „Not verified“.
 
 ## API und Rechte
 

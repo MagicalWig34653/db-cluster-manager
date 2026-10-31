@@ -86,6 +86,10 @@ type Support struct {
 	// Layout holds distribution-specific file locations a renderer needs
 	// (for example the Apache module directory). Keys are allow-listed.
 	Layout map[string]string `json:"layout,omitempty"`
+	// Without lists feature IDs of the component that exist for the family
+	// but not on this release (lab E17: nginx-mod-http-brotli is missing on
+	// Ubuntu 22.04).
+	Without []string `json:"without,omitempty"`
 }
 
 var layoutKeys = map[string]bool{"moduleDir": true, "mimeTypes": true}
@@ -463,6 +467,11 @@ func (comp Component) validate(c *Catalog, ids map[string]bool, rel map[string]R
 			if fam[k] != "rhel" && len(s.Modules) > 0 {
 				return badCatalog("component %s %s on %s: dnf modules on a non-dnf family", id, v.Version, k)
 			}
+			for _, w := range s.Without {
+				if !features[w] {
+					return badCatalog("component %s %s on %s: without refers to unknown feature %q", id, v.Version, k, w)
+				}
+			}
 			if comp.ID == "php" && (s.Prefix == "" || s.Binary == "") {
 				return badCatalog("component %s %s on %s: prefix and binary are required", id, v.Version, k)
 			}
@@ -640,6 +649,9 @@ func (cv ComponentVersion) SupportFor(distro, release string) (Support, bool) {
 }
 
 // Feature returns a feature by id.
+// Lacks reports whether the support entry excludes the feature.
+func (s Support) Lacks(feature string) bool { return slices.Contains(s.Without, feature) }
+
 func (comp Component) Feature(id string) (Feature, bool) {
 	for _, f := range comp.Features {
 		if f.ID == id {

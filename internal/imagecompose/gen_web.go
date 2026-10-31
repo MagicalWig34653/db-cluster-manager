@@ -66,7 +66,7 @@ func (b *build) nginx() {
 	b.copies = append(b.copies,
 		fmt.Sprintf("COPY nginx/nginx.conf %s/nginx/nginx.conf", confRoot),
 		fmt.Sprintf("COPY nginx/default.conf %s/nginx/default.conf", confRoot))
-	b.checks = append(b.checks, fmt.Sprintf("RUN nginx -t -c %s/nginx/nginx.conf", confRoot))
+	b.checks = append(b.checks, fmt.Sprintf("RUN nginx -t -c %s/nginx/nginx.conf && rm -rf /tmp/nginx.pid /tmp/nginx-*", confRoot))
 	b.expose = webPort
 	b.runtime = append(b.runtime, "STOPSIGNAL SIGQUIT")
 	if !php {

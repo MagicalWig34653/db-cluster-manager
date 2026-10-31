@@ -2,11 +2,11 @@
 title: Fresh-server bootstrap
 ---
 
-# Fresh-server bootstrap [Simulated host only; nothing has run against a real server]
+# Fresh-server bootstrap [Lab-run on Debian 12 and AlmaLinux 9 with a harness; API and wizard not run on VMs]
 
 The bootstrap wizard ([ADR 0027](../../decisions/0027-fresh-server-bootstrap.md), requirement X18) turns a freshly installed Linux server that you administer into a managed host. You enter root (or sudo) SSH access once; the manager checks the server, shows you a plan made of reviewed scripts, and changes nothing until you confirm the SSH host key and approve the plan. It builds on the SSH plan flow of [guide 19](19-provisioning.md) and the agents of [guide 24](24-agent-runtimes.md).
 
-**Status.** The plan generator, executor, API and wizard are tested against an in-memory simulated host only. No script has run on a real server, no Docker repository key has been downloaded and no VM was used. The managed manager wires the backend behind `manager.serverBootstrap.enabled` (default off, see "Enabling it"); with the switch off the routes answer 503. The wiring is verified with fakes only. Do not point it at a server you cannot rebuild.
+**Status.** The plan generator, executor, API and wizard are tested against an in-memory simulated host. In lab [E17](../../../tests/p0/results/e17-bootstrap.md) the plan and executor ran with the real SSH runner against a fresh Debian 12 VM (key login) and a fresh AlmaLinux 9 VM (password login, including the separately approved lockdown): firewall, Docker from the vendor repository, Swarm init and the lockdown worked after three fixes (memory parsing, gpg, a separate Docker rpm key fingerprint). Ubuntu, Rocky, Alpine, the native-agent step, the cluster-join steps and the HTTP API/wizard path were not run on a real host. The managed manager wires the backend behind `manager.serverBootstrap.enabled` (default off, see "Enabling it"); with the switch off the routes answer 503. The wiring is verified with fakes only. Do not point it at a server you cannot rebuild.
 
 ## Supported systems
 

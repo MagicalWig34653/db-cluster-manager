@@ -133,6 +133,8 @@ func (c *Catalog) Resolve(r Recipe) (Recipe, error) {
 				add(path+".features", "%q is not an allowed option of %s", f, comp.ID)
 			case ok && !feat.FeatureAvailable(family):
 				add(path+".features", "%q is not available on %s", f, rel.Name)
+			case ok && vok && supportLacks(cv, r.Base, f):
+				add(path+".features", "%q is not available for %s %s on %s", f, comp.ID, ns.Version, rel.Name)
 			default:
 				ns.Features = append(ns.Features, f)
 			}
@@ -250,6 +252,11 @@ func (c *Catalog) Resolve(r Recipe) (Recipe, error) {
 		return out, &ValidationError{Issues: is}
 	}
 	return out, nil
+}
+
+func supportLacks(cv ComponentVersion, b Base, feature string) bool {
+	s, ok := cv.SupportFor(b.Distro, b.Release)
+	return ok && s.Lacks(feature)
 }
 
 func hasID(sels []Selection, id string) bool {
@@ -424,7 +431,7 @@ func (c *Catalog) Variants(r Recipe) []Variant {
 					continue
 				}
 				for _, f := range sel.Features {
-					if feat, fok := comp.Feature(f); fok && !feat.FeatureAvailable(d.Family) {
+					if feat, fok := comp.Feature(f); fok && (!feat.FeatureAvailable(d.Family) || s.Lacks(f)) {
 						v.Problems = append(v.Problems, fmt.Sprintf("%s option %s is not available", comp.ID, f))
 					}
 				}

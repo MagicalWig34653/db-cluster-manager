@@ -2,11 +2,11 @@
 title: Image composer
 ---
 
-# Image composer [Fakes and mock server only; no image has been built from it]
+# Image composer [Package names checked in the lab; four recipes built]
 
 The image composer ([ADR 0026](../../decisions/0026-image-composer.md), requirement X17) lets you assemble the contents of a service image by selecting components instead of writing a Dockerfile: base distribution, nginx with version and settings, PHP with version, extensions, `php.ini` and PHP-FPM pool settings, Composer and a few utilities. The manager validates the choice, generates a Dockerfile and configuration files, shows them for review and builds only after an administrator approves the exact plan, through the existing image build service (the **Image builds** page lists the resulting jobs).
 
-**Status.** Fakes and the development mock server only. The component catalog (version 2026.10.30-1) is marked `unverified`: package names and versions were written from knowledge and not checked against live repositories, and no image has been built from a generated recipe. The real build is the final check and may reject an entry. The managed manager can serve the endpoints behind `manager.imageComposer.enabled` (default off; needs `auth.enabled` and `manager.imageBuild`); with the switch off, or without a docker builder, they answer 503. The wiring is verified with fakes only (no real build).
+**Status.** Fakes and the development mock server, plus one lab run ([E17](../../../tests/p0/results/e17-composer.md)): every package the catalog (version 2026.10.31-1) can install was resolved in the real base images (three wrong entries were corrected: nginx brotli on Ubuntu 22.04, ImageMagick/msmtp and curl on AlmaLinux/Rocky) and four generated images (nginx and PHP, database clients, on Debian 12 and AlmaLinux 9) were built and started. The catalog is still marked `unverified` because most combinations were not built; the real build remains the final check and may reject an entry. The managed manager can serve the endpoints behind `manager.imageComposer.enabled` (default off; needs `auth.enabled` and `manager.imageBuild`); with the switch off, or without a docker builder, they answer 503. The wiring is verified with fakes only (no real build).
 
 ## Use the page
 

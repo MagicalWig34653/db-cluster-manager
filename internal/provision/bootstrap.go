@@ -43,9 +43,16 @@ var (
 // DockerKeyFingerprint is the fingerprint of Docker's official package
 // signing key (docs.docker.com, "Install Docker Engine"). The runtime step
 // downloads the key and refuses to continue unless this fingerprint matches.
-// Evidence: written from the published documentation; not yet checked
-// against a live download (ADR 0027).
+// This is the key of the apt repositories (Debian, Ubuntu). Checked against
+// a live download on Debian 12 in lab E17.
 const DockerKeyFingerprint = "9DC858229FC7DD38854AE2D88D81803C0EBFCD88"
+
+// DockerRPMKeyFingerprint is the fingerprint of the key that signs Docker's
+// rpm repository (download.docker.com/linux/centos/gpg). It is a different
+// key from the apt one: using the apt fingerprint for the dnf step made every
+// AlmaLinux bootstrap fail with "key fingerprint mismatch" (lab E17). Checked
+// against a live download on AlmaLinux 9.8.
+const DockerRPMKeyFingerprint = "060A61C51B558A7F742B77AAC52FEB6B621E9F35"
 
 const (
 	bootstrapStateDir = "/var/lib/dbcm-bootstrap"

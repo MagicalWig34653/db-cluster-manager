@@ -1,0 +1,54 @@
+OK	apache	2.4			apache2
+OK	backuptools	distro	openssh-client		openssh-client
+OK	backuptools	distro	rclone		rclone
+OK	backuptools	distro	restic		restic
+OK	backuptools	distro	rsync		rsync
+OK	composer	2			composer
+OK	dbclients	distro	mariadb-client		mariadb-client
+OK	dbclients	distro	postgresql-client		postgresql-client
+OK	dbclients	distro	redis-cli		redis-tools
+OK	dbclients	distro	sqlite		sqlite3
+OK	java	17			openjdk-17-jre-headless
+OK	java	21			openjdk-21-jre-headless
+OK	minecraft	1.21.11			openjdk-21-jre-headless
+MISSING E: Unable to locate package libnginx-mod-http-brotli-filter	nginx	1.18	brotli		libnginx-mod-http-brotli-filter
+OK	nginx	1.18			nginx=1.18.*
+OK	php	8.1	apcu		php-apcu
+OK	php	8.1	bcmath		php8.1-bcmath
+OK	php	8.1	bz2		php8.1-bz2
+OK	php	8.1	curl		php8.1-curl
+OK	php	8.1	dom		php8.1-xml
+OK	php	8.1	gd		php8.1-gd
+OK	php	8.1	gmp		php8.1-gmp
+OK	php	8.1	imagick		php-imagick
+OK	php	8.1	intl		php8.1-intl
+OK	php	8.1	ldap		php8.1-ldap
+OK	php	8.1	mbstring		php8.1-mbstring
+OK	php	8.1	memcached		php-memcached
+OK	php	8.1	mysqli		php8.1-mysql
+OK	php	8.1	opcache		php8.1-opcache
+OK	php	8.1	pdo_mysql		php8.1-mysql
+OK	php	8.1	pdo_pgsql		php8.1-pgsql
+OK	php	8.1	pdo_sqlite		php8.1-sqlite3
+OK	php	8.1	pgsql		php8.1-pgsql
+OK	php	8.1	redis		php-redis
+OK	php	8.1	simplexml		php8.1-xml
+OK	php	8.1	soap		php8.1-soap
+OK	php	8.1	sqlite3		php8.1-sqlite3
+OK	php	8.1	xml		php8.1-xml
+OK	php	8.1	xsl		php8.1-xml
+OK	php	8.1	zip		php8.1-zip
+OK	php	8.1			php8.1-cli=8.1.*
+OK	php	8.1			php8.1-fpm=8.1.*
+OK	python	3.10	pip		python3-pip
+OK	python	3.10			gunicorn
+OK	python	3.10			python3=3.10.*
+OK	sftp	distro			openssh-server
+OK	utilities	distro	bash		bash
+OK	utilities	distro	ca-certificates		ca-certificates
+OK	utilities	distro	curl		curl
+OK	utilities	distro	ghostscript		ghostscript
+OK	utilities	distro	imagemagick		imagemagick
+OK	utilities	distro	jq		jq
+OK	utilities	distro	msmtp		msmtp
+OK	utilities	distro	tzdata		tzdata

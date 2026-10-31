@@ -2,11 +2,11 @@
 title: Image-Composer
 ---
 
-# Image-Composer [Nur mit Fakes und Mock-Server geprüft; daraus wurde noch kein Image gebaut]
+# Image-Composer [Paketnamen im Labor geprüft; vier Rezepte gebaut]
 
 Mit dem Image-Composer ([ADR 0026](../../decisions/0026-image-composer.md), Anforderung X17) stellen Sie den Inhalt eines Service-Images per Auswahl zusammen, statt ein Dockerfile zu schreiben: Basis-Distribution, nginx mit Version und Einstellungen, PHP mit Version, Erweiterungen, `php.ini`- und PHP-FPM-Pool-Einstellungen, Composer und einige Hilfsprogramme. Der Manager prüft die Auswahl, erzeugt Dockerfile und Konfigurationsdateien, zeigt sie zur Durchsicht und baut erst, nachdem ein Administrator genau diesen Plan freigegeben hat, über den vorhandenen Image-Build-Dienst (die Seite **Image-Builds** listet die entstandenen Jobs).
 
-**Stand.** Nur Fakes und der Entwicklungs-Mock-Server. Der Komponentenkatalog (Version 2026.10.30-1) ist als `unverified` markiert: Paketnamen und Versionen wurden aus Wissen geschrieben und nicht gegen echte Paketquellen geprüft, und aus einem erzeugten Rezept wurde noch kein Image gebaut. Der echte Build ist die letzte Prüfung und kann einen Eintrag ablehnen. Der Managed-Manager kann die Endpunkte hinter `manager.imageComposer.enabled` bereitstellen (Standard aus; braucht `auth.enabled` und `manager.imageBuild`); bei ausgeschaltetem Schalter oder ohne Docker-Builder antworten sie mit 503. Die Verdrahtung ist nur mit Fakes geprüft (kein echter Build).
+**Stand.** Fakes und der Entwicklungs-Mock-Server sowie ein Laborlauf ([E17](../../../tests/p0/results/e17-composer.md)): Jedes Paket, das der Katalog (Version 2026.10.31-1) installieren kann, wurde in den echten Basis-Images aufgelöst (drei falsche Einträge wurden korrigiert: nginx-brotli auf Ubuntu 22.04, ImageMagick/msmtp und curl auf AlmaLinux/Rocky), und vier erzeugte Images (nginx und PHP, Datenbank-Clients, auf Debian 12 und AlmaLinux 9) wurden gebaut und gestartet. Der Katalog bleibt `unverified`, weil die meisten Kombinationen nicht gebaut wurden. Der echte Build ist die letzte Prüfung und kann einen Eintrag ablehnen. Der Managed-Manager kann die Endpunkte hinter `manager.imageComposer.enabled` bereitstellen (Standard aus; braucht `auth.enabled` und `manager.imageBuild`); bei ausgeschaltetem Schalter oder ohne Docker-Builder antworten sie mit 503. Die Verdrahtung ist nur mit Fakes geprüft (kein echter Build).
 
 ## Die Seite benutzen
 

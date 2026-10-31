@@ -4,8 +4,8 @@ FROM docker.io/library/debian:trixie-slim@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 LABEL org.opencontainers.image.title="ca" \
       org.opencontainers.image.base.name="docker.io/library/debian:trixie-slim" \
       org.opencontainers.image.base.digest="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
-      dbcm.recipe-digest="sha256:ca05b150d911e779bdcd8ce93856b8d4d3a4b886a8943c6ce312014b9d84a86f" \
-      dbcm.catalog-version="2026.10.30-2" \
+      dbcm.recipe-digest="sha256:c66f7d61c3f6a056a56da24993856b2a513b5d68afc111b61ec1d6c64f484814" \
+      dbcm.catalog-version="2026.10.31-1" \
       dbcm.generator-version="2"
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -23,7 +23,7 @@ COPY nginx/default.conf /etc/dbcm/nginx/default.conf
 ENV HOME=/tmp
 ENV LANG=C.UTF-8
 ENV TZ=UTC
-RUN nginx -t -c /etc/dbcm/nginx/nginx.conf
+RUN nginx -t -c /etc/dbcm/nginx/nginx.conf && rm -rf /tmp/nginx.pid /tmp/nginx-*
 USER 10001:10001
 EXPOSE 8080
 STOPSIGNAL SIGQUIT

@@ -4,8 +4,8 @@ FROM docker.io/library/alpine:3.21@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 LABEL org.opencontainers.image.title="static brotli" \
       org.opencontainers.image.base.name="docker.io/library/alpine:3.21" \
       org.opencontainers.image.base.digest="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
-      dbcm.recipe-digest="sha256:cc070e17cd7863fad677ab8963ffd17935238bb21ab8d52c82e79ccdea9c5253" \
-      dbcm.catalog-version="2026.10.30-2" \
+      dbcm.recipe-digest="sha256:fcad28a815d4668813e3f0d1a37c1c7bfbd9d3e9d12cf2637844b1eedd43c182" \
+      dbcm.catalog-version="2026.10.31-1" \
       dbcm.generator-version="2"
 RUN apk add --no-cache \
       nginx-mod-http-brotli \
@@ -16,7 +16,7 @@ RUN addgroup -g 10001 -S app && adduser -S -D -H -u 10001 -G app -s /sbin/nologi
 COPY nginx/nginx.conf /etc/dbcm/nginx/nginx.conf
 COPY nginx/default.conf /etc/dbcm/nginx/default.conf
 ENV HOME=/tmp
-RUN nginx -t -c /etc/dbcm/nginx/nginx.conf
+RUN nginx -t -c /etc/dbcm/nginx/nginx.conf && rm -rf /tmp/nginx.pid /tmp/nginx-*
 USER 10001:10001
 EXPOSE 8080
 STOPSIGNAL SIGQUIT

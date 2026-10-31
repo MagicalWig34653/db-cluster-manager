@@ -4,8 +4,8 @@ FROM docker.io/library/alpine:3.22@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 LABEL org.opencontainers.image.title="caddy site" \
       org.opencontainers.image.base.name="docker.io/library/alpine:3.22" \
       org.opencontainers.image.base.digest="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
-      dbcm.recipe-digest="sha256:0b81741c19743f49529994d5597212d4d2ca3358fb62b686c97814f3942d6168" \
-      dbcm.catalog-version="2026.10.30-2" \
+      dbcm.recipe-digest="sha256:734cd17d8b87a1f93cab866505fcd80069c182b2e1c3b4fbf574e5738291d59a" \
+      dbcm.catalog-version="2026.10.31-1" \
       dbcm.generator-version="2"
 RUN apk add --no-cache \
       caddy \
@@ -27,7 +27,7 @@ ENV PHP_INI_SCAN_DIR=:/etc/dbcm/php/conf.d
 ENV XDG_CONFIG_HOME=/tmp/caddy/config
 ENV XDG_DATA_HOME=/tmp/caddy/data
 RUN /usr/bin/caddy validate --config /etc/dbcm/caddy/Caddyfile --adapter caddyfile
-RUN php-fpm84 -t -y /etc/dbcm/php/php-fpm.conf
+RUN php-fpm84 -R -t -y /etc/dbcm/php/php-fpm.conf
 USER 10001:10001
 EXPOSE 8080
 ENTRYPOINT ["/usr/local/bin/dbcm-entrypoint"]

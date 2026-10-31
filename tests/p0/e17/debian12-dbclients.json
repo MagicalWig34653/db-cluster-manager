@@ -1,0 +1,31 @@
+{
+ "name": "e17-deb-db",
+ "base": {
+  "distro": "debian",
+  "release": "12",
+  "digest": "sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3"
+ },
+ "platforms": [
+  "linux/arm64"
+ ],
+ "components": [
+  {
+   "id": "nginx",
+   "version": "1.22"
+  },
+  {
+   "id": "dbclients",
+   "version": "distro",
+   "features": [
+    "mariadb-client",
+    "postgresql-client",
+    "redis-cli",
+    "sqlite"
+   ]
+  },
+  {
+   "id": "system",
+   "version": "1"
+  }
+ ]
+}

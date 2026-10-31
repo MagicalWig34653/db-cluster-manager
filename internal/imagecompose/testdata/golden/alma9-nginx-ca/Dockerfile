@@ -4,8 +4,8 @@ FROM docker.io/library/almalinux:9@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 LABEL org.opencontainers.image.title="ca rhel" \
       org.opencontainers.image.base.name="docker.io/library/almalinux:9" \
       org.opencontainers.image.base.digest="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
-      dbcm.recipe-digest="sha256:5b2f3fc15df3e3557cc8ed52da17679530a8b6761cc34dc58ab6941394f0d135" \
-      dbcm.catalog-version="2026.10.30-2" \
+      dbcm.recipe-digest="sha256:8e92e05e02dd3ebca54dc48cf07f394b7f9dd80c2778554f576a0a722caee750" \
+      dbcm.catalog-version="2026.10.31-1" \
       dbcm.generator-version="2"
 RUN dnf -y module enable nginx:1.26 \
  && dnf -y install --setopt=install_weak_deps=False --setopt=tsflags=nodocs \
@@ -24,7 +24,7 @@ COPY nginx/default.conf /etc/dbcm/nginx/default.conf
 ENV HOME=/tmp
 ENV LANG=en_US.UTF-8
 ENV TZ=UTC
-RUN nginx -t -c /etc/dbcm/nginx/nginx.conf
+RUN nginx -t -c /etc/dbcm/nginx/nginx.conf && rm -rf /tmp/nginx.pid /tmp/nginx-*
 USER 10001:10001
 EXPOSE 8080
 STOPSIGNAL SIGQUIT
