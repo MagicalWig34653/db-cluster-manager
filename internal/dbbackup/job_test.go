@@ -181,9 +181,9 @@ func TestBackupJobToolFailureCommitsNothing(t *testing.T) {
 		t.Fatalf("status %+v", st)
 	}
 	c := &Checker{Backend: be}
-	ok, why, _ := c.Check(ctx, "op", runner.Step{}, runner.Condition{Kind: CondBackupComplete, Target: "prod-b1.xbs.dbcms"})
-	if ok || !strings.Contains(why, "failed") {
-		t.Fatalf("gate: %v %s", ok, why)
+	ok, why, err := c.Check(ctx, "op", runner.Step{}, runner.Condition{Kind: CondBackupComplete, Target: "prod-b1.xbs.dbcms"})
+	if ok || !strings.Contains(why, "failed") || !errors.Is(err, runner.ErrConditionFatal) {
+		t.Fatalf("gate: %v %s %v (a reported job failure must fail the gate, not poll)", ok, why, err)
 	}
 }
 

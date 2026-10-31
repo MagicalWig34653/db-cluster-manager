@@ -96,9 +96,9 @@ func (c *Checker) Check(ctx context.Context, _ string, _ runner.Step, cond runne
 		case !ok:
 			return false, "restore job has not reported yet", nil
 		case !st.Succeeded:
-			return false, "restore job failed: " + st.Error, nil
+			return false, "restore job failed: " + st.Error, runner.ErrConditionFatal
 		case !st.StreamVerified:
-			return false, "restore job did not verify the stream digests", nil
+			return false, "restore job did not verify the stream digests", runner.ErrConditionFatal
 		}
 		return true, "", nil
 	case CondApproved:
@@ -131,7 +131,7 @@ func (c *Checker) backupComplete(ctx context.Context, object string) (bool, stri
 	if ok, err := c.readJSON(ctx, StatusName(object), &st); err != nil {
 		return false, "", err
 	} else if ok && !st.Succeeded {
-		return false, "backup job failed: " + st.Error, nil
+		return false, "backup job failed: " + st.Error, runner.ErrConditionFatal
 	}
 	rc, err := c.Backend.Get(ctx, ManifestName(object))
 	if errors.Is(err, backup.ErrNotFound) {

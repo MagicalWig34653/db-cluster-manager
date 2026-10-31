@@ -1002,9 +1002,12 @@ func (r *Runner) awaitPreconditions(ctx context.Context, st *opState, spec Step)
 			r.setStatus(st, StatusPaused, spec.ID, "abort requested while waiting for preconditions", EventPause)
 			return false, nil
 		}
-		reason := r.unmet(ctx, st, spec)
+		reason, fatal := r.unmet(ctx, st, spec)
 		if reason == "" {
 			return true, nil
+		}
+		if fatal {
+			return false, r.failGate(st, spec, reason)
 		}
 		if polls >= spec.MaxRetries {
 			r.setStatus(st, StatusPaused, spec.ID, "precondition not met: "+reason, EventPause)
@@ -1017,33 +1020,62 @@ func (r *Runner) awaitPreconditions(ctx context.Context, st *opState, spec Step)
 	}
 }
 
-func (r *Runner) unmet(ctx context.Context, st *opState, spec Step) string {
+// failGate fails a gate whose condition can never hold: the gate step is
+// journaled Failed and the operation Failed with the reason (locks are kept
+// like for any failed step).
+func (r *Runner) failGate(st *opState, spec Step, reason string) error {
+	if err := r.checkLeader(st); err != nil {
+		return r.stop(st, spec.ID, err)
+	}
+	r.mu.Lock()
+	agentID := st.agentStep[spec.ID]
+	r.mu.Unlock()
+	if err := r.cfg.Journal.StartStep(st.def.ID, spec.ID, agentID, st.term); err != nil {
+		return r.stop(st, spec.ID, fmt.Errorf("journal start: %w", err))
+	}
+	if err := r.finish(st, spec.ID, opjournal.Failed); err != nil {
+		return err
+	}
+	r.setStatus(st, StatusFailed, spec.ID, reason, EventFail)
+	return nil
+}
+
+// unmet returns why the preconditions do not hold ("" when they do). fatal
+// is set when a condition reported ErrConditionFatal.
+func (r *Runner) unmet(ctx context.Context, st *opState, spec Step) (reason string, fatal bool) {
 	for _, c := range spec.Preconditions {
 		if c.Kind == CondStepSucceeded {
 			s, err := r.journalStep(st.def.ID, c.StepID)
 			if err != nil {
-				return err.Error()
+				return err.Error(), false
 			}
 			if s.State != opjournal.Succeeded {
-				return fmt.Sprintf("step %s is %s", c.StepID, s.State)
+				return fmt.Sprintf("step %s is %s", c.StepID, s.State), false
 			}
 			continue
 		}
 		if r.cfg.Checker == nil {
-			return fmt.Sprintf("no checker for condition %s", c.Kind)
+			return fmt.Sprintf("no checker for condition %s", c.Kind), false
 		}
 		ok, why, err := r.cfg.Checker.Check(ctx, st.def.ID, spec, c)
+		if errors.Is(err, ErrConditionFatal) {
+			msg := err.Error()
+			if why != "" {
+				msg = why
+			}
+			return fmt.Sprintf("%s %s: %s", c.Kind, c.Target, Redact(msg)), true
+		}
 		if err != nil {
-			return fmt.Sprintf("%s: check failed: %v", c.Kind, err)
+			return fmt.Sprintf("%s: check failed: %v", c.Kind, err), false
 		}
 		if !ok {
 			if why == "" {
 				why = "not satisfied"
 			}
-			return fmt.Sprintf("%s %s: %s", c.Kind, c.Target, why)
+			return fmt.Sprintf("%s %s: %s", c.Kind, c.Target, why), false
 		}
 	}
-	return ""
+	return "", false
 }
 
 // Snapshot returns the observable state of a registered operation.

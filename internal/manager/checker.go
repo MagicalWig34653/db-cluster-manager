@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/MagicalWig34653/db-cluster-manager/internal/agent"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/galera"
@@ -38,6 +39,13 @@ type RoutingChecker struct {
 	Ops *Operations
 	// Registry judges service health; nil is service.DefaultRegistry.
 	Registry *service.Registry
+	// JobIdleGrace bounds how long a backup or restore job service may run
+	// no task before a result gate fails the operation (default
+	// DefaultJobIdleGrace). Now defaults to time.Now.
+	JobIdleGrace time.Duration
+	Now          func() time.Time
+
+	jobs jobWatch
 }
 
 var _ runner.Checker = (*RoutingChecker)(nil)
@@ -71,7 +79,19 @@ func (c *RoutingChecker) Check(ctx context.Context, opID string, step runner.Ste
 			}
 			bc.Policy.Job = job
 		}
-		return bc.Check(ctx, opID, step, cond)
+		ok, why, err := bc.Check(ctx, opID, step, cond)
+		if ok || err != nil || (cond.Kind != dbbackup.CondBackupComplete && cond.Kind != dbbackup.CondRestoreComplete) {
+			return ok, why, err
+		}
+		if dead, isDead := c.jobDead(ctx, opID, cond); isDead {
+			// The job may have written its result between the two reads.
+			ok, why2, err := bc.Check(ctx, opID, step, cond)
+			if ok || err != nil {
+				return ok, why2, err
+			}
+			return false, dead + " (" + why2 + ")", runner.ErrConditionFatal
+		}
+		return false, why, nil
 	}
 	if c.Cluster == nil {
 		return false, "no checker for " + cond.Kind, nil

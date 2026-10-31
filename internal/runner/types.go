@@ -36,6 +36,11 @@ var (
 	ErrNotPaused = errors.New("runner: operation step is not paused")
 	// ErrFinished: the operation already succeeded or was aborted.
 	ErrFinished = errors.New("runner: operation is finished")
+	// ErrConditionFatal: a Checker returns an error wrapping this when a
+	// condition can no longer become true (for example the job a gate waits
+	// for ended without a result). The gate step and the operation fail with
+	// the reason instead of polling until the retry budget is spent.
+	ErrConditionFatal = errors.New("runner: condition can no longer hold")
 )
 
 // Leader is the leadership port, implemented by *metastore.Node.

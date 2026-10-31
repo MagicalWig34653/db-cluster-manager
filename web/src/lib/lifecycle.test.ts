@@ -25,9 +25,11 @@ const op = (o: Partial<Operation> = {}): Operation => ({ id: 'o', kind: 'cluster
 describe('operation phase and progress', () => {
 	it('separates waiting for approval from paused', () => {
 		expect(phase(op({ approval: { digest } }))).toBe('awaitingApproval');
-		expect(phase(op())).toBe('paused');
+		expect(phase(op({ reason: 'precondition not met: x' }))).toBe('paused');
+		expect(phase(op())).toBe('running'); // accepted, no runner view yet
+		expect(phase(op({ progress: { stepsDone: 0, stepsTotal: 2, polls: 0, attempts: 0 } }))).toBe('paused');
 		expect(phase(op({ state: 'running', approval: { digest, approvedBy: 'a' } }))).toBe('running');
-		expect(phase(op({ state: 'pending', approval: { digest, approvedBy: 'a' } }))).toBe('paused');
+		expect(phase(op({ state: 'pending', reason: 'r', approval: { digest, approvedBy: 'a' } }))).toBe('paused');
 		expect(phase(op({ state: 'failed', approval: { digest } }))).toBe('failed');
 		expect(phase(op({ state: 'aborted', approval: { digest } }))).toBe('aborted');
 		expect(phase(op({ state: 'unknown' }))).toBe('unknown');

@@ -29,10 +29,14 @@ export type Phase = 'awaitingApproval' | 'paused' | 'running' | 'succeeded' | 'f
  * operation reports state "pending"; one with an unapproved approval is waiting
  * for that approval, not paused.
  */
-export function phase(op: Pick<Operation, 'state' | 'approval'>): Phase {
+export function phase(op: Pick<Operation, 'state' | 'approval'> & Partial<Pick<Operation, 'reason' | 'progress'>>): Phase {
 	if (op.state === 'succeeded' || op.state === 'failed' || op.state === 'aborted') return op.state;
 	if (op.state === 'unknown') return 'unknown';
 	if (approvalView(op).kind === 'required') return 'awaitingApproval';
+	// A runner pause always carries a reason. Pending without reason and
+	// progress is the instant between accepting an operation and its first
+	// runner view (lab E16: "Paused" flashed after "Start backup now").
+	if (op.state === 'pending' && !op.reason && !op.progress) return 'running';
 	return op.state === 'pending' ? 'paused' : 'running';
 }
 

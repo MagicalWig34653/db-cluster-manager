@@ -658,3 +658,24 @@ func TestStepConflictIsPermanentFailure(t *testing.T) {
 		t.Errorf("received %d", n)
 	}
 }
+
+func TestFatalPreconditionFailsGateWithoutPolling(t *testing.T) {
+	h := newHarness(t, "h1")
+	h.checker = checkerFunc(func(_ context.Context, _ string, _ Step, _ Condition) (bool, string, error) {
+		return false, "", errors.Join(ErrConditionFatal, errors.New("job service vanished"))
+	})
+	op := Operation{ID: "op1", Kind: "test", Locks: []string{"x"}, Steps: []Step{
+		{ID: "wait", MaxRetries: 30, Preconditions: []Condition{{Kind: "backup-complete", Target: "obj"}}},
+		{ID: "act", Target: "h1", Command: agent.KindStopDB, Args: svcArgs("a"), Preconditions: []Condition{{Kind: CondStepSucceeded, StepID: "wait"}}},
+	}}
+	v, err := h.runner("m1").Run(context.Background(), op)
+	if err != nil || v.Status != StatusFailed || !strings.Contains(v.Reason, "job service vanished") {
+		t.Fatalf("err %v %s %q", err, v.Status, v.Reason)
+	}
+	if n := len(h.sleeper.Slept()); n != 0 {
+		t.Errorf("polled %d times", n)
+	}
+	if len(h.agents["h1"].Received()) != 0 {
+		t.Fatal("command sent after fatal gate")
+	}
+}
