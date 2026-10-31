@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -145,7 +146,7 @@ func run(ctx context.Context, binary string, n int) error {
 	ok("apply-mode unit (root, -allow-apply) serves the loopback lab transport")
 
 	section("Approval, apply, verification")
-	svc, events = newService(ag)
+	svc, _ = newService(ag)
 	pol := patch.Policy{Mode: patch.ModeApprovalRequired}
 	svc.UpsertHost(patch.Host{ID: vm, Policy: &pol})
 	rep, err = svc.Poll(ctx, vm, true)
@@ -182,7 +183,7 @@ func run(ctx context.Context, binary string, n int) error {
 		still := 0
 		if after.Report != nil {
 			for _, u := range after.Report.Updates {
-				if before[u.Name] != "" || contains(pkgs, u.Name) {
+				if before[u.Name] != "" || slices.Contains(pkgs, u.Name) {
 					still++
 				}
 			}
@@ -276,13 +277,4 @@ func waitAgent(ctx context.Context) error {
 		time.Sleep(2 * time.Second)
 	}
 	return errors.New("timeout")
-}
-
-func contains(s []string, v string) bool {
-	for _, x := range s {
-		if x == v {
-			return true
-		}
-	}
-	return false
 }

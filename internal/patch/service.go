@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/agentrt"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -628,7 +629,7 @@ func (s *Service) Packages() ([]PackageView, error) {
 			}
 			pv.Hosts = append(pv.Hosts, h.ID)
 			pv.Security = pv.Security || u.Security
-			if !contains(pv.Versions, u.Available) {
+			if !slices.Contains(pv.Versions, u.Available) {
 				pv.Versions = append(pv.Versions, u.Available)
 			}
 		}
@@ -645,15 +646,6 @@ func (s *Service) Packages() ([]PackageView, error) {
 		return out[i].Name < out[j].Name
 	})
 	return out, nil
-}
-
-func contains(s []string, v string) bool {
-	for _, x := range s {
-		if x == v {
-			return true
-		}
-	}
-	return false
 }
 
 // --- polling ---
