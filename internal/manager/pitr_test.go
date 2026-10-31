@@ -184,6 +184,76 @@ func TestInspectionToAPointInTimeNeedsApprovalAndCoverage(t *testing.T) {
 	}
 }
 
+// Lab E14: the host of a restore (and of scheduled verification) may be named
+// by host name; only the Swarm node ID worked, and the name failed at run time.
+func TestInspectionHostMayBeNamed(t *testing.T) {
+	env := newBackupEnv(t, true)
+	ctx := context.Background()
+	env.completedBackup(t, "b1", env.clock.Now().Add(-time.Hour))
+	if _, _, err := Update(env.svc.Store(), CollHosts, HostKey("sw1", "h4"), func(h HostRecord, _ bool) (HostRecord, error) {
+		h.Hostname = "db-host-4"
+		return h, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	res, err := env.b.StartInspection(ctx, adminSubject, api.InspectionInput{Cluster: "clu-1", Host: "db-host-4"})
+	if err != nil || res.Host != "h4" {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if _, err := env.b.StartInspection(ctx, adminSubject, api.InspectionInput{Cluster: "clu-1", Host: "other-host"}); !errors.Is(err, api.ErrInvalidInput) {
+		t.Fatalf("unknown name: %v", err)
+	}
+}
+
+// Lab E14: aborting a backup left its dbcm-job-* service behind at 0/1.
+func TestAbortRemovesTheJobsOfABackup(t *testing.T) {
+	env := newBackupEnv(t, true)
+	ctx := context.Background()
+	ref, err := env.b.StartBackup(ctx, adminSubject, "clu-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitOpStatus(t, env.svc, ref.ID, runner.StatusPaused)
+	var job string
+	for _, s := range opRecord(t, env.svc, ref.ID).Definition.Steps {
+		var a agent.RunBackupArgs
+		if s.Command == agent.KindRunBackup && json.Unmarshal(s.Args, &a) == nil {
+			job = a.JobName
+		}
+	}
+	if job == "" {
+		t.Fatal("no job in the backup plan")
+	}
+	if err := env.ops.Abort(adminSubject, ref.ID); err != nil {
+		t.Fatal(err)
+	}
+	var cleanup string
+	waitFor(t, "cleanup operation", func() bool {
+		recs, _ := List[OperationRecord](env.svc.Store(), CollOperations)
+		for _, r := range recs {
+			if r.Value.Kind == dbbackup.OpJobCleanup {
+				cleanup = r.Value.ID
+			}
+		}
+		return cleanup != ""
+	})
+	waitOpStatus(t, env.svc, cleanup, runner.StatusSucceeded)
+	removed := false
+	for _, c := range env.commandsFor(cleanup) {
+		var a agent.RemoveJobArgs
+		if c.Kind == agent.KindRemoveJob && json.Unmarshal(c.Args, &a) == nil && a.JobName == job {
+			removed = true
+		}
+	}
+	if !removed {
+		t.Fatalf("job %s not removed: %+v", job, env.commandsFor(cleanup))
+	}
+	// A restore or any other operation without a backup job needs no cleanup.
+	if _, ok := dbbackup.JobCleanupPlan("op-x", runner.Operation{ID: "op-y", Kind: "x", Steps: []runner.Step{{ID: "g"}}}); ok {
+		t.Fatal("cleanup planned without a job")
+	}
+}
+
 func TestStartBinlogArchive(t *testing.T) {
 	env := newBackupEnv(t, true)
 	ctx := context.Background()

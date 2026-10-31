@@ -298,6 +298,31 @@ func BinlogArchivePlan(req BinlogArchiveRequest, nodes []NodeState) (runner.Oper
 	return op, *src, op.Validate()
 }
 
+// OpJobCleanup removes the one-shot job services an aborted backup left.
+const OpJobCleanup = "dbbackup/job-cleanup"
+
+// JobCleanupPlan returns the operation that removes every job service the
+// run-backup steps of an aborted operation may have started (lab E14: an
+// aborted backup left its dbcm-job-* service at 0/1). Removing a job that
+// does not exist is not an error. ok is false when def starts no job.
+func JobCleanupPlan(opID string, def runner.Operation) (runner.Operation, bool) {
+	s := &steps{}
+	for _, st := range def.Steps {
+		var a agent.RunBackupArgs
+		if st.Command != agent.KindRunBackup || json.Unmarshal(st.Args, &a) != nil || a.JobName == "" {
+			continue
+		}
+		rm := command(fmt.Sprintf("remove-job-%d", len(s.list)+1), st.Target, agent.KindRemoveJob, agent.RemoveJobArgs{JobName: a.JobName})
+		rm.Timeout, rm.MaxRetries = st.Timeout, st.MaxRetries
+		s.add(rm)
+	}
+	if len(s.list) == 0 {
+		return runner.Operation{}, false
+	}
+	op := runner.Operation{ID: opID, Kind: OpJobCleanup, Locks: []string{"job-cleanup/" + def.ID}, Steps: s.list}
+	return op, op.Validate() == nil
+}
+
 // destructive reports whether a step of a restore operation needs approval:
 // every command that is not read-only.
 func destructive(s runner.Step) bool {

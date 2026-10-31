@@ -78,10 +78,15 @@ type VerifyRunRecord struct {
 
 func (b *Backups) verifyEvent(ctx context.Context, run VerifyRunRecord, name string, passed bool, reason string) {
 	sev, nsev, kind := api.SeverityWarning, notify.SeverityCritical, KindRestoreVerifyFailed
-	msg := fmt.Sprintf("scheduled restore verification of backup %s of cluster %s failed: %s", run.Backup, name, reason)
+	// A run that never started has no backup yet (lab E14: the text showed an empty ID).
+	what := "a backup"
+	if run.Backup != "" {
+		what = "backup " + run.Backup
+	}
+	msg := fmt.Sprintf("scheduled restore verification of %s of cluster %s failed: %s", what, name, reason)
 	if passed {
 		sev, nsev, kind = api.SeverityInfo, notify.SeverityInfo, KindRestoreVerifyPassed
-		msg = fmt.Sprintf("scheduled restore verification of backup %s of cluster %s passed", run.Backup, name)
+		msg = fmt.Sprintf("scheduled restore verification of %s of cluster %s passed", what, name)
 	}
 	b.Ops.Svc.recordEvent(run.Swarm, run.Cluster, sev, msg)
 	b.notify(ctx, nsev, kind, "swarm/"+run.Swarm+"/cluster/"+run.Cluster, msg,

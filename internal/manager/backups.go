@@ -618,8 +618,10 @@ func (b *Backups) inspectionHost(c ClusterRecord, want string, res galera.Resour
 		return galera.Host{}, err
 	}
 	if want != "" {
+		// The Swarm node ID or the host name (lab E14: the name was rejected
+		// at run time, after the policy had been accepted).
 		for _, h := range hosts {
-			if h.ID == want {
+			if h.ID == want || (h.Name != "" && h.Name == want) {
 				if !h.Ready || !h.Active || h.Spare {
 					return galera.Host{}, fmt.Errorf("%w: host %s is not ready, active and non-spare", dbbackup.ErrInvalidRequest, want)
 				}

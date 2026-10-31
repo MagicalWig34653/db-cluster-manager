@@ -1,8 +1,10 @@
 <script lang="ts">
 	import StateView from '../../../lib/components/app/StateView.svelte';
 
-	import { api, asApiError, type ApiError, type InspectionStarted } from '../../../lib/api';
+	import { api, asApiError, type ApiError, type InspectionStarted, type PointInTimeProposal } from '../../../lib/api';
 	import { restoreHosts } from '../../../lib/operations';
+	import { formatUtc, pitrReady, utcInputToRfc3339 } from '../../../lib/pitr';
+	import { Input } from '../../../lib/components/ui/input/index.js';
 	import { load } from '../../../lib/load.svelte';
 	import { t } from '../../../lib/locale.svelte';
 	import { checkClass, selectClass } from '../../../lib/components/app/fieldClass';
@@ -46,16 +48,44 @@
 	const candidates = $derived(hosts.state.status === 'ok' ? restoreHosts(hosts.state.value, swarmOf) : []);
 	const hostName = (id: string) => (hosts.state.status === 'ok' ? hosts.state.value.find((h) => h.nodeId === id)?.hostname : undefined) ?? id;
 	const op = $derived(started && ops.state.status === 'ok' ? ops.state.value.find((o) => o.id === started!.id) : undefined);
+	// Restore point: the newest backup, or a time (UTC) the archived binary log
+	// can reach. The coverage is checked read-only (GET /clusters/{id}/pitr-proposal)
+	// before the restore may start; it still goes to a new isolated instance and
+	// waits for the approval like every inspection.
+	let mode = $state<'latest' | 'time'>('latest');
+	let atInput = $state('');
+	let atTouched = $state(false);
+	let proposal = $state<PointInTimeProposal | undefined>();
+	let proposing = $state(false);
+	let proposalError = $state<ApiError | undefined>();
+	const at = $derived(utcInputToRfc3339(atInput));
+	const timeReady = $derived(mode === 'latest' || pitrReady(at, proposal));
+	const stale = $derived(proposal !== undefined && at !== undefined && Date.parse(proposal.at) !== Date.parse(at));
 	function pickCluster(id: string) {
 		cluster = id;
 		host = '';
+		proposal = undefined;
+	}
+	async function check() {
+		atTouched = true;
+		if (!cluster || !at) return;
+		proposing = true;
+		proposalError = undefined;
+		try {
+			proposal = await api.pitrProposal(cluster, at);
+		} catch (e) {
+			proposal = undefined;
+			proposalError = asApiError(e);
+		} finally {
+			proposing = false;
+		}
 	}
 	async function inspect() {
-		if (!cluster || !host) return;
+		if (!cluster || !host || !timeReady) return;
 		inspecting = true;
 		inspectError = undefined;
 		try {
-			started = await api.inspectRestore({ cluster, host });
+			started = await api.inspectRestore({ cluster, host, ...(mode === 'time' && at ? { pointInTime: at } : {}) });
 			password = started.inspectionPassword;
 			saved = false;
 			copyState = 'idle';
@@ -171,10 +201,55 @@
 						<p id="rs-host-hint" class="text-xs text-muted-foreground">{cluster && candidates.length === 0 ? t('restoreNoHost') : t('restoreHostHint')}</p>
 					{/if}
 				</div>
-				<Button disabled={!cluster || !host} onclick={() => (step = 1)}>{t('continue')}</Button>
+				<fieldset class="space-y-2" disabled={!cluster}>
+					<legend class="text-sm font-medium">{t('restorePoint')}</legend>
+					<label class="flex items-center gap-2 text-sm"><input type="radio" name="rs-mode" value="latest" bind:group={mode} />{t('restorePointLatest')}</label>
+					<label class="flex items-center gap-2 text-sm"><input type="radio" name="rs-mode" value="time" bind:group={mode} />{t('restorePointTime')}</label>
+					{#if mode === 'time'}
+						<div class="space-y-1.5 pl-6">
+							<Label for="rs-at">{t('pitrAt')}</Label>
+							<div class="flex flex-wrap items-center gap-2">
+								<Input id="rs-at" type="datetime-local" step="1" class="w-auto font-mono" bind:value={atInput} aria-invalid={atTouched && !at} aria-describedby="rs-at-hint" />
+								<Button type="button" variant="outline" disabled={!cluster || !at || proposing} onclick={check}>{t('pitrCheck')}</Button>
+							</div>
+							<p id="rs-at-hint" class="text-xs {atTouched && !at ? 'text-red-700 dark:text-red-400' : 'text-muted-foreground'}">{atTouched && !at ? t('pitrInvalidTime') : t('pitrAtHint')}</p>
+							<div aria-live="polite" class="space-y-2">
+								{#if proposalError}<ErrorNotice error={proposalError} />{/if}
+								{#if stale}<p class="text-sm">{t('pitrStale')}</p>{/if}
+								{#if proposal && !stale}
+									<Alert.Root variant={proposal.covered ? 'default' : 'destructive'}>
+										<Alert.Title>{proposal.covered ? t('pitrCoveredTitle') : t('pitrNotCoveredTitle')}</Alert.Title>
+										<Alert.Description class="space-y-2">
+											{#if !proposal.covered && proposal.reason}<p>{proposal.reason}</p>{/if}
+											<dl class="grid grid-cols-[minmax(7rem,auto)_1fr] gap-x-4 gap-y-1">
+												{#if proposal.backup}
+													<dt class="text-muted-foreground">{t('pitrBackup')}</dt>
+													<dd class="font-mono text-xs">{proposal.backup}{#if proposal.backupFinishedAt} ({formatUtc(proposal.backupFinishedAt)}){/if}</dd>
+												{/if}
+												{#if proposal.covered}
+													<dt class="text-muted-foreground">{t('pitrSegments')}</dt><dd>{proposal.segments ?? 0}</dd>
+												{/if}
+												{#if proposal.coverage}
+													<dt class="text-muted-foreground">{t('pitrCoverage')}</dt>
+													<dd>{proposal.coverage.until ? t('pitrCoverageRange', { from: formatUtc(proposal.coverage.from), until: formatUtc(proposal.coverage.until) }) : t('pitrCoverageNone')}</dd>
+												{/if}
+											</dl>
+											{#if proposal.coverage?.gap}<p>{t('pitrGap', { gap: proposal.coverage.gap })}</p>{/if}
+										</Alert.Description>
+									</Alert.Root>
+								{/if}
+							</div>
+						</div>
+					{/if}
+				</fieldset>
+				<Button disabled={!cluster || !host || !timeReady} onclick={() => (step = 1)}>{t('continue')}</Button>
 			{:else if step === 1}
 				<p class="text-sm text-muted-foreground">{t('inspectHint')}</p>
 				<p class="text-sm">{t('inspectionHost')}: <span class="font-medium">{hostName(host)}</span></p>
+				{#if mode === 'time' && at}
+					<p class="text-sm">{t('inspectionPointInTime')}: <span class="font-medium">{formatUtc(at)}</span></p>
+					<p class="text-sm text-muted-foreground">{t('pitrNewInstance')}</p>
+				{/if}
 				<label class="flex items-center gap-2 text-sm"><input type="checkbox" class={checkClass} bind:checked={confirmed} />{t('restoreUnderstand')}</label>
 				<div class="flex gap-2">
 					<Button variant="outline" onclick={() => (step = 0)}>{t('back')}</Button>
@@ -186,6 +261,7 @@
 				<p class="text-sm">{t('restoreStarted', { id: started.id })}</p>
 				<dl class="grid grid-cols-[minmax(7rem,auto)_1fr] gap-x-4 gap-y-1 text-sm">
 					<dt class="text-muted-foreground">{t('inspectionBackup')}</dt><dd class="font-mono text-xs">{started.backup}</dd>
+					{#if started.pointInTime}<dt class="text-muted-foreground">{t('inspectionPointInTime')}</dt><dd>{formatUtc(started.pointInTime)}</dd>{/if}
 					<dt class="text-muted-foreground">{t('inspectionHost')}</dt><dd>{hostName(started.host)}</dd>
 					<dt class="text-muted-foreground">{t('inspectionService')}</dt><dd class="font-mono text-xs">{started.service}:{started.port}</dd>
 					<dt class="text-muted-foreground">{t('inspectionAccount')}</dt><dd class="font-mono text-xs">{started.inspectionAccount}</dd>

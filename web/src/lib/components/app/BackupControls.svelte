@@ -30,6 +30,23 @@
 		}
 	}
 
+	// Archive the closed binary log files (point-in-time recovery).
+	let archiving = $state(false);
+	let archiveError = $state<ApiError | undefined>();
+	let archiveId = $state<string | undefined>();
+	async function archive() {
+		archiving = true;
+		archiveError = undefined;
+		archiveId = undefined;
+		try {
+			archiveId = (await api.startBinlogArchive(cluster)).id;
+		} catch (e) {
+			archiveError = asApiError(e);
+		} finally {
+			archiving = false;
+		}
+	}
+
 	let editing = $state(false);
 	let form = $state(policyFormOf(undefined));
 	let invalid = $state<PolicyError[]>([]);
@@ -71,10 +88,17 @@
 	</p>
 	<div class="flex flex-wrap gap-2">
 		<Button size="sm" disabled={starting} onclick={start}>{t('backupStart')}</Button>
+		<Button size="sm" variant="outline" disabled={archiving} onclick={archive} aria-describedby="bp-arch-hint-{cluster}">{t('binlogArchive')}</Button>
 		{#if !editing}<Button size="sm" variant="outline" onclick={edit}>{t('policyEdit')}</Button>{/if}
 	</div>
 	<p class="text-xs text-muted-foreground">{t('backupStartHint')}</p>
+	<p id="bp-arch-hint-{cluster}" class="text-xs text-muted-foreground">{t('binlogArchiveHint')}</p>
 	<div aria-live="polite" class="space-y-2">
+		{#if archiveError}<ApiGate error={archiveError} />{/if}
+		{#if archiveId}
+			<Alert.Root><Alert.Description>{t('binlogArchiveStarted', { id: archiveId })}</Alert.Description></Alert.Root>
+			<FollowOperation id={archiveId} />
+		{/if}
 		{#if startError}<ApiGate error={startError} />{/if}
 		{#if startedId}
 			<Alert.Root><Alert.Description>{t('backupStarted', { id: startedId })}</Alert.Description></Alert.Root>

@@ -280,5 +280,22 @@ func (o *Operations) Abort(actor authz.Subject, opID string) error {
 		_ = o.Svc.saveView(v)
 	}
 	o.Svc.recordEvent(cur.Value.Swarm, cur.Value.Cluster, api.SeverityWarning, fmt.Sprintf("%s aborted operation %s", actor.ID, opID))
+	o.removeAbortedJobs(l, actor, cur.Value)
 	return nil
+}
+
+// removeAbortedJobs starts the cleanup of the job services an aborted backup
+// operation may have started; the abort itself has succeeded either way.
+func (o *Operations) removeAbortedJobs(l *Leadership, actor authz.Subject, rec OperationRecord) {
+	op, ok := dbbackup.JobCleanupPlan(newID("op"), rec.Definition)
+	if !ok {
+		return
+	}
+	cr := OperationRecord{ID: op.ID, Kind: op.Kind, Swarm: rec.Swarm, Cluster: rec.Cluster, RequestedBy: actor.ID,
+		RequestedAt: o.Svc.cfg.Now(), Definition: op}
+	if err := o.commit(cr, nil); err != nil {
+		o.Svc.log.Warn("manager: job cleanup of an aborted operation not started", "op", rec.ID, "err", err)
+		return
+	}
+	o.start(l, op, nil)
 }
