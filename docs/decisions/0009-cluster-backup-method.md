@@ -144,3 +144,7 @@ No MariaDB/binlog parser, event-boundary validation, GTID handling, source switc
 S3/SFTP archive run, transaction-level stop-time semantics, archiver scheduling or
 HTTP/UI PITR integration was executed or implemented. Those remain the next
 work package before any real PITR can be offered.
+
+## Update (2026-10-31): superseded in part by ADR 0031
+
+[ADR 0031](0031-point-in-time-recovery.md) adds the archive job, the replay job, the API and UI and the cluster option `binlog`. `PlanPITR`, `ExecutePITRFake`, the position target and the plan digest described above were replaced by `ResolvePITR` and the replay steps of `InspectionRestorePlan`; the archive format, the chain rules and the retention coupling stand.

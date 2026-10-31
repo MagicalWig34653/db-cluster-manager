@@ -57,7 +57,8 @@ In the schedule form you choose the method (physical, or logical with the databa
 | Galera position in the manifest read from the stream | [Fakes]; unconfirmed assumption for MariaDB 11.4 |
 | Backup scheduler, retention and S3 backend | [Lab VMs] (E14) |
 | Logical backup (manual and scheduled), restore into a **new cluster** | [Fakes]; the restore of a copy ends at the proposal (not executed through the API) |
-| PITR archive/planning/fake replay, data-key rotation and re-encryption | [Fakes] only; no real binlog replay. Not reachable through the API or UI, so E14 could not run it |
+| PITR (archive job, replay, API, UI) | [Fakes]; the real job helper ran in the lab (E15), the manager path did not |
+| Data-key rotation and re-encryption | [Fakes] only |
 | Selective restore through the manager API | [Untested] (not integrated) |
 | Full restore of production-size data, restore timing | [Untested] |
 
@@ -69,19 +70,12 @@ Backups can be copied to other targets (another cluster's or Swarm's storage) wi
 
 The older library `internal/backup` (encrypted manager-configuration snapshots with inspection-mode restore) is not what the API calls; the metastore backup replaces its role for disaster recovery.
 
-## Point-in-time recovery groundwork [Fakes]
+## Point-in-time recovery [Fakes; real tools in the lab, see below]
 
-`internal/dbbackup` can encrypt supplied closed binlog files to the backup target
-as manifest kind `binlog`. HMACs protect plaintext digests; authenticated stream
-metadata binds file ranges to a physical backup and source history. Retention
-keeps archives with their full backup; pinning any archive also protects the base
-and sibling archives. Unknown bases are kept for review.
+Point-in-time recovery (PITR) restores a cluster to a chosen second, not only to the time of a backup. It needs three things ([ADR 0031](../../decisions/0031-point-in-time-recovery.md)):
 
-Planning selects a target time or file/byte position, refuses gaps and mismatched
-histories, and reuses the isolated inspection restore. Fake execution requires the
-exact plan digest, verifies all selected streams and invokes the restore-target
-guard before inspection/replay. There is no production promotion. No HTTP/UI PITR
-flow, continuous archiver, binlog event parser or real replay exists. File closure,
-coverage times and event boundaries are supplied by the caller; their MariaDB
-semantics need lab validation before use. See the
-[ADR 0009 amendment](../../decisions/0009-cluster-backup-method.md).
+1. **Binary log on.** Create the cluster with `binlog: true` (checkbox "Binary log" in the creation form). Every node then writes the binary log (extra disk space; files expire after 14 days). Existing clusters cannot switch it on yet.
+2. **A full backup, then archive runs.** After a backup, "Archive binary log now" (`POST /api/v1/clusters/{id}/binlog-archives`, backup permission) copies the closed binary log files of that backup's source node, encrypted, to the backup target. A restore reaches only as far as the last archive run, so run it regularly (there is no scheduler yet); run it at least every 14 days or the archive gets a gap and the job fails with the reason. If the source node was replaced, take a new full backup.
+3. **Restore to a new instance.** In the restore wizard choose "Point in time", enter the time in **UTC** and press "Check coverage" (`GET /api/v1/clusters/{id}/pitr-proposal?at=...`, read-only). The answer names the starting backup and the number of files to replay, or why the time is not covered (no binary log when the backup ran, a missing file, a changed history, a time after the last archived event, a time before the first backup). Only a covered time can be restored. The restore (`POST /api/v1/restores/inspect` with `pointInTime`) then works like the inspection restore: a new isolated instance, a plan with a digest, **your approval**, and the same expiry and teardown. It replays every change up to and including the chosen second. The production cluster is never changed; there is no in-place restore.
+
+Limits: one source node per backup (no GTID continuation across nodes), events are second-precise, and a time inside the last, still open binary log file is not covered until the next archive run closes it. The manager, agent and UI path ran with fakes and in-process tests only; the real job helper ran in the lab (E15, [results](../../../tests/p0/results/e15-pitr.md)).

@@ -28,13 +28,13 @@ Three Lima VMs (arm64, 2 vCPU / 4 GiB / 20 GiB, Docker 29.9.2, MariaDB 11.4.13) 
 
 ## Findings not fixed (documented)
 
-- A dead job service (target unreachable) is invisible to the operation, which polls forever; abort leaves the `dbcm-job-*` service at 0/1 behind (removed by hand with its exact name). [Troubleshooting](../../../docs/guides/en/09-troubleshooting.md).
+- Follow-up 2026-10-31 (fakes): abort now removes the job services, `verify.host` accepts the host name, the failed-verification event no longer prints an empty backup id. Still open: a dead job service (target unreachable) is invisible to the operation, which polls forever; abort leaves the `dbcm-job-*` service at 0/1 behind (removed by hand with its exact name). [Troubleshooting](../../../docs/guides/en/09-troubleshooting.md).
 - `verify.host` takes the Swarm node ID; the host name is rejected at run time (documented in guide 21). The failed-verification event text has an empty backup id.
 - INSTALL.md gaps (fixed in the document): database image must be on every node; `init` from the container needs `--user` and a writable mount; `-origin` for localhost; the whole backup setup (shared backup password, backend JSON, bucket, both `secrets:` blocks of the stack file, copy targets).
 
 ## Not run
 
-- **PITR to a chosen timestamp**: no API or UI route exists (binlog archiving and planning are library code with fakes; the cluster also runs without `log_bin`). Not attempted.
+- **PITR to a chosen timestamp**: no API or UI route existed (binlog archiving and planning were library code with fakes; the cluster ran without `log_bin`). Not attempted in E14; implemented on 2026-10-31 and run with the real job helper in [E15](e15-pitr.md).
 - Execution of a restore from a copy into a **new target cluster** through the API: the endpoint ends at the proposal (documented limit). Equivalent evidence is the inspection restore with identical checksums.
 - Interrupted backup in mid-stream (the 125 MiB stream completes in about 2 s, so a mid-stream stop could not be timed); covered by the unreachable-target case above.
 - Fresh-VM walkthrough with a separate reader: I followed INSTALL.md on freshly created VMs myself (above), but the installer and the gap finder are the same person with project knowledge, and the German guides were only skimmed.

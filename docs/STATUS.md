@@ -1,6 +1,19 @@
 # Current status
 
-Updated: 2026-10-30.
+Updated: 2026-10-31.
+
+## Point-in-time recovery (2026-10-31, ADR 0031; real job helper in lab E15, manager path with fakes)
+
+Task W16 follow-up to E14. Done:
+
+- **Binary log as cluster option** (`binlog: true` in the creation request/UI): `--log_bin`, `--log_slave_updates=ON`, 14-day expiry on every node.
+- **Archive job** (`dbcm-job backup --tool=binlog-archive`, `POST /clusters/{id}/binlog-archives`, UI button): rotates the log, encrypts closed files from the backup position on, continues the chain, refuses gaps, a replaced source node and truncated files.
+- **Restore**: `POST /restores/inspect` with `pointInTime` (UI wizard: UTC time, read-only coverage check via `GET /clusters/{id}/pitr-proposal`, reason when not covered). New isolated instance, replay job (`mariadb-binlog`) behind the usual digest approval, replay account dropped, secret removed, teardown covers leftovers. Never in place. Retention deletes archives with their backup. `PlanPITR`/`ExecutePITRFake` replaced by `ResolvePITR` and the plan steps.
+- **E14 follow-ups fixed**: aborting a backup removes its `dbcm-job-*` service (cleanup operation), restore/verify host may be a host name, no empty backup id in the verification event.
+- **Evidence**: Go and vitest tests (chain/gap cases, job helper with fake tools, planning accepted by the real agent executor, manager proposal/start/teardown/retention, API permissions); lab **E15 passed**: real `dbcm-job`, MariaDB 11.4 Galera on three VMs, restore to T equals the state at T (2960 rows, identical `CHECKSUM TABLE`), later state differs ([results](../tests/p0/results/e15-pitr.md)). E15 found that MariaDB 11.4 streams `mariadb_backup_binlog_info` in the xbstream; fixed.
+- **Not done / limits**: manager, agent and UI path never ran against real Swarm services; no scheduled archiving (recovery point is the last archive run); one source node per backup, no GTID continuation; binary log cannot be enabled on an existing cluster; one archive file and one time point in the lab. DE/EN guide 05, ADR 0031, 0009 pointer.
+
+Next: run the PITR path through the real manager (E14 setup, `binlog: true` cluster), add an archive schedule to the backup policy.
 
 ## E14: stage 3 on lab VMs (2026-10-30; see [e14-backup-restore.md](../tests/p0/results/e14-backup-restore.md))
 

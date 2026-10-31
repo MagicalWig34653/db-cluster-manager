@@ -36,7 +36,18 @@ const (
 	maxGaleraInfo = 4096
 )
 
-var galeraInfoFiles = map[string]bool{"xtrabackup_galera_info": true, "mariadb_backup_galera_info": true}
+var (
+	galeraInfoFiles = map[string]bool{"xtrabackup_galera_info": true, "mariadb_backup_galera_info": true}
+	// binlogInfoFiles hold the binary log position of the backup point
+	// (lab E15: MariaDB 11.4 streams mariadb_backup_binlog_info and writes
+	// nothing to --extra-lsndir).
+	binlogInfoFiles = map[string]bool{"xtrabackup_binlog_info": true, "mariadb_backup_binlog_info": true}
+)
+
+func wantedInfo(name string) bool {
+	b := path.Base(name)
+	return galeraInfoFiles[b] || binlogInfoFiles[b]
+}
 
 var errXBStream = errors.New("dbbackup: unexpected xbstream chunk")
 
@@ -62,12 +73,14 @@ type galeraInfoTap struct {
 	checksum  uint32
 	collect   bool
 	chunk     []byte
-	content   []byte
-	complete  bool
+	content   map[string][]byte // by base name of the info file
+	complete  map[string]bool
 	err       error
 }
 
-func newGaleraInfoTap() *galeraInfoTap { return &galeraInfoTap{state: xbHeader, need: xbHeaderLen} }
+func newGaleraInfoTap() *galeraInfoTap {
+	return &galeraInfoTap{state: xbHeader, need: xbHeaderLen, content: map[string][]byte{}, complete: map[string]bool{}}
+}
 
 // Write implements io.Writer; it never returns an error.
 func (t *galeraInfoTap) Write(p []byte) (int, error) {
@@ -118,8 +131,8 @@ func (t *galeraInfoTap) advance() {
 		t.path = string(b)
 		switch t.typ {
 		case 'E':
-			if galeraInfoFiles[path.Base(t.path)] && t.content != nil {
-				t.complete = true
+			if b := path.Base(t.path); wantedInfo(b) && t.content[b] != nil {
+				t.complete[b] = true
 			}
 			t.expect(xbHeader, xbHeaderLen)
 		case 'P':
@@ -136,7 +149,7 @@ func (t *galeraInfoTap) advance() {
 			return
 		}
 		t.remaining = int64(length)
-		t.collect = galeraInfoFiles[path.Base(t.path)] && length <= maxGaleraInfo
+		t.collect = wantedInfo(t.path) && length <= maxGaleraInfo
 		t.chunk = t.chunk[:0]
 		t.state, t.buf = xbData, t.buf[:0]
 		if t.remaining == 0 {
@@ -147,25 +160,36 @@ func (t *galeraInfoTap) advance() {
 
 func (t *galeraInfoTap) endChunk() {
 	if t.collect {
+		b := path.Base(t.path)
 		switch {
 		case crc32.ChecksumIEEE(t.chunk) != t.checksum:
-			t.content, t.collect = nil, false
-		case t.offset == uint64(len(t.content)) && len(t.content)+len(t.chunk) <= maxGaleraInfo:
-			t.content = append(t.content, t.chunk...)
+			t.content[b], t.collect = nil, false
+		case t.offset == uint64(len(t.content[b])) && len(t.content[b])+len(t.chunk) <= maxGaleraInfo:
+			t.content[b] = append(t.content[b], t.chunk...)
 		default:
-			t.content = nil
+			t.content[b] = nil
 		}
 	}
 	t.collect = false
 	t.expect(xbHeader, xbHeaderLen)
 }
 
+func (t *galeraInfoTap) info(names map[string]bool) (string, bool) {
+	if t == nil {
+		return "", false
+	}
+	for n := range names {
+		if t.complete[n] && len(t.content[n]) > 0 {
+			return string(t.content[n]), true
+		}
+	}
+	return "", false
+}
+
 // Content returns the Galera info file once the stream carried it
 // completely (payload chunks and its end-of-file chunk) with valid
 // checksums.
-func (t *galeraInfoTap) Content() (string, bool) {
-	if t == nil || !t.complete || len(t.content) == 0 {
-		return "", false
-	}
-	return string(t.content), true
-}
+func (t *galeraInfoTap) Content() (string, bool) { return t.info(galeraInfoFiles) }
+
+// BinlogInfo is Content for the binary log position file.
+func (t *galeraInfoTap) BinlogInfo() (string, bool) { return t.info(binlogInfoFiles) }

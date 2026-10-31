@@ -35,7 +35,12 @@
 //   - Every command step of a restore operation carries an approval
 //     condition, and the agent refuses run-restore without an approval ID.
 //
-// Not verified here: no real mariabackup, mbstream, mariadb-dump or MariaDB
-// server was run. Tool invocations go through the ToolRunner port and were
-// tested with fakes only.
+// Point-in-time recovery (ADR 0031) adds the binlog archive job
+// (runArchiveJob, BinlogArchivePlan), the chain rules (binlogChain,
+// ResolvePITR, CoverageOf) and the replay job (runReplayJob), which an
+// inspection restore plan appends when InspectionRequest.PITR is set. A
+// replay only ever targets an inspection instance.
+//
+// Tool invocations go through the ToolRunner port and are tested with fakes
+// here; the real tools ran only in the lab experiments listed in the guides.
 package dbbackup

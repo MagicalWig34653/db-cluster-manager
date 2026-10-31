@@ -384,8 +384,14 @@ func runBackupJob(ctx context.Context, s JobSpec, env JobEnv, be backup.Backend)
 			return Manifest{}, err
 		}
 		m.Checkpoints = &cp
+		binlogInfo := ""
 		if raw, err := env.readLSN("binlog_info"); err == nil {
-			pos, err := ParseBinlogInfo(string(raw))
+			binlogInfo = string(raw)
+		} else if raw, ok := tap.BinlogInfo(); ok {
+			binlogInfo = raw
+		}
+		if binlogInfo != "" {
+			pos, err := ParseBinlogInfo(binlogInfo)
 			if err != nil {
 				return Manifest{}, err
 			}
