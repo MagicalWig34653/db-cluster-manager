@@ -3087,6 +3087,8 @@ paths:
         Runs a read-only SSH preflight and returns the reviewed script, unit
         file and digest. The SSH credential is write-only and sealed; the
         enrollment token is created at execution and never part of the plan.
+        A failed preflight answers 409 conflict with a redacted reason (see
+        Error.reason).
         Needs patch create permission (administrator preset only); audited.
       operationId: createPatchInstallPlan
       requestBody:
@@ -3910,7 +3912,7 @@ paths:
       - $ref: '#/components/parameters/Id'
     post:
       summary: Start a host filesystem backup, retention and subset check
-      description: Managed hosts use the enrolled agent, the native agent when it reports the restic capability, else the container agent (ADR 0024). 409 agent_runtime_unavailable when no agent of the host offers restic; nothing is started. External SSH sources use a pinned-host-key plan; external agent execution remains unavailable.
+      description: Managed hosts use the enrolled agent, the native agent when it reports the restic capability, else the container agent (ADR 0024). 409 agent_runtime_unavailable when no agent of the host offers restic; nothing is started. A failed backup releases the source (no manual abort needed); the failed operation can be retried or the backup simply started again. A failed restore keeps the source locked until resumed or aborted. External SSH sources use a pinned-host-key plan; external agent execution remains unavailable.
       responses:
         '202':
           description: Runner operation reference
@@ -4227,8 +4229,13 @@ components:
           description: >-
             Optional machine-readable conflict reason on outage diagnosis and
             recovery: zero_cluster_uuid_primary, primary_component_exists,
-            no_candidate, candidate_mismatch, busy or conflict. No raw agent
-            output or recovered position is included.
+            no_candidate, candidate_mismatch, busy or conflict. On the patch
+            install endpoints (POST /patch/install/plans and .../execute) it
+            names the failed preflight check: host_unreachable,
+            preflight_output_invalid, unsupported_os, unsupported_arch,
+            systemd_missing, privilege_missing, disk_space_low, agent_present
+            or restic_missing. No raw agent or host output or recovered
+            position is included.
         offer:
           type: string
           enum: [zero-uuid-recovery]

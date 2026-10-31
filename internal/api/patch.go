@@ -315,6 +315,8 @@ func mapPatchError(err error) error {
 	switch {
 	case err == nil:
 		return nil
+	case patch.InstallReason(err) != "":
+		return &conflictReasonError{reason: patch.InstallReason(err)}
 	case errors.Is(err, patch.ErrNotFound):
 		return ErrNotFound
 	case errors.Is(err, patch.ErrInvalid), errors.Is(err, patch.ErrInstallInvalid), errors.Is(err, patch.ErrPartialUnsupported):

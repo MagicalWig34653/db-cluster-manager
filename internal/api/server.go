@@ -718,8 +718,11 @@ func handleVersion(w http.ResponseWriter, _ *http.Request, _ *caller) {
 // details.
 func (s *server) writeServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	var re *requestError
+	var cr *conflictReasonError
 	var denied *authz.DeniedError
 	switch {
+	case errors.As(err, &cr):
+		writeJSON(w, http.StatusConflict, ErrorBody{Error: errConflict, Reason: cr.reason})
 	case errors.As(err, &denied) && denied.Decision.Reason == authz.ReasonAuditUnavailable:
 		writeError(w, http.StatusServiceUnavailable, errUnavailable)
 	case errors.Is(err, authz.ErrDenied):
@@ -757,3 +760,9 @@ func (s *server) writeServiceError(w http.ResponseWriter, r *http.Request, err e
 		writeError(w, http.StatusServiceUnavailable, errUnavailable)
 	}
 }
+
+// conflictReasonError is a 409 conflict with a fixed, redacted machine
+// readable reason (for example an install preflight refusal).
+type conflictReasonError struct{ reason string }
+
+func (e *conflictReasonError) Error() string { return "api: conflict: " + e.reason }

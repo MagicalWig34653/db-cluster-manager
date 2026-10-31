@@ -127,7 +127,12 @@ type Operation struct {
 	// Locks are resource keys ("cluster/<id>", "node/<id>/<slot>"). Two
 	// operations sharing a key never execute concurrently.
 	Locks []string `json:"locks"`
-	Steps []Step   `json:"steps"`
+	// ReleaseLocksOnFailure frees the locks when the operation ends Failed,
+	// for operations whose failure leaves nothing to inspect (a restic
+	// backup). The operation stays retryable: Resume takes the locks again
+	// and answers ErrBusy if another operation holds them meanwhile.
+	ReleaseLocksOnFailure bool   `json:"release_locks_on_failure,omitempty"`
+	Steps                 []Step `json:"steps"`
 }
 
 // reservedSep separates a step ID from the suffix of a new agent step ID.

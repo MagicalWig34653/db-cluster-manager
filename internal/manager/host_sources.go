@@ -316,6 +316,10 @@ func (s *HostSources) start(ctx context.Context, actor authz.Subject, id string,
 		CredentialSecret: h.CredentialSecret, Paths: h.Paths, Excludes: h.Excludes,
 		Retention: h.Retention, ReadDataSubset: h.CheckSubset}
 	op := runner.Operation{ID: newID("op"), Kind: "restic/backup", Locks: []string{"host-source/" + id}}
+	// A failed backup leaves nothing to inspect: free the source so the
+	// next run (or a retry of this one) needs no manual abort. A failed
+	// restore keeps the lock because its target may be half written.
+	op.ReleaseLocksOnFailure = restore == nil
 	backupArgs, _ := json.Marshal(a)
 	target := h.HostID
 	backupKind, forgetKind, checkKind, restoreKind := agent.KindResticBackup, agent.KindResticForget, agent.KindResticCheck, agent.KindResticRestore

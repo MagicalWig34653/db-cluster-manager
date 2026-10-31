@@ -42,6 +42,40 @@ var (
 	ErrInstallDigest    = errors.New("patch: install plan digest mismatch")
 )
 
+// Fixed, redacted reasons of an install preflight refusal. They name the
+// failed check only; no host output, path or address is part of them.
+const (
+	ReasonHostUnreachable = "host_unreachable"
+	ReasonOutputInvalid   = "preflight_output_invalid"
+	ReasonUnsupportedOS   = "unsupported_os"
+	ReasonUnsupportedArch = "unsupported_arch"
+	ReasonNoSystemd       = "systemd_missing"
+	ReasonNoPrivilege     = "privilege_missing"
+	ReasonLowDisk         = "disk_space_low"
+	ReasonAgentPresent    = "agent_present"
+	ReasonResticMissing   = "restic_missing"
+)
+
+type reasonError struct {
+	base   error
+	reason string
+}
+
+func (e *reasonError) Error() string { return e.base.Error() + " (" + e.reason + ")" }
+func (e *reasonError) Unwrap() error { return e.base }
+
+func preflightFail(reason string) error { return &reasonError{ErrInstallPreflight, reason} }
+
+// InstallReason returns the redacted reason of an install preflight error, or
+// "" when err carries none.
+func InstallReason(err error) string {
+	var re *reasonError
+	if errors.As(err, &re) {
+		return re.reason
+	}
+	return ""
+}
+
 var (
 	hexSHA = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	fpRe   = regexp.MustCompile(`^[0-9A-Fa-f:]{64,95}$`)
@@ -179,19 +213,19 @@ printf 'disk=%s\n' "$(df -PB1 /usr/local 2>/dev/null | awk 'NR==2 {print $4}')"`
 func InstallPreflight(ctx context.Context, r provision.CommandRunner, h provision.Host, c provision.Credential) (InstallCheck, error) {
 	out, err := r.Run(ctx, h, c, preflightScript, "")
 	if err != nil {
-		return InstallCheck{}, ErrInstallPreflight
+		return InstallCheck{}, preflightFail(ReasonHostUnreachable)
 	}
 	v := map[string]string{}
 	for _, l := range strings.Split(strings.TrimSpace(out), "\n") {
 		k, val, ok := strings.Cut(l, "=")
 		if !ok || v[k] != "" {
-			return InstallCheck{}, ErrInstallPreflight
+			return InstallCheck{}, preflightFail(ReasonOutputInvalid)
 		}
 		v[k] = strings.TrimSpace(val)
 	}
 	var disk uint64
 	if _, err := fmt.Sscanf(v["disk"], "%d", &disk); err != nil {
-		return InstallCheck{}, ErrInstallPreflight
+		return InstallCheck{}, preflightFail(ReasonOutputInvalid)
 	}
 	m := Manager(v["manager"])
 	if v["manager"] == "apt-get" {
@@ -200,14 +234,20 @@ func InstallPreflight(ctx context.Context, r provision.CommandRunner, h provisio
 	chk := InstallCheck{OS: v["os"], Arch: v["arch"], Systemd: v["systemd"] == "yes", Privilege: v["priv"], Manager: m,
 		AgentPresent: v["agent"] == "present", DiskFreeBytes: disk, Restic: v["restic"] == "yes", SSHClient: v["ssh"] == "yes"}
 	if _, err := NewAdapter(m); err != nil || chk.OS == "" {
-		return chk, ErrInstallPreflight
+		return chk, preflightFail(ReasonUnsupportedOS)
 	}
-	if !chk.Systemd || (chk.Privilege != "root" && chk.Privilege != "sudo") || disk < 100<<20 ||
-		(chk.Arch != "x86_64" && chk.Arch != "aarch64") {
-		return chk, ErrInstallPreflight
+	switch {
+	case chk.Arch != "x86_64" && chk.Arch != "aarch64":
+		return chk, preflightFail(ReasonUnsupportedArch)
+	case !chk.Systemd:
+		return chk, preflightFail(ReasonNoSystemd)
+	case chk.Privilege != "root" && chk.Privilege != "sudo":
+		return chk, preflightFail(ReasonNoPrivilege)
+	case disk < 100<<20:
+		return chk, preflightFail(ReasonLowDisk)
 	}
 	if chk.AgentPresent {
-		return chk, ErrInstallExists
+		return chk, &reasonError{ErrInstallExists, ReasonAgentPresent}
 	}
 	return chk, nil
 }
@@ -285,11 +325,16 @@ func BuildInstallPlan(r InstallRequest, chk InstallCheck) (InstallPlan, error) {
 	if err := r.Validate(); err != nil {
 		return InstallPlan{}, err
 	}
-	if !chk.Systemd || chk.AgentPresent || (chk.Privilege != "root" && chk.Privilege != "sudo") {
-		return InstallPlan{}, ErrInstallPreflight
+	switch {
+	case !chk.Systemd:
+		return InstallPlan{}, preflightFail(ReasonNoSystemd)
+	case chk.AgentPresent:
+		return InstallPlan{}, &reasonError{ErrInstallExists, ReasonAgentPresent}
+	case chk.Privilege != "root" && chk.Privilege != "sudo":
+		return InstallPlan{}, preflightFail(ReasonNoPrivilege)
 	}
 	if len(r.ResticPaths) > 0 && !chk.Restic {
-		return InstallPlan{}, fmt.Errorf("%w: the restic capability needs the restic binary on the host", ErrInstallPreflight)
+		return InstallPlan{}, preflightFail(ReasonResticMissing)
 	}
 	unit := UnitFile(r)
 	p := InstallPlan{Request: r, Check: chk, Unit: unit, Script: InstallScript(r, unit)}

@@ -256,6 +256,10 @@ func (r *Runner) setStatus(st *opState, s Status, stepID, reason string, typ Eve
 	switch s {
 	case StatusSucceeded, StatusAborted, StatusStopped:
 		r.unlockLocked(st)
+	case StatusFailed:
+		if st.def.ReleaseLocksOnFailure {
+			r.unlockLocked(st)
+		}
 	}
 	r.eventLocked(st, typ, stepID, reason)
 	log := r.cfg.Log.With("op", st.def.ID, "kind", st.def.Kind, "step", stepID, "status", string(s), "reason", reason)

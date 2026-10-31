@@ -2,6 +2,12 @@
 
 Updated: 2026-10-31.
 
+## E17 leftovers: restic source lock, install preflight reasons, module dependents (2026-10-31; Go tests only, no VMs)
+
+- **Failed host backup frees its source.** `runner.Operation.ReleaseLocksOnFailure` releases the locks when the operation ends Failed; the host-source backup sets it (restore does not: its target may be half written). The failed operation stays retryable (`Resume` takes the locks again, `ErrBusy` if another run holds them). Next backup no longer needs a manual abort. Tests: `TestFailedOperationKeepsLocksByDefault`, `TestFailedOperationReleasesLocksWhenRequested`.
+- **Install preflight reasons.** The patch install endpoints still answer 409 `conflict`, now with a fixed redacted `reason` (`host_unreachable`, `preflight_output_invalid`, `unsupported_os`, `unsupported_arch`, `systemd_missing`, `privilege_missing`, `disk_space_low`, `agent_present`, `restic_missing`); no host output. OpenAPI updated. Test: `TestPatchInstallPreflightReasons`. The provisioning/bootstrap preflight errors still carry plain `conflict` (not changed).
+- **Module registry.** `TestModuleDisableBlockedByDependents`: disabling a module with an enabled dependent answers 409 `module_blocked` and changes nothing.
+
 ## E18: agent blips and zero-UUID recovery on real VMs (2026-10-31)
 
 Three lab VMs, real manager and agents, 3-node Galera; VMs removed with `bin/lab cleanup --apply` (unrelated Lima/Colima entries intact). No product code changed.
