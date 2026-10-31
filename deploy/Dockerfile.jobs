@@ -49,7 +49,7 @@ LABEL org.opencontainers.image.title="db-cluster-manager-jobs" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${COMMIT}"
 # Fail the build if a tool the job helper allow-lists is missing.
-RUN set -eu; for t in mariabackup mbstream mariadb-dump mariadb; do test -x "/usr/bin/$t"; done; \
+RUN set -eu; for t in mariabackup mbstream mariadb-dump mariadb mariadb-binlog; do test -x "/usr/bin/$t"; done; \
     test "$(id -u mysql):$(id -g mysql)" = "999:999"
 COPY --from=build /out/dbcm-job /usr/local/bin/dbcm-job
 # mysql (999:999 in this base image) owns the node's data/ directory

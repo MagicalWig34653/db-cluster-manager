@@ -92,7 +92,7 @@ def check_dockerfile(path: Path, required=("EXPOSE", "HEALTHCHECK")) -> list[tup
 
 
 # Tools dbbackup.AllowedTools runs inside the job image.
-JOB_TOOLS = ("mariabackup", "mbstream", "mariadb-dump", "mariadb")
+JOB_TOOLS = ("mariabackup", "mbstream", "mariadb-dump", "mariadb", "mariadb-binlog")
 
 
 def check_jobs_dockerfile(path: Path) -> None:
