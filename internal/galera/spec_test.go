@@ -122,6 +122,34 @@ func TestBuildServiceSpecSteadyState(t *testing.T) {
 	}
 }
 
+func TestBuildServiceSpecBinlog(t *testing.T) {
+	c := testCluster()
+	off, err := BuildServiceSpec(c, testNode("n2"), SpecOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range off.Args {
+		if strings.Contains(a, "log_bin") || strings.Contains(a, "log_slave_updates") {
+			t.Fatalf("binary log enabled by default: %s", a)
+		}
+	}
+	c.Binlog = true
+	on, err := BuildServiceSpec(c, testNode("n2"), SpecOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"--log_bin=/dbcm/data/dbcm-bin", "--log_slave_updates=ON", "--binlog_expire_logs_seconds=1209600"} {
+		if !slices.Contains(on.Args, want) {
+			t.Errorf("args %v lack %s", on.Args, want)
+		}
+	}
+	// The pass-through options cannot override them.
+	c.TLS.Args = []string{"--log_bin=/tmp/x"}
+	if _, err := BuildServiceSpec(c, testNode("n2"), SpecOptions{}); !errors.Is(err, ErrInvalidSpec) {
+		t.Fatalf("log_bin override: %v", err)
+	}
+}
+
 func TestBuildServiceSpecBootstrapOnlyWhenRequested(t *testing.T) {
 	boot, err := BuildServiceSpec(testCluster(), testNode("n1"), SpecOptions{Bootstrap: true})
 	if err != nil {

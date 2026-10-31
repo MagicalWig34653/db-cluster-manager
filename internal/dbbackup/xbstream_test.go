@@ -99,6 +99,38 @@ func TestGaleraInfoTapFailsClosed(t *testing.T) {
 	}
 }
 
+// Lab E15: MariaDB 11.4 streams the binary log position in the xbstream and
+// writes nothing to --extra-lsndir.
+func TestInfoTapFindsBinlogInfoNextToGaleraInfo(t *testing.T) {
+	const info = "dbcm-bin.000002\t383\t0-1-5\n"
+	var s []byte
+	s = append(s, xbChunk("ibdata1", 0, []byte("data"), false)...)
+	s = append(s, xbChunk("mariadb_backup_binlog_info", 0, []byte(info[:9]), false)...)
+	s = append(s, xbChunk("mariadb_backup_binlog_info", 9, []byte(info[9:]), false)...)
+	s = append(s, xbChunk("mariadb_backup_binlog_info", 0, nil, true)...)
+	s = append(s, syntheticStream("mariadb_backup_galera_info")...)
+	tap := newGaleraInfoTap()
+	for i := 0; i < len(s); i += 5 {
+		_, _ = tap.Write(s[i:min(i+5, len(s))])
+	}
+	got, ok := tap.BinlogInfo()
+	if !ok || got != info {
+		t.Fatalf("%q %v", got, ok)
+	}
+	if g, ok := tap.Content(); !ok || g != testGaleraInfo {
+		t.Fatalf("galera info lost: %q %v", g, ok)
+	}
+	pos, err := ParseBinlogInfo(got)
+	if err != nil || pos.File != "dbcm-bin.000002" || pos.Offset != 383 {
+		t.Fatalf("%+v %v", pos, err)
+	}
+	plain := newGaleraInfoTap()
+	_, _ = plain.Write(syntheticStream("mariadb_backup_galera_info"))
+	if _, ok := plain.BinlogInfo(); ok {
+		t.Fatal("binlog info from a stream without it")
+	}
+}
+
 // TestBackupJobGaleraPositionFromStream: lab E4 (MariaDB 11.4.13) found no
 // galera_info in --extra-lsndir; the job now takes it from the stream.
 func TestBackupJobGaleraPositionFromStream(t *testing.T) {

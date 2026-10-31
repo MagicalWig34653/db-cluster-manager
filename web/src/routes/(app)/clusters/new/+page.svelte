@@ -167,6 +167,10 @@
 					<input type="checkbox" class={checkClass} bind:checked={form.autoReplace} />{t('autoReplace')}
 				</label>
 				<p class="-mt-3 text-xs text-muted-foreground">{t('autoReplaceHint')}</p>
+				<label class="flex items-center gap-2 text-sm">
+					<input type="checkbox" class={checkClass} bind:checked={form.binlog} aria-describedby="f-binlog-hint" />{t('binlogOption')}
+				</label>
+				<p id="f-binlog-hint" class="-mt-3 text-xs text-muted-foreground">{t('binlogOptionHint')}</p>
 			{:else if step === 1}
 				<fieldset class="space-y-2">
 					<legend class="text-sm font-medium">{t('placementMode')}</legend>
@@ -257,6 +261,7 @@
 					<dt class="text-muted-foreground">{t('placementMode')}</dt>
 					<dd>{t(modeLabel[form.mode])}{form.hosts.length ? ` (${form.hosts.join(', ')})` : ''}</dd>
 					<dt class="text-muted-foreground">{t('autoReplace')}</dt><dd>{form.autoReplace ? t('yes') : t('no')}</dd>
+					<dt class="text-muted-foreground">{t('binlogOption')}</dt><dd>{form.binlog ? t('yes') : t('no')}</dd>
 				</dl>
 				<details>
 					<summary class="cursor-pointer text-sm">{t('requestBody')}</summary>

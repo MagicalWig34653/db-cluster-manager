@@ -35,7 +35,7 @@ var ErrNoPreviousSpec = errors.New("manager: the service has no previous spec to
 // galeraServiceInfo lists a cluster as a service of the galera type.
 func galeraServiceInfo(c ClusterRecord) api.ServiceInfo {
 	spec, _ := json.Marshal(service.GaleraSpec{Size: c.Size, Image: c.Spec.Image, Network: c.Spec.Network,
-		RootPasswordSecret: c.Spec.RootPasswordSecret, GcacheSize: c.Spec.GcacheSize, Resources: c.Resources,
+		RootPasswordSecret: c.Spec.RootPasswordSecret, GcacheSize: c.Spec.GcacheSize, Binlog: c.Spec.Binlog, Resources: c.Resources,
 		Placement: c.Placement, AutoReplace: c.AutoReplace})
 	si := api.ServiceInfo{ID: c.ID, Swarm: c.Swarm, Name: c.Name, Type: service.TypeGalera, Spec: spec,
 		CreatedBy: c.CreatedBy, CreatedAt: c.CreatedAt, CreateOperation: c.CreateOp, DeleteOperation: c.DeleteOp}
@@ -67,7 +67,7 @@ func galeraRequest(in api.ServiceInput) (CreateClusterRequest, error) {
 		return CreateClusterRequest{}, err
 	}
 	return CreateClusterRequest{Swarm: in.Swarm, Name: in.Name, Size: g.Size, Image: g.Image, Network: g.Network,
-		RootPasswordSecret: g.RootPasswordSecret, GcacheSize: g.GcacheSize, Resources: g.Resources,
+		RootPasswordSecret: g.RootPasswordSecret, GcacheSize: g.GcacheSize, Binlog: g.Binlog, Resources: g.Resources,
 		Placement: g.Placement, AutoReplace: g.AutoReplace}, nil
 }
 

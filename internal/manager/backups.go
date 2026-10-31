@@ -126,8 +126,10 @@ type InspectionRecord struct {
 	Swarm      string                     `json:"swarm"`
 	OpID       string                     `json:"opId"`
 	InitSecret string                     `json:"initSecret"`
-	By         string                     `json:"by"`
-	TeardownOp string                     `json:"teardownOp,omitempty"`
+	// ReplaySecret is the replay option file of a point-in-time session.
+	ReplaySecret string `json:"replaySecret,omitempty"`
+	By           string `json:"by"`
+	TeardownOp   string `json:"teardownOp,omitempty"`
 }
 
 // Backups implements api.Backups.
@@ -616,8 +618,10 @@ func (b *Backups) inspectionHost(c ClusterRecord, want string, res galera.Resour
 		return galera.Host{}, err
 	}
 	if want != "" {
+		// The Swarm node ID or the host name (lab E14: the name was rejected
+		// at run time, after the policy had been accepted).
 		for _, h := range hosts {
-			if h.ID == want {
+			if h.ID == want || (h.Name != "" && h.Name == want) {
 				if !h.Ready || !h.Active || h.Spare {
 					return galera.Host{}, fmt.Errorf("%w: host %s is not ready, active and non-spare", dbbackup.ErrInvalidRequest, want)
 				}
@@ -686,11 +690,7 @@ func (b *Backups) startInspectionAs(ctx context.Context, actor authz.Subject, in
 	if res.Limits.MilliCPU <= 0 || res.Limits.MemoryBytes <= 0 {
 		return api.InspectionStarted{}, fmt.Errorf("%w: the cluster has no resource limits to size the instance", ErrSettingsIncomplete)
 	}
-	br, err := b.chooseBackup(c.ID, in.Backup)
-	if err != nil {
-		return api.InspectionStarted{}, err
-	}
-	m, err := b.manifest(ctx, br.Objects[0])
+	br, m, pitr, err := b.restoreBase(ctx, c.ID, in)
 	if err != nil {
 		return api.InspectionStarted{}, err
 	}
@@ -705,6 +705,11 @@ func (b *Backups) startInspectionAs(ctx context.Context, actor authz.Subject, in
 	session := strings.TrimPrefix(newID("i"), "i-")[:12]
 	session = "i" + session
 	initSecret := dbbackup.InitSecretName(session)
+	replaySecret := ""
+	if pitr != nil {
+		replaySecret = dbbackup.ReplaySecretName(session)
+		pitr.ReplaySecret = replaySecret
+	}
 	svcHost, err := b.Ops.serviceHostFor(c.Swarm)
 	if err != nil {
 		return api.InspectionStarted{}, err
@@ -716,7 +721,7 @@ func (b *Backups) startInspectionAs(ctx context.Context, actor authz.Subject, in
 		Source: dbbackup.RestoreSource{Manifest: m, ClusterID: c.ID, BackendSecret: bs.BackendSecret, KeySecret: keySecret},
 		Host:   host, InstallationID: st.InstallationID, VolumeBase: st.VolumeBase, Image: c.Spec.Image, JobImage: bs.JobImage,
 		Network: bs.InspectionNetwork, InitSecret: initSecret, Resources: res, Job: bs.job(), TTL: ttl, Now: now,
-		TokenID: newID("tok"), StepTimeout: b.Ops.StepTimeout, MaxRetries: b.Ops.MaxRetries, ServiceHost: svcHost,
+		TokenID: newID("tok"), StepTimeout: b.Ops.StepTimeout, MaxRetries: b.Ops.MaxRetries, ServiceHost: svcHost, PITR: pitr,
 	}, mustInventory(b.store()))
 	if err != nil {
 		return api.InspectionStarted{}, err
@@ -727,8 +732,26 @@ func (b *Backups) startInspectionAs(ctx context.Context, actor authz.Subject, in
 	}
 	// The monitoring account stays usable in the instance, so the agent can
 	// verify that it answers (restore verification).
-	sql, err := dbbackup.RenderInspectionInitKeeping(password, monitorAccount(st.Accounts))
-	if err != nil {
+	keep := monitorAccount(st.Accounts)
+	var sql string
+	if pitr != nil {
+		// The replay account is created by the init file; its password
+		// lives only in the replay secret (RenderReplayOptions).
+		replayPassword, err := dbbackup.NewInspectionPassword()
+		if err != nil {
+			return api.InspectionStarted{}, err
+		}
+		if sql, err = dbbackup.RenderInspectionInitReplay(password, replayPassword, keep); err != nil {
+			return api.InspectionStarted{}, err
+		}
+		opts, err := dbbackup.RenderReplayOptions(replayPassword, plan.Session.Port)
+		if err != nil {
+			return api.InspectionStarted{}, err
+		}
+		if err := b.createSecret(ctx, c.Swarm, replaySecret, st.InstallationID, session, []byte(opts)); err != nil {
+			return api.InspectionStarted{}, err
+		}
+	} else if sql, err = dbbackup.RenderInspectionInitKeeping(password, keep); err != nil {
 		b.Ops.Svc.log.Warn("manager: monitoring account cannot stay unlocked in the inspection instance; verification will not pass", "err", err)
 		if sql, err = dbbackup.RenderInspectionInit(password); err != nil {
 			return api.InspectionStarted{}, err
@@ -739,8 +762,12 @@ func (b *Backups) startInspectionAs(ctx context.Context, actor authz.Subject, in
 	}
 	// The allow-objects step is not destructive (no approval) and is part
 	// of the approved definition, so it is added before the digest.
+	secrets := []string{bs.BackendSecret, keySecret, initSecret}
+	if replaySecret != "" {
+		secrets = append(secrets, replaySecret)
+	}
 	if err := b.Ops.allowReferenced(&plan.Operation, c.Swarm, st.InstallationID, []string{host.ID, svcHost},
-		objectRefs{Networks: []string{bs.InspectionNetwork}, Secrets: []string{bs.BackendSecret, keySecret, initSecret}}); err != nil {
+		objectRefs{Networks: []string{bs.InspectionNetwork}, Secrets: secrets}); err != nil {
 		return api.InspectionStarted{}, err
 	}
 	digest, err := DefinitionDigest(plan.Operation)
@@ -749,23 +776,31 @@ func (b *Backups) startInspectionAs(ctx context.Context, actor authz.Subject, in
 	}
 	rec := OperationRecord{ID: opID, Kind: plan.Operation.Kind, Swarm: c.Swarm, Cluster: c.ID, RequestedBy: actor.ID,
 		RequestedAt: now, Definition: plan.Operation, ApprovalID: approvalID, ApprovalDigest: digest}
-	ir := InspectionRecord{Session: plan.Session, Cluster: c.ID, Swarm: c.Swarm, OpID: opID, InitSecret: initSecret, By: actor.ID}
+	ir := InspectionRecord{Session: plan.Session, Cluster: c.ID, Swarm: c.Swarm, OpID: opID, InitSecret: initSecret, ReplaySecret: replaySecret, By: actor.ID}
 	if err := b.commit(rec, PutOpOf(CollInspections, session, ir)); err != nil {
 		return api.InspectionStarted{}, err
 	}
-	b.Ops.Svc.recordEvent(c.Swarm, c.ID, api.SeverityWarning, fmt.Sprintf("%s requested inspection %s of backup %s on host %s, operation %s (waits for approval)",
-		actor.ID, session, br.ID, host.ID, opID))
+	what := ""
+	if pitr != nil {
+		what = " as of " + pitr.At.UTC().Format(time.RFC3339) + " (binlog replay)"
+	}
+	b.Ops.Svc.recordEvent(c.Swarm, c.ID, api.SeverityWarning, fmt.Sprintf("%s requested inspection %s of backup %s%s on host %s, operation %s (waits for approval)",
+		actor.ID, session, br.ID, what, host.ID, opID))
 	if preApprovedBy != "" {
 		if _, err := Put(b.store(), CollApprovals, approvalID, ApprovalRecord{ID: approvalID, OpID: opID, Digest: digest, By: preApprovedBy, Approved: now}, IfVersion(0)); err != nil {
 			return api.InspectionStarted{}, err
 		}
 	}
 	b.Ops.start(l, plan.Operation, nil)
-	return api.InspectionStarted{
+	started := api.InspectionStarted{
 		ID: opID, Kind: plan.Operation.Kind, Session: session, Backup: br.ID, Host: host.ID, Service: plan.Session.ServiceName,
 		Port: plan.Session.Port, ExpiresAt: plan.Session.ExpiresAt, Approval: api.OperationApproval{Digest: digest},
 		InspectionAccount: dbbackup.InspectionAccount, InspectionPassword: password,
-	}, nil
+	}
+	if pitr != nil {
+		started.PointInTime = &pitr.At
+	}
+	return started, nil
 }
 
 // monitorAccount is the configured monitoring account (galera defaults).
@@ -890,20 +925,43 @@ func (b *Backups) teardownPlan(opID string, ir InspectionRecord, view *runner.Vi
 		return runner.Operation{}, err
 	}
 	req := dbbackup.TeardownRequest{OpID: opID, InstallationID: st.InstallationID, Session: sess, ServiceHost: svcHost,
-		InitSecret: ir.InitSecret, StepTimeout: b.Ops.StepTimeout, MaxRetries: b.Ops.MaxRetries}
+		InitSecret: ir.InitSecret, ReplaySecret: ir.ReplaySecret, StepTimeout: b.Ops.StepTimeout, MaxRetries: b.Ops.MaxRetries}
 	if req.InitSecret != dbbackup.InitSecretName(sess.ID) {
 		req.InitSecret = "" // records from before the name was fixed: never remove another secret
 	}
+	if req.ReplaySecret != dbbackup.ReplaySecretName(sess.ID) {
+		req.ReplaySecret = ""
+	}
 	td, err := dbbackup.TeardownPlanFor(req, mustInventory(b.store()))
-	if err != nil || req.InitSecret == "" {
+	if err != nil {
 		return td, err
 	}
-	err = b.Ops.allowReferenced(&td, ir.Swarm, st.InstallationID, []string{svcHost}, objectRefs{Secrets: []string{req.InitSecret}})
-	if errors.Is(err, ErrUnknownReference) {
-		req.InitSecret = ""
-		return dbbackup.TeardownPlanFor(req, mustInventory(b.store()))
+	// A secret that is already gone (the point-in-time plan removes the
+	// replay secret itself) cannot be referenced; the teardown skips it.
+	for _, s := range []*string{&req.InitSecret, &req.ReplaySecret} {
+		if *s == "" {
+			continue
+		}
+		probe := td
+		if err := b.Ops.allowReferenced(&probe, ir.Swarm, st.InstallationID, []string{svcHost}, objectRefs{Secrets: []string{*s}}); errors.Is(err, ErrUnknownReference) {
+			*s = ""
+		} else if err != nil {
+			return td, err
+		}
 	}
-	return td, err
+	if td, err = dbbackup.TeardownPlanFor(req, mustInventory(b.store())); err != nil {
+		return td, err
+	}
+	var present []string
+	for _, s := range []string{req.InitSecret, req.ReplaySecret} {
+		if s != "" {
+			present = append(present, s)
+		}
+	}
+	if len(present) == 0 {
+		return td, nil
+	}
+	return td, b.Ops.allowReferenced(&td, ir.Swarm, st.InstallationID, []string{svcHost}, objectRefs{Secrets: present})
 }
 
 // TeardownExpired removes expired inspection instances (B03): an unfinished

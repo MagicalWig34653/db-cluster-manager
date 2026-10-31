@@ -57,6 +57,8 @@ The stop uses `--force` because a graceful `limactl stop` fails on an instance t
 
 `tests/p0/rc-demo.sh up|info|forward|down` (release-candidate demo: E12 phases up to the HA stack, stops before the first administrator and prints URL and setup token; **never executed**) and `scripts/rc-package.sh VERSION` (local dry run of the release workflow's archive, SBOM, checksum and release-notes steps; host-only, ran 2026-10-30). See [E13 not-run record](../tests/p0/results/e13-not-run.md).
 
+`tests/p0/e15-pitr.sh` (E15, point-in-time recovery, [ADR 0031](decisions/0031-point-in-time-recovery.md): three VMs, a Galera cluster with `binlog: true`, the cross-built `cmd/dbcm-job` run with `docker run` for the physical backup, the binlog archive, the physical restore and the binlog replay, `cmd/pitrlab` for the library calls the script must not copy; guards: 1-minute host load below 40 and at least 40 GiB free disk; `E15_KEEP_VMS=1` keeps the VMs) writes `tests/p0/results/e15-pitr.{log,md}`. It does not start the manager, the agent or the UI.
+
 `tests/p0/e11-restic.sh` (restic lab, two Debian 12 VMs, pinned downloads from GitHub, MinIO cross-built with `go install` for linux/arm64) writes `tests/p0/results/e11-restic.{log,md}`; the in-VM harness is `cmd/resticlab`, the external-host case is the env-gated test `TestE11ExternalHostSSHPlanReal` in `internal/manager`. It needs outbound network access and about 10 minutes.
 
 The `cmd/lab` tests use a fake runner only. `lab apply --apply` and `lab cleanup --apply` have not been executed against a real host.

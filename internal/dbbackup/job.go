@@ -11,7 +11,9 @@ import (
 	"io"
 	"io/fs"
 	"path"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -44,6 +46,10 @@ type JobSpec struct {
 	TargetClusterID string
 	KeyFile         string
 	TargetDatabase  string
+	// Binlog replay (restore --mode=binlog).
+	Segments     []string
+	StartOffset  uint64
+	StopDatetime string
 }
 
 var jobFlags = map[string]map[string]bool{
@@ -51,8 +57,13 @@ var jobFlags = map[string]map[string]bool{
 		"db-host": true, "db-option-file": true, "backend-config": true, "recipient": true, "datadir": true, "database": true},
 	"restore": {"job": true, "mode": true, "backup-id": true, "object": true, "approval-id": true, "source-cluster-id": true,
 		"backend-config": true, "key-file": true, "datadir": true, "target-cluster-id": true, "database": true,
-		"target-database": true, "db-host": true, "db-option-file": true},
+		"target-database": true, "db-host": true, "db-option-file": true, "segments": true, "start-offset": true, "stop-datetime": true},
 }
+
+var (
+	stopDatetimeRe = regexp.MustCompile(`^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$`)
+	objectRe       = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,200}$`)
+)
 
 // ParseJobArgs parses the job argv strictly: only the known "--name=value"
 // flags of the job kind, each once, all values non-empty, secret files below
@@ -82,6 +93,17 @@ func ParseJobArgs(args []string) (JobSpec, error) {
 		DBHost: v["db-host"], DBOptionFile: v["db-option-file"], BackendConfig: v["backend-config"], Recipient: v["recipient"],
 		DataDir: v["datadir"], Database: v["database"], ApprovalID: v["approval-id"], SourceClusterID: v["source-cluster-id"],
 		TargetClusterID: v["target-cluster-id"], KeyFile: v["key-file"], TargetDatabase: v["target-database"]}
+	if v["segments"] != "" {
+		s.Segments = strings.Split(v["segments"], ",")
+	}
+	if v["start-offset"] != "" {
+		n, err := strconv.ParseUint(v["start-offset"], 10, 64)
+		if err != nil || n < 4 {
+			return JobSpec{}, bad("start offset %q", v["start-offset"])
+		}
+		s.StartOffset = n
+	}
+	s.StopDatetime = v["stop-datetime"]
 	need := func(names ...string) error {
 		for _, n := range names {
 			if v[n] == "" {
@@ -98,7 +120,7 @@ func ParseJobArgs(args []string) (JobSpec, error) {
 	}
 	var err error
 	switch {
-	case s.Kind == "backup" && s.Tool == agent.ToolMariabackup:
+	case s.Kind == "backup" && (s.Tool == agent.ToolMariabackup || s.Tool == agent.ToolBinlogArchive):
 		err = need("cluster-id", "node-uuid", "db-host", "db-option-file", "recipient", "datadir")
 		if v["database"] != "" {
 			err = bad("physical backup takes no database")
@@ -112,6 +134,16 @@ func ParseJobArgs(args []string) (JobSpec, error) {
 		err = need("approval-id", "source-cluster-id", "key-file", "datadir", "target-cluster-id")
 		if s.TargetClusterID == s.SourceClusterID {
 			err = bad("target cluster equals the source cluster")
+		}
+	case s.Kind == "restore" && s.Mode == agent.RestoreBinlog:
+		err = need("approval-id", "source-cluster-id", "key-file", "db-host", "db-option-file", "segments", "start-offset", "stop-datetime")
+		if err == nil && (!strings.HasPrefix(s.DBHost, agent.InspectionServicePrefix) || !stopDatetimeRe.MatchString(s.StopDatetime) || v["database"] != "" || v["datadir"] != "") {
+			err = bad("binlog replay needs an inspection instance as db-host, a stop time and no database or datadir")
+		}
+		for _, o := range s.Segments {
+			if !objectRe.MatchString(o) {
+				err = bad("segment %q", o)
+			}
 		}
 	case s.Kind == "restore" && s.Mode == agent.RestoreLogical:
 		err = need("approval-id", "source-cluster-id", "key-file", "database", "target-database", "db-host", "db-option-file")
@@ -147,7 +179,7 @@ type ToolRunner interface {
 }
 
 // AllowedTools are the only binaries a job runs.
-var AllowedTools = []string{"mariabackup", "mbstream", "mariadb-dump", "mariadb"}
+var AllowedTools = []string{"mariabackup", "mbstream", "mariadb-dump", "mariadb", "mariadb-binlog"}
 
 // JobEnv supplies the job's side effects; tests use fakes.
 type JobEnv struct {
@@ -164,6 +196,10 @@ type JobEnv struct {
 	TempDir string
 	// Catalog optionally captures schema metadata from the source.
 	Catalog func(ctx context.Context, s JobSpec) (*Catalog, error)
+	// WriteFile stores r as a file below TempDir (binlog replay).
+	WriteFile func(path string, r io.Reader) error
+	// Sleep waits between connection attempts; default honours ctx.
+	Sleep func(ctx context.Context, d time.Duration) error
 }
 
 func (e JobEnv) run(ctx context.Context, argv []string, stdin io.Reader, stdout io.Writer) error {
@@ -242,10 +278,15 @@ func RunJob(ctx context.Context, args []string, env JobEnv) error {
 	}
 	st := JobStatus{Job: s.Job, BackupID: s.BackupID}
 	key := s.Job
-	if s.Kind == "backup" {
+	switch {
+	case s.Kind == "backup" && s.Tool == agent.ToolBinlogArchive:
+		st.StreamVerified, err = runArchiveJob(ctx, s, env, be)
+	case s.Kind == "backup":
 		key = s.Object
 		_, err = runBackupJob(ctx, s, env, be)
-	} else {
+	case s.Mode == agent.RestoreBinlog:
+		st.StreamVerified, err = runReplayJob(ctx, s, env, be)
+	default:
 		st.StreamVerified, err = runRestoreJob(ctx, s, env, be)
 	}
 	st.Finished, st.Succeeded = env.Now().UTC(), err == nil
@@ -343,8 +384,14 @@ func runBackupJob(ctx context.Context, s JobSpec, env JobEnv, be backup.Backend)
 			return Manifest{}, err
 		}
 		m.Checkpoints = &cp
+		binlogInfo := ""
 		if raw, err := env.readLSN("binlog_info"); err == nil {
-			pos, err := ParseBinlogInfo(string(raw))
+			binlogInfo = string(raw)
+		} else if raw, ok := tap.BinlogInfo(); ok {
+			binlogInfo = raw
+		}
+		if binlogInfo != "" {
+			pos, err := ParseBinlogInfo(binlogInfo)
 			if err != nil {
 				return Manifest{}, err
 			}

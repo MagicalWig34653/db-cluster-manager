@@ -459,11 +459,12 @@ export const mockFetch: typeof fetch = async (input, init) => {
 		if (/^\/api\/v1\/swarms\/[^/]+\/sync$/.test(path)) return new Response(null, { status: 204 });
 		if (/^\/api\/v1\/swarms\/[^/]+\/agents\/deploy$/.test(path))
 			return json(200, { serviceId: 'mock-agent-service', created: true, labeled: ['mock-host-1', 'mock-host-2'], unlabeled: [], failed: ['mock-host-3'] });
+		if (/^\/api\/v1\/clusters\/[^/]+\/binlog-archives$/.test(path)) return json(202, { id: 'mock-op-binlog-archive', kind: 'mock-binlog-archive' });
 		if (path === '/api/v1/restores/inspect') {
 			if (!body.host) return json(400, { error: 'bad_request' });
 			const id = `mock-op-restore-${operations.length}`;
 			operations.unshift({ id, kind: 'mock-inspection-restore', swarm: 'mock-swarm-a', cluster: body.cluster, state: 'pending', startedAt: ago(0), reason: 'mock: waiting for approval', approval: { digest: digest('c') } });
-			return json(202, { id, kind: 'mock-inspection-restore', session: 'mock-session', backup: 'mock-backup-1', host: body.host, service: 'mock-inspect-svc', port: 3306, expiresAt: new Date(now + 4 * 3600_000).toISOString(), approval: { digest: digest('c') }, inspectionAccount: 'mock_inspector', inspectionPassword: 'mock-only-not-a-secret' });
+			return json(202, { id, kind: 'mock-inspection-restore', session: 'mock-session', backup: 'mock-backup-1', host: body.host, service: 'mock-inspect-svc', port: 3306, expiresAt: new Date(now + 4 * 3600_000).toISOString(), approval: { digest: digest('c') }, inspectionAccount: 'mock_inspector', inspectionPassword: 'mock-only-not-a-secret', ...(body.pointInTime ? { pointInTime: body.pointInTime } : {}) });
 		}
 		m = path.match(/^\/api\/v1\/operations\/([^/]+)\/(resume|abort|approve)$/);
 		if (m) {
@@ -527,6 +528,20 @@ export const mockFetch: typeof fetch = async (input, init) => {
 	if (url.pathname === '/api/v1/hosts') return json(200, { items: hosts });
 	if (url.pathname === '/api/v1/dashboards') return json(200, { items: dashboards });
 	if (url.pathname in fixtures) return json(200, fixtures[url.pathname]);
+	const pm = url.pathname.match(/^\/api\/v1\/clusters\/([^/]+)\/pitr-proposal$/);
+	if (pm) {
+		const at = Date.parse(url.searchParams.get('at') ?? '');
+		if (Number.isNaN(at)) return json(400, { error: 'bad_request' });
+		const from = new Date(now - 26 * 3600_000).toISOString();
+		const until = new Date(now - 10 * 60_000).toISOString();
+		const covered = at >= Date.parse(from) && at < Date.parse(until);
+		return json(200, {
+			cluster: decodeURIComponent(pm[1]), at: new Date(at).toISOString(), covered, approvalRequired: true, inPlace: false,
+			backup: 'mock-backup-1', backupFinishedAt: from, ...(covered ? { segments: 3 } : {}),
+			coverage: { segments: 5, from, until },
+			...(covered ? {} : { reason: at < Date.parse(from) ? `${new Date(at).toISOString()} is before backup mock-backup-1 finished; pick an older time or a newer backup` : `the archive ends at ${until}; later changes are not archived yet` })
+		});
+	}
 	const m = url.pathname.match(/^\/api\/v1\/clusters\/(.+)$/);
 	if (m) {
 		const c = clusters.find((c) => c.id === decodeURIComponent(m[1]));

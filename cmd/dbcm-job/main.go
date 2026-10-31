@@ -59,6 +59,24 @@ func run(args []string, stderr io.Writer) int {
 		Files:   os.DirFS("/"),
 		Remove:  os.Remove,
 		TempDir: tmp,
+		WriteFile: func(name string, r io.Reader) error {
+			// Only below the private scratch directory.
+			if rel, err := filepath.Rel(tmp, name); err != nil || !filepath.IsLocal(rel) {
+				return fmt.Errorf("dbcm-job: %s is outside the scratch directory", name)
+			}
+			if err := os.MkdirAll(filepath.Dir(name), 0o700); err != nil {
+				return err
+			}
+			f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+			if err != nil {
+				return err
+			}
+			if _, err := io.Copy(f, r); err != nil {
+				_ = f.Close()
+				return err
+			}
+			return f.Close()
+		},
 	}
 	if err := dbbackup.RunJob(ctx, args, env); err != nil {
 		_, _ = fmt.Fprintln(stderr, "dbcm-job:", err)
@@ -101,7 +119,7 @@ func (r execRunner) Run(ctx context.Context, argv []string, stdin io.Reader, std
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, argv[1:]...)
-	cmd.Env = []string{"PATH=" + strings.Join(r.dirs, ":"), "LANG=C.UTF-8"}
+	cmd.Env = []string{"PATH=" + strings.Join(r.dirs, ":"), "LANG=C.UTF-8", "TZ=UTC"}
 	cmd.Stdout = stdout
 	cmd.Stderr = os.Stderr
 	var in io.WriteCloser
@@ -152,6 +170,6 @@ func (r execRunner) Output(ctx context.Context, argv []string) ([]byte, error) {
 		return nil, err
 	}
 	cmd := exec.CommandContext(ctx, bin, argv[1:]...)
-	cmd.Env = []string{"PATH=" + strings.Join(r.dirs, ":"), "LANG=C.UTF-8"}
+	cmd.Env = []string{"PATH=" + strings.Join(r.dirs, ":"), "LANG=C.UTF-8", "TZ=UTC"}
 	return cmd.CombinedOutput()
 }

@@ -479,6 +479,8 @@ export interface CreateClusterRequest {
 	network: string;
 	rootPasswordSecret: string;
 	gcacheSize?: string;
+	/** Binary log on: required for point-in-time recovery. */
+	binlog?: boolean;
 	resources: { limits: ResourceAmount; reservations: ResourceAmount };
 	placement: { allowlist?: string[]; excluded?: string[]; preferred?: string[]; reserve: ResourceAmount };
 	autoReplace?: boolean;
@@ -552,6 +554,31 @@ export interface InspectionInput {
 	/** Explicitly approved Swarm node; free disk is not observed, so the UI always asks for one. */
 	host?: string;
 	ttlMinutes?: number;
+	/** UTC time (RFC 3339): restore the newest backup before it and replay the archived binary log up to its second. Excludes `backup`. */
+	pointInTime?: string;
+}
+
+/** Mirrors api.PITRCoverage: what the binary log archive of one backup covers. */
+export interface PitrCoverage {
+	segments: number;
+	from: string;
+	/** Exclusive end of the covered range. */
+	until?: string;
+	gap?: string;
+}
+
+/** Mirrors api.PointInTimeProposal: whether a time can be restored; read-only, never in place. */
+export interface PointInTimeProposal {
+	cluster: string;
+	at: string;
+	covered: boolean;
+	reason?: string;
+	backup?: string;
+	backupFinishedAt?: string;
+	segments?: number;
+	coverage?: PitrCoverage;
+	approvalRequired: boolean;
+	inPlace: boolean;
 }
 
 /** Mirrors api.InspectionStarted. The password is returned only in this response. */
@@ -567,6 +594,7 @@ export interface InspectionStarted {
 	approval: OperationApproval;
 	inspectionAccount: string;
 	inspectionPassword: string;
+	pointInTime?: string;
 }
 
 /** Mirrors api.AgentDeployment. */
@@ -750,7 +778,22 @@ export const isInspectionStarted = (v: unknown): v is InspectionStarted =>
 	isDate(v.expiresAt) &&
 	isApproval(v.approval) &&
 	isStr(v.inspectionAccount) &&
-	isStr(v.inspectionPassword);
+	isStr(v.inspectionPassword) &&
+	(v.pointInTime === undefined || isDate(v.pointInTime));
+
+export const isPointInTimeProposal = (v: unknown): v is PointInTimeProposal =>
+	isObj(v) &&
+	isStr(v.cluster) &&
+	isDate(v.at) &&
+	isBool(v.covered) &&
+	optStr(v.reason) &&
+	optStr(v.backup) &&
+	(v.backupFinishedAt === undefined || isDate(v.backupFinishedAt)) &&
+	(v.segments === undefined || isNum(v.segments)) &&
+	(v.coverage === undefined ||
+		(isObj(v.coverage) && isNum(v.coverage.segments) && isDate(v.coverage.from) && (v.coverage.until === undefined || isDate(v.coverage.until)) && optStr(v.coverage.gap))) &&
+	isBool(v.approvalRequired) &&
+	isBool(v.inPlace);
 
 export const isAgentDeployment = (v: unknown): v is AgentDeployment =>
 	isObj(v) && optStr(v.serviceId) && isBool(v.created) && strArray(v.labeled) && strArray(v.unlabeled) && strArray(v.failed);
@@ -1893,6 +1936,11 @@ export function createClient(fetchFn: FetchFn) {
 			),
 		backups: () => items(call('GET', '/backups', listOf(isBackupSummary))),
 		inspectRestore: (req: InspectionInput) => call('POST', '/restores/inspect', isInspectionStarted, req),
+		/** Read-only: can the cluster be restored to this UTC time (RFC 3339), and from which backup? */
+		pitrProposal: (cluster: string, at: string) =>
+			call('GET', `/clusters/${encodeURIComponent(cluster)}/pitr-proposal?at=${encodeURIComponent(at)}`, isPointInTimeProposal),
+		/** Archives the closed binary log files of the newest backup with a binlog position. */
+		startBinlogArchive: (cluster: string) => call('POST', `/clusters/${encodeURIComponent(cluster)}/binlog-archives`, isOperationRef, {}),
 		dashboards: () => items(call('GET', '/dashboards', listOf(isDashboard))),
 		/** Updates with PUT /dashboards/{id}; without an id creates with POST /dashboards/{newId} (client-chosen ID). */
 		saveDashboard: (d: DashboardInput, id?: string) =>

@@ -60,6 +60,10 @@ describe('cluster form', () => {
 			autoReplace: true
 		});
 	});
+	it('sends binlog only when the binary log is wanted (point-in-time recovery)', () => {
+		expect(buildRequest(form())).not.toHaveProperty('binlog');
+		expect(buildRequest({ ...form(), binlog: true })).toMatchObject({ binlog: true });
+	});
 	it('preflight rejects unknown, spare, drained and over-committed hosts', () => {
 		const f = { ...form(), cpuLimit: '2', memLimit: '4', reserveMem: '4.5' };
 		const r = preflight(f, [

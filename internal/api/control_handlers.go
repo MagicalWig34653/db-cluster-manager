@@ -522,7 +522,8 @@ func (s *server) resolveInspection(r *http.Request) (authz.Resource, any, error)
 
 func (s *server) handleInspectionStart(w http.ResponseWriter, r *http.Request, c *caller) {
 	in := c.target.(InspectionInput)
-	if len(in.Backup) > 64 || len(in.Host) > 64 || len(in.KeySecret) > 64 || in.TTLMinutes < 0 || in.TTLMinutes > 24*60 {
+	if len(in.Backup) > 64 || len(in.Host) > 64 || len(in.KeySecret) > 64 || in.TTLMinutes < 0 || in.TTLMinutes > 24*60 ||
+		(in.PointInTime != nil && (in.Backup != "" || in.PointInTime.IsZero())) {
 		writeError(w, http.StatusBadRequest, errBadRequest)
 		return
 	}

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -79,7 +80,10 @@ type fakeTools struct {
 	lsnPrefix string
 	calls     [][]string
 	stdin     map[string][]byte
-	version   string
+	binlogOut []byte // what mariadb-binlog prints
+	// probeFailures is how many "SELECT 1" probes fail before the instance answers.
+	probeFailures int
+	version       string
 }
 
 func newFakeTools(files fstest.MapFS, payload []byte) *fakeTools {
@@ -129,8 +133,20 @@ func (f *fakeTools) Run(_ context.Context, argv []string, stdin io.Reader, stdou
 			f.mu.Unlock()
 		}
 		return nil
+	case "mariadb-binlog":
+		if fail {
+			return errors.New("exit status 3")
+		}
+		_, err := stdout.Write(f.binlogOut)
+		return err
 	case "mbstream", "mariadb":
 		if stdin == nil {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			if f.probeFailures > 0 && slices.Contains(argv, "--execute=SELECT 1") {
+				f.probeFailures--
+				return errors.New("can't connect")
+			}
 			return nil
 		}
 		data, err := io.ReadAll(stdin)

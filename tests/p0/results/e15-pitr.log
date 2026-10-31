@@ -1,0 +1,1867 @@
+
+## Step 0: guards and host-side build
+
+### uptime
+
+```
+$ uptime
+ 7:15  up 12 days, 16:14, 10 users, load averages: 28.59 14.57 11.63
+(exit 0)
+```
+
+06:15:31Z host load (1 min): 28.59, free disk: 66 GiB
+### go build dbcm-job linux/arm64
+
+```
+$ sh -c cd '<repo>' && GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o '/var/folders/fv/g68cb08n70qg4kf8hl3tzl0c0000gn/T//dbcm-e15.wRkdRu/dbcm-job' ./cmd/dbcm-job
+(exit 0)
+```
+
+### go build pitrlab (host)
+
+```
+$ sh -c cd '<repo>' && go build -o '/var/folders/fv/g68cb08n70qg4kf8hl3tzl0c0000gn/T//dbcm-e15.wRkdRu/pitrlab' ./cmd/pitrlab
+(exit 0)
+```
+
+06:15:34Z recovery key generated (public half dbcmpk1:ikLGYH_pROtZhxUrImXG6OxGKrhbHdaQ9yzl-2WsZBw)
+
+## Step 1: lab VMs
+
+### host free disk before apply
+
+```
+$ host_free_disk
+host free disk (/System/Volumes/Data): 67Gi of 926Gi
+(exit 0)
+```
+
+### bin/lab status before
+
+```
+$ <repo>/bin/lab status
+host:
+  logical CPUs: 14
+  RAM: 48.0 GiB
+budget:
+  lab CPU limit: 7
+  lab RAM limit: 16.0 GiB
+  lab disk limit: 100.0 GiB
+manifest .lab/manifest.json:
+  (empty)
+inventory:
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+unrelated (never touched):
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+(exit 0)
+```
+
+### bin/lab apply -apply -vms 3 -cpus 2 -ram 4 -disk 20
+
+```
+$ <repo>/bin/lab apply -apply -vms 3 -cpus 2 -ram 4 -disk 20
+pre-snapshot:
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+executing actions:
+  # create Lima VM dbcm-lab-m1 (2 CPUs, 4 GiB RAM, 20 GiB disk, template docker)
+  limactl create --name=dbcm-lab-m1 --cpus=2 --memory=4 --disk=20 --tty=false template:docker
+  # start Lima VM dbcm-lab-m1
+  limactl start --tty=false dbcm-lab-m1
+  # create Lima VM dbcm-lab-m2 (2 CPUs, 4 GiB RAM, 20 GiB disk, template docker)
+  limactl create --name=dbcm-lab-m2 --cpus=2 --memory=4 --disk=20 --tty=false template:docker
+  # start Lima VM dbcm-lab-m2
+  limactl start --tty=false dbcm-lab-m2
+  # create Lima VM dbcm-lab-m3 (2 CPUs, 4 GiB RAM, 20 GiB disk, template docker)
+  limactl create --name=dbcm-lab-m3 --cpus=2 --memory=4 --disk=20 --tty=false template:docker
+  # start Lima VM dbcm-lab-m3
+  limactl start --tty=false dbcm-lab-m3
+post-snapshot diff:
+  added: lima:dbcm-lab-m1, lima:dbcm-lab-m2, lima:dbcm-lab-m3
+  removed: (none)
+(exit 0)
+```
+
+### host free disk after apply
+
+```
+$ host_free_disk
+host free disk (/System/Volumes/Data): 63Gi of 926Gi
+(exit 0)
+```
+
+
+## Step 1b: guest preparation (lab VMs only)
+
+### default network of dbcm-lab-m1
+
+```
+$ vm_sh dbcm-lab-m1 ip -4 -o addr show eth0 | awk "{print \$2, \$4}"
+eth0 192.168.5.15/24
+(exit 0)
+```
+
+### default network of dbcm-lab-m2
+
+```
+$ vm_sh dbcm-lab-m2 ip -4 -o addr show eth0 | awk "{print \$2, \$4}"
+eth0 192.168.5.15/24
+(exit 0)
+```
+
+### default network of dbcm-lab-m3
+
+```
+$ vm_sh dbcm-lab-m3 ip -4 -o addr show eth0 | awk "{print \$2, \$4}"
+eth0 192.168.5.15/24
+(exit 0)
+```
+
+### stop dbcm-lab-m1 for network edit
+
+```
+$ limactl stop dbcm-lab-m1
+time="2026-10-31T07:18:07+01:00" level=info msg="Sending SIGINT to hostagent process 53476"
+time="2026-10-31T07:18:07+01:00" level=info msg="Waiting for the host agent and the driver processes to shut down"
+time="2026-10-31T07:18:07+01:00" level=info msg="[hostagent] Received SIGINT, shutting down the host agent"
+time="2026-10-31T07:18:07+01:00" level=info msg="[hostagent] Shutting down the host agent"
+time="2026-10-31T07:18:07+01:00" level=info msg="[hostagent] Stopping forwarding `/run/user/501/docker.sock` (guest) to `~/.lima/dbcm-lab-m1/sock/docker.sock` (host)"
+time="2026-10-31T07:18:07+01:00" level=info msg="[hostagent] Shutting down VZ"
+time="2026-10-31T07:18:09+01:00" level=info msg="[hostagent] [VZ] - vm state change: stopped"
+time="2026-10-31T07:18:09+01:00" level=info msg="Waiting for the instance to shut down"
+time="2026-10-31T07:18:09+01:00" level=info msg="The instance dbcm-lab-m1 has shut down"
+(exit 0)
+```
+
+### attach lima:user-v2 to dbcm-lab-m1
+
+```
+$ limactl edit --tty=false --network=lima:user-v2 dbcm-lab-m1
+time="2026-10-31T07:18:09+01:00" level=info msg="Instance `dbcm-lab-m1` configuration edited"
+(exit 0)
+```
+
+### start dbcm-lab-m1
+
+```
+$ limactl start --tty=false dbcm-lab-m1
+time="2026-10-31T07:18:09+01:00" level=info msg="Using the existing instance `dbcm-lab-m1`"
+time="2026-10-31T07:18:10+01:00" level=info msg="Starting the instance `dbcm-lab-m1` with internal VM driver `vz`"
+time="2026-10-31T07:18:10+01:00" level=info msg="[hostagent] hostagent socket created at ~/.lima/dbcm-lab-m1/ha.sock"
+time="2026-10-31T07:18:10+01:00" level=info msg="[hostagent] Starting VZ (hint: to watch the boot progress, see `~/.lima/dbcm-lab-m1/serial*.log`)"
+time="2026-10-31T07:18:10+01:00" level=info msg="[hostagent] [VZ] - vm state change: running"
+time="2026-10-31T07:18:15+01:00" level=info msg="[hostagent] Started vsock forwarder: 127.0.0.1:52933 -> vsock:22 on VM"
+time="2026-10-31T07:18:15+01:00" level=info msg="[hostagent] Detected SSH server is listening on the vsock port; changed 127.0.0.1:52933 to proxy for the vsock port"
+time="2026-10-31T07:18:15+01:00" level=info msg="SSH Local Port: 52933"
+time="2026-10-31T07:18:15+01:00" level=info msg="[hostagent] Waiting for the essential requirement 1 of 3: `ssh`"
+time="2026-10-31T07:18:16+01:00" level=info msg="[hostagent] The essential requirement 1 of 3 is satisfied"
+time="2026-10-31T07:18:16+01:00" level=info msg="[hostagent] Waiting for the essential requirement 2 of 3: `user session is ready for ssh`"
+time="2026-10-31T07:18:16+01:00" level=info msg="[hostagent] The essential requirement 2 of 3 is satisfied"
+time="2026-10-31T07:18:16+01:00" level=info msg="[hostagent] Waiting for the essential requirement 3 of 3: `Explicitly start ssh ControlMaster`"
+time="2026-10-31T07:18:16+01:00" level=info msg="[hostagent] The essential requirement 3 of 3 is satisfied"
+time="2026-10-31T07:18:16+01:00" level=info msg="[hostagent] Waiting for the optional requirement 1 of 1: `user probe 1/1`"
+time="2026-10-31T07:18:16+01:00" level=info msg="[hostagent] Forwarding `/run/user/501/docker.sock` (guest) to `~/.lima/dbcm-lab-m1/sock/docker.sock` (host)"
+time="2026-10-31T07:18:16+01:00" level=info msg="[hostagent] Guest agent is running"
+time="2026-10-31T07:18:16+01:00" level=info msg="[hostagent] Time sync: guest agent is alive, starting time synchronization"
+time="2026-10-31T07:18:16+01:00" level=info msg="[hostagent] Not forwarding TCP 127.0.0.53:53"
+time="2026-10-31T07:18:16+01:00" level=info msg="[hostagent] Not forwarding TCP 0.0.0.0:22"
+time="2026-10-31T07:18:16+01:00" level=info msg="[hostagent] Not forwarding TCP 127.0.0.54:53"
+time="2026-10-31T07:18:16+01:00" level=info msg="[hostagent] Not forwarding TCP [::]:22"
+time="2026-10-31T07:18:16+01:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.54:53"
+time="2026-10-31T07:18:16+01:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.53:53"
+time="2026-10-31T07:18:16+01:00" level=info msg="[hostagent] Not forwarding UDP 192.168.104.1:68"
+time="2026-10-31T07:18:16+01:00" level=info msg="[hostagent] Forwarding UDP from 127.0.0.1:323 to 127.0.0.1:323"
+time="2026-10-31T07:18:16+01:00" level=info msg="[hostagent] Forwarding UDP from 0.0.0.0:5353 to 127.0.0.1:5353"
+time="2026-10-31T07:18:16+01:00" level=info msg="[hostagent] Forwarding UDP from [::1]:323 to 127.0.0.1:323"
+time="2026-10-31T07:18:16+01:00" level=info msg="[hostagent] Forwarding UDP from [::]:5353 to 127.0.0.1:5353"
+time="2026-10-31T07:18:16+01:00" level=info msg="[hostagent] Not forwarding UDP 0.0.0.0:323"
+time="2026-10-31T07:18:16+01:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:323"
+time="2026-10-31T07:18:16+01:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-31T07:18:16+01:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-31T07:18:16+01:00" level=info msg="[hostagent] The optional requirement 1 of 1 is satisfied"
+time="2026-10-31T07:18:16+01:00" level=info msg="[hostagent] Waiting for the guest agent to be running"
+time="2026-10-31T07:18:16+01:00" level=info msg="[hostagent] Waiting for the final requirement 1 of 1: `boot scripts must have finished`"
+time="2026-10-31T07:18:16+01:00" level=info msg="READY. Run `limactl shell dbcm-lab-m1` to open the shell."
+time="2026-10-31T07:18:16+01:00" level=info msg="Message from the instance `dbcm-lab-m1`:"
+To run `docker` on the host (assumes docker-cli is installed), run the following commands:
+------
+docker context create lima-dbcm-lab-m1 --docker "host=unix://~/.lima/dbcm-lab-m1/sock/docker.sock"
+docker context use lima-dbcm-lab-m1
+docker run hello-world
+------
+(exit 0)
+```
+
+### stop dbcm-lab-m2 for network edit
+
+```
+$ limactl stop dbcm-lab-m2
+time="2026-10-31T07:18:16+01:00" level=info msg="Sending SIGINT to hostagent process 54778"
+time="2026-10-31T07:18:16+01:00" level=info msg="Waiting for the host agent and the driver processes to shut down"
+time="2026-10-31T07:18:16+01:00" level=info msg="[hostagent] Received SIGINT, shutting down the host agent"
+time="2026-10-31T07:18:16+01:00" level=info msg="[hostagent] Shutting down the host agent"
+time="2026-10-31T07:18:16+01:00" level=info msg="[hostagent] Stopping forwarding `/run/user/501/docker.sock` (guest) to `~/.lima/dbcm-lab-m2/sock/docker.sock` (host)"
+time="2026-10-31T07:18:16+01:00" level=info msg="[hostagent] Shutting down VZ"
+time="2026-10-31T07:18:18+01:00" level=info msg="[hostagent] [VZ] - vm state change: stopped"
+time="2026-10-31T07:18:18+01:00" level=info msg="Waiting for the instance to shut down"
+time="2026-10-31T07:18:18+01:00" level=info msg="The instance dbcm-lab-m2 has shut down"
+(exit 0)
+```
+
+### attach lima:user-v2 to dbcm-lab-m2
+
+```
+$ limactl edit --tty=false --network=lima:user-v2 dbcm-lab-m2
+time="2026-10-31T07:18:18+01:00" level=info msg="Instance `dbcm-lab-m2` configuration edited"
+(exit 0)
+```
+
+### start dbcm-lab-m2
+
+```
+$ limactl start --tty=false dbcm-lab-m2
+time="2026-10-31T07:18:18+01:00" level=info msg="Using the existing instance `dbcm-lab-m2`"
+time="2026-10-31T07:18:18+01:00" level=info msg="Starting the instance `dbcm-lab-m2` with internal VM driver `vz`"
+time="2026-10-31T07:18:19+01:00" level=info msg="[hostagent] hostagent socket created at ~/.lima/dbcm-lab-m2/ha.sock"
+time="2026-10-31T07:18:19+01:00" level=info msg="[hostagent] Starting VZ (hint: to watch the boot progress, see `~/.lima/dbcm-lab-m2/serial*.log`)"
+time="2026-10-31T07:18:19+01:00" level=info msg="[hostagent] [VZ] - vm state change: running"
+time="2026-10-31T07:18:23+01:00" level=info msg="[hostagent] Started vsock forwarder: 127.0.0.1:52985 -> vsock:22 on VM"
+time="2026-10-31T07:18:23+01:00" level=info msg="[hostagent] Detected SSH server is listening on the vsock port; changed 127.0.0.1:52985 to proxy for the vsock port"
+time="2026-10-31T07:18:24+01:00" level=info msg="SSH Local Port: 52985"
+time="2026-10-31T07:18:24+01:00" level=info msg="[hostagent] Waiting for the essential requirement 1 of 3: `ssh`"
+time="2026-10-31T07:18:24+01:00" level=info msg="[hostagent] The essential requirement 1 of 3 is satisfied"
+time="2026-10-31T07:18:24+01:00" level=info msg="[hostagent] Waiting for the essential requirement 2 of 3: `user session is ready for ssh`"
+time="2026-10-31T07:18:24+01:00" level=info msg="[hostagent] The essential requirement 2 of 3 is satisfied"
+time="2026-10-31T07:18:24+01:00" level=info msg="[hostagent] Waiting for the essential requirement 3 of 3: `Explicitly start ssh ControlMaster`"
+time="2026-10-31T07:18:24+01:00" level=info msg="[hostagent] The essential requirement 3 of 3 is satisfied"
+time="2026-10-31T07:18:24+01:00" level=info msg="[hostagent] Waiting for the optional requirement 1 of 1: `user probe 1/1`"
+time="2026-10-31T07:18:24+01:00" level=info msg="[hostagent] Forwarding `/run/user/501/docker.sock` (guest) to `~/.lima/dbcm-lab-m2/sock/docker.sock` (host)"
+time="2026-10-31T07:18:24+01:00" level=info msg="[hostagent] Guest agent is running"
+time="2026-10-31T07:18:24+01:00" level=info msg="[hostagent] Time sync: guest agent is alive, starting time synchronization"
+time="2026-10-31T07:18:24+01:00" level=info msg="[hostagent] Not forwarding TCP 127.0.0.54:53"
+time="2026-10-31T07:18:24+01:00" level=info msg="[hostagent] Not forwarding TCP 0.0.0.0:22"
+time="2026-10-31T07:18:24+01:00" level=info msg="[hostagent] Not forwarding TCP 127.0.0.53:53"
+time="2026-10-31T07:18:24+01:00" level=info msg="[hostagent] Not forwarding TCP [::]:22"
+time="2026-10-31T07:18:24+01:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.54:53"
+time="2026-10-31T07:18:24+01:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.53:53"
+time="2026-10-31T07:18:24+01:00" level=info msg="[hostagent] Not forwarding UDP 192.168.104.3:68"
+time="2026-10-31T07:18:24+01:00" level=info msg="[hostagent] Forwarding UDP from 127.0.0.1:323 to 127.0.0.1:323"
+time="2026-10-31T07:18:24+01:00" level=info msg="[hostagent] Forwarding UDP from 0.0.0.0:5353 to 127.0.0.1:5353"
+time="2026-10-31T07:18:24+01:00" level=info msg="[hostagent] Forwarding UDP from [::1]:323 to 127.0.0.1:323"
+time="2026-10-31T07:18:24+01:00" level=info msg="[hostagent] Forwarding UDP from [::]:5353 to 127.0.0.1:5353"
+time="2026-10-31T07:18:24+01:00" level=info msg="[hostagent] Not forwarding UDP 0.0.0.0:323"
+time="2026-10-31T07:18:24+01:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:323"
+time="2026-10-31T07:18:24+01:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-31T07:18:24+01:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-31T07:18:24+01:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-31T07:18:24+01:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-31T07:18:24+01:00" level=info msg="[hostagent] Not forwarding UDP 0.0.0.0:323"
+time="2026-10-31T07:18:24+01:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:323"
+time="2026-10-31T07:18:24+01:00" level=info msg="[hostagent] The optional requirement 1 of 1 is satisfied"
+time="2026-10-31T07:18:24+01:00" level=info msg="[hostagent] Waiting for the guest agent to be running"
+time="2026-10-31T07:18:24+01:00" level=info msg="[hostagent] Waiting for the final requirement 1 of 1: `boot scripts must have finished`"
+time="2026-10-31T07:18:24+01:00" level=info msg="READY. Run `limactl shell dbcm-lab-m2` to open the shell."
+time="2026-10-31T07:18:24+01:00" level=info msg="Message from the instance `dbcm-lab-m2`:"
+To run `docker` on the host (assumes docker-cli is installed), run the following commands:
+------
+docker context create lima-dbcm-lab-m2 --docker "host=unix://~/.lima/dbcm-lab-m2/sock/docker.sock"
+docker context use lima-dbcm-lab-m2
+docker run hello-world
+------
+(exit 0)
+```
+
+### stop dbcm-lab-m3 for network edit
+
+```
+$ limactl stop dbcm-lab-m3
+time="2026-10-31T07:18:24+01:00" level=info msg="Sending SIGINT to hostagent process 55700"
+time="2026-10-31T07:18:24+01:00" level=info msg="Waiting for the host agent and the driver processes to shut down"
+time="2026-10-31T07:18:24+01:00" level=info msg="[hostagent] Received SIGINT, shutting down the host agent"
+time="2026-10-31T07:18:24+01:00" level=info msg="[hostagent] Shutting down the host agent"
+time="2026-10-31T07:18:24+01:00" level=info msg="[hostagent] Stopping forwarding `/run/user/501/docker.sock` (guest) to `~/.lima/dbcm-lab-m3/sock/docker.sock` (host)"
+time="2026-10-31T07:18:24+01:00" level=info msg="[hostagent] Shutting down VZ"
+time="2026-10-31T07:18:26+01:00" level=info msg="[hostagent] [VZ] - vm state change: stopped"
+time="2026-10-31T07:18:26+01:00" level=info msg="Waiting for the instance to shut down"
+time="2026-10-31T07:18:26+01:00" level=info msg="The instance dbcm-lab-m3 has shut down"
+(exit 0)
+```
+
+### attach lima:user-v2 to dbcm-lab-m3
+
+```
+$ limactl edit --tty=false --network=lima:user-v2 dbcm-lab-m3
+time="2026-10-31T07:18:26+01:00" level=info msg="Instance `dbcm-lab-m3` configuration edited"
+(exit 0)
+```
+
+### start dbcm-lab-m3
+
+```
+$ limactl start --tty=false dbcm-lab-m3
+time="2026-10-31T07:18:26+01:00" level=info msg="Using the existing instance `dbcm-lab-m3`"
+time="2026-10-31T07:18:26+01:00" level=info msg="Starting the instance `dbcm-lab-m3` with internal VM driver `vz`"
+time="2026-10-31T07:18:27+01:00" level=info msg="[hostagent] hostagent socket created at ~/.lima/dbcm-lab-m3/ha.sock"
+time="2026-10-31T07:18:27+01:00" level=info msg="[hostagent] Starting VZ (hint: to watch the boot progress, see `~/.lima/dbcm-lab-m3/serial*.log`)"
+time="2026-10-31T07:18:27+01:00" level=info msg="[hostagent] [VZ] - vm state change: running"
+time="2026-10-31T07:18:31+01:00" level=info msg="[hostagent] Started vsock forwarder: 127.0.0.1:52998 -> vsock:22 on VM"
+time="2026-10-31T07:18:31+01:00" level=info msg="[hostagent] Detected SSH server is listening on the vsock port; changed 127.0.0.1:52998 to proxy for the vsock port"
+time="2026-10-31T07:18:32+01:00" level=info msg="SSH Local Port: 52998"
+time="2026-10-31T07:18:32+01:00" level=info msg="[hostagent] Waiting for the essential requirement 1 of 3: `ssh`"
+time="2026-10-31T07:18:32+01:00" level=info msg="[hostagent] The essential requirement 1 of 3 is satisfied"
+time="2026-10-31T07:18:32+01:00" level=info msg="[hostagent] Waiting for the essential requirement 2 of 3: `user session is ready for ssh`"
+time="2026-10-31T07:18:32+01:00" level=info msg="[hostagent] The essential requirement 2 of 3 is satisfied"
+time="2026-10-31T07:18:32+01:00" level=info msg="[hostagent] Waiting for the essential requirement 3 of 3: `Explicitly start ssh ControlMaster`"
+time="2026-10-31T07:18:32+01:00" level=info msg="[hostagent] The essential requirement 3 of 3 is satisfied"
+time="2026-10-31T07:18:32+01:00" level=info msg="[hostagent] Waiting for the optional requirement 1 of 1: `user probe 1/1`"
+time="2026-10-31T07:18:32+01:00" level=info msg="[hostagent] Forwarding `/run/user/501/docker.sock` (guest) to `~/.lima/dbcm-lab-m3/sock/docker.sock` (host)"
+time="2026-10-31T07:18:32+01:00" level=info msg="[hostagent] Guest agent is running"
+time="2026-10-31T07:18:32+01:00" level=info msg="[hostagent] Time sync: guest agent is alive, starting time synchronization"
+time="2026-10-31T07:18:32+01:00" level=info msg="[hostagent] Not forwarding TCP 127.0.0.54:53"
+time="2026-10-31T07:18:32+01:00" level=info msg="[hostagent] Not forwarding TCP 0.0.0.0:22"
+time="2026-10-31T07:18:32+01:00" level=info msg="[hostagent] Not forwarding TCP 127.0.0.53:53"
+time="2026-10-31T07:18:32+01:00" level=info msg="[hostagent] Not forwarding TCP [::]:22"
+time="2026-10-31T07:18:32+01:00" level=info msg="[hostagent] Forwarding UDP from 0.0.0.0:5353 to 127.0.0.1:5353"
+time="2026-10-31T07:18:32+01:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.54:53"
+time="2026-10-31T07:18:32+01:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.53:53"
+time="2026-10-31T07:18:32+01:00" level=info msg="[hostagent] Not forwarding UDP 192.168.104.4:68"
+time="2026-10-31T07:18:32+01:00" level=info msg="[hostagent] Forwarding UDP from 127.0.0.1:323 to 127.0.0.1:323"
+time="2026-10-31T07:18:32+01:00" level=info msg="[hostagent] Forwarding UDP from [::]:5353 to 127.0.0.1:5353"
+time="2026-10-31T07:18:32+01:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-31T07:18:32+01:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-31T07:18:32+01:00" level=info msg="[hostagent] Forwarding UDP from [::1]:323 to 127.0.0.1:323"
+time="2026-10-31T07:18:32+01:00" level=info msg="[hostagent] Not forwarding UDP 0.0.0.0:323"
+time="2026-10-31T07:18:32+01:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:323"
+time="2026-10-31T07:18:32+01:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-31T07:18:32+01:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:5353"
+time="2026-10-31T07:18:32+01:00" level=info msg="[hostagent] Not forwarding UDP 0.0.0.0:323"
+time="2026-10-31T07:18:32+01:00" level=info msg="[hostagent] Not forwarding UDP 127.0.0.1:323"
+time="2026-10-31T07:18:32+01:00" level=info msg="[hostagent] The optional requirement 1 of 1 is satisfied"
+time="2026-10-31T07:18:32+01:00" level=info msg="[hostagent] Waiting for the guest agent to be running"
+time="2026-10-31T07:18:32+01:00" level=info msg="[hostagent] Waiting for the final requirement 1 of 1: `boot scripts must have finished`"
+time="2026-10-31T07:18:32+01:00" level=info msg="[hostagent] The final requirement 1 of 1 is satisfied"
+time="2026-10-31T07:18:32+01:00" level=info msg="READY. Run `limactl shell dbcm-lab-m3` to open the shell."
+time="2026-10-31T07:18:32+01:00" level=info msg="Message from the instance `dbcm-lab-m3`:"
+To run `docker` on the host (assumes docker-cli is installed), run the following commands:
+------
+docker context create lima-dbcm-lab-m3 --docker "host=unix://~/.lima/dbcm-lab-m3/sock/docker.sock"
+docker context use lima-dbcm-lab-m3
+docker run hello-world
+------
+(exit 0)
+```
+
+### switch dbcm-lab-m1 to rootful docker
+
+```
+$ vm_sh dbcm-lab-m1 
+			set -e
+			systemctl --user disable --now docker.service >/dev/null 2>&1 || true
+			sudo systemctl unmask containerd.service docker.service docker.socket >/dev/null 2>&1
+			sudo systemctl enable --now containerd.service docker.socket docker.service >/dev/null 2>&1
+			echo "rootless user docker: $(systemctl --user is-active docker.service || true)"
+			echo "rootful docker: $(systemctl is-active docker.service)"
+rootless user docker: inactive
+rootful docker: active
+(exit 0)
+```
+
+### switch dbcm-lab-m2 to rootful docker
+
+```
+$ vm_sh dbcm-lab-m2 
+			set -e
+			systemctl --user disable --now docker.service >/dev/null 2>&1 || true
+			sudo systemctl unmask containerd.service docker.service docker.socket >/dev/null 2>&1
+			sudo systemctl enable --now containerd.service docker.socket docker.service >/dev/null 2>&1
+			echo "rootless user docker: $(systemctl --user is-active docker.service || true)"
+			echo "rootful docker: $(systemctl is-active docker.service)"
+rootless user docker: inactive
+rootful docker: active
+(exit 0)
+```
+
+### switch dbcm-lab-m3 to rootful docker
+
+```
+$ vm_sh dbcm-lab-m3 
+			set -e
+			systemctl --user disable --now docker.service >/dev/null 2>&1 || true
+			sudo systemctl unmask containerd.service docker.service docker.socket >/dev/null 2>&1
+			sudo systemctl enable --now containerd.service docker.socket docker.service >/dev/null 2>&1
+			echo "rootless user docker: $(systemctl --user is-active docker.service || true)"
+			echo "rootful docker: $(systemctl is-active docker.service)"
+rootless user docker: inactive
+rootful docker: active
+(exit 0)
+```
+
+
+## Guest facts
+
+### limactl list
+
+```
+$ limactl list
+NAME                         STATUS     SSH                VMTYPE    ARCH       CPUS    MEMORY    DISK     DIR
+dbcm-lab-m1                  Running    127.0.0.1:52933    vz        aarch64    2       4GiB      20GiB    ~/.lima/dbcm-lab-m1
+dbcm-lab-m2                  Running    127.0.0.1:52985    vz        aarch64    2       4GiB      20GiB    ~/.lima/dbcm-lab-m2
+dbcm-lab-m3                  Running    127.0.0.1:52998    vz        aarch64    2       4GiB      20GiB    ~/.lima/dbcm-lab-m3
+thermoctl-e2e-basestation    Stopped    127.0.0.1:55325    vz        aarch64    2       3GiB      8GiB     ~/.lima/thermoctl-e2e-basestation
+thermoctl-test-vm            Stopped    127.0.0.1:50429    vz        aarch64    4       4GiB      20GiB    ~/.lima/thermoctl-test-vm
+(exit 0)
+```
+
+### facts dbcm-lab-m1
+
+```
+$ vm_sh dbcm-lab-m1 
+			echo "hostname: $(hostname)"; echo "arch: $(uname -m) kernel: $(uname -r)"
+			grep PRETTY_NAME /etc/os-release; echo "nproc: $(nproc)"; free -m | head -2
+			df -h / | tail -1
+			ip -4 -o addr show eth0 | awk "{print \"eth0:\", \$4}"
+			sudo docker version --format "docker server {{.Server.Version}} {{range .Server.Components}}{{.Name}}={{.Version}} {{end}}"
+			sudo docker info --format "security: {{.SecurityOptions}} cgroup: {{.CgroupDriver}} storage: {{.Driver}}"
+hostname: lima-dbcm-lab-m1
+arch: aarch64 kernel: 7.0.0-34-generic
+PRETTY_NAME="Ubuntu 26.04.1 LTS"
+nproc: 2
+               total        used        free      shared  buff/cache   available
+Mem:            3896         484        3031           1         527        3412
+/dev/vda1        19G  2.9G   16G  16% /
+eth0: 192.168.104.1/24
+docker server 29.9.2 Engine=29.9.2 containerd=v2.4.2 runc=1.5.2 docker-init=0.19.0 
+security: [name=apparmor,profile=default name=seccomp,profile=builtin name=cgroupns] cgroup: systemd storage: overlayfs
+(exit 0)
+```
+
+### facts dbcm-lab-m2
+
+```
+$ vm_sh dbcm-lab-m2 
+			echo "hostname: $(hostname)"; echo "arch: $(uname -m) kernel: $(uname -r)"
+			grep PRETTY_NAME /etc/os-release; echo "nproc: $(nproc)"; free -m | head -2
+			df -h / | tail -1
+			ip -4 -o addr show eth0 | awk "{print \"eth0:\", \$4}"
+			sudo docker version --format "docker server {{.Server.Version}} {{range .Server.Components}}{{.Name}}={{.Version}} {{end}}"
+			sudo docker info --format "security: {{.SecurityOptions}} cgroup: {{.CgroupDriver}} storage: {{.Driver}}"
+hostname: lima-dbcm-lab-m2
+arch: aarch64 kernel: 7.0.0-34-generic
+PRETTY_NAME="Ubuntu 26.04.1 LTS"
+nproc: 2
+               total        used        free      shared  buff/cache   available
+Mem:            3896         514        3000           1         527        3382
+/dev/vda1        19G  2.9G   16G  16% /
+eth0: 192.168.104.3/24
+docker server 29.9.2 Engine=29.9.2 containerd=v2.4.2 runc=1.5.2 docker-init=0.19.0 
+security: [name=apparmor,profile=default name=seccomp,profile=builtin name=cgroupns] cgroup: systemd storage: overlayfs
+(exit 0)
+```
+
+### facts dbcm-lab-m3
+
+```
+$ vm_sh dbcm-lab-m3 
+			echo "hostname: $(hostname)"; echo "arch: $(uname -m) kernel: $(uname -r)"
+			grep PRETTY_NAME /etc/os-release; echo "nproc: $(nproc)"; free -m | head -2
+			df -h / | tail -1
+			ip -4 -o addr show eth0 | awk "{print \"eth0:\", \$4}"
+			sudo docker version --format "docker server {{.Server.Version}} {{range .Server.Components}}{{.Name}}={{.Version}} {{end}}"
+			sudo docker info --format "security: {{.SecurityOptions}} cgroup: {{.CgroupDriver}} storage: {{.Driver}}"
+hostname: lima-dbcm-lab-m3
+arch: aarch64 kernel: 7.0.0-34-generic
+PRETTY_NAME="Ubuntu 26.04.1 LTS"
+nproc: 2
+               total        used        free      shared  buff/cache   available
+Mem:            3896         532        2984           1         525        3364
+/dev/vda1        19G  2.9G   16G  16% /
+eth0: 192.168.104.4/24
+docker server 29.9.2 Engine=29.9.2 containerd=v2.4.2 runc=1.5.2 docker-init=0.19.0 
+security: [name=apparmor,profile=default name=seccomp,profile=builtin name=cgroupns] cgroup: systemd storage: overlayfs
+(exit 0)
+```
+
+### VM-to-VM name resolution and ping
+
+```
+$ vm_sh dbcm-lab-m1 
+		for h in m1 m2 m3; do
+			getent hosts lima-dbcm-lab-$h.internal
+			ping -c2 -W2 lima-dbcm-lab-$h.internal | tail -1
+		done
+192.168.104.1   lima-dbcm-lab-m1.internal
+rtt min/avg/max/mdev = 0.019/0.039/0.059/0.020 ms
+192.168.104.3   lima-dbcm-lab-m2.internal
+rtt min/avg/max/mdev = 0.409/0.671/0.934/0.262 ms
+192.168.104.4   lima-dbcm-lab-m3.internal
+rtt min/avg/max/mdev = 0.486/0.487/0.489/0.001 ms
+(exit 0)
+```
+
+
+## Step 2: Swarm (one manager, two workers)
+
+06:18:42Z m1 advertise address: 192.168.104.1
+### TCP reachability dbcm-lab-m2 -> m1 (192.168.104.1) port 22
+
+```
+$ vm_sh dbcm-lab-m2 nc -z -w3 192.168.104.1 22 && echo reachable
+Connection to 192.168.104.1 22 port [tcp/ssh] succeeded!
+reachable
+(exit 0)
+```
+
+### TCP reachability dbcm-lab-m3 -> m1 (192.168.104.1) port 22
+
+```
+$ vm_sh dbcm-lab-m3 nc -z -w3 192.168.104.1 22 && echo reachable
+Connection to 192.168.104.1 22 port [tcp/ssh] succeeded!
+reachable
+(exit 0)
+```
+
+### swarm init on m1
+
+```
+$ vm_docker dbcm-lab-m1 swarm init --advertise-addr 192.168.104.1
+Swarm initialized: current node (jn648y513xcq5dps670zrv3v2) is now a manager.
+
+To add a worker to this swarm, run the following command:
+
+    docker swarm join --token SWMTKN-<redacted> 192.168.104.1:2377
+
+To add a manager to this swarm, run 'docker swarm join-token manager' and follow the instructions.
+(exit 0)
+```
+
+### swarm join dbcm-lab-m2 as worker (advertise 192.168.104.3, token not recorded)
+
+```
+$ vm_docker dbcm-lab-m2 swarm join --advertise-addr 192.168.104.3 --token SWMTKN-<redacted> 192.168.104.1:2377
+This node joined a swarm as a worker.
+(exit 0)
+```
+
+### swarm join dbcm-lab-m3 as worker (advertise 192.168.104.4, token not recorded)
+
+```
+$ vm_docker dbcm-lab-m3 swarm join --advertise-addr 192.168.104.4 --token SWMTKN-<redacted> 192.168.104.1:2377
+This node joined a swarm as a worker.
+(exit 0)
+```
+
+### docker node ls
+
+```
+$ vm_docker dbcm-lab-m1 node ls
+ID                            HOSTNAME           STATUS    AVAILABILITY   MANAGER STATUS   ENGINE VERSION
+jn648y513xcq5dps670zrv3v2 *   lima-dbcm-lab-m1   Ready     Active         Leader           29.9.2
+vsh6bxouojrdray6zs4h1957a     lima-dbcm-lab-m2   Ready     Active                          29.9.2
+9e11qx3ozw2324f5hkx9gqvtt     lima-dbcm-lab-m3   Ready     Active                          29.9.2
+(exit 0)
+```
+
+
+## Step 2b: Galera with the binary log (binlog: true)
+
+
+## Step 4: pinned Galera services
+
+### pull images on dbcm-lab-m1
+
+```
+$ vm_docker dbcm-lab-m1 pull -q mariadb:11.4
+docker.io/library/mariadb:11.4
+(exit 0)
+```
+
+### pull images on dbcm-lab-m2
+
+```
+$ vm_docker dbcm-lab-m2 pull -q mariadb:11.4
+docker.io/library/mariadb:11.4
+(exit 0)
+```
+
+### pull images on dbcm-lab-m3
+
+```
+$ vm_docker dbcm-lab-m3 pull -q mariadb:11.4
+docker.io/library/mariadb:11.4
+(exit 0)
+```
+
+### MariaDB image digest and arch (m1)
+
+```
+$ vm_docker dbcm-lab-m1 image inspect --format {{.RepoDigests}} {{.Architecture}} version={{index .Config.Labels "org.opencontainers.image.version"}} mariadb:11.4
+[mariadb@sha256:d1891ede5a559f1086f55053bb8cc1569b0298338c4d72d71725a7f74f6ba620] arm64 version=11.4.13
+(exit 0)
+```
+
+### busybox/nginx image digests (m1)
+
+```
+$ vm_docker dbcm-lab-m1 image inspect --format {{.RepoTags}} {{.RepoDigests}} {{.Architecture}} busybox:1.37 nginx:1.27-alpine
+[busybox:1.37] [busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec] arm64
+[nginx:1.27-alpine] [nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10] arm64
+(exit 0)
+```
+
+### create overlay network dbcm-e15-galera
+
+```
+$ vm_docker dbcm-lab-m1 network create --driver overlay --attachable --label dbcm.installation=e15-lab --label dbcm.cluster=e15-galera dbcm-e15-galera
+9i1wpr7kckr9uisiwnfpcccaw
+(exit 0)
+```
+
+### create synthetic root password secret
+
+```
+$ vm_sh dbcm-lab-m1 head -c 18 /dev/urandom | base64 | sudo docker secret create --label dbcm.installation=e15-lab dbcm-e15-root-pw -
+buimtv2npxt0b9i5bh712jss6
+(exit 0)
+```
+
+### one-shot marker container for galera-1
+
+```
+$ vm_docker dbcm-lab-m1 run --rm --label dbcm.installation=e15-lab --label dbcm.node=galera-1 -v /var/lib/dbcm/galera-1:/vol busybox:1.37 sh -c 
+			set -e
+			mkdir -p /vol/data
+			printf '%s\n' '{"node_uuid":"4dd302e8-a90e-4b20-8768-35075d75ec8e","installation_id":"e15-lab","cluster_id":"e15-galera","node":"galera-1"}' >/vol/dbcm-identity.json
+			cp /vol/dbcm-identity.json /vol/data/dbcm-identity.json
+			chown 999:999 /vol/data /vol/data/dbcm-identity.json
+			ls -la /vol /vol/data; cat /vol/dbcm-identity.json
+/vol:
+total 16
+drwxr-xr-x    3 root     root          4096 Oct 31 06:19 .
+drwxr-xr-x    1 root     root          4096 Oct 31 06:19 ..
+drwxr-xr-x    2 999      999           4096 Oct 31 06:19 data
+-rw-r--r--    1 root     root           125 Oct 31 06:19 dbcm-identity.json
+
+/vol/data:
+total 12
+drwxr-xr-x    2 999      999           4096 Oct 31 06:19 .
+drwxr-xr-x    3 root     root          4096 Oct 31 06:19 ..
+-rw-r--r--    1 999      999            125 Oct 31 06:19 dbcm-identity.json
+{"node_uuid":"4dd302e8-a90e-4b20-8768-35075d75ec8e","installation_id":"e15-lab","cluster_id":"e15-galera","node":"galera-1"}
+(exit 0)
+```
+
+### one-shot marker container for galera-2
+
+```
+$ vm_docker dbcm-lab-m2 run --rm --label dbcm.installation=e15-lab --label dbcm.node=galera-2 -v /var/lib/dbcm/galera-2:/vol busybox:1.37 sh -c 
+			set -e
+			mkdir -p /vol/data
+			printf '%s\n' '{"node_uuid":"5e1d732a-e4ce-4114-bbb2-f85b78f349cf","installation_id":"e15-lab","cluster_id":"e15-galera","node":"galera-2"}' >/vol/dbcm-identity.json
+			cp /vol/dbcm-identity.json /vol/data/dbcm-identity.json
+			chown 999:999 /vol/data /vol/data/dbcm-identity.json
+			ls -la /vol /vol/data; cat /vol/dbcm-identity.json
+/vol:
+total 16
+drwxr-xr-x    3 root     root          4096 Oct 31 06:19 .
+drwxr-xr-x    1 root     root          4096 Oct 31 06:19 ..
+drwxr-xr-x    2 999      999           4096 Oct 31 06:19 data
+-rw-r--r--    1 root     root           125 Oct 31 06:19 dbcm-identity.json
+
+/vol/data:
+total 12
+drwxr-xr-x    2 999      999           4096 Oct 31 06:19 .
+drwxr-xr-x    3 root     root          4096 Oct 31 06:19 ..
+-rw-r--r--    1 999      999            125 Oct 31 06:19 dbcm-identity.json
+{"node_uuid":"5e1d732a-e4ce-4114-bbb2-f85b78f349cf","installation_id":"e15-lab","cluster_id":"e15-galera","node":"galera-2"}
+(exit 0)
+```
+
+### one-shot marker container for galera-3
+
+```
+$ vm_docker dbcm-lab-m3 run --rm --label dbcm.installation=e15-lab --label dbcm.node=galera-3 -v /var/lib/dbcm/galera-3:/vol busybox:1.37 sh -c 
+			set -e
+			mkdir -p /vol/data
+			printf '%s\n' '{"node_uuid":"440a6201-707b-4910-b68b-f0a4f8cd2de4","installation_id":"e15-lab","cluster_id":"e15-galera","node":"galera-3"}' >/vol/dbcm-identity.json
+			cp /vol/dbcm-identity.json /vol/data/dbcm-identity.json
+			chown 999:999 /vol/data /vol/data/dbcm-identity.json
+			ls -la /vol /vol/data; cat /vol/dbcm-identity.json
+/vol:
+total 16
+drwxr-xr-x    3 root     root          4096 Oct 31 06:19 .
+drwxr-xr-x    1 root     root          4096 Oct 31 06:19 ..
+drwxr-xr-x    2 999      999           4096 Oct 31 06:19 data
+-rw-r--r--    1 root     root           125 Oct 31 06:19 dbcm-identity.json
+
+/vol/data:
+total 12
+drwxr-xr-x    2 999      999           4096 Oct 31 06:19 .
+drwxr-xr-x    3 root     root          4096 Oct 31 06:19 ..
+-rw-r--r--    1 999      999            125 Oct 31 06:19 dbcm-identity.json
+{"node_uuid":"440a6201-707b-4910-b68b-f0a4f8cd2de4","installation_id":"e15-lab","cluster_id":"e15-galera","node":"galera-3"}
+(exit 0)
+```
+
+### Galera options
+
+```
+bootstrap (galera-1 initially): --wsrep_on=ON --wsrep_provider=/usr/lib/galera/libgalera_smm.so --wsrep_cluster_name=dbcm-e15 --wsrep_cluster_address=gcomm://galera-1,galera-2,galera-3 --wsrep_sst_method=mariabackup --binlog_format=ROW --innodb_autoinc_lock_mode=2 --datadir=/dbcm/data --socket=/dbcm/run/mysqld.sock --log_bin=/dbcm/data/dbcm-bin --log_slave_updates=ON --binlog_expire_logs_seconds=1209600 --wsrep_provider_options=gcache.size=128M --wsrep-new-cluster
+joiners and galera-1 after formation: --wsrep_on=ON --wsrep_provider=/usr/lib/galera/libgalera_smm.so --wsrep_cluster_name=dbcm-e15 --wsrep_cluster_address=gcomm://galera-1,galera-2,galera-3 --wsrep_sst_method=mariabackup --binlog_format=ROW --innodb_autoinc_lock_mode=2 --datadir=/dbcm/data --socket=/dbcm/run/mysqld.sock --log_bin=/dbcm/data/dbcm-bin --log_slave_updates=ON --binlog_expire_logs_seconds=1209600 --wsrep_provider_options=gcache.size=128M
+```
+
+### create service galera-1 pinned to node jn648y513xcq5dps670zrv3v2 (bootstrap=1)
+
+```
+$ vm_docker dbcm-lab-m1 service create --detach --name galera-1 --replicas 1 --constraint node.id==jn648y513xcq5dps670zrv3v2 --network dbcm-e15-galera --endpoint-mode dnsrr --hostname galera-1 --restart-condition any --stop-grace-period 60s --label dbcm.installation=e15-lab --label dbcm.cluster=e15-galera --label dbcm.node=galera-1 --secret dbcm-e15-root-pw --env MARIADB_ROOT_PASSWORD_FILE=/run/secrets/dbcm-e15-root-pw --env MARIADB_MYSQL_LOCALHOST_USER=1 --env MARIADB_MYSQL_LOCALHOST_GRANTS=RELOAD, PROCESS, LOCK TABLES, BINLOG MONITOR --mount type=bind,src=/var/lib/dbcm/galera-1,dst=/dbcm mariadb:11.4 --wsrep_on=ON --wsrep_provider=/usr/lib/galera/libgalera_smm.so --wsrep_cluster_name=dbcm-e15 --wsrep_cluster_address=gcomm://galera-1,galera-2,galera-3 --wsrep_sst_method=mariabackup --binlog_format=ROW --innodb_autoinc_lock_mode=2 --datadir=/dbcm/data --socket=/dbcm/run/mysqld.sock --log_bin=/dbcm/data/dbcm-bin --log_slave_updates=ON --binlog_expire_logs_seconds=1209600 --wsrep_provider_options=gcache.size=128M --wsrep-new-cluster
+sgidxsmcc0dlws9y52kjvtugj
+(exit 0)
+```
+
+06:19:17Z wait ok after 4s: galera-1 bootstrapped (Synced, size 1)
+### create service galera-2 pinned to node vsh6bxouojrdray6zs4h1957a (bootstrap=0)
+
+```
+$ vm_docker dbcm-lab-m1 service create --detach --name galera-2 --replicas 1 --constraint node.id==vsh6bxouojrdray6zs4h1957a --network dbcm-e15-galera --endpoint-mode dnsrr --hostname galera-2 --restart-condition any --stop-grace-period 60s --label dbcm.installation=e15-lab --label dbcm.cluster=e15-galera --label dbcm.node=galera-2 --secret dbcm-e15-root-pw --env MARIADB_ROOT_PASSWORD_FILE=/run/secrets/dbcm-e15-root-pw --env MARIADB_MYSQL_LOCALHOST_USER=1 --env MARIADB_MYSQL_LOCALHOST_GRANTS=RELOAD, PROCESS, LOCK TABLES, BINLOG MONITOR --mount type=bind,src=/var/lib/dbcm/galera-2,dst=/dbcm mariadb:11.4 --wsrep_on=ON --wsrep_provider=/usr/lib/galera/libgalera_smm.so --wsrep_cluster_name=dbcm-e15 --wsrep_cluster_address=gcomm://galera-1,galera-2,galera-3 --wsrep_sst_method=mariabackup --binlog_format=ROW --innodb_autoinc_lock_mode=2 --datadir=/dbcm/data --socket=/dbcm/run/mysqld.sock --log_bin=/dbcm/data/dbcm-bin --log_slave_updates=ON --binlog_expire_logs_seconds=1209600 --wsrep_provider_options=gcache.size=128M
+xxtbszfs96pl7bqxt9fz8vzso
+(exit 0)
+```
+
+06:19:36Z wait ok after 17s: galera-2 joined (Synced, size 2)
+### create service galera-3 pinned to node 9e11qx3ozw2324f5hkx9gqvtt (bootstrap=0)
+
+```
+$ vm_docker dbcm-lab-m1 service create --detach --name galera-3 --replicas 1 --constraint node.id==9e11qx3ozw2324f5hkx9gqvtt --network dbcm-e15-galera --endpoint-mode dnsrr --hostname galera-3 --restart-condition any --stop-grace-period 60s --label dbcm.installation=e15-lab --label dbcm.cluster=e15-galera --label dbcm.node=galera-3 --secret dbcm-e15-root-pw --env MARIADB_ROOT_PASSWORD_FILE=/run/secrets/dbcm-e15-root-pw --env MARIADB_MYSQL_LOCALHOST_USER=1 --env MARIADB_MYSQL_LOCALHOST_GRANTS=RELOAD, PROCESS, LOCK TABLES, BINLOG MONITOR --mount type=bind,src=/var/lib/dbcm/galera-3,dst=/dbcm mariadb:11.4 --wsrep_on=ON --wsrep_provider=/usr/lib/galera/libgalera_smm.so --wsrep_cluster_name=dbcm-e15 --wsrep_cluster_address=gcomm://galera-1,galera-2,galera-3 --wsrep_sst_method=mariabackup --binlog_format=ROW --innodb_autoinc_lock_mode=2 --datadir=/dbcm/data --socket=/dbcm/run/mysqld.sock --log_bin=/dbcm/data/dbcm-bin --log_slave_updates=ON --binlog_expire_logs_seconds=1209600 --wsrep_provider_options=gcache.size=128M
+jgdo3yp07td0f0maonq85rau7
+(exit 0)
+```
+
+06:19:55Z wait ok after 17s: galera-3 joined (Synced, size 3)
+### galera-2 join method in log
+
+```
+$ vm_sh dbcm-lab-m2 sudo docker logs c27391351583c501ee7964a80a95d9e1ee234b786127e63a4ffc6f546c5ecf3c 2>&1 | grep -iE 'SST|IST' | grep -iE 'request|complete|receiv|prepar|method' | head -12
+2026-10-31  6:19:23 0 [Note] WSREP: Running: 'wsrep_sst_mariabackup --role 'joiner' --address '10.0.1.4' --datadir '/dbcm/data/' --parent 1 --progress 0 --binlog '/dbcm/data/dbcm-bin' --mysqld-args --wsrep_on=ON --wsrep_provider=/usr/lib/galera/libgalera_smm.so --wsrep_cluster_name=dbcm-e15 --wsrep_cluster_address=gcomm://galera-1,galera-2,galera-3 --wsrep_sst_method=mariabackup --binlog_format=ROW --innodb_autoinc_lock_mode=2 --datadir=/dbcm/data --socket=/dbcm/run/mysqld.sock --log_bin=/dbcm/data/dbcm-bin --log_slave_updates=ON --binlog_expire_logs_seconds=1209600 --wsrep_provider_options=gcache.size=128M'
+2026-10-31  6:19:24 2 [Note] WSREP: IST receiver addr using tcp://10.0.1.4:4568
+2026-10-31  6:19:24 2 [Note] WSREP: Prepared IST receiver for 0-2, listening at: tcp://10.0.1.4:4568, waiting for connection to: tcp://10.0.1.4:4568
+WSREP_SST: [INFO] Waiting for SST streaming to complete! (20261031 06:19:24.352)
+WSREP_SST: [INFO] Preparing the backup at /dbcm/data/.sst (20261031 06:19:34.847)
+WSREP_SST: [INFO] Evaluating /usr//bin/mariadb-backup --prepare --no-version-check --log-bin='/dbcm/data/dbcm-bin' --target-dir='/dbcm/data/.sst' --datadir='/dbcm/data/.sst' --mysqld-args '--wsrep_on=ON' '--wsrep_provider=/usr/lib/galera/libgalera_smm.so' '--wsrep_cluster_name=dbcm-e15' '--wsrep_cluster_address=gcomm://galera-1,galera-2,galera-3' '--wsrep_sst_method=mariabackup' '--binlog_format=ROW' '--innodb_autoinc_lock_mode=2' '--log_slave_updates=ON' '--binlog_expire_logs_seconds=1209600' '--wsrep_provider_options=gcache.size=128M' > '/dbcm/data/mariabackup.prepare.log' 2>&1 (20261031 06:19:34.848)
+WSREP_SST: [INFO] No binary log received from donor; the joiner will start a fresh binary log seeded from the storage-engine checkpoint (20261031 06:19:34.940)
+WSREP_SST: [INFO] mariabackup SST completed on joiner (20261031 06:19:34.952)
+2026-10-31  6:19:34 3 [Note] WSREP: SST received
+2026-10-31  6:19:35 3 [Note] WSREP: SST received: ff56e501-d4f2-11f1-920c-aa69770f7bf7:2
+2026-10-31  6:19:35 0 [Note] WSREP: Receiving IST... 0.0% (0/1 events) complete.
+2026-10-31  6:19:35 0 [Note] WSREP: Receiving IST... 100.0% (1/1 events) complete.
+(exit 0)
+```
+
+### galera-3 join method in log
+
+```
+$ vm_sh dbcm-lab-m3 sudo docker logs dd09fc56e0204349ff0e1e43355fd3d8c00a1111b6c8043927934ad69938ed08 2>&1 | grep -iE 'SST|IST' | grep -iE 'request|complete|receiv|prepar|method' | head -12
+2026-10-31  6:19:41 0 [Note] WSREP: Running: 'wsrep_sst_mariabackup --role 'joiner' --address '10.0.1.6' --datadir '/dbcm/data/' --parent 1 --progress 0 --binlog '/dbcm/data/dbcm-bin' --mysqld-args --wsrep_on=ON --wsrep_provider=/usr/lib/galera/libgalera_smm.so --wsrep_cluster_name=dbcm-e15 --wsrep_cluster_address=gcomm://galera-1,galera-2,galera-3 --wsrep_sst_method=mariabackup --binlog_format=ROW --innodb_autoinc_lock_mode=2 --datadir=/dbcm/data --socket=/dbcm/run/mysqld.sock --log_bin=/dbcm/data/dbcm-bin --log_slave_updates=ON --binlog_expire_logs_seconds=1209600 --wsrep_provider_options=gcache.size=128M'
+2026-10-31  6:19:41 2 [Note] WSREP: IST receiver addr using tcp://10.0.1.6:4568
+2026-10-31  6:19:41 2 [Note] WSREP: Prepared IST receiver for 0-3, listening at: tcp://10.0.1.6:4568, waiting for connection to: tcp://10.0.1.6:4568
+WSREP_SST: [INFO] Waiting for SST streaming to complete! (20261031 06:19:42.028)
+WSREP_SST: [INFO] Preparing the backup at /dbcm/data/.sst (20261031 06:19:52.566)
+WSREP_SST: [INFO] Evaluating /usr//bin/mariadb-backup --prepare --no-version-check --log-bin='/dbcm/data/dbcm-bin' --target-dir='/dbcm/data/.sst' --datadir='/dbcm/data/.sst' --mysqld-args '--wsrep_on=ON' '--wsrep_provider=/usr/lib/galera/libgalera_smm.so' '--wsrep_cluster_name=dbcm-e15' '--wsrep_cluster_address=gcomm://galera-1,galera-2,galera-3' '--wsrep_sst_method=mariabackup' '--binlog_format=ROW' '--innodb_autoinc_lock_mode=2' '--log_slave_updates=ON' '--binlog_expire_logs_seconds=1209600' '--wsrep_provider_options=gcache.size=128M' > '/dbcm/data/mariabackup.prepare.log' 2>&1 (20261031 06:19:52.567)
+WSREP_SST: [INFO] No binary log received from donor; the joiner will start a fresh binary log seeded from the storage-engine checkpoint (20261031 06:19:52.640)
+WSREP_SST: [INFO] mariabackup SST completed on joiner (20261031 06:19:52.653)
+2026-10-31  6:19:52 3 [Note] WSREP: SST received
+2026-10-31  6:19:53 3 [Note] WSREP: SST received: ff56e501-d4f2-11f1-920c-aa69770f7bf7:3
+2026-10-31  6:19:53 0 [Note] WSREP: Receiving IST... 0.0% (0/1 events) complete.
+2026-10-31  6:19:53 0 [Note] WSREP: Receiving IST... 100.0% (1/1 events) complete.
+(exit 0)
+```
+
+### update galera-1 to non-bootstrap args
+
+```
+$ vm_docker dbcm-lab-m1 service update --detach --args --wsrep_on=ON --wsrep_provider=/usr/lib/galera/libgalera_smm.so --wsrep_cluster_name=dbcm-e15 --wsrep_cluster_address=gcomm://galera-1,galera-2,galera-3 --wsrep_sst_method=mariabackup --binlog_format=ROW --innodb_autoinc_lock_mode=2 --datadir=/dbcm/data --socket=/dbcm/run/mysqld.sock --log_bin=/dbcm/data/dbcm-bin --log_slave_updates=ON --binlog_expire_logs_seconds=1209600 --wsrep_provider_options=gcache.size=128M galera-1
+galera-1
+(exit 0)
+```
+
+06:20:02Z wait ok after 6s: galera-1 rejoined (Synced, size 3)
+### galera-1 rejoin method in log
+
+```
+$ vm_sh dbcm-lab-m1 sudo docker logs 3fb8df4f39aeb042904955bbc2983a40ee02de877cc1e1d3e4c8906ac493cadb 2>&1 | grep -iE 'SST|IST' | grep -iE 'request|complete|receiv|prepar|method' | head -12
+2026-10-31  6:20:01 0 [Note] WSREP: Running: 'wsrep_sst_mariabackup --role 'joiner' --address '10.0.1.8' --datadir '/dbcm/data/' --parent 1 --progress 0 --binlog '/dbcm/data/dbcm-bin' --mysqld-args --wsrep_on=ON --wsrep_provider=/usr/lib/galera/libgalera_smm.so --wsrep_cluster_name=dbcm-e15 --wsrep_cluster_address=gcomm://galera-1,galera-2,galera-3 --wsrep_sst_method=mariabackup --binlog_format=ROW --innodb_autoinc_lock_mode=2 --datadir=/dbcm/data --socket=/dbcm/run/mysqld.sock --log_bin=/dbcm/data/dbcm-bin --log_slave_updates=ON --binlog_expire_logs_seconds=1209600 --wsrep_provider_options=gcache.size=128M'
+2026-10-31  6:20:01 2 [Note] WSREP: IST receiver addr using tcp://10.0.1.8:4568
+2026-10-31  6:20:01 2 [Note] WSREP: Prepared IST receiver for 4-5, listening at: tcp://10.0.1.8:4568, waiting for connection to: tcp://10.0.1.8:4568
+WSREP_SST: [INFO] 'xtrabackup_ist' received from donor: Running IST (20261031 06:20:01.542)
+WSREP_SST: [INFO] mariabackup IST completed on joiner (20261031 06:20:01.546)
+2026-10-31  6:20:01 3 [Note] WSREP: SST received
+2026-10-31  6:20:01 3 [Note] WSREP: SST received: ff56e501-d4f2-11f1-920c-aa69770f7bf7:3
+2026-10-31  6:20:01 2 [Note] WSREP: Receiving IST: 2 writesets, seqnos 4-5
+2026-10-31  6:20:01 0 [Note] WSREP: Receiving IST... 0.0% (0/2 events) complete.
+2026-10-31  6:20:01 0 [Note] WSREP: Receiving IST... 100.0% (2/2 events) complete.
+2026-10-31  6:20:01 2 [Note] WSREP: IST received: ff56e501-d4f2-11f1-920c-aa69770f7bf7:5
+(exit 0)
+```
+
+### service list
+
+```
+$ vm_docker dbcm-lab-m1 service ls
+ID             NAME       MODE         REPLICAS   IMAGE          PORTS
+sgidxsmcc0dl   galera-1   replicated   1/1        mariadb:11.4   
+xxtbszfs96pl   galera-2   replicated   1/1        mariadb:11.4   
+jgdo3yp07td0   galera-3   replicated   1/1        mariadb:11.4   
+(exit 0)
+```
+
+### galera-1 tasks (placement)
+
+```
+$ vm_docker dbcm-lab-m1 service ps --no-trunc --format {{.Name}} {{.Node}} {{.DesiredState}} {{.CurrentState}} {{.Error}} galera-1
+galera-1.1 lima-dbcm-lab-m1 Running Running 3 seconds ago 
+galera-1.1 lima-dbcm-lab-m1 Shutdown Shutdown 3 seconds ago 
+(exit 0)
+```
+
+### galera-2 tasks (placement)
+
+```
+$ vm_docker dbcm-lab-m1 service ps --no-trunc --format {{.Name}} {{.Node}} {{.DesiredState}} {{.CurrentState}} {{.Error}} galera-2
+galera-2.1 lima-dbcm-lab-m2 Running Running 43 seconds ago 
+(exit 0)
+```
+
+### galera-3 tasks (placement)
+
+```
+$ vm_docker dbcm-lab-m1 service ps --no-trunc --format {{.Name}} {{.Node}} {{.DesiredState}} {{.CurrentState}} {{.Error}} galera-3
+galera-3.1 lima-dbcm-lab-m3 Running Running 24 seconds ago 
+(exit 0)
+```
+
+### node ID map
+
+```
+$ vm_docker dbcm-lab-m1 node ls --format {{.ID}} {{.Hostname}} {{.ManagerStatus}}
+jn648y513xcq5dps670zrv3v2 lima-dbcm-lab-m1 Leader
+vsh6bxouojrdray6zs4h1957a lima-dbcm-lab-m2 
+9e11qx3ozw2324f5hkx9gqvtt lima-dbcm-lab-m3 
+(exit 0)
+```
+
+### log_bin on galera-2
+
+```
+$ sql 2 SHOW VARIABLES WHERE Variable_name IN ('log_bin','log_bin_basename','log_slave_updates','binlog_format','binlog_expire_logs_seconds','server_id')
+binlog_expire_logs_seconds	1209600
+binlog_format	ROW
+log_bin	ON
+log_bin_basename	/dbcm/data/dbcm-bin
+log_slave_updates	ON
+server_id	1
+(exit 0)
+```
+
+### binary logs on galera-2
+
+```
+$ sql 2 SHOW BINARY LOGS
+dbcm-bin.000001	327
+(exit 0)
+```
+
+
+## Step 3: stage the job helper, secrets and the backup target on m2
+
+### copy dbcm-job to m2
+
+```
+$ limactl copy /var/folders/fv/g68cb08n70qg4kf8hl3tzl0c0000gn/T//dbcm-e15.wRkdRu/dbcm-job dbcm-lab-m2:/tmp/dbcm-job
+(exit 0)
+```
+
+### copy recovery key to m2
+
+```
+$ limactl copy /var/folders/fv/g68cb08n70qg4kf8hl3tzl0c0000gn/T//dbcm-e15.wRkdRu/recovery.key dbcm-lab-m2:/tmp/recovery.key
+(exit 0)
+```
+
+### stage /var/lib/dbcm-e15
+
+```
+$ vm_sh dbcm-lab-m2 
+		set -e
+		sudo install -d -m 0755 /var/lib/dbcm-e15 /var/lib/dbcm-e15/backup
+		sudo install -d -m 0755 /var/lib/dbcm-e15/secrets
+		sudo install -m 0755 /tmp/dbcm-job /var/lib/dbcm-e15/dbcm-job
+		sudo install -m 0644 /tmp/recovery.key /var/lib/dbcm-e15/secrets/restore-key
+		printf '%s' '{"type":"dir","dir":"/backup"}' | sudo tee /var/lib/dbcm-e15/secrets/backend-cfg >/dev/null
+		printf '[client]\nuser=dbcm_backup\npassword=<redacted>\n' | sudo tee /var/lib/dbcm-e15/secrets/db-cred >/dev/null
+		rm -f /tmp/recovery.key /tmp/dbcm-job
+		ls -la /var/lib/dbcm-e15 /var/lib/dbcm-e15/secrets
+/var/lib/dbcm-e15:
+total 12252
+drwxr-xr-x  4 root root     4096 Oct 31 07:20 .
+drwxr-xr-x 47 root root     4096 Oct 31 07:20 ..
+drwxr-xr-x  2 root root     4096 Oct 31 07:20 backup
+-rwxr-xr-x  1 root root 12526270 Oct 31 07:20 dbcm-job
+drwxr-xr-x  2 root root     4096 Oct 31 07:20 secrets
+
+/var/lib/dbcm-e15/secrets:
+total 20
+drwxr-xr-x 2 root root 4096 Oct 31 07:20 .
+drwxr-xr-x 4 root root 4096 Oct 31 07:20 ..
+-rw-r--r-- 1 root root   30 Oct 31 07:20 backend-cfg
+-rw-r--r-- 1 root root   60 Oct 31 07:20 db-cred
+-rw-r--r-- 1 root root   70 Oct 31 07:20 restore-key
+(exit 0)
+```
+
+06:20:04Z source node UUID: 5e1d732a-e4ce-4114-bbb2-f85b78f349cf
+### create the backup account
+
+```
+$ sql 1 CREATE USER 'dbcm_backup'@'%' IDENTIFIED BY '794c2ae5a9a6234737be1d77';
+		GRANT RELOAD, PROCESS, LOCK TABLES, BINLOG MONITOR ON *.* TO 'dbcm_backup'@'%'
+(exit 0)
+```
+
+
+## Step 4: data before the backup (written on galera-1)
+
+### create pitr.orders and 2000 rows (batch O)
+
+```
+$ sql 1 CREATE DATABASE pitr;
+		CREATE TABLE pitr.orders (id INT PRIMARY KEY, batch CHAR(1) NOT NULL, val VARCHAR(40) NOT NULL, amount INT NOT NULL) ENGINE=InnoDB;
+		USE pitr;
+		INSERT INTO pitr.orders SELECT seq, 'O', CONCAT('row-', seq), seq % 97 FROM seq_1_to_2000
+(exit 0)
+```
+
+06:20:04Z state at backup time (read on galera-2): 2000 94950 2001000 O checksum=743274767
+
+## Step 5: physical backup of galera-2 with the real job helper
+
+### dbcm-job backup (mariabackup) of galera-2
+
+```
+$ job dbcm-job-e15-backup /var/lib/dbcm/galera-2:/dbcm:ro -- backup --job=dbcm-job-e15-backup --tool=mariabackup --backup-id=b-e15-full --object=e15-galera-b-e15-full.xbs.dbcms --cluster-id=e15-galera --node-uuid=5e1d732a-e4ce-4114-bbb2-f85b78f349cf --db-host=galera-2 --db-option-file=/run/secrets/db-cred --backend-config=/run/secrets/backend-cfg --recipient=dbcmpk1:ikLGYH_pROtZhxUrImXG6OxGKrhbHdaQ9yzl-2WsZBw --datadir=/dbcm/data
+/usr/bin/mariabackup: Deprecated program name. It will be removed in a future release, use '/usr/bin/mariadb-backup' instead
+[00] 2026-10-31 06:20:05 Connecting to MariaDB server host: galera-2, user: dbcm_backup, password: set, port: not set, socket: /run/mysqld/mysqld.sock
+[00] 2026-10-31 06:20:05 Using server version 11.4.13-MariaDB-ubu2404-log
+[00] 2026-10-31 06:20:05 Warning: missing required privilege SLAVE MONITOR on *.*
+/usr/bin/mariabackup based on MariaDB server 11.4.13-MariaDB debian-linux-gnu (aarch64)
+[00] 2026-10-31 06:20:05 uses posix_fadvise().
+[00] 2026-10-31 06:20:05 cd to /dbcm/data/
+[00] 2026-10-31 06:20:05 open files limit requested 0, set to 1024
+[00] 2026-10-31 06:20:05 mariabackup: using the following InnoDB configuration:
+[00] 2026-10-31 06:20:05 innodb_data_home_dir = 
+[00] 2026-10-31 06:20:05 innodb_data_file_path = ibdata1:12M:autoextend
+[00] 2026-10-31 06:20:05 innodb_log_group_home_dir = ./
+2026-10-31  6:20:05 0 [Note] InnoDB: Number of transaction pools: 1
+/usr/bin/mariabackup: io_uring_queue_init() failed with EPERM: sysctl kernel.io_uring_disabled has the value 2, or 1 and the user of the process is not a member of sysctl kernel.io_uring_group. (see man 2 io_uring_setup).
+create_uring failed: falling back to libaio
+2026-10-31  6:20:05 0 [Note] InnoDB: Using Linux native AIO
+2026-10-31  6:20:05 0 [Note] InnoDB: Buffered log writes (block size=512 bytes)
+[00] 2026-10-31 06:20:05 mariabackup: Generating a list of tablespaces
+[00] 2026-10-31 06:20:05 DDL tracking : create 12 "./pitr/orders.ibd"
+[00] 2026-10-31 06:20:05 Connecting to MariaDB server host: galera-2, user: dbcm_backup, password: set, port: not set, socket: /run/mysqld/mysqld.sock
+[00] 2026-10-31 06:20:05 Connecting to MariaDB server host: galera-2, user: dbcm_backup, password: set, port: not set, socket: /run/mysqld/mysqld.sock
+[00] 2026-10-31 06:20:05 Connecting to MariaDB server host: galera-2, user: dbcm_backup, password: set, port: not set, socket: /run/mysqld/mysqld.sock
+[00] 2026-10-31 06:20:05 Starting BACKUP STAGE START
+[00] 2026-10-31 06:20:05 Acquiring BACKUP LOCKS...
+[00] 2026-10-31 06:20:05 Acquired locks for BACKUP STAGE START
+[00] 2026-10-31 06:20:05 Streaming /dbcm/data//aria_log_control to <STDOUT>
+[00] 2026-10-31 06:20:05         ...done
+[00] 2026-10-31 06:20:05 Loading aria_log_control.
+[00] 2026-10-31 06:20:05 aria_log_control: last_log_number: 1
+[00] 2026-10-31 06:20:05 Start scanning aria tables.
+[00] 2026-10-31 06:20:05 Start scanning aria log files.
+[00] 2026-10-31 06:20:05 Found 1 aria log files, minimum log number 1, maximum log number 1
+[00] 2026-10-31 06:20:05 Stop scanning aria tables.
+[00] 2026-10-31 06:20:05 Streaming .//undo001
+[00] 2026-10-31 06:20:05         ...done
+[00] 2026-10-31 06:20:05 Streaming .//undo002
+[00] 2026-10-31 06:20:05         ...done
+[00] 2026-10-31 06:20:05 Streaming .//undo003
+[00] 2026-10-31 06:20:05         ...done
+[00] 2026-10-31 06:20:05 Streaming ./mysql/wsrep_cluster.ibd
+[00] 2026-10-31 06:20:05         ...done
+[00] 2026-10-31 06:20:05 Streaming ./mysql/gtid_slave_pos.ibd
+[00] 2026-10-31 06:20:05         ...done
+[00] 2026-10-31 06:20:05 Streaming ./mysql/wsrep_cluster_members.ibd
+[00] 2026-10-31 06:20:05         ...done
+[00] 2026-10-31 06:20:05 Streaming ./mysql/wsrep_allowlist.ibd
+[00] 2026-10-31 06:20:05         ...done
+[00] 2026-10-31 06:20:05 Streaming ./mysql/transaction_registry.ibd
+[00] 2026-10-31 06:20:05         ...done
+[00] 2026-10-31 06:20:05 Streaming ./mysql/innodb_index_stats.ibd
+[00] 2026-10-31 06:20:05         ...done
+[00] 2026-10-31 06:20:05 Streaming ./mysql/innodb_table_stats.ibd
+[00] 2026-10-31 06:20:05         ...done
+[00] 2026-10-31 06:20:05 Streaming ./mysql/wsrep_streaming_log.ibd
+[00] 2026-10-31 06:20:05         ...done
+[00] 2026-10-31 06:20:05 Streaming ibdata1
+[00] 2026-10-31 06:20:05         ...done
+[00] 2026-10-31 06:20:05 aria table file ./sys/sys_config.MAI is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./sys/sys_config.MAD is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/tables_priv.MAI is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/tables_priv.MAD is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/global_priv.MAI is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/global_priv.MAD is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/servers.MAI is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/servers.MAD is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/time_zone_leap_second.MAI is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/time_zone_leap_second.MAD is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/time_zone_transition_type.MAI is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/time_zone_transition_type.MAD is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/func.MAI is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/func.MAD is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/plugin.MAI is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/plugin.MAD is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/event.MAI is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/event.MAD is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/time_zone_transition.MAI is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/time_zone_transition.MAD is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/roles_mapping.MAI is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/roles_mapping.MAD is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/columns_priv.MAI is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/columns_priv.MAD is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/procs_priv.MAI is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/procs_priv.MAD is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/proxies_priv.MAI is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/proxies_priv.MAD is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/time_zone.MAI is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/time_zone.MAD is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/time_zone_name.MAI is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/time_zone_name.MAD is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/db.MAI is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/db.MAD is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/proc.MAI is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/proc.MAD is copied successfully.
+[00] 2026-10-31 06:20:05 Start copying aria log file tail: /dbcm/data//aria_log.00000001
+[00] 2026-10-31 06:20:05 Stop copying aria log file tail: /dbcm/data//aria_log.00000001, copied 4890624 bytes
+[00] 2026-10-31 06:20:05 Finished BACKUP STAGE START
+[00] 2026-10-31 06:20:05 Starting BACKUP STAGE FLUSH
+[00] 2026-10-31 06:20:05 Acquired locks for BACKUP STAGE FLUSH
+[00] 2026-10-31 06:20:05 Start scanning common engine tables, need backup locks: 0, collect log and stat tables: 1
+[00] 2026-10-31 06:20:05 Log table found: mysql.general_log
+[00] 2026-10-31 06:20:05 Collect log table file: ./mysql/general_log.CSV
+[00] 2026-10-31 06:20:05 Log table found: mysql.slow_log
+[00] 2026-10-31 06:20:05 Collect log table file: ./mysql/slow_log.CSV
+[00] 2026-10-31 06:20:05 Collect log table file: ./mysql/general_log.CSM
+[00] 2026-10-31 06:20:05 Collect log table file: ./mysql/slow_log.CSM
+[00] 2026-10-31 06:20:05 Stop scanning common engine tables
+[00] 2026-10-31 06:20:05 Start copying aria log file tail: /dbcm/data//aria_log.00000001
+[00] 2026-10-31 06:20:05 Stop copying aria log file tail: /dbcm/data//aria_log.00000001, copied 0 bytes
+[00] 2026-10-31 06:20:05 aria table file ./mysql/help_relation.MAI is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/help_relation.MAD is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/help_category.MAI is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/help_category.MAD is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/help_topic.MAI is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/help_topic.MAD is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/help_keyword.MAI is copied successfully.
+[00] 2026-10-31 06:20:05 aria table file ./mysql/help_keyword.MAD is copied successfully.
+[00] 2026-10-31 06:20:05 Finished BACKUP STAGE FLUSH
+[00] 2026-10-31 06:20:05 Started BACKUP STAGE BLOCK_DDL
+[00] 2026-10-31 06:20:05 Acquired locks for BACKUP STAGE BLOCK_DDL
+[00] 2026-10-31 06:20:05 Getting InnoDB LSN
+[00] 2026-10-31 06:20:05 InnoDB LSN: 204930, Flushing Logs
+[00] 2026-10-31 06:20:05 Flushed Logs
+[00] 2026-10-31 06:20:05 Start scanning common engine tables, need backup locks: 1, collect log and stat tables: 0
+[00] 2026-10-31 06:20:05 Stop scanning common engine tables
+[00] 2026-10-31 06:20:05 Starting to backup non-InnoDB tables and files
+[00] 2026-10-31 06:20:05 Copied file ./mysql/slow_log.CSV for log table `mysql`.`slow_log`, 0 bytes
+[01] 2026-10-31 06:20:05 Streaming ./pitr/db.opt to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./pitr/orders.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024schema_table_statistics_with_buffer.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/host_summary_by_statement_latency.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/io_global_by_wait_by_latency.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024statements_with_runtimes_in_95th_percentile.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/wait_classes_global_by_latency.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/schema_index_statistics.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024statements_with_full_table_scans.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[00] 2026-10-31 06:20:05 Copied file ./mysql/general_log.CSV for log table `mysql`.`general_log`, 0 bytes
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024io_global_by_wait_by_bytes.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024statements_with_sorting.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/user_summary_by_statement_type.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024io_global_by_wait_by_latency.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/io_global_by_file_by_latency.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/statements_with_temp_tables.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024session.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024host_summary_by_statement_latency.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/schema_auto_increment_columns.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/host_summary_by_stages.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024waits_by_user_by_latency.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/memory_by_host_by_current_bytes.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/schema_table_lock_waits.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024io_global_by_file_by_latency.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024schema_tables_with_full_table_scans.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/processlist.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/db.opt to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/sys_config.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/statements_with_errors_or_warnings.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024io_by_thread_by_latency.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/statements_with_runtimes_in_95th_percentile.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/waits_by_user_by_latency.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/schema_object_overview.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024host_summary_by_statement_type.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/metrics.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/user_summary_by_statement_latency.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/session_ssl_status.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024innodb_buffer_stats_by_schema.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024schema_flattened_keys.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024memory_global_total.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024waits_global_by_latency.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024host_summary_by_file_io.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024io_global_by_file_by_bytes.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024ps_schema_table_statistics_io.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024schema_table_lock_waits.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024processlist.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024statements_with_errors_or_warnings.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024memory_by_host_by_current_bytes.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024ps_digest_avg_latency_distribution.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024user_summary_by_file_io.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/user_summary_by_stages.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/innodb_lock_waits.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024host_summary_by_file_io_type.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/waits_global_by_latency.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/host_summary_by_statement_type.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/ps_check_lost_instrumentation.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024schema_index_statistics.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/io_global_by_file_by_bytes.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024user_summary.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/schema_tables_with_full_table_scans.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024memory_global_by_current_bytes.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/host_summary_by_file_io_type.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024user_summary_by_statement_latency.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024host_summary.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024wait_classes_global_by_latency.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/user_summary_by_file_io_type.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/memory_by_user_by_current_bytes.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/statement_analysis.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/schema_unused_indexes.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024statements_with_temp_tables.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/statements_with_sorting.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024waits_by_host_by_latency.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/memory_global_total.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/session.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024user_summary_by_statement_type.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/schema_table_statistics.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024latest_file_io.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024innodb_lock_waits.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/innodb_buffer_stats_by_table.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/user_summary_by_file_io.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/memory_by_thread_by_current_bytes.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/user_summary.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024user_summary_by_stages.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/version.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/schema_redundant_indexes.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/schema_table_statistics_with_buffer.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/host_summary.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024memory_by_user_by_current_bytes.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024memory_by_thread_by_current_bytes.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024user_summary_by_file_io_type.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/innodb_buffer_stats_by_schema.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024innodb_buffer_stats_by_table.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/waits_by_host_by_latency.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/io_global_by_wait_by_bytes.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/host_summary_by_file_io.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/privileges_by_table_by_level.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024host_summary_by_stages.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/statements_with_full_table_scans.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/memory_global_by_current_bytes.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/io_by_thread_by_latency.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024ps_digest_95th_percentile_by_avg_us.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/wait_classes_global_by_avg_latency.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024statement_analysis.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024wait_classes_global_by_avg_latency.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/latest_file_io.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./sys/x@0024schema_table_statistics.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./mysql/innodb_index_stats.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./mysql/user.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./mysql/proxies_priv.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./mysql/wsrep_cluster.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./mysql/global_priv.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./mysql/servers.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./mysql/help_relation.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./mysql/general_log.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./mysql/time_zone_name.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./mysql/procs_priv.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./mysql/index_stats.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./mysql/wsrep_streaming_log.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./mysql/gtid_slave_pos.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./mysql/time_zone_transition.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./mysql/db.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./mysql/help_topic.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./mysql/db.opt to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./mysql/plugin.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./mysql/column_stats.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./mysql/help_category.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./mysql/wsrep_allowlist.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./mysql/help_keyword.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./mysql/columns_priv.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./mysql/time_zone_transition_type.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./mysql/roles_mapping.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./mysql/innodb_table_stats.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./mysql/time_zone_leap_second.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./mysql/wsrep_cluster_members.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./mysql/proc.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./mysql/table_stats.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./mysql/transaction_registry.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./mysql/event.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./mysql/tables_priv.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./mysql/slow_log.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./mysql/func.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./mysql/time_zone.frm to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[01] 2026-10-31 06:20:05 Streaming ./performance_schema/db.opt to <STDOUT>
+[01] 2026-10-31 06:20:05         ...done
+[00] 2026-10-31 06:20:05 Finished backing up non-InnoDB tables and files
+[00] 2026-10-31 06:20:05 Waiting for log copy thread to read lsn 204930
+[00] 2026-10-31 06:20:06 Streaming ./pitr/orders.ibd
+[00] 2026-10-31 06:20:06         ...done
+[00] 2026-10-31 06:20:06 Start copying aria log file tail: /dbcm/data//aria_log.00000001
+[00] 2026-10-31 06:20:06 Stop copying aria log file tail: /dbcm/data//aria_log.00000001, copied 0 bytes
+[00] 2026-10-31 06:20:06 Finished BACKUP STAGE BLOCK_DDL
+[00] 2026-10-31 06:20:06 Starting BACKUP STAGE BLOCK_COMMIT
+[00] 2026-10-31 06:20:06 Acquired locks for BACKUP STAGE BLOCK_COMMIT
+[00] 2026-10-31 06:20:06 Copied file ./mysql/slow_log.CSV for log table `mysql`.`slow_log`, 0 bytes
+[00] 2026-10-31 06:20:06 Copied file ./mysql/slow_log.CSM for log table `mysql`.`slow_log`, 35 bytes
+[00] 2026-10-31 06:20:06 Copied file ./mysql/general_log.CSV for log table `mysql`.`general_log`, 0 bytes
+[00] 2026-10-31 06:20:06 Copied file ./mysql/general_log.CSM for log table `mysql`.`general_log`, 35 bytes
+[00] 2026-10-31 06:20:06 Getting InnoDB LSN
+[00] 2026-10-31 06:20:06 InnoDB LSN: 204930, Flushing Logs
+[00] 2026-10-31 06:20:06 Flushed Logs
+[00] 2026-10-31 06:20:06 mariabackup: The latest check point (for incremental): '54083'
+mariabackup: Stopping log copying thread.
+[00] 2026-10-31 06:20:06 Start copying statistics aria tables.
+[00] 2026-10-31 06:20:06 aria table file ./mysql/index_stats.MAI is copied successfully.
+[00] 2026-10-31 06:20:06 aria table file ./mysql/index_stats.MAD is copied successfully.
+[00] 2026-10-31 06:20:06 aria table file ./mysql/table_stats.MAI is copied successfully.
+[00] 2026-10-31 06:20:06 aria table file ./mysql/table_stats.MAD is copied successfully.
+[00] 2026-10-31 06:20:06 aria table file ./mysql/column_stats.MAI is copied successfully.
+[00] 2026-10-31 06:20:06 aria table file ./mysql/column_stats.MAD is copied successfully.
+[00] 2026-10-31 06:20:06 Stop copying statistics aria tables.
+[00] 2026-10-31 06:20:06 Start copying aria log file tail: /dbcm/data//aria_log.00000001
+[00] 2026-10-31 06:20:06 Stop copying aria log file tail: /dbcm/data//aria_log.00000001, copied 8192 bytes
+[00] 2026-10-31 06:20:06 Streaming mariadb_backup_galera_info
+[00] 2026-10-31 06:20:06         ...done
+[00] 2026-10-31 06:20:06 Streaming donor_galera_info
+[00] 2026-10-31 06:20:06         ...done
+[00] 2026-10-31 06:20:06 Streaming /dbcm/data/dbcm-bin.000002 to <STDOUT>
+[00] 2026-10-31 06:20:06         ...done
+[00] 2026-10-31 06:20:06 Writing Galera info succeeded with ff56e501-d4f2-11f1-920c-aa69770f7bf7:10 0
+[00] 2026-10-31 06:20:06 Streaming mariadb_backup_binlog_info
+[00] 2026-10-31 06:20:06         ...done
+[00] 2026-10-31 06:20:06 Executing FLUSH NO_WRITE_TO_BINLOG ENGINE LOGS...
+[00] 2026-10-31 06:20:06 Finishing BACKUP STAGE BLOCK_COMMIT
+[00] 2026-10-31 06:20:06 Starting BACKUP STAGE END
+[00] 2026-10-31 06:20:06 Executing BACKUP STAGE END
+[00] 2026-10-31 06:20:06 All tables unlocked
+[00] 2026-10-31 06:20:06 Backup created in directory '/tmp/dbcm-job-2992978891/target/'
+[00] 2026-10-31 06:20:06 MySQL binlog position: filename 'dbcm-bin.000002', position '383', GTID of the last change '0-1-5'
+[00] 2026-10-31 06:20:06 Streaming backup-my.cnf
+[00] 2026-10-31 06:20:06         ...done
+[00] 2026-10-31 06:20:06 Streaming mariadb_backup_info
+[00] 2026-10-31 06:20:06         ...done
+[00] 2026-10-31 06:20:06 Redo log (from LSN 54083 to 204930) was copied.
+2026-10-31  6:20:06 0 [Note] InnoDB: Starting shutdown...
+[00] 2026-10-31 06:20:06 completed OK!
+(exit 0)
+```
+
+06:20:06Z backup took 2 s
+### backup target
+
+```
+$ vm_sh dbcm-lab-m2 sudo ls -la /var/lib/dbcm-e15/backup
+total 54636
+drwxr-xr-x 2 root root     4096 Oct 31 07:20 .
+drwxr-xr-x 4 root root     4096 Oct 31 07:20 ..
+-rw------- 1 root root 55921967 Oct 31 07:20 e15-galera-b-e15-full.xbs.dbcms
+-rw------- 1 root root     8940 Oct 31 07:20 e15-galera-b-e15-full.xbs.dbcms.manifest.json
+-rw------- 1 root root      115 Oct 31 07:20 e15-galera-b-e15-full.xbs.dbcms.status.json
+(exit 0)
+```
+
+### base manifest (binlog_base, finished, tool)
+
+```
+{
+ "backup_id": "b-e15-full",
+ "method": "physical",
+ "finished": "2026-10-31T06:20:06.363847584Z",
+ "binlog_base": {
+  "file": "dbcm-bin.000002",
+  "offset": 383
+ },
+ "galera": {
+  "state_uuid": "ff56e501-d4f2-11f1-920c-aa69770f7bf7",
+  "seqno": 10,
+  "source": "stream"
+ },
+ "tool": {
+  "name": "mariabackup",
+  "version": "11.4.13-MariaDB"
+ },
+ "warnings": null
+}
+```
+
+06:20:06Z backup binlog position offset: 383
+
+## Step 6: writes after the backup, the time T, writes after T
+
+### phase A on galera-1: 1000 inserts (batch A)
+
+```
+$ sql 1 USE pitr; INSERT INTO pitr.orders SELECT seq, 'A', CONCAT('row-', seq), seq % 89 FROM seq_2001_to_3000
+(exit 0)
+```
+
+### phase A on galera-3: updates of batch O
+
+```
+$ sql 3 UPDATE pitr.orders SET amount = amount + 1000 WHERE batch = 'O' AND id % 10 = 0
+(exit 0)
+```
+
+### phase A on galera-1: deletes of batch O
+
+```
+$ sql 1 DELETE FROM pitr.orders WHERE batch = 'O' AND id % 50 = 1
+(exit 0)
+```
+
+06:20:07Z T = 2026-10-31T06:20:07Z; state at T (galera-1, after wsrep_sync_wait): 2960 337347 4462460 A,O checksum=1523331441
+### phase B on galera-3: 1000 inserts (batch B)
+
+```
+$ sql 3 USE pitr; INSERT INTO pitr.orders SELECT seq, 'B', CONCAT('row-', seq), seq % 83 FROM seq_3001_to_4000
+(exit 0)
+```
+
+### phase B on galera-1: updates of batch A
+
+```
+$ sql 1 UPDATE pitr.orders SET amount = amount + 5 WHERE batch = 'A'
+(exit 0)
+```
+
+### phase B on galera-2 (the source node): deletes of batch A
+
+```
+$ sql 2 DELETE FROM pitr.orders WHERE batch = 'A' AND id % 7 = 0
+(exit 0)
+```
+
+06:20:11Z state after phase B: 3817 376185 7605603 A,B,O checksum=1379651463
+
+## Step 7: archive the closed binlog files (real job helper)
+
+### dbcm-job backup --tool=binlog-archive
+
+```
+$ job dbcm-job-e15-archive-1 /var/lib/dbcm/galera-2:/dbcm:ro -- backup --job=dbcm-job-e15-archive-1 --tool=binlog-archive --backup-id=b-e15-full --object=e15-galera-b-e15-full.xbs.dbcms --cluster-id=e15-galera --node-uuid=5e1d732a-e4ce-4114-bbb2-f85b78f349cf --db-host=galera-2 --db-option-file=/run/secrets/db-cred --backend-config=/run/secrets/backend-cfg --recipient=dbcmpk1:ikLGYH_pROtZhxUrImXG6OxGKrhbHdaQ9yzl-2WsZBw --datadir=/dbcm/data
+(exit 0)
+```
+
+06:20:12Z archive run took 1 s
+### binary logs on galera-2 after the rotation
+
+```
+$ sql 2 SHOW BINARY LOGS
+dbcm-bin.000001	40403
+dbcm-bin.000002	93666
+dbcm-bin.000003	383
+(exit 0)
+```
+
+### archive objects
+
+```
+$ vm_sh dbcm-lab-m2 sudo ls -la /var/lib/dbcm-e15/backup | grep -- '-l0'
+-rw------- 1 root root    94218 Oct 31 07:20 e15-galera-b-e15-full-l000001.binlog.dbcms
+-rw------- 1 root root     1163 Oct 31 07:20 e15-galera-b-e15-full-l000001.binlog.dbcms.manifest.json
+(exit 0)
+```
+
+### second archive run (nothing new)
+
+```
+$ job dbcm-job-e15-archive-2 /var/lib/dbcm/galera-2:/dbcm:ro -- backup --job=dbcm-job-e15-archive-2 --tool=binlog-archive --backup-id=b-e15-full --object=e15-galera-b-e15-full.xbs.dbcms --cluster-id=e15-galera --node-uuid=5e1d732a-e4ce-4114-bbb2-f85b78f349cf --db-host=galera-2 --db-option-file=/run/secrets/db-cred --backend-config=/run/secrets/backend-cfg --recipient=dbcmpk1:ikLGYH_pROtZhxUrImXG6OxGKrhbHdaQ9yzl-2WsZBw --datadir=/dbcm/data
+(exit 0)
+```
+
+06:20:12Z archive manifests: 1 after the first run, 2 after the second
+### fetch the backup target to the host
+
+```
+$ sh -c limactl shell --workdir / dbcm-lab-m2 -- sudo tar -C /var/lib/dbcm-e15 -cf - backup | tar -C '/var/folders/fv/g68cb08n70qg4kf8hl3tzl0c0000gn/T//dbcm-e15.wRkdRu' -xf -
+(exit 0)
+```
+
+
+## Step 8: coverage over the real archive (library code via pitrlab)
+
+### propose T (must be covered)
+
+```
+$ /var/folders/fv/g68cb08n70qg4kf8hl3tzl0c0000gn/T//dbcm-e15.wRkdRu/pitrlab propose /var/folders/fv/g68cb08n70qg4kf8hl3tzl0c0000gn/T//dbcm-e15.wRkdRu/backup e15-galera e15-galera-b-e15-full.xbs.dbcms 2026-10-31T06:20:07Z
+{
+  "backup": "b-e15-full",
+  "binlogBase": {
+    "file": "dbcm-bin.000002",
+    "offset": 383
+  },
+  "coverage": {
+    "segments": 2,
+    "from": "2026-10-31T06:20:06.363847584Z",
+    "until": "2026-10-31T06:20:12Z"
+  },
+  "covered": true,
+  "finished": "2026-10-31T06:20:06.363847584Z",
+  "segments": 1
+}
+(exit 0)
+```
+
+### propose a time after the archive (must not be covered)
+
+```
+$ /var/folders/fv/g68cb08n70qg4kf8hl3tzl0c0000gn/T//dbcm-e15.wRkdRu/pitrlab propose /var/folders/fv/g68cb08n70qg4kf8hl3tzl0c0000gn/T//dbcm-e15.wRkdRu/backup e15-galera e15-galera-b-e15-full.xbs.dbcms 2026-10-31T07:20:13Z
+{
+  "backup": "b-e15-full",
+  "binlogBase": {
+    "file": "dbcm-bin.000002",
+    "offset": 383
+  },
+  "coverage": {
+    "segments": 2,
+    "from": "2026-10-31T06:20:06.363847584Z",
+    "until": "2026-10-31T06:20:12Z"
+  },
+  "covered": false,
+  "finished": "2026-10-31T06:20:06.363847584Z",
+  "reason": "dbbackup: point in time not covered by the binlog archive: the archive ends at 2026-10-31T06:20:12Z; later changes are not archived yet"
+}
+(exit 0)
+```
+
+### propose a time before the backup (must not be covered)
+
+```
+$ /var/folders/fv/g68cb08n70qg4kf8hl3tzl0c0000gn/T//dbcm-e15.wRkdRu/pitrlab propose /var/folders/fv/g68cb08n70qg4kf8hl3tzl0c0000gn/T//dbcm-e15.wRkdRu/backup e15-galera e15-galera-b-e15-full.xbs.dbcms 2020-01-01T00:00:00Z
+{
+  "backup": "b-e15-full",
+  "binlogBase": {
+    "file": "dbcm-bin.000002",
+    "offset": 383
+  },
+  "coverage": {
+    "segments": 2,
+    "from": "2026-10-31T06:20:06.363847584Z",
+    "until": "2026-10-31T06:20:12Z"
+  },
+  "covered": false,
+  "finished": "2026-10-31T06:20:06.363847584Z",
+  "reason": "dbbackup: point in time not covered by the binlog archive: 2020-01-01T00:00:00Z is before backup b-e15-full finished (2026-10-31T06:20:06Z); pick an older time or a newer backup"
+}
+(exit 0)
+```
+
+06:20:13Z segments to replay (1): e15-galera-b-e15-full-l000001.binlog.dbcms; stop-datetime 2026-10-31 06:20:08
+
+## Step 9: physical restore into a new volume and the inspection-style instance
+
+### prepare the empty target volume
+
+```
+$ vm_sh dbcm-lab-m2 sudo rm -rf /var/lib/dbcm/pitr-target && sudo install -d -m 0755 /var/lib/dbcm/pitr-target /var/lib/dbcm/pitr-target/data
+(exit 0)
+```
+
+### dbcm-job restore --mode=physical
+
+```
+$ job dbcm-job-e15-restore /var/lib/dbcm/pitr-target:/dbcm -- restore --job=dbcm-job-e15-restore --mode=physical --backup-id=b-e15-full --object=e15-galera-b-e15-full.xbs.dbcms --approval-id=appr-e15 --source-cluster-id=e15-galera --backend-config=/run/secrets/backend-cfg --key-file=/run/secrets/restore-key --datadir=/dbcm/data --target-cluster-id=inspect-e15
+/usr/bin/mariabackup: Deprecated program name. It will be removed in a future release, use '/usr/bin/mariadb-backup' instead
+/usr/bin/mariabackup based on MariaDB server 11.4.13-MariaDB debian-linux-gnu (aarch64)
+[00] 2026-10-31 06:20:13 cd to /dbcm/data/
+[00] 2026-10-31 06:20:13 open files limit requested 0, set to 1024
+[00] 2026-10-31 06:20:13 Renaming ./pitr/orders.new to ./pitr/orders.ibd
+
+[00] 2026-10-31 06:20:13 This target seems to be not prepared yet.
+[00] 2026-10-31 06:20:13 mariabackup: using the following InnoDB configuration for recovery:
+[00] 2026-10-31 06:20:13 innodb_data_home_dir = .
+[00] 2026-10-31 06:20:13 innodb_data_file_path = ibdata1:12M:autoextend
+[00] 2026-10-31 06:20:13 innodb_log_group_home_dir = .
+[00] 2026-10-31 06:20:13 Starting InnoDB instance for recovery.
+[00] 2026-10-31 06:20:13 mariabackup: Using 100663296 bytes for buffer pool (set by --use-memory parameter)
+2026-10-31  6:20:13 0 [Note] InnoDB: Compressed tables use zlib 1.3
+2026-10-31  6:20:13 0 [Note] InnoDB: Number of transaction pools: 1
+2026-10-31  6:20:13 0 [Note] InnoDB: Using ARMv8 crc32 + pmull instructions
+/usr/bin/mariabackup: io_uring_queue_init() failed with EPERM: sysctl kernel.io_uring_disabled has the value 2, or 1 and the user of the process is not a member of sysctl kernel.io_uring_group. (see man 2 io_uring_setup).
+create_uring failed: falling back to libaio
+2026-10-31  6:20:13 0 [Note] InnoDB: Using Linux native AIO
+2026-10-31  6:20:13 0 [Note] InnoDB: innodb_buffer_pool_size_max=96m, innodb_buffer_pool_size=96m
+2026-10-31  6:20:13 0 [Note] InnoDB: Completed initialization of buffer pool
+2026-10-31  6:20:13 0 [Note] InnoDB: Buffered log writes (block size=512 bytes)
+2026-10-31  6:20:13 0 [Note] InnoDB: Starting crash recovery from checkpoint LSN=54083
+2026-10-31  6:20:13 0 [Note] InnoDB: End of log at LSN=204930
+2026-10-31  6:20:13 0 [Note] InnoDB: To recover: 38 pages
+2026-10-31  6:20:13 0 [Note] InnoDB: Last binlog file '/dbcm/data/dbcm-bin.000001', position 40357
+[00] 2026-10-31 06:20:13 Last binlog file /dbcm/data/dbcm-bin.000001, position 40357
+[00] 2026-10-31 06:20:13 mariabackup: Recovered WSREP position: ff56e501-d4f2-11f1-920c-aa69770f7bf7:10 domain_id: 0
+
+2026-10-31  6:20:13 0 [Note] InnoDB: Starting shutdown...
+recovered pages: 0% 31% 43% 100% (0.0 seconds); tables to flush: 1 0 (0.0 seconds); 
+[00] 2026-10-31 06:20:13 completed OK!
+(exit 0)
+```
+
+06:20:13Z restore took 0 s
+### copy init file and replay option file to m2
+
+```
+$ limactl copy /var/folders/fv/g68cb08n70qg4kf8hl3tzl0c0000gn/T//dbcm-e15.wRkdRu/init.sql /var/folders/fv/g68cb08n70qg4kf8hl3tzl0c0000gn/T//dbcm-e15.wRkdRu/replay-cred dbcm-lab-m2:/tmp/
+(exit 0)
+```
+
+### stage them
+
+```
+$ vm_sh dbcm-lab-m2 
+		set -e
+		sudo install -m 0644 /tmp/init.sql /var/lib/dbcm-e15/init.sql
+		sudo install -m 0644 /tmp/replay-cred /var/lib/dbcm-e15/secrets/replay-cred
+		rm -f /tmp/init.sql /tmp/replay-cred
+		sudo install -d -m 0750 /var/lib/dbcm/pitr-target/run
+		sudo chown -R 999:999 /var/lib/dbcm/pitr-target
+		sudo ls -la /var/lib/dbcm/pitr-target/data | head -20
+total 47880
+drwxr-xr-x 6 999 systemd-journal     4096 Oct 31 07:20 .
+drwxr-xr-x 4 999 systemd-journal     4096 Oct 31 07:20 ..
+-rw-r----- 1 999 systemd-journal  4898816 Oct 31 07:20 aria_log.00000001
+-rw-r----- 1 999 systemd-journal       52 Oct 31 07:20 aria_log_control
+-rw-r----- 1 999 systemd-journal      285 Oct 31 07:20 backup-my.cnf
+-rw-r----- 1 999 systemd-journal      383 Oct 31 07:20 dbcm-bin.000002
+-rw-r----- 1 999 systemd-journal       42 Oct 31 07:20 donor_galera_info
+-rw-r----- 1 999 systemd-journal    12304 Oct 31 07:20 ib_logfile0
+-rw-r----- 1 999 systemd-journal 12582912 Oct 31 07:20 ibdata1
+-rw-r----- 1 999 systemd-journal       26 Oct 31 07:20 mariadb_backup_binlog_info
+-rw-r----- 1 999 systemd-journal       96 Oct 31 07:20 mariadb_backup_checkpoints
+-rw-r----- 1 999 systemd-journal       41 Oct 31 07:20 mariadb_backup_galera_info
+-rw-r--r-- 1 999 systemd-journal       42 Oct 31 07:20 mariadb_backup_galera_info_SST
+-rw-r----- 1 999 systemd-journal      682 Oct 31 07:20 mariadb_backup_info
+drwx------ 2 999 systemd-journal     4096 Oct 31 07:20 mysql
+drwx------ 2 999 systemd-journal     4096 Oct 31 07:20 performance_schema
+drwx------ 2 999 systemd-journal     4096 Oct 31 07:20 pitr
+drwx------ 2 999 systemd-journal    12288 Oct 31 07:20 sys
+-rw-r----- 1 999 systemd-journal 10485760 Oct 31 07:20 undo001
+(exit 0)
+```
+
+### start the instance
+
+```
+$ vm_docker dbcm-lab-m2 run -d --name dbcm-inspect-e15 --hostname dbcm-inspect-e15 --network dbcm-e15-galera -v /var/lib/dbcm/pitr-target:/dbcm -v /var/lib/dbcm-e15/init.sql:/run/secrets/inspect-init:ro mariadb:11.4 --datadir=/dbcm/data --socket=/dbcm/run/mysqld.sock --wsrep-on=OFF --wsrep-provider=none --wsrep-cluster-address= --wsrep-cluster-name=inspect-e15 --port=3307 --skip-slave-start --event-scheduler=OFF --skip-log-bin --init-file=/run/secrets/inspect-init
+9becdf5eb68e9246be0b73f727128bd44360ae2f05504c438074e7864a6c600e
+(exit 0)
+```
+
+06:20:16Z wait ok after 2s: instance answers
+06:20:16Z state of the restored backup before the replay: 2000 94950 2001000 O checksum=743274767
+06:20:16Z state at backup time was:                       2000 94950 2001000 O checksum=743274767
+
+## Step 10: replay up to T with the real job helper
+
+### replay against a production service name (must be refused)
+
+```
+$ sh -c ! limactl shell --workdir / dbcm-lab-m2 -- sudo docker run --rm --network dbcm-e15-galera --entrypoint /usr/local/bin/dbcm-job -v /var/lib/dbcm-e15/dbcm-job:/usr/local/bin/dbcm-job:ro -v /var/lib/dbcm-e15/secrets:/run/secrets:ro -v /var/lib/dbcm-e15/backup:/backup mariadb:11.4 restore --job=dbcm-job-e15-bad --mode=binlog --backup-id=b-e15-full --object=e15-galera-b-e15-full.xbs.dbcms --approval-id=a --source-cluster-id=e15-galera --backend-config=/run/secrets/backend-cfg --key-file=/run/secrets/restore-key --db-host=galera-1 --db-option-file=/run/secrets/replay-cred --segments=e15-galera-b-e15-full-l000001.binlog.dbcms --start-offset=383 --stop-datetime='2026-10-31 06:20:08'
+dbcm-job: dbbackup: job: binlog replay needs an inspection instance as db-host, a stop time and no database or datadir
+(exit 0)
+```
+
+### replay beyond the archive (must fail before applying anything)
+
+```
+$ sh -c ! limactl shell --workdir / dbcm-lab-m2 -- sudo docker run --rm --network dbcm-e15-galera --entrypoint /usr/local/bin/dbcm-job -v /var/lib/dbcm-e15/dbcm-job:/usr/local/bin/dbcm-job:ro -v /var/lib/dbcm-e15/secrets:/run/secrets:ro -v /var/lib/dbcm-e15/backup:/backup mariadb:11.4 restore --job=dbcm-job-e15-late --mode=binlog --backup-id=b-e15-full --object=e15-galera-b-e15-full.xbs.dbcms --approval-id=a --source-cluster-id=e15-galera --backend-config=/run/secrets/backend-cfg --key-file=/run/secrets/restore-key --db-host=dbcm-inspect-e15 --db-option-file=/run/secrets/replay-cred --segments=e15-galera-b-e15-full-l000001.binlog.dbcms --start-offset=383 --stop-datetime='2099-01-01 00:00:00'
+dbcm-job: dbbackup: job: the archive ends at 2026-10-31T06:20:11Z, before the target time
+(exit 0)
+```
+
+### dbcm-job restore --mode=binlog (replay up to 2026-10-31T06:20:07Z)
+
+```
+$ job dbcm-job-e15-pitr -- restore --job=dbcm-job-e15-pitr --mode=binlog --backup-id=b-e15-full --object=e15-galera-b-e15-full.xbs.dbcms --approval-id=appr-e15 --source-cluster-id=e15-galera --backend-config=/run/secrets/backend-cfg --key-file=/run/secrets/restore-key --db-host=dbcm-inspect-e15 --db-option-file=/run/secrets/replay-cred --segments=e15-galera-b-e15-full-l000001.binlog.dbcms --start-offset=383 --stop-datetime=2026-10-31 06:20:08
+(exit 0)
+```
+
+06:20:18Z replay took 1 s
+### job status object
+
+```
+$ vm_sh dbcm-lab-m2 sudo cat /var/lib/dbcm-e15/backup/dbcm-job-e15-pitr.status.json
+{"job":"dbcm-job-e15-pitr","backup_id":"b-e15-full","succeeded":true,"finished":"2026-10-31T06:20:18.073190776Z","stream_verified":true}(exit 0)
+```
+
+
+## Step 11: comparison
+
+### states (rows, sum(amount), sum(id), batches, CHECKSUM TABLE)
+
+```
+at backup time   : 2000 94950 2001000 O checksum=743274767
+at T (2026-10-31T06:20:07Z): 2960 337347 4462460 A,O checksum=1523331441
+after phase B    : 3817 376185 7605603 A,B,O checksum=1379651463
+restored backup  : 2000 94950 2001000 O checksum=743274767
+restored to T    : 2960 337347 4462460 A,O checksum=1523331441
+```
+
+### accounts in the restored instance (the replay account must be gone)
+
+```
+$ vm_docker dbcm-lab-m2 exec dbcm-inspect-e15 mariadb -N -B -h127.0.0.1 -P3307 -udbcm_inspect -p<redacted> -e SELECT User, Host, JSON_VALUE(Priv, '$.account_locked') FROM mysql.global_priv ORDER BY User, Host
+dbcm_backup	%	1
+dbcm_inspect	%	0
+healthcheck	127.0.0.1	1
+healthcheck	::1	1
+healthcheck	localhost	1
+mariadb.sys	localhost	1
+mysql	localhost	1
+root	%	1
+root	localhost	1
+(exit 0)
+```
+
+06:20:18Z RESULT: restored state equals the state at T
+RESULT: PASS (restored state equals the state at T)
+
+## Scoped cleanup
+
+### bin/lab cleanup -apply
+
+```
+$ <repo>/bin/lab cleanup -apply
+pre-snapshot:
+  colima:default
+  lima:dbcm-lab-m1
+  lima:dbcm-lab-m2
+  lima:dbcm-lab-m3
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+unrelated (must survive):
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+executing actions:
+  # stop Lima VM dbcm-lab-m1
+  limactl stop --force dbcm-lab-m1
+  # delete Lima VM dbcm-lab-m1
+  limactl delete --force dbcm-lab-m1
+  # stop Lima VM dbcm-lab-m2
+  limactl stop --force dbcm-lab-m2
+  # delete Lima VM dbcm-lab-m2
+  limactl delete --force dbcm-lab-m2
+  # stop Lima VM dbcm-lab-m3
+  limactl stop --force dbcm-lab-m3
+  # delete Lima VM dbcm-lab-m3
+  limactl delete --force dbcm-lab-m3
+post-snapshot diff:
+  added: (none)
+  removed: lima:dbcm-lab-m1, lima:dbcm-lab-m2, lima:dbcm-lab-m3
+unrelated resources intact (3)
+(exit 0)
+```
+
+### bin/lab status after cleanup
+
+```
+$ <repo>/bin/lab status
+host:
+  logical CPUs: 14
+  RAM: 48.0 GiB
+budget:
+  lab CPU limit: 7
+  lab RAM limit: 16.0 GiB
+  lab disk limit: 100.0 GiB
+manifest .lab/manifest.json:
+  (empty)
+inventory:
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+unrelated (never touched):
+  colima:default
+  lima:thermoctl-e2e-basestation
+  lima:thermoctl-test-vm
+(exit 0)
+```
+
+### limactl list after cleanup
+
+```
+$ limactl list
+NAME                         STATUS     SSH                VMTYPE    ARCH       CPUS    MEMORY    DISK     DIR
+thermoctl-e2e-basestation    Stopped    127.0.0.1:55325    vz        aarch64    2       3GiB      8GiB     ~/.lima/thermoctl-e2e-basestation
+thermoctl-test-vm            Stopped    127.0.0.1:50429    vz        aarch64    4       4GiB      20GiB    ~/.lima/thermoctl-test-vm
+(exit 0)
+```
+
+### host free disk after cleanup
+
+```
+$ host_free_disk
+host free disk (/System/Volumes/Data): 66Gi of 926Gi
+(exit 0)
+```
+
+06:20:21Z E15 finished with exit 0 (log: tests/p0/results/e15-pitr.log)

@@ -57,7 +57,8 @@ Nur Ansicht des Mock-Servers [Nur Mock].
 | Verifikationstor, Bericht auf Instanzebene, `lastVerifiedRestoreAt`, Abbau mit Secret-Entfernung | [Fakes]; Tabelleninhalte werden auch im Entwurf nicht verglichen |
 | Galera-Position im Manifest aus dem Stream gelesen | [Fakes]; unbestätigte Annahme für MariaDB 11.4 |
 | Backup-Zeitplaner, logisches Backup (manuell und geplant), Aufbewahrung, S3-Ziel, Wiederherstellung in einen **neuen Cluster** | [Fakes] |
-| PITR-Archiv/Planung/Fake-Wiedergabe, Datenschlüsselrotation und Neuverschlüsselung | Nur [Fakes]; keine echte Binlog-Wiedergabe |
+| PITR (Archiv-Job, Wiedergabe, API, UI) | [Fakes]; der echte Job-Helfer lief im Lab (E15), der Manager-Weg nicht |
+| Datenschlüsselrotation und Neuverschlüsselung | Nur [Fakes] |
 | Selektive Wiederherstellung über die Manager-API | [Ungetestet] (nicht integriert) |
 | Vollständige Wiederherstellung produktionsgroßer Daten, Wiederherstellungsdauer | [Ungetestet] |
 
@@ -69,21 +70,12 @@ Backups lassen sich mit signierten, geprüften Transfer-Records auf andere Ziele
 
 Die ältere Bibliothek `internal/backup` (verschlüsselte Konfigurations-Snapshots mit Wiederherstellung im Inspektionsmodus) wird von der API nicht aufgerufen; das Metastore-Backup übernimmt ihre Rolle für die Notfallwiederherstellung.
 
-## Grundlage für Point-in-Time-Recovery [Fakes]
+## Wiederherstellung zu einem Zeitpunkt (PITR) [Fakes; echte Werkzeuge im Lab, siehe unten]
 
-`internal/dbbackup` kann übergebene geschlossene Binlog-Dateien verschlüsselt auf
-dem Backup-Ziel ablegen, mit Manifestart `binlog`. HMACs schützen die
-Klartext-Digests; authentifizierte Stream-Metadaten binden Dateibereiche an ein
-physisches Backup und eine Quellhistorie. Die Aufbewahrung erhält Archive mit
-ihrem Vollbackup. Das Anheften eines Archivs schützt auch Basis und
-Geschwisterarchive. Unbekannte Basen bleiben zur Prüfung erhalten.
+PITR stellt einen Cluster auf eine gewählte Sekunde wieder her, nicht nur auf den Zeitpunkt eines Backups. Dafür braucht es drei Dinge ([ADR 0031](../../decisions/0031-point-in-time-recovery.md)):
 
-Die Planung wählt einen Zeitpunkt oder eine Datei-/Byteposition, verweigert
-Lücken und fremde Historien und verwendet die isolierte Inspektionswiederherstellung.
-Die Fake-Ausführung verlangt den exakten Plan-Digest, prüft alle gewählten Streams
-und ruft die Restore-Zielprüfung vor Inspektion und Wiedergabe auf. Es gibt keine
-Promotion in die Produktion. HTTP/UI-Ablauf, kontinuierlicher Archivierer,
-Binlog-Ereignisparser und echte Wiedergabe fehlen. Dateischluss, Abdeckungszeiten
-und Ereignisgrenzen liefert der Aufrufer; ihre MariaDB-Semantik muss vor der
-Nutzung im Lab geprüft werden. Siehe
-[ADR-0009-Ergänzung](../../decisions/0009-cluster-backup-method.md).
+1. **Binärlog an.** Cluster mit `binlog: true` erstellen (Kontrollkästchen „Binärlog“ im Erstellformular). Jeder Knoten schreibt dann das Binärlog (zusätzlicher Speicherplatz; Dateien verfallen nach 14 Tagen). Bestehende Cluster lassen sich noch nicht umstellen.
+2. **Vollbackup, danach Archivläufe.** Nach einem Backup kopiert „Binärlog jetzt archivieren“ (`POST /api/v1/clusters/{id}/binlog-archives`, Backup-Recht) die abgeschlossenen Binärlog-Dateien des Quellknotens dieses Backups verschlüsselt auf das Backup-Ziel. Eine Wiederherstellung reicht nur bis zum letzten Archivlauf; führen Sie ihn regelmäßig aus (einen Zeitplaner gibt es noch nicht), mindestens alle 14 Tage, sonst hat das Archiv eine Lücke und der Job scheitert mit der Begründung. Wurde der Quellknoten ersetzt, ist ein neues Vollbackup nötig.
+3. **Wiederherstellung in eine neue Instanz.** Im Wiederherstellungs-Assistenten „Zeitpunkt“ wählen, die Zeit in **UTC** eintragen und „Abdeckung prüfen“ drücken (`GET /api/v1/clusters/{id}/pitr-proposal?at=...`, nur lesend). Die Antwort nennt das Ausgangs-Backup und die Zahl der Dateien, oder warum die Zeit nicht abgedeckt ist (kein Binärlog beim Backup, fehlende Datei, geänderte Historie, Zeit nach dem letzten archivierten Ereignis, Zeit vor dem ersten Backup). Nur eine abgedeckte Zeit lässt sich wiederherstellen. Die Wiederherstellung (`POST /api/v1/restores/inspect` mit `pointInTime`) läuft wie die Inspektions-Wiederherstellung: neue isolierte Instanz, Plan mit Digest, **Ihre Freigabe**, gleiche Ablaufzeit und gleicher Abbau. Sie spielt alle Änderungen bis einschließlich der gewählten Sekunde ein. Der Produktiv-Cluster wird nie verändert; eine Wiederherstellung an Ort und Stelle gibt es nicht.
+
+Grenzen: ein Quellknoten je Backup (keine GTID-Fortsetzung über Knoten), Ereignisse sind sekundengenau, und eine Zeit in der letzten, noch offenen Binärlog-Datei ist erst nach dem nächsten Archivlauf abgedeckt. Der Weg über Manager, Agent und UI lief nur mit Fakes und In-Process-Tests; der echte Job-Helfer lief im Lab (E15, [Ergebnisse](../../../tests/p0/results/e15-pitr.md)).

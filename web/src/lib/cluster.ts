@@ -28,6 +28,7 @@ export interface ClusterForm {
 	reserveCpu: string; // host reserve
 	reserveMem: string;
 	autoReplace: boolean;
+	binlog: boolean;
 }
 
 export const emptyForm = (): ClusterForm => ({
@@ -46,7 +47,8 @@ export const emptyForm = (): ClusterForm => ({
 	memReservation: '',
 	reserveCpu: '',
 	reserveMem: '',
-	autoReplace: false
+	autoReplace: false,
+	binlog: false
 });
 
 const GiB = 1024 ** 3;
@@ -121,7 +123,8 @@ export function buildRequest(f: ClusterForm): CreateClusterRequest {
 		...(f.gcacheSize.trim() ? { gcacheSize: f.gcacheSize.trim() } : {}),
 		resources: { limits: amt(f.cpuLimit, f.memLimit), reservations: amt(f.cpuReservation, f.memReservation) },
 		placement,
-		...(f.autoReplace ? { autoReplace: true } : {})
+		...(f.autoReplace ? { autoReplace: true } : {}),
+		...(f.binlog ? { binlog: true } : {})
 	};
 }
 
