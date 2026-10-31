@@ -2,6 +2,10 @@
 
 Updated: 2026-10-30.
 
+## Cleanup pass without behaviour change (2026-10-31)
+
+Removed code with no references (checked with `staticcheck` U1000/SA4006 and `deadcode -test`, then by grep): `imagebuild.MemoryPlanStore`, `proxy.CertFunc`, `enroll.HostFromAgentURI`, `metrics.Millis`, `collect.Names`, `dbadmin` `scanner.eof`, `galera` `ResourceAmount.fits`, `agent` `Executor.jobBase`, `imagecompose` field `extraW`, unused test fields and the `mustPlan` helper; two private `contains` helpers replaced by `slices.Contains`. Net: 19 insertions, 118 deletions in 18 files. `internal/dbbackup`, backup routes and backup pages were left alone (parallel work). Not touched: API/OpenAPI contracts, i18n keys, golden files.
+
 ## E14: stage 3 on lab VMs (2026-10-30; see [e14-backup-restore.md](../tests/p0/results/e14-backup-restore.md))
 
 Ran on three fresh VMs with the manager installed from INSTALL.md: backup now through the UI to a TLS MinIO target, inspection restore with approval (200,000 + 1,000 rows, identical checksums), scheduled backups with retention, scheduled restore verification, copy to a second target with digest verification (a flipped byte is caught by the restore proposal), wrong credentials, unreachable and full target. Fixed: corrupt copy reported as copied, orphan status objects after retention, login limiter exhausted by successful sign-ins plus a clear 429 message (EN/DE), abort of never-started operations, abort refused while a node is left stopped. **Not run:** PITR (no API/UI route), executing a restore of a copy into a new cluster (ends at the proposal), mid-stream interruption. Open: a dead backup job is invisible to its operation and abort leaves the job service behind (documented in troubleshooting). Real screenshots now replace mock ones for clusters, operations, hosts, wizard, backups and policy (English); German and other screens remain mock. VMs removed with `bin/lab cleanup --apply`.
