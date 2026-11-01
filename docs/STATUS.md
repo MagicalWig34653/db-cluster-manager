@@ -1,6 +1,8 @@
 # Current status
 
-Updated: 2026-10-31.
+Updated: 2026-11-01.
+
+Start of a new session: read [the hand-off](handoffs/NEXT-SESSION.md) first (state, unverified areas, open owner decisions, next steps, working rules).
 
 ## E17 leftovers: restic source lock, install preflight reasons, module dependents (2026-10-31; Go tests only, no VMs)
 
