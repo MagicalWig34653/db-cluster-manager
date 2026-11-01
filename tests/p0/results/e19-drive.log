@@ -1,0 +1,273 @@
+07:08:42.446 administrator created, url http://localhost:18480/
+07:08:42.469 session {"accountId":"admin","restricted":false,"pendingPasskeyEnrollment":false,"createdAt":"2026-11-01T08:08:41.793621373+01:00"}
+07:08:48.585 login ok at http://localhost:18480/
+07:08:48.592 POST /swarms -> 201 {"id":"swarm-68aa1222285cce62","name":"lab","state":"unknown"}
+07:08:48.611 POST /swarms/swarm-68aa1222285cce62/sync -> 204 ""
+07:08:48.618 POST /hosts/lpyr0iqwjo927f6pwrzfo3e5q/enroll -> 200 {"swarm":"swarm-68aa1222285cce62","nodeId":"lpyr0iqwjo927f6pwrzfo3e5q","hostname":"lima-dbcm-lab-m2","role":"worker","availability":"active","state":"ready","engineVersion":"29.9.2","enrollment":"enrolled","nanoCpus":2000000000,"memoryBytes":4086218752,"observedAt":"2026-11-01T08:08:48.630707145+01:00"}
+07:08:48.622 POST /hosts/pb8gcj8t6wfqa68mcuv9vk7s9/enroll -> 200 {"swarm":"swarm-68aa1222285cce62","nodeId":"pb8gcj8t6wfqa68mcuv9vk7s9","hostname":"lima-dbcm-lab-m3","role":"worker","availability":"active","state":"ready","engineVersion":"29.9.2","enrollment":"enrolled","nanoCpus":2000000000,"memoryBytes":4086222848,"observedAt":"2026-11-01T08:08:48.630707145+01:00"}
+07:08:48.627 POST /hosts/zprjbdb47keel8qgoowi5o09x/enroll -> 200 {"swarm":"swarm-68aa1222285cce62","nodeId":"zprjbdb47keel8qgoowi5o09x","hostname":"lima-dbcm-lab-m1","role":"manager","availability":"active","state":"ready","engineVersion":"29.9.2","enrollment":"enrolled","nanoCpus":2000000000,"memoryBytes":4086222848,"observedAt":"2026-11-01T08:08:48.630707145+01:00"}
+07:08:48.734 POST /swarms/swarm-68aa1222285cce62/agents/deploy -> 200 {"serviceId":"nkm6wkdyw6ngnya9snud3oehd","created":true,"labeled":["lpyr0iqwjo927f6pwrzfo3e5q","pb8gcj8t6wfqa68mcuv9vk7s9","zprjbdb47keel8qgoowi5o09x"],"unlabeled":[],"failed":[]}
+07:08:48.736 agents enrolled: 0
+07:08:53.738 agents enrolled: 3
+07:08:58.648 login ok at http://localhost:18480/
+07:08:58.667 POST /clusters -> 202 {"id":"op-48e6a1b89f9fc8da","kind":"galera/create-cluster"}
+07:08:58.669 op op-48e6a1b89f9fc8da create cluster: pending
+07:09:03.673 op op-48e6a1b89f9fc8da create cluster: running
+07:10:08.741 op op-48e6a1b89f9fc8da create cluster: succeeded all steps succeeded
+07:10:08.743 cluster clu-83e67ef1792582e1
+07:10:09.011 log_bin / binlog_format / cluster size: 1 ROW 3
+07:10:45.987 login ok at http://localhost:18480/
+07:10:46.230 FAILED: Error: Command failed: limactl shell --workdir / dbcm-lab-m3 -- sudo sh -c c=$(docker ps -q --no-trunc -f label=com.docker.swarm.service.name=dbcm-e19db-n1 -f status=running | head -1); test -n "$c" || exit 7; docker exec -i "$c" sh -c 'exec mariadb -S /dbcm/run/mysqld.sock -uroot -p"$(cat /run/secrets/dbcm-e4-root-pw)" -N -B'
+--------------
+INSERT INTO e19.orders SELECT seq, 'O', seq % 997, CONCAT('order-', seq) FROM seq_1_to_30000
+--------------
+
+ERROR 1046 (3D000) at line 4: No database selected
+
+    at genericNodeError (node:internal/errors:999:15)
+    at wrappedFn (node:internal/errors:544:14)
+    at checkExecSyncError (node:child_process:990:11)
+    at execFileSync (node:child_process:1026:15)
+    at vm (file://<scratch>)
+    at rsql (file://<scratch>)
+    at cmds.data (file://<scratch>)
+    at runNextTicks (node:internal/process/task_queues:65:5)
+    at process.processImmediate (node:internal/timers:541:9)
+    at async file://<scratch>
+07:11:07.369 FAILED: page.waitForURL: Timeout 20000ms exceeded.
+=========================== logs ===========================
+waiting for navigation until "load"
+============================================================
+    at login (<scratch>)
+    at async session (<scratch>)
+    at async cmds.backup (<scratch>)
+    at async file://<scratch>
+07:11:34.230 FAILED: page.waitForURL: Timeout 20000ms exceeded.
+=========================== logs ===========================
+waiting for navigation until "load"
+============================================================
+    at login (<scratch>)
+    at async session (<scratch>)
+    at async cmds.data (<scratch>)
+    at async file://<scratch>
+07:12:01.975 login ok at http://localhost:18480/
+07:12:02.577 FAILED: Error: Command failed: limactl shell --workdir / dbcm-lab-m3 -- sudo sh -c c=$(docker ps -q --no-trunc -f label=com.docker.swarm.service.name=dbcm-e19db-n1 -f status=running | head -1); test -n "$c" || exit 7; docker exec -i "$c" sh -c 'exec mariadb -S /dbcm/run/mysqld.sock -uroot -p"$(cat /run/secrets/dbcm-e4-root-pw)" -N -B'
+--------------
+INSERT INTO e19.orders SELECT seq, 'O', seq % 997, CONCAT('order-', seq) FROM seq_1_to_30000
+--------------
+
+ERROR 1046 (3D000) at line 4: No database selected
+
+    at genericNodeError (node:internal/errors:999:15)
+    at wrappedFn (node:internal/errors:544:14)
+    at checkExecSyncError (node:child_process:990:11)
+    at execFileSync (node:child_process:1026:15)
+    at vm (file://<scratch>)
+    at rsql (file://<scratch>)
+    at cmds.data (file://<scratch>)
+    at async file://<scratch>
+07:12:11.271 login ok at http://localhost:18480/
+07:12:12.024 source state: 30000 14899275 450015000 | 500 | e19.orders 102215110 | e19.items 3973433316
+07:12:14.005 login ok at http://localhost:18480/
+07:12:14.058 POST /clusters/clu-83e67ef1792582e1/backups -> 202 {"id":"op-ceb6ea7e4ab1719d","kind":"dbbackup/backup"}
+07:12:14.062 op op-ceb6ea7e4ab1719d backup: pending
+07:12:19.068 op op-ceb6ea7e4ab1719d backup: running
+07:12:24.071 op op-ceb6ea7e4ab1719d backup: succeeded all steps succeeded
+07:12:24.073 backups: [{}]
+07:12:24.073 FAILED: TypeError: Cannot read properties of undefined (reading 'id')
+    at cmds.backup (file://<scratch>)
+    at async file://<scratch>
+07:12:39.319 login ok at http://localhost:18480/
+07:12:39.337 POST /clusters/clu-83e67ef1792582e1/backups -> 202 {"id":"op-0b21bb3cbd7abacf","kind":"dbbackup/backup"}
+07:12:39.339 op op-0b21bb3cbd7abacf backup: pending
+07:12:44.343 op op-0b21bb3cbd7abacf backup: succeeded all steps succeeded
+07:12:44.345 backup summary: {"lastBackupId":"b20261101t071239-a629b213","lastBackupAt":"2026-11-01T08:12:42.454726731+01:00"}
+07:12:44.345 backup b20261101t071239-a629b213
+07:12:45.395 login ok at http://localhost:18480/
+07:12:45.405 POST /clusters/clu-83e67ef1792582e1/backup-copies -> 202 {"id":"cp-6c6a0868cc38712d","cluster":"clu-83e67ef1792582e1","swarm":"swarm-68aa1222285cce62","backup":"b20261101t071239-a629b213","target":"copy2","status":"running","objects":["clu-83e67ef1792582e1-b20261101t071239-a629b213.xbs.dbcms"],"by":"admin","startedAt":"2026-11-01T08:12:45.457751051+01:00"}
+07:12:48.411 copy cp-6c6a0868cc38712d succeeded  ["clu-83e67ef1792582e1-b20261101t071239-a629b213.xbs.dbcms"]
+07:12:49.428 login ok at http://localhost:18480/
+07:12:49.436 inspect copy without targetSecrets -> 409 {"error":"settings_incomplete"}
+07:12:49.438 restore operations left behind: 0
+07:13:14.365 login ok at http://localhost:18480/
+07:13:15.064 copy options in the UI: ["Choose…","b20261101t071239-a629b213 on copy2 (2026-11-01 08:12:45.886646724+01:00)"]
+07:13:15.338 UI POST /restores/inspect -> 202 request {"cluster":"clu-83e67ef1792582e1","host":"lpyr0iqwjo927f6pwrzfo3e5q","copy":"cp-6c6a0868cc38712d"}
+07:13:17.017 started op-b0b5e197887764de backup b20261101t071239-a629b213 service dbcm-inspect-i07f8b4b704ba port 3307 host lima-dbcm-lab-m2
+07:13:17.176 approved in the UI
+07:13:18.870 restore job services and their secrets:
+dbcm-job-b20261101t071239-a629b213-inspect-i07f8b4b704ba: dbcm-e19-backend-copy dbcm-e19-recovery-key
+07:13:18.874 op op-b0b5e197887764de restore of the copy: running
+07:13:28.888 op op-b0b5e197887764de restore of the copy: succeeded all steps succeeded
+07:13:28.966 operation record: {"state":"succeeded","reason":"all steps succeeded","kind":"dbbackup/inspection"}
+07:13:29.232 restored copy state: 30000 14899275 450015000 | 500 | e19.orders 102215110 | e19.items 3973433316
+07:13:29.232 source state       : 30000 14899275 450015000 | 500 | e19.orders 102215110 | e19.items 3973433316
+07:13:29.232 IDENTICAL: true
+07:13:29.427 wsrep_on: 0
+07:13:29.427 elapsed s 12
+07:14:04.229 sh dbcm-lab-m3 ../flip.sh:
+17c179f15056a742f7accf0c6e588c843eb6c974b6ad4467b61266b1f1eb1aa2  /srv/e19-minio/dbcm-backups/e19c-clu-83e67ef1792582e1-b20261101t071239-a629b213.xbs.dbcms/cbb22b54-163f-4b15-aed0-099727e9501c/part.1
+1 byte copied, 0.000122542 s, 1.0 kB/s
+1020c3d597df5fe51db3d5418315c5dec30ad7428c8d46f2969007d062193781  /srv/e19-minio/dbcm-backups/e19c-clu-83e67ef1792582e1-b20261101t071239-a629b213.xbs.dbcms/cbb22b54-163f-4b15-aed0-099727e9501c/part.1
+
+07:14:12.855 login ok at http://localhost:18480/
+07:14:15.288 inspect of the tampered copy -> 409 {"error":"conflict"}
+07:14:15.293 restore proposal of the tampered copy -> 400 {"error":"bad_request"}
+07:14:15.299 operations before/after: 4 4
+07:14:49.517 sh dbcm-lab-m3 ../unflip.sh:
+17c179f15056a742f7accf0c6e588c843eb6c974b6ad4467b61266b1f1eb1aa2  /srv/e19-minio/dbcm-backups/e19c-clu-83e67ef1792582e1-b20261101t071239-a629b213.xbs.dbcms/cbb22b54-163f-4b15-aed0-099727e9501c/part.1
+
+07:14:50.526 FAILED: Error: Command failed: limactl shell --workdir / dbcm-lab-m1 -- sudo sh -c sh -s
+Traceback (most recent call last):
+  File "/usr/local/bin/s3tool.py", line 81, in <module>
+    main()
+    ~~~~^^
+  File "/usr/local/bin/s3tool.py", line 73, in main
+    st, data = request(cfg, "GET", "", query="list-type=2&prefix=" + urllib.parse.quote(prefix, safe=""))
+               ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/bin/s3tool.py", line 52, in request
+    conn.request(method, path + ("?" + query if query else ""), body=body, headers=headers)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/http/client.py", line 1367, in request
+    self._send_request(method, url, body, headers, encode_chunked)
+    ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/http/client.py", line 1413, in _send_request
+    self.endheaders(body, encode_chunked=encode_chunked)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/http/client.py", line 1362, in endheaders
+    self._send_output(message_body, encode_chunked=encode_chunked)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/http/client.py", line 1122, in _send_output
+    self.send(msg)
+    ~~~~~~~~~^^^^^
+  File "/usr/lib/python3.14/http/client.py", line 1066, in send
+    self.connect()
+    ~~~~~~~~~~~~^^
+  File "/usr/lib/python3.14/http/client.py", line 1508, in connect
+    self.sock = self._context.wrap_socket(self.sock,
+                ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+                                          server_hostname=server_hostname)
+                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/ssl.py", line 455, in wrap_socket
+    return self.sslsocket_class._create(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        sock=sock,
+        ^^^^^^^^^^
+    ...<5 lines>...
+        session=session
+        ^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/usr/lib/python3.14/ssl.py", line 1076, in _create
+    self.do_handshake()
+    ~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.14/ssl.py", line 1372, in do_handshake
+    self._sslobj.do_handshake()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+ssl.SSLCertVerificationError: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: CA cert does not include key usage extension (_ssl.c:1081)
+
+    at genericNodeError (node:internal/errors:999:15)
+    at wrappedFn (node:internal/errors:544:14)
+    at checkExecSyncError (node:child_process:990:11)
+    at execFileSync (node:child_process:1026:15)
+    at vm (file://<scratch>)
+    at cmds.sh (file://<scratch>)
+    at file://<scratch>
+    at ModuleJob.run (node:internal/modules/esm/module_job:569:25)
+    at async node:internal/modules/esm/loader:650:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:105:5)
+07:15:01.389 sh dbcm-lab-m1 ../put-tampered.sh:
+key: e19c-clu-83e67ef1792582e1-b20261101t071239-a629b213.xbs.dbcms
+GET 200 67141411 bytes sha256 79e9056da7b0133ab56f17d703abf5d07340284e39f9a53335f4a8a2d82b5b73
+PUT 200 67141411 bytes sha256 d62ecf9b9928fd53df330ff02daabb14a6147376c28c206a4d8eaf482b1906d0
+LIST 200
+e19c-clu-83e67ef1792582e1-b20261101t071239-a629b213.xbs.dbcms
+e19c-clu-83e67ef1792582e1-b20261101t071239-a629b213.xbs.dbcms.manifest.json
+e19c-clu-83e67ef1792582e1-b20261101t071239-a629b213.xbs.dbcms.transfer.json
+
+07:15:03.381 login ok at http://localhost:18480/
+07:15:04.491 inspect of the tampered copy -> 409 {"error":"conflict"}
+07:15:04.500 restore proposal of the tampered copy -> 400 {"error":"bad_request"}
+07:15:04.504 operations before/after: 4 4
+07:15:57.230 login ok at http://localhost:18480/
+07:15:57.241 PUT /clusters/clu-83e67ef1792582e1/backup-policy -> 200 {"cluster":"clu-83e67ef1792582e1","swarm":"swarm-68aa1222285cce62","policy":"0 4 * * *","backupPolicy":{"enabled":true,"schedule":"0 4 * * *","missed":"skip","method":"physical","archive":{"enabled":true,"schedule":"*/2 * * * *"}},"lastBackupAt":"2026-11-01T08:12:42.454726731+01:00","lastBackupId":"b20261101t071239-a629b213","lastVerifiedRestoreAt":"2026-11-01T07:13:24.607507408Z","nextRunAt":"202
+07:15:57.243 policy now: {"enabled":true,"schedule":"0 4 * * *","missed":"skip","method":"physical","archive":{"enabled":true,"schedule":"*/2 * * * *"}}
+07:16:00.307 state after batch 1 at 2026-11-01T07:16:00Z: 30490 14781469 525689275 | B1 800 | O 29690 | e19.orders 692236743
+07:16:32.828 archive runs succeeded so far: 1 (latest op-2595403c4601a7bd at 2026-11-01T08:16:29.08178862+01:00); wait 30 s
+07:16:35.745 state after batch 2 at 2026-11-01T07:16:35Z: 30980 14663928 681363240 | B1 800 | B2 800 | O 29380 | e19.orders 705551341
+07:18:38.311 archive runs succeeded so far: 2 (latest op-717fe5eed211f5b0 at 2026-11-01T08:18:29.086373738+01:00); wait 120 s
+07:18:41.267 state after batch 3 at 2026-11-01T07:18:41Z: 31470 14546634 917036895 | B1 800 | B2 800 | B3 800 | O 29070 | e19.orders 3947518761
+07:20:33.844 archive runs succeeded so far: 3 (latest op-3901e72c31ae6297 at 2026-11-01T08:20:29.082732543+01:00); wait 110 s
+07:20:36.811 state after batch 4 at 2026-11-01T07:20:36Z: 31960 14429568 1232710240 | B1 800 | B2 800 | B3 800 | B4 800 | O 28760 | e19.orders 2100792207
+07:22:39.397 archive runs succeeded so far: 4 (latest op-18ca111a1d419db2 at 2026-11-01T08:22:29.117856688+01:00); wait 120 s
+07:22:42.752 state after batch 5 at 2026-11-01T07:22:42Z: 32450 14312712 1628383275 | B1 800 | B2 800 | B3 800 | B4 800 | B5 800 | O 28450 | e19.orders 633451659
+07:24:35.329 archive runs succeeded so far: 5 (latest op-9ce6079d54098cb0 at 2026-11-01T08:24:29.129575745+01:00); wait 110 s
+07:24:35.339 archive operations: [{"id":"op-2595403c4601a7bd","state":"succeeded","startedAt":"2026-11-01T08:16:29.08178862+01:00","reason":"all steps succeeded"},{"id":"op-717fe5eed211f5b0","state":"succeeded","startedAt":"2026-11-01T08:18:29.086373738+01:00","reason":"all steps succeeded"},{"id":"op-3901e72c31ae6297","state":"succeeded","startedAt":"2026-11-01T08:20:29.082732543+01:00","reason":"all steps succeeded"},{"id":"op-18ca111a1d419db2","state":"succeeded","startedAt":"2026-11-01T08:22:29.117856688+01:00","reason":"all steps succeeded"},{"id":"op-9ce6079d54098cb0","state":"succeeded","startedAt":"2026-11-01T08:24:29.129575745+01:00","reason":"all steps succeeded"}]
+07:24:35.342 events (archive): [{"id":"01793517872214418162-cbf8cf7c","time":"2026-11-01T08:24:32.214418162+01:00","swarm":"swarm-68aa1222285cce62","cluster":"clu-83e67ef1792582e1","severity":"info","message":"operation op-9ce6079d54098cb0 (dbbackup/binlog-archive) succeeded"},{"id":"01793517869138613628-1430f76f","time":"2026-11-01T08:24:29.138613628+01:00","swarm":"swarm-68aa1222285cce62","cluster":"clu-83e67ef1792582e1","severity":"info","message":"manager started the binlog archive of e19db for backup b20261101t071239-a629b213 from n1, operation op-9ce6079d54098cb0"},{"id":"01793517752252631672-bf89a690","time":"2026-11-01T08:22:32.252631672+01:00","swarm":"swarm-68aa1222285cce62","cluster":"clu-83e67ef1792582e1","severity":"info","message":"operation op-18ca111a1d419db2 (dbbackup/binlog-archive) succeeded"},{"id":"01793517749139077440-1d44a5d0","time":"2026-11-01T08:22:29.13907744+01:00","swarm":"swarm-68aa1222285cce62","cluster":"clu-83e67ef1792582e1","severity":"info","message":"manager started the binlog archive of e19db for backup b20261101t071239-a629b213 from n1, operation op-18ca111a1d419db2"},{"id":"01793517632151510479-fc1bcf3f","time":"2026-11-01T08:20:32.151510479+01:00","swarm":"swarm-68aa1222285cce62","cluster":"clu-83e67ef1792582e1","severity":"info","message":"operation op-3901e72c31ae6297 (dbbackup/binlog-archive) succeeded"},{"id":"01793517629090896908-91fef1e3","time":"2026-11-01T08:20:29.090896908+01:00","swarm":"swarm-68aa1222285cce62","cluster":"clu-83e67ef1792582e1","severity":"info","message":"manager started the binlog archive of e19db for backup b20261101t071239-a629b213 from n1, operation op-3901e72c31ae6297"},{"id":"01793517512152223537-1e8dd0ce","time":"2026-11-01T08:18:32.152223537+01:00","swarm":"swarm-68aa1222285cce62","cluster":"clu-83e67ef1792582e1","severity":"info","message":"operation op-717fe5eed211f5b0 (dbbackup/binlog-archive) succeeded"},{"id":"01793517509091679902-25f30373","time":"2026-11-01T08:18:29.091679902+01:00","swarm":"swarm-68aa1222285cce62","cluster":"clu-83e67ef1792582e1","severity":"info","message":"manager started the binlog archive of e19db for backup b20261101t071239-a629b213 from n1, operation op-717fe5eed211f5b0"},{"id":"01793517392150662030-03014231","time":"2026-11-01T08:16:32.15066203+01:00","swarm":"swarm-68aa1222285cce62","cluster":"clu-83e67ef1792582e1","severity":"info","message":"operation op-2595403c4601a7bd (dbbackup/binlog-archive) succeeded"},{"id":"01793517389087114979-1fdc89d8","time":"2026-11-01T08:16:29.087114979+01:00","swarm":"swarm-68aa1222285cce62","cluster":"clu-83e67ef1792582e1","severity":"info","message":"manager started the binlog archive of e19db for backup b20261101t071239-a629b213 from n1, operation op-2595403c4601a7bd"}]
+07:24:46.772 archived objects on the main target:
+LIST 200
+e19-clu-83e67ef1792582e1-b20261101t071214-ff0e65fe.xbs.dbcms
+e19-clu-83e67ef1792582e1-b20261101t071214-ff0e65fe.xbs.dbcms.manifest.json
+e19-clu-83e67ef1792582e1-b20261101t071214-ff0e65fe.xbs.dbcms.status.json
+e19-clu-83e67ef1792582e1-b20261101t071239-a629b213-l000001.binlog.dbcms
+e19-clu-83e67ef1792582e1-b20261101t071239-a629b213-l000001.binlog.dbcms.manifest.json
+e19-clu-83e67ef1792582e1-b20261101t071239-a629b213-l000002.binlog.dbcms
+e19-clu-83e67ef1792582e1-b20261101t071239-a629b213-l000002.binlog.dbcms.manifest.json
+e19-clu-83e67ef1792582e1-b20261101t071239-a629b213-l000003.binlog.dbcms
+e19-clu-83e67ef1792582e1-b20261101t071239-a629b213-l000003.binlog.dbcms.manifest.json
+e19-clu-83e67ef1792582e1-b20261101t071239-a629b213-l000004.binlog.dbcms
+e19-clu-83e67ef1792582e1-b20261101t071239-a629b213-l000004.binlog.dbcms.manifest.json
+e19-clu-83e67ef1792582e1-b20261101t071239-a629b213-l000005.binlog.dbcms
+e19-clu-83e67ef1792582e1-b20261101t071239-a629b213-l000005.binlog.dbcms.manifest.json
+e19-clu-83e67ef1792582e1-b20261101t071239-a629b213.xbs.dbcms
+e19-clu-83e67ef1792582e1-b20261101t071239-a629b213.xbs.dbcms.manifest.json
+e19-clu-83e67ef1792582e1-b20261101t071239-a629b213.xbs.dbcms.status.json
+e19-dbcm-job-b20261101t071239-a629b213-arch-op-18ca111a1d419db2.status.json
+e19-dbcm-job-b20261101t071239-a629b213-arch-op-2595403c4601a7bd.status.json
+e19-dbcm-job-b20261101t071239-a629b213-arch-op-3901e72c31ae6297.status.json
+e19-dbcm-job-b20261101t071239-a629b213-arch-op-717fe5eed211f5b0.status.json
+e19-dbcm-job-b20261101t071239-a629b213-arch-op-9ce6079d54098cb0.status.json
+
+07:24:48.193 login ok at http://localhost:18480/
+07:24:48.212 pitr-proposal batch 1 at 2026-11-01T07:16:00Z -> 200 {"cluster":"clu-83e67ef1792582e1","at":"2026-11-01T07:16:00Z","covered":true,"backup":"b20261101t071239-a629b213","backupFinishedAt":"2026-11-01T07:12:41.065445664Z","segments":1,"coverage":{"segments":5,"from":"2026-11-01T07:12:41.065445664Z","until":"2026-11-01T07:24:30Z"},"approvalRequired":true,"inPlace":false}
+07:24:48.225 pitr-proposal batch 2 at 2026-11-01T07:16:35Z -> 200 {"cluster":"clu-83e67ef1792582e1","at":"2026-11-01T07:16:35Z","covered":true,"backup":"b20261101t071239-a629b213","backupFinishedAt":"2026-11-01T07:12:41.065445664Z","segments":2,"coverage":{"segments":5,"from":"2026-11-01T07:12:41.065445664Z","until":"2026-11-01T07:24:30Z"},"approvalRequired":true,"inPlace":false}
+07:24:48.237 pitr-proposal batch 3 at 2026-11-01T07:18:41Z -> 200 {"cluster":"clu-83e67ef1792582e1","at":"2026-11-01T07:18:41Z","covered":true,"backup":"b20261101t071239-a629b213","backupFinishedAt":"2026-11-01T07:12:41.065445664Z","segments":3,"coverage":{"segments":5,"from":"2026-11-01T07:12:41.065445664Z","until":"2026-11-01T07:24:30Z"},"approvalRequired":true,"inPlace":false}
+07:24:48.247 pitr-proposal batch 4 at 2026-11-01T07:20:36Z -> 200 {"cluster":"clu-83e67ef1792582e1","at":"2026-11-01T07:20:36Z","covered":true,"backup":"b20261101t071239-a629b213","backupFinishedAt":"2026-11-01T07:12:41.065445664Z","segments":4,"coverage":{"segments":5,"from":"2026-11-01T07:12:41.065445664Z","until":"2026-11-01T07:24:30Z"},"approvalRequired":true,"inPlace":false}
+07:24:48.256 pitr-proposal batch 5 at 2026-11-01T07:22:42Z -> 200 {"cluster":"clu-83e67ef1792582e1","at":"2026-11-01T07:22:42Z","covered":true,"backup":"b20261101t071239-a629b213","backupFinishedAt":"2026-11-01T07:12:41.065445664Z","segments":5,"coverage":{"segments":5,"from":"2026-11-01T07:12:41.065445664Z","until":"2026-11-01T07:24:30Z"},"approvalRequired":true,"inPlace":false}
+08:21:31.425 login ok at http://localhost:18480/
+08:21:31.483 inspect pointInTime 2026-11-01T07:18:41Z -> 202 {"id":"op-a9bb0cfbb6456e62","kind":"dbbackup/inspection","session":"ibde6da17e0a2","backup":"b20261101t071239-a629b213","host":"pb8gcj8t6wfqa68mcuv9vk7s9","service":"dbcm-inspect-ibde6da17e0a2","port":3307,"expiresAt":"2026-11-01T09:21:31.459927618Z","approval":{"digest":"09c25f10314eb5f6ec7a42f7da1
+08:21:34.500 POST /operations/op-a9bb0cfbb6456e62/approve -> 200 {"digest":"09c25f10314eb5f6ec7a42f7da197fc798fc1328130ec55efc70d5d46ff357f6","approvedBy":"admin","approvedAt":"2026-11-01T09:21:34.494969175+01:00"}
+08:21:34.504 op op-a9bb0cfbb6456e62 PITR restore: running
+08:21:49.530 op op-a9bb0cfbb6456e62 PITR restore: succeeded all steps succeeded
+08:21:49.805 restored state:  31470 14546634 917036895 | B1 800 | B2 800 | B3 800 | O 29070 | e19.orders 3947518761
+08:21:49.806 recorded state:  31470 14546634 917036895 | B1 800 | B2 800 | B3 800 | O 29070 | e19.orders 3947518761
+08:21:49.806 IDENTICAL: true  operation succeeded all steps succeeded  elapsed s 18
+08:21:59.675 sh dbcm-lab-m1 ../gap.sh:
+deleting e19-clu-83e67ef1792582e1-b20261101t071239-a629b213-l000004.binlog.dbcms
+GET 200 49737 bytes sha256 4103c77b63de44037ebc8f138dd980e09e5180248a983b6ecf330d424bc98f3b
+DELETE 204
+
+08:22:01.047 login ok at http://localhost:18480/
+08:22:01.089 pitr-proposal batch 1 at 2026-11-01T07:16:00Z -> 200 {"cluster":"clu-83e67ef1792582e1","at":"2026-11-01T07:16:00Z","covered":true,"backup":"b20261101t071239-a629b213","backupFinishedAt":"2026-11-01T07:12:41.065445664Z","segments":1,"coverage":{"segments":33,"from":"2026-11-01T07:12:41.065445664Z","until":"2026-11-01T08:20:30Z"},"approvalRequired":true,"inPlace":false}
+08:22:01.121 pitr-proposal batch 2 at 2026-11-01T07:16:35Z -> 200 {"cluster":"clu-83e67ef1792582e1","at":"2026-11-01T07:16:35Z","covered":true,"backup":"b20261101t071239-a629b213","backupFinishedAt":"2026-11-01T07:12:41.065445664Z","segments":2,"coverage":{"segments":33,"from":"2026-11-01T07:12:41.065445664Z","until":"2026-11-01T08:20:30Z"},"approvalRequired":true,"inPlace":false}
+08:22:01.150 pitr-proposal batch 3 at 2026-11-01T07:18:41Z -> 200 {"cluster":"clu-83e67ef1792582e1","at":"2026-11-01T07:18:41Z","covered":true,"backup":"b20261101t071239-a629b213","backupFinishedAt":"2026-11-01T07:12:41.065445664Z","segments":3,"coverage":{"segments":33,"from":"2026-11-01T07:12:41.065445664Z","until":"2026-11-01T08:20:30Z"},"approvalRequired":true,"inPlace":false}
+08:22:01.189 pitr-proposal batch 4 at 2026-11-01T07:20:36Z -> 200 {"cluster":"clu-83e67ef1792582e1","at":"2026-11-01T07:20:36Z","covered":true,"backup":"b20261101t071239-a629b213","backupFinishedAt":"2026-11-01T07:12:41.065445664Z","segments":4,"coverage":{"segments":33,"from":"2026-11-01T07:12:41.065445664Z","until":"2026-11-01T08:20:30Z"},"approvalRequired":true,"inPlace":false}
+08:22:01.275 pitr-proposal batch 5 at 2026-11-01T07:22:42Z -> 200 {"cluster":"clu-83e67ef1792582e1","at":"2026-11-01T07:22:42Z","covered":true,"backup":"b20261101t071239-a629b213","backupFinishedAt":"2026-11-01T07:12:41.065445664Z","segments":5,"coverage":{"segments":33,"from":"2026-11-01T07:12:41.065445664Z","until":"2026-11-01T08:20:30Z"},"approvalRequired":true,"inPlace":false}
+08:22:25.009 login ok at http://localhost:18480/
+08:22:25.082 inspect pointInTime 2026-11-01T07:20:36Z -> 202 {"id":"op-26394ab956787187","kind":"dbbackup/inspection","session":"i6f524d3f7b10","backup":"b20261101t071239-a629b213","host":"pb8gcj8t6wfqa68mcuv9vk7s9","service":"dbcm-inspect-i6f524d3f7b10","port":3307,"expiresAt":"2026-11-01T09:22:25.045258282Z","approval":{"digest":"4bbb15c4dcacdf619968c466560
+08:22:28.092 POST /operations/op-26394ab956787187/approve -> 200 {"digest":"4bbb15c4dcacdf619968c466560dbae5944372c3c510cc862d6b44edfeb2a66a","approvedBy":"admin","approvedAt":"2026-11-01T09:22:28.086835847+01:00"}
+08:22:28.097 op op-26394ab956787187 PITR restore: running
+08:22:38.114 op op-26394ab956787187 PITR restore: failed restore-complete dbcm-job-b20261101t071239-a629b213-pitr-i6f524d3f7b10: restore job failed: backup: object not found
+08:22:38.358 restored state:  30000 14899275 450015000 | O 30000 | e19.orders 102215110
+08:22:38.358 recorded state:  31960 14429568 1232710240 | B1 800 | B2 800 | B3 800 | B4 800 | O 28760 | e19.orders 2100792207
+08:22:38.358 IDENTICAL: false  operation failed restore-complete dbcm-job-b20261101t071239-a629b213-pitr-i6f524d3f7b10: restore job failed: backup: object not found  elapsed s 13
+08:25:26.953 login ok at http://localhost:18480/
+08:25:27.177 pitr-proposal batch 1 at 2026-11-01T07:16:00Z -> 200 {"cluster":"clu-83e67ef1792582e1","at":"2026-11-01T07:16:00Z","covered":true,"backup":"b20261101t071239-a629b213","backupFinishedAt":"2026-11-01T07:12:41.065445664Z","segments":1,"coverage":{"segments":3,"from":"2026-11-01T07:12:41.065445664Z","until":"2026-11-01T07:20:30Z","gap":"sequence 4 is missing after 3"},"approvalRequired":true,"inPlace":false}
+08:25:27.425 pitr-proposal batch 2 at 2026-11-01T07:16:35Z -> 200 {"cluster":"clu-83e67ef1792582e1","at":"2026-11-01T07:16:35Z","covered":true,"backup":"b20261101t071239-a629b213","backupFinishedAt":"2026-11-01T07:12:41.065445664Z","segments":2,"coverage":{"segments":3,"from":"2026-11-01T07:12:41.065445664Z","until":"2026-11-01T07:20:30Z","gap":"sequence 4 is missing after 3"},"approvalRequired":true,"inPlace":false}
+08:25:27.473 pitr-proposal batch 3 at 2026-11-01T07:18:41Z -> 200 {"cluster":"clu-83e67ef1792582e1","at":"2026-11-01T07:18:41Z","covered":true,"backup":"b20261101t071239-a629b213","backupFinishedAt":"2026-11-01T07:12:41.065445664Z","segments":3,"coverage":{"segments":3,"from":"2026-11-01T07:12:41.065445664Z","until":"2026-11-01T07:20:30Z","gap":"sequence 4 is missing after 3"},"approvalRequired":true,"inPlace":false}
+08:25:27.517 pitr-proposal batch 4 at 2026-11-01T07:20:36Z -> 200 {"cluster":"clu-83e67ef1792582e1","at":"2026-11-01T07:20:36Z","covered":false,"reason":"sequence 4 is missing after 3","backup":"b20261101t071239-a629b213","backupFinishedAt":"2026-11-01T07:12:41.065445664Z","coverage":{"segments":3,"from":"2026-11-01T07:12:41.065445664Z","until":"2026-11-01T07:20:30Z","gap":"sequence 4 is missing after 3"},"approvalRequired":true,"inPlace":false}
+08:25:27.547 pitr-proposal batch 5 at 2026-11-01T07:22:42Z -> 200 {"cluster":"clu-83e67ef1792582e1","at":"2026-11-01T07:22:42Z","covered":false,"reason":"sequence 4 is missing after 3","backup":"b20261101t071239-a629b213","backupFinishedAt":"2026-11-01T07:12:41.065445664Z","coverage":{"segments":3,"from":"2026-11-01T07:12:41.065445664Z","until":"2026-11-01T07:20:30Z","gap":"sequence 4 is missing after 3"},"approvalRequired":true,"inPlace":false}
+08:25:35.617 login ok at http://localhost:18480/
+08:25:35.703 inspect pointInTime 2026-11-01T07:20:36Z -> 409 {"error":"conflict"}
+08:25:38.726 FAILED: Error: PITR restore refused
+    at cmds.pitr (file://<scratch>)
+    at async file://<scratch>

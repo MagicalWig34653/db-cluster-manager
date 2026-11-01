@@ -1860,7 +1860,7 @@ paths:
                     (signed transfer record, manifest, stored object digest)
                     before the plan is made and refuses with 409 when it does
                     not verify, 404 when the copy is unknown or belongs to
-                    another cluster, and 503 settings_incomplete when
+                    another cluster, and 409 settings_incomplete when
                     settings.backup.targetSecrets has no Swarm secret for the
                     target. The restore job mounts that secret and the
                     operation reads the job status from the target. The

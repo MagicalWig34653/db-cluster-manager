@@ -22,13 +22,13 @@ Verified on real lab VMs (Lima, arm64, Docker 29.9.2, MariaDB 11.4.13), with the
 | `INSTALL.md` walkthrough, German UI with real screenshots | E16 (by a reader who knew the code, not a novice) |
 | Fresh-server bootstrap (Debian 12, AlmaLinux 9.8), image composer catalog and four builds, patch management with native agent, native restic, module registry | E17 |
 | Agent port 7443 blips (not reproduced) | E18 |
+| Restore of a backup copy (UI), archive schedule, PITR over several files, gap named in the proposal, bootstrap through API and UI wizard on a fresh Debian 12 | E19 |
 
 Image composer catalog: 2026.10.30-2, includes a Minecraft server (vanilla and Paper, EULA acceptance mandatory) and an optional Geyser/Floodgate crossplay add-on for Paper 26.3. Bedrock Dedicated Server is deliberately not included (see ADR 0026 addendum).
 
 ## Not verified (do not report these as working)
 
-- Restore of a backup copy into an isolated instance (code and fakes only, `targetSecrets`), archive schedule on VMs, multi-file archives and gaps. A lab run was started on 2026-11-01 (`tests/p0/results/e19-*.md`); check whether it landed before repeating it.
-- Fresh-server bootstrap through the HTTP API or UI wizard (only through the lab harness so far); Ubuntu, Rocky, Alpine; native-agent and Swarm-join steps.
+- Copy to SFTP, restore of a copy into a **new cluster**, a gap by a missing manifest (E19 covered a deleted stream), bootstrap on Ubuntu, Rocky, Alpine, Debian 13, lockdown and container agent through the bootstrap (E19 ran Docker, user, Swarm join and the native agent only).
 - Release workflow (`docs/RELEASING.md`) has never run. Container images were not built in the release-candidate cycle.
 - amd64 on real hosts (GitHub runners test amd64 in CI only), load tests, Kubernetes real runs.
 - Real Bedrock client against the crossplay image; Geyser `transport` setting is not managed by the recipe.
@@ -43,9 +43,9 @@ Image composer catalog: 2026.10.30-2, includes a Minecraft server (vanilla and P
 
 ## Next steps, in this order
 
-1. Merge the E19 lab result if the agent finished (branch `worktree-agent-ae7f803e7f86b152b` or whatever `git branch --list 'worktree-agent-*'` shows as unmerged), then run the verify script.
+1. E19 landed on branch `worktree-agent-ae7f803e7f86b152b` (merged with main on 2026-11-01); merge it and run the verify script.
 2. Independent first-time-reader walkthrough of `INSTALL.md` (an agent that has not seen the code), including HTTPS backend and the HA stack.
-3. Bootstrap through the API/UI on a fresh VM; decide the enrollment-token gap with the owner.
+3. Decide the enrollment-token gap with the owner (confirmed on a real host in E19: native agent step fails before the Swarm join, and a joined node is refused; options in the E19 result).
 4. Missing UI views (patch, restic, image updater, runtime) behind the module switches.
 5. Release dry run in a fork or with a throwaway tag only after owner approval; build and test the container images.
 6. Galera update/resize service type, canary executor, SBOM and rescan, real Kubernetes after the Swarm gates.

@@ -204,15 +204,27 @@ func BinlogArchiveID(baseBackupID string, sequence uint64) string {
 // ListBinlogArchives returns the manifests of all closed-binlog archives of
 // one full backup, in sequence order. A manifest that cannot be read or is
 // not an archive of this backup is an error: skipping it would look like a gap.
+// A manifest whose stream object is gone is left out, which is a real gap.
 func ListBinlogArchives(ctx context.Context, be backup.Backend, clusterID, baseBackupID string) ([]Manifest, error) {
 	objs, err := be.List(ctx, BinlogArchivePrefix(clusterID, baseBackupID))
 	if err != nil {
 		return nil, err
 	}
+	present := make(map[string]bool, len(objs))
+	for _, o := range objs {
+		present[o.Name] = true
+	}
 	var out []Manifest
 	for _, o := range objs {
 		object, ok := strings.CutSuffix(o.Name, ".manifest.json")
 		if !ok {
+			continue
+		}
+		if !present[object] {
+			// The manifest is written last, so a manifest without its stream
+			// means the stream was deleted afterwards. Leaving the file out
+			// makes the chain name the gap up front instead of failing the
+			// restore late with "object not found".
 			continue
 		}
 		m, err := readManifest(ctx, be, object)

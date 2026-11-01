@@ -1,0 +1,171 @@
+host uptime:  9:32  up 13 days, 18:31, 15 users, load averages: 25.60 57.01 52.32
+
+08:32:23Z host load: { 25.60 57.01 52.32 }
+### host free disk
+
+```
+$ host_free_disk
+host free disk (/System/Volumes/Data): 118Gi of 926Gi
+(exit 0)
+```
+
+### facts dbcm-lab-m1
+
+```
+$ vm_sh dbcm-lab-m1 grep PRETTY_NAME /etc/os-release; uname -m; nproc; free -m | sed -n 2p; command -v docker || echo "docker: absent"; systemctl is-active ssh || true
+PRETTY_NAME="Debian GNU/Linux 12 (bookworm)"
+aarch64
+2
+Mem:            3929         328        2373           0        1380        3601
+docker: absent
+active
+(exit 0)
+```
+
+### facts dbcm-lab-m2
+
+```
+$ vm_sh dbcm-lab-m2 grep PRETTY_NAME /etc/os-release; uname -m; nproc; free -m | sed -n 2p; command -v docker || echo "docker: absent"; systemctl is-active ssh || true
+PRETTY_NAME="Ubuntu 26.04.1 LTS"
+aarch64
+2
+Mem:            3896         556        2196           1        1305        3340
+/usr/bin/docker
+active
+(exit 0)
+```
+
+### rootful docker on m2
+
+```
+$ vm_sh dbcm-lab-m2 
+	set -e
+	systemctl --user disable --now docker.service >/dev/null 2>&1 || true
+	sudo systemctl unmask containerd.service docker.service docker.socket >/dev/null 2>&1
+	sudo systemctl enable --now containerd.service docker.socket docker.service >/dev/null 2>&1
+	echo "docker: $(systemctl is-active docker.service)"
+docker: active
+(exit 0)
+```
+
+08:32:26Z m1 (fresh) 192.168.104.1  m2 (manager) 192.168.104.3
+### swarm init on m2
+
+```
+$ vm_docker dbcm-lab-m2 swarm init --advertise-addr 192.168.104.3
+Swarm initialized: current node (f3mt81hzu28egd6r4q9t0z33x) is now a manager.
+
+To add a worker to this swarm, run the following command:
+
+    docker swarm join --token SWMTKN-<redacted> 192.168.104.3:2377
+
+To add a manager to this swarm, run 'docker swarm join-token manager' and follow the instructions.
+(exit 0)
+```
+
+### binaries to m2
+
+```
+$ sh -c limactl copy '<repo>/.lab/e4/bin/manager' '<repo>/.lab/e4/bin/agent' '<repo>/.lab/e4/bin/e4client' dbcm-lab-m2:/tmp/ && limactl shell --workdir / dbcm-lab-m2 -- sudo sh -c 'install -m 0755 /tmp/manager /usr/local/bin/dbcm-e4-manager; install -m 0755 /tmp/e4client /usr/local/bin/dbcm-e4-client; install -d /srv/agent; install -m 0755 /tmp/agent /srv/agent/dbcm-agent; sha256sum /srv/agent/dbcm-agent'
+5b503aba0c63a0b9e1d406ef2f873a4d283c004cb3b4733499c585dff2f68da3  /srv/agent/dbcm-agent
+(exit 0)
+```
+
+### lab CA, server certificate for m2, HTTPS file server for the agent binary (systemd unit)
+
+```
+$ vm_root dbcm-lab-m2 
+	set -e
+	d="$1/pki"; install -d -m 0700 "$d" /srv/agent-tls; cd "$d"
+	openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -keyout ca.key -out ca.pem -days 7 -subj "/CN=dbcm-e19-boot-ca" -addext "keyUsage=critical,keyCertSign,cRLSign" 2>/dev/null
+	openssl req -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -keyout srv.key -out srv.csr -subj "/CN=m2" 2>/dev/null
+	printf "subjectAltName=IP:%s\nextendedKeyUsage=serverAuth\n" "$2" >srv.ext
+	openssl x509 -req -in srv.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out srv.crt -days 7 -extfile srv.ext 2>/dev/null
+	cp srv.crt srv.key /srv/agent-tls/
+	cat >/srv/agent-tls/serve.py <<"PY"
+import http.server, ssl, functools
+h = functools.partial(http.server.SimpleHTTPRequestHandler, directory="/srv/agent")
+s = http.server.ThreadingHTTPServer(("0.0.0.0", 8443), h)
+c = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); c.load_cert_chain("/srv/agent-tls/srv.crt", "/srv/agent-tls/srv.key")
+s.socket = c.wrap_socket(s.socket, server_side=True); s.serve_forever()
+PY
+	systemd-run --unit e19-agentfile --collect python3 /srv/agent-tls/serve.py
+	sleep 2; curl -sS --cacert ca.pem -o /dev/null -w "agent binary over TLS: %{http_code} %{size_download} bytes\n" "https://$2:8443/dbcm-agent" /root/dbcm-e4 192.168.104.3
+Running as unit: e19-agentfile.service; invocation ID: ea24ce3d1c65429882c5951f602abcae
+agent binary over TLS: 200 13869688 bytes
+(exit 0)
+```
+
+### host-side secrets and options on m2 (values not logged)
+
+```
+$ vm_root dbcm-lab-m2 
+	set -e
+	install -d -m 0700 "$1" /var/lib/dbcm-agent /var/lib/dbcm/volumes
+	for n in root monitor backup; do [ -f "$1/$n.pw" ] || head -c 18 /dev/urandom | base64 | tr -d "\n" >"$1/$n.pw"; done
+	for p in "dbcm-e4-root-pw:root" "dbcm-e4-monitor-pw:monitor" "dbcm-e4-backup-pw:backup"; do
+		n=${p%%:*}; f=${p#*:}; docker secret inspect "$n" >/dev/null 2>&1 || docker secret create --label "dbcm.installation=$2" "$n" "$1/$f.pw" >/dev/null; echo "secret $n"
+	done /root/dbcm-e4 e19boot
+secret dbcm-e4-root-pw
+secret dbcm-e4-monitor-pw
+secret dbcm-e4-backup-pw
+(exit 0)
+```
+
+### manager config (serverBootstrap enabled, agent release pinned by hash)
+
+```
+$ vm_root dbcm-lab-m2 
+	set -e
+	install -d -m 0700 /etc/dbcm-e4 /var/lib/dbcm-e4
+	python3 - "$@" <<"PY"
+import json, sys
+a2, api, meta, enroll, mon, root, bak, inst, sha, pub = sys.argv[1:11]
+cfg = {"auth": {"enabled": True, "rpId": "localhost", "rpDisplayName": "E19 boot", "origins": ["http://localhost:" + api]},
+  "manager": {"nodeId": "manager-1", "dataDir": "/var/lib/dbcm-e4", "bind": "127.0.0.1:" + meta, "bootstrap": True, "autoResume": False,
+    "agentTransport": {"enrollListen": a2 + ":" + enroll, "managerUrl": "https://" + a2 + ":" + enroll, "agentPort": 7443,
+                       "monitorUser": "dbcm_monitor", "monitorSecret": mon, "dbSecrets": [root, bak]},
+    "serverBootstrap": {"enabled": True, "sweepSeconds": 60, "agentRelease": {"version": "lab-e19", "binaryUrl": "https://" + a2 + ":8443/dbcm-agent", "sha256": sha}},
+    "settings": {"installationId": inst, "volumeBase": "/var/lib/dbcm/volumes", "agentImage": "dbcm-agent:e4",
+      "accounts": {"monitorUser": "dbcm_monitor", "monitorSecret": mon, "backupSecret": bak}}}}
+json.dump(cfg, open("/etc/dbcm-e4/manager.json", "w"), indent=1)
+print(json.dumps(cfg["manager"]["serverBootstrap"]))
+PY 192.168.104.3 18480 18490 7444 dbcm-e4-monitor-pw dbcm-e4-root-pw dbcm-e4-backup-pw e19boot 5b503aba0c63a0b9e1d406ef2f873a4d283c004cb3b4733499c585dff2f68da3 x
+{"enabled": true, "sweepSeconds": 60, "agentRelease": {"version": "lab-e19", "binaryUrl": "https://192.168.104.3:8443/dbcm-agent", "sha256": "5b503aba0c63a0b9e1d406ef2f873a4d283c004cb3b4733499c585dff2f68da3"}}
+(exit 0)
+```
+
+### start manager unit
+
+```
+$ vm_args dbcm-lab-m2 sudo systemd-run --unit "$1" -p Restart=no --collect /usr/local/bin/dbcm-e4-manager -listen "127.0.0.1:$2" -config /etc/dbcm-e4/manager.json dbcm-e4-manager 18480
+Running as unit: dbcm-e4-manager.service; invocation ID: 33bfd560609e415d8bb998c9fbc6e765
+(exit 0)
+```
+
+08:32:30Z wait ok after 0s: manager health
+### manager log (setup token line removed)
+
+```
+$ vm_args dbcm-lab-m2 sudo journalctl -u "$1" --no-pager | grep -v "setup token" | tail -12 dbcm-e4-manager
+Nov 01 09:32:30 lima-dbcm-lab-m2 systemd[1]: Started dbcm-e4-manager.service - [systemd-run] /usr/local/bin/dbcm-e4-manager -listen 127.0.0.1:18480 -config /etc/dbcm-e4/manager.json.
+Nov 01 09:32:30 lima-dbcm-lab-m2 dbcm-e4-manager[29741]: 2026/11/01 09:32:30 INFO manager: agent enrollment endpoint listening addr=192.168.104.3:7444
+Nov 01 09:32:30 lima-dbcm-lab-m2 dbcm-e4-manager[29741]: 2026/11/01 09:32:30 INFO manager listening addr=127.0.0.1:18480 version=0.0.0-dev auth=true
+(exit 0)
+```
+
+### lab-own SSH key for root on the fresh server m1 and the lab CA in its trust store (prepared by the harness, as in E17)
+
+```
+$ sh -c 
+	limactl shell --workdir / dbcm-lab-m2 -- sudo sh -c 'test -f /root/dbcm-e4/boot_key || ssh-keygen -q -t ed25519 -N "" -f /root/dbcm-e4/boot_key; cat /root/dbcm-e4/boot_key.pub' | limactl shell --workdir / dbcm-lab-m1 -- sudo sh -c 'install -d -m 0700 /root/.ssh; cat >/root/.ssh/authorized_keys; chmod 600 /root/.ssh/authorized_keys'
+	limactl shell --workdir / dbcm-lab-m2 -- sudo cat /root/dbcm-e4/pki/ca.pem | limactl shell --workdir / dbcm-lab-m1 -- sudo sh -c 'cat >/usr/local/share/ca-certificates/dbcm-e19-boot-ca.crt; update-ca-certificates 2>&1 | tail -1'
+	limactl shell --workdir / dbcm-lab-m1 -- sudo sh -c 'grep -E "^PermitRootLogin|^PasswordAuthentication" /etc/ssh/sshd_config /etc/ssh/sshd_config.d/* 2>/dev/null || echo "no explicit PermitRootLogin"; sshd -T | grep -E "^permitrootlogin|^passwordauthentication"'
+done.
+/etc/ssh/sshd_config:PasswordAuthentication no
+permitrootlogin without-password
+passwordauthentication no
+(exit 0)
+```
+
+08:32:31Z done: fresh server 192.168.104.1, manager API in m2 on 127.0.0.1:18480

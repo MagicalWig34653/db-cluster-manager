@@ -170,6 +170,24 @@ func TestListBinlogArchives(t *testing.T) {
 	}
 }
 
+// A deleted stream object with its manifest still present is a gap that the
+// coverage names (E19: the restore used to fail late with "object not found").
+func TestListBinlogArchivesLeavesOutDeletedStream(t *testing.T) {
+	req, logs, be, _ := pitrFixture(t)
+	ctx := context.Background()
+	base := req.Source.Manifest
+	if err := be.Delete(ctx, logs[0].Object); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ListBinlogArchives(ctx, be, testCluster, base.BackupID)
+	if err != nil || len(got) != 1 || got[0].Binlog.Sequence != 2 {
+		t.Fatalf("%v %v", got, err)
+	}
+	if _, err := ResolvePITR(base, got, t0.Add(90*time.Minute)); !errors.Is(err, ErrPITRNotCovered) || !strings.Contains(err.Error(), "sequence 1") {
+		t.Fatal(err)
+	}
+}
+
 func TestInspectionPlanWithPITR(t *testing.T) {
 	req, logs, _, _ := pitrFixture(t)
 	req.PITR = &PITRRequest{At: t0.Add(90 * time.Minute), Archives: logs, ReplaySecret: ReplaySecretName("s1")}

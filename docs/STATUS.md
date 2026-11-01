@@ -4,6 +4,16 @@ Updated: 2026-11-01.
 
 Start of a new session: read [the hand-off](handoffs/NEXT-SESSION.md) first (state, unverified areas, open owner decisions, next steps, working rules).
 
+## E19: copy restore, archive schedule, multi-file PITR, gap, bootstrap through the API (2026-11-01; real lab VMs, cleaned up)
+
+Result: [e19-copy-archive-bootstrap.md](../tests/p0/results/e19-copy-archive-bootstrap.md). Three VMs for parts 1 and 2 (two MinIO targets with TLS from a private CA, cluster with binlog), two VMs for part 3; `bin/lab cleanup --apply` after each, unrelated Lima entries intact. Foreign host load was 25-150 all day (rule is below 40); part 3 started at 82 by my mistake.
+
+- **Copy restore (UI) verified:** the copy on the second target restored into an isolated instance with identical row counts and `CHECKSUM TABLE`; the job mounted only the target secret. Without `targetSecrets` the request answers 409 `settings_incomplete` and never uses the main secret; a copy changed through the S3 API answers 409. OpenAPI said 503 for the missing target secret; corrected to 409.
+- **Archive schedule verified on VMs:** every 2 minutes, five files, PITR to the middle time over three files identical to the recorded state.
+- **Product defect fixed (test first):** a deleted archive stream with its manifest left still counted as covered; the restore failed late with "object not found". `ListBinlogArchives` now leaves such a file out, the proposal names the gap (`sequence 4 is missing after 3`) and the restore is refused with 409. Test `TestListBinlogArchivesLeavesOutDeletedStream`.
+- **Bootstrap through the API and the UI wizard on a fresh Debian 12:** works (Docker, user, Swarm join through the wizard; native agent step with the pinned hash over HTTPS and enrollment in a harness-prepared state). **Enrollment-token gap confirmed, not decided:** with a not-yet-enrolled host the native agent step fails after Docker and the user were installed (`enrollment token unavailable`, draft paused); after a Swarm join the bootstrap refuses the host (`host already belongs to a cluster`), so there is no in-product order that installs the native agent on a fresh server. Options are listed in the result file.
+- **Not run:** copy to SFTP, restore of a copy into a new cluster, gap by missing manifest, Ubuntu/Rocky/Alpine/Debian 13, lockdown and container agent through the bootstrap, manager failover during a run.
+
 ## E17 leftovers: restic source lock, install preflight reasons, module dependents (2026-10-31; Go tests only, no VMs)
 
 - **Failed host backup frees its source.** `runner.Operation.ReleaseLocksOnFailure` releases the locks when the operation ends Failed; the host-source backup sets it (restore does not: its target may be half written). The failed operation stays retryable (`Resume` takes the locks again, `ErrBusy` if another run holds them). Next backup no longer needs a manual abort. Tests: `TestFailedOperationKeepsLocksByDefault`, `TestFailedOperationReleasesLocksWhenRequested`.
