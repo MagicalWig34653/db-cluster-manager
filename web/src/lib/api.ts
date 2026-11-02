@@ -1859,6 +1859,36 @@ const listOfArray =
 		Array.isArray(v) && v.every(item);
 
 // ---------------------------------------------------------------------------
+// OS patch management, read side (X15; api/openapi.yaml /patch/*)
+
+export interface PatchHost { id: string; name: string; group?: string; lastPollAt?: string; lastPollError?: string; agentRuntime?: string }
+export interface PatchUpdate { name: string; installed?: string; available: string; arch?: string; source?: string; security?: boolean; class?: 'os' | 'container-runtime'; advisories?: string[] }
+export interface PatchHostSummary {
+	host: PatchHost;
+	os?: Record<string, unknown>;
+	manager?: string;
+	collectedAt?: string;
+	stale: boolean;
+	updatesPending: number;
+	securityPending: number;
+	rebootRequired: 'yes' | 'no' | 'unknown';
+	securityKnown: boolean;
+}
+export interface PatchHostView { summary: PatchHostSummary; updates: PatchUpdate[]; rebootReasons: string[]; warnings: string[] }
+export interface PatchHistoryEntry { hostId: string; at: string; kind: 'report' | 'apply' | 'reboot'; planId?: string; result?: string; updatesPending?: number; securityPending?: number; rebootRequired?: string }
+
+// The Go API can send null for an empty list; absent lists become arrays.
+const isPatchHostSummary = (v: unknown): v is PatchHostSummary =>
+	isObj(v) && isObj(v.host) && isStr(v.host.id) && isStr(v.host.name) && typeof v.stale === 'boolean' &&
+	typeof v.updatesPending === 'number' && typeof v.securityPending === 'number' && isStr(v.rebootRequired) && typeof v.securityKnown === 'boolean';
+const isPatchHostView = (v: unknown): v is PatchHostView => {
+	if (!isObj(v) || !isPatchHostSummary(v.summary)) return false;
+	v.updates ??= []; v.rebootReasons ??= []; v.warnings ??= [];
+	return Array.isArray(v.updates) && v.updates.every((u) => isObj(u) && isStr(u.name) && isStr(u.available)) && isStrs(v.rebootReasons) && isStrs(v.warnings);
+};
+const isPatchHistoryEntry = (v: unknown): v is PatchHistoryEntry => isObj(v) && isStr(v.hostId) && isStr(v.at) && isStr(v.kind);
+
+// ---------------------------------------------------------------------------
 // Client
 
 export type FetchFn = typeof fetch;
@@ -2111,6 +2141,11 @@ export function createClient(fetchFn: FetchFn) {
 		setVulnProviderConsent: (id: string, grant: boolean, statement?: string) =>
 			call('PUT', `/vuln/providers/${encodeURIComponent(id)}/consent`, isVulnProvider, { grant, ...(statement !== undefined ? { statement } : {}) }),
 		vulnAudit: () => call('GET', '/vuln/audit', listOfArray(isVulnAuditRecord)),
+		patchHosts: () => call('GET', '/patch/hosts', listOf(isPatchHostSummary)),
+		patchHost: (id: string) => call('GET', `/patch/hosts/${encodeURIComponent(id)}`, isPatchHostView),
+		/** Asks the host's patch agent for a fresh report (read-only on the host). */
+		pollPatchHost: (id: string) => call('POST', `/patch/hosts/${encodeURIComponent(id)}/poll`, isPatchHostView, {}),
+		patchHistory: (id: string) => call('GET', `/patch/hosts/${encodeURIComponent(id)}/history`, listOfArray(isPatchHistoryEntry)),
 		notificationSettings: () => call('GET', '/settings/notifications', isNotificationSettings),
 		saveNotificationSettings: (s: NotificationSettingsInput) =>
 			call('PUT', '/settings/notifications', isNotificationSettings, s)

@@ -1,8 +1,12 @@
 # Current status
 
-Updated: 2026-11-01.
+Updated: 2026-11-02.
 
 Start of a new session: read [the hand-off](handoffs/NEXT-SESSION.md) first (state, unverified areas, open owner decisions, next steps, working rules).
+
+## Patch management UI, read side (2026-11-02; branch `ui/patch-view`, not merged)
+
+New page `/patch` behind the `patch` module switch (navigation entry hidden while the module is off): host table sorted by urgency (failed poll, stale report, security updates, reboot, updates, not fully classified), per-host details with pending packages, reboot reasons, warnings, history and a "check now" poll. German/English texts, mock fixtures (`mock-patch.ts`), vitest for the classification, sorting and the client against the mock contract. Verified: 255 vitest tests, `svelte-check` 0 errors. Not verified: rendering in a browser, a run against the real manager API (the client follows `api/openapi.yaml` only). Not included: plans, approval, apply, groups and policy editing (the API exists, the UI does not).
 
 ## E19: copy restore, archive schedule, multi-file PITR, gap, bootstrap through the API (2026-11-01; real lab VMs, cleaned up)
 

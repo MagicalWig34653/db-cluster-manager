@@ -14,6 +14,7 @@
 	import ListChecks from '@lucide/svelte/icons/list-checks';
 	import Activity from '@lucide/svelte/icons/activity';
 	import Bell from '@lucide/svelte/icons/bell';
+	import PackageCheck from '@lucide/svelte/icons/package-check';
 	import Settings from '@lucide/svelte/icons/settings';
 	import CircleDashed from '@lucide/svelte/icons/circle-dashed';
 	import type { MessageKey } from '../../i18n';
@@ -27,6 +28,7 @@
 		{ href: '/swarms', label: 'navSwarms', icon: Boxes, available: true },
 		{ href: '/clusters', label: 'navClusters', icon: Database, available: true },
 		{ href: '/hosts', label: 'navHosts', icon: Server, available: true },
+		{ href: '/patch', label: 'navPatch', icon: PackageCheck, available: true, module: 'patch' },
 		{ href: '/engine-updates', label: 'engineTitle', icon: Server, available: true },
 		{ href: '/databases', label: 'navDatabases', icon: HardDrive, available: true },
 		{ href: '/services', label: 'navServices', icon: Layers, available: true },
