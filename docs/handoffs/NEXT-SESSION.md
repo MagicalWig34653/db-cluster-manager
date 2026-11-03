@@ -49,6 +49,7 @@ Image composer catalog: 2026.10.30-2, includes a Minecraft server (vanilla and P
 4. Missing UI views (patch groups/policy, restic, image updater, runtime) behind the module switches.
 5. Release dry run in a fork or with a throwaway tag only after owner approval; build and test the container images.
 6. Galera update/resize service type, canary executor, SBOM and rescan, real Kubernetes after the Swarm gates.
+7. After all features exist (owner decision, 2026-11-03): redesign navigation and operation. "Cluster", "Swarm" and "Kubernetes" are separate top-level entries today although Swarm and Kubernetes are clusters too, which confuses. The owner wants the new structure designed by the model `gpt-6-astra`; visual style may follow the owner's project `/Users/linolaske/Documents/Code Projekte/PhpstormProjects/timetrack-pwa` (read only, never change it). Not started.
 
 ## Working rules that matter
 
