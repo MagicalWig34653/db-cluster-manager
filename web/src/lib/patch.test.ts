@@ -32,4 +32,14 @@ describe('patch overview', () => {
 		expect(view.summary.host.id).toBe(items[0].host.id);
 		expect((await client.patchHistory(items[0].host.id)).length).toBeGreaterThan(0);
 	});
+	it('proposes, approves with the digest and applies a plan through the mock contract', async () => {
+		const client = createClient(async (url, init) => patchMock(init?.method ?? 'GET', String(url).replace(/^.*(?=\/api\/)/, ''), init?.body ? JSON.parse(String(init.body)) : undefined) ?? new Response('', { status: 404 }));
+		const plan = await client.proposePatchPlan('mock-h1', { securityOnly: true });
+		expect(plan.state).toBe('proposed');
+		expect(plan.packages).toEqual(['openssl']);
+		await expect(client.approvePatchPlan(plan.id, 'x'.repeat(64))).rejects.toMatchObject({ status: 409 });
+		expect((await client.approvePatchPlan(plan.id, plan.digest)).state).toBe('approved');
+		expect((await client.applyPatchPlan(plan.id)).state).toBe('succeeded');
+		expect((await client.patchPlans()).some((p) => p.id === plan.id)).toBe(true);
+	});
 });

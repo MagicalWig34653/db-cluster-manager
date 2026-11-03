@@ -7,6 +7,7 @@
 	import PageHeader from '../../../lib/components/app/PageHeader.svelte';
 	import ApiGate from '../../../lib/components/app/ApiGate.svelte';
 	import Loading from '../../../lib/components/app/Loading.svelte';
+	import PatchPlans from '../../../lib/components/app/PatchPlans.svelte';
 	import { Button } from '../../../lib/components/ui/button/index.js';
 	import * as Table from '../../../lib/components/ui/table/index.js';
 
@@ -89,3 +90,4 @@
 	</Table.Root>
 	</div>
 {/if}
+{#if hosts.state.status === 'ok'}<PatchPlans hosts={hosts.state.value.items} />{/if}

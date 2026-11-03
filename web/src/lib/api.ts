@@ -1859,7 +1859,7 @@ const listOfArray =
 		Array.isArray(v) && v.every(item);
 
 // ---------------------------------------------------------------------------
-// OS patch management, read side (X15; api/openapi.yaml /patch/*)
+// OS patch management (X15; api/openapi.yaml /patch/*)
 
 export interface PatchHost { id: string; name: string; group?: string; lastPollAt?: string; lastPollError?: string; agentRuntime?: string }
 export interface PatchUpdate { name: string; installed?: string; available: string; arch?: string; source?: string; security?: boolean; class?: 'os' | 'container-runtime'; advisories?: string[] }
@@ -1877,7 +1877,19 @@ export interface PatchHostSummary {
 export interface PatchHostView { summary: PatchHostSummary; updates: PatchUpdate[]; rebootReasons: string[]; warnings: string[] }
 export interface PatchHistoryEntry { hostId: string; at: string; kind: 'report' | 'apply' | 'reboot'; planId?: string; result?: string; updatesPending?: number; securityPending?: number; rebootRequired?: string }
 
+export type PatchPlanState = 'proposed' | 'approved' | 'running' | 'succeeded' | 'failed' | 'declined';
+export interface PatchPlan {
+	id: string; hostId: string; packages: string[]; securityOnly?: boolean; reboot?: boolean; digest: string; state: PatchPlanState;
+	createdBy?: string; createdAt?: string; approvedBy?: string; finishedAt?: string; error?: string; remaining?: string[]; containerRuntime?: boolean;
+}
+export interface PatchProposeInput { packages?: string[]; securityOnly?: boolean; reboot?: boolean }
+
 // The Go API can send null for an empty list; absent lists become arrays.
+const isPatchPlan = (v: unknown): v is PatchPlan => {
+	if (!isObj(v) || !isStr(v.id) || !isStr(v.hostId) || !isStr(v.digest) || !isStr(v.state)) return false;
+	v.packages ??= [];
+	return isStrs(v.packages);
+};
 const isPatchHostSummary = (v: unknown): v is PatchHostSummary =>
 	isObj(v) && isObj(v.host) && isStr(v.host.id) && isStr(v.host.name) && typeof v.stale === 'boolean' &&
 	typeof v.updatesPending === 'number' && typeof v.securityPending === 'number' && isStr(v.rebootRequired) && typeof v.securityKnown === 'boolean';
@@ -2146,6 +2158,13 @@ export function createClient(fetchFn: FetchFn) {
 		/** Asks the host's patch agent for a fresh report (read-only on the host). */
 		pollPatchHost: (id: string) => call('POST', `/patch/hosts/${encodeURIComponent(id)}/poll`, isPatchHostView, {}),
 		patchHistory: (id: string) => call('GET', `/patch/hosts/${encodeURIComponent(id)}/history`, listOfArray(isPatchHistoryEntry)),
+		patchPlans: () => call('GET', '/patch/plans', listOfArray(isPatchPlan)),
+		/** Read-only on the host: the package manager only simulates; nothing is installed until approve and apply. */
+		proposePatchPlan: (hostId: string, input: PatchProposeInput) => call('POST', `/patch/hosts/${encodeURIComponent(hostId)}/plans`, isPatchPlan, input),
+		/** The digest binds the approval to exactly the plan the operator saw; a changed plan answers 409 approval_mismatch. */
+		approvePatchPlan: (id: string, digest: string) => call('POST', `/patch/plans/${encodeURIComponent(id)}/approve`, isPatchPlan, { digest }),
+		declinePatchPlan: (id: string) => call('POST', `/patch/plans/${encodeURIComponent(id)}/decline`, isPatchPlan, {}),
+		applyPatchPlan: (id: string) => call('POST', `/patch/plans/${encodeURIComponent(id)}/apply`, isPatchPlan, {}),
 		notificationSettings: () => call('GET', '/settings/notifications', isNotificationSettings),
 		saveNotificationSettings: (s: NotificationSettingsInput) =>
 			call('PUT', '/settings/notifications', isNotificationSettings, s)

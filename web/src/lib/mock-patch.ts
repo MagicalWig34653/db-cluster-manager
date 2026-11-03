@@ -26,7 +26,40 @@ const history = (id: string) => [
 	{ hostId: id, at: ago(1500), kind: 'apply', planId: 'plan-mock-1', result: 'succeeded', updatesPending: 0, securityPending: 0, rebootRequired: 'no' }
 ];
 
-export function patchMock(method: string, path: string, _body: unknown): Response | undefined {
+const plans: Record<string, any> = {
+	'plan-mock-2': { id: 'plan-mock-2', hostId: 'mock-h1', packages: ['openssl', 'tzdata'], securityOnly: false, reboot: false, digest: 'a'.repeat(64), state: 'proposed', createdBy: 'admin', createdAt: ago(10) },
+	'plan-mock-1': { id: 'plan-mock-1', hostId: 'mock-h2', packages: ['curl'], digest: 'b'.repeat(64), state: 'succeeded', createdBy: 'admin', createdAt: ago(1500), finishedAt: ago(1490) }
+};
+let planSeq = 3;
+
+export function patchMock(method: string, path: string, body: unknown): Response | undefined {
+	if (path === '/api/v1/patch/plans' && method === 'GET') return json(200, Object.values(plans).reverse());
+	const pm = path.match(/^\/api\/v1\/patch\/plans\/([^/]+)\/(approve|decline|apply)$/);
+	if (pm && method === 'POST') {
+		const plan = plans[pm[1]];
+		if (!plan) return json(404, { error: 'not_found' });
+		if (pm[2] === 'approve') {
+			if (plan.state !== 'proposed') return json(409, { error: 'conflict' });
+			if ((body as any)?.digest !== plan.digest) return json(409, { error: 'approval_mismatch' });
+			plan.state = 'approved'; plan.approvedBy = 'admin';
+		} else if (pm[2] === 'decline') {
+			if (plan.state !== 'proposed' && plan.state !== 'approved') return json(409, { error: 'conflict' });
+			plan.state = 'declined';
+		} else {
+			if (plan.state !== 'approved') return json(409, { error: 'conflict' });
+			plan.state = 'succeeded'; plan.finishedAt = ago(0);
+		}
+		return json(pm[2] === 'apply' ? 202 : 200, plan);
+	}
+	const hp = path.match(/^\/api\/v1\/patch\/hosts\/([^/]+)\/plans$/);
+	if (hp && method === 'POST') {
+		if (!views[hp[1]]) return json(404, { error: 'not_found' });
+		const input = (body ?? {}) as { securityOnly?: boolean; reboot?: boolean };
+		const names = views[hp[1]].updates.filter((u: any) => u.class !== 'container-runtime' && (!input.securityOnly || u.security)).map((u: any) => u.name);
+		const id = `plan-mock-${planSeq++}`;
+		plans[id] = { id, hostId: hp[1], packages: names, securityOnly: !!input.securityOnly, reboot: !!input.reboot, digest: id.padEnd(64, 'c'), state: 'proposed', createdBy: 'admin', createdAt: ago(0) };
+		return json(201, plans[id]);
+	}
 	if (path === '/api/v1/patch/hosts' && method === 'GET') return json(200, { items: Object.values(views).map((v) => v.summary) });
 	const m = path.match(/^\/api\/v1\/patch\/hosts\/([^/]+)(\/poll|\/history)?$/);
 	if (!m) return;
