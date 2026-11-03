@@ -8,6 +8,7 @@ import type { ServiceInput } from './api';
 import { kubernetesMock } from './mock-kubernetes';
 import { modulesMock } from './mock-modules';
 import { patchMock } from './mock-patch';
+import { resticMock } from './mock-restic';
 import { provisionMock } from './mock-provision';
 import { vulnMock } from './mock-vuln';
 import { composerMock } from './mock-composer';
@@ -436,7 +437,7 @@ export const mockFetch: typeof fetch = async (input, init) => {
 	} catch {
 		// ignore
 	}
-	const platform = bootstrapMock(method, url.pathname, parsed) ?? provisionMock(method, url.pathname, parsed) ?? platformMock(method, url.pathname, url.searchParams, parsed) ?? composerMock(method, url.pathname, parsed) ?? vulnMock(method, url.pathname, parsed) ?? kubernetesMock(method, url.pathname, parsed) ?? modulesMock(method, url.pathname, parsed) ?? patchMock(method, url.pathname, parsed);
+	const platform = bootstrapMock(method, url.pathname, parsed) ?? provisionMock(method, url.pathname, parsed) ?? platformMock(method, url.pathname, url.searchParams, parsed) ?? composerMock(method, url.pathname, parsed) ?? vulnMock(method, url.pathname, parsed) ?? kubernetesMock(method, url.pathname, parsed) ?? modulesMock(method, url.pathname, parsed) ?? patchMock(method, url.pathname, parsed) ?? resticMock(method, url.pathname, parsed);
 	if (platform) return platform;
 	if (method === 'POST') {
 		if (url.pathname === '/api/v1/auth/logout') return new Response(null, { status: 204 });

@@ -37,6 +37,7 @@
 		{ href: '/vulnerabilities', label: 'navVulnerabilities', icon: ShieldAlert, available: true, module: 'vuln' },
 		{ href: '/registries', label: 'navRegistries', icon: PackageOpen, available: true },
 		{ href: '/backups', label: 'navBackups', icon: Archive, available: true },
+		{ href: '/host-backups', label: 'navHostBackups', icon: Archive, available: true, module: 'host-backups' },
 		{ href: '/dashboards', label: 'navDashboards', icon: ChartColumn, available: true },
 		{ href: '/operations', label: 'navOperations', icon: ListChecks, available: true },
 		{ href: '/events', label: 'navEvents', icon: Activity, available: true },

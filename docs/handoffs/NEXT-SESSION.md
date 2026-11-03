@@ -32,7 +32,7 @@ Image composer catalog: 2026.10.30-2, includes a Minecraft server (vanilla and P
 - Release workflow (`docs/RELEASING.md`) has never run. Container images were not built in the release-candidate cycle.
 - amd64 on real hosts (GitHub runners test amd64 in CI only), load tests, Kubernetes real runs.
 - Real Bedrock client against the crossplay image; Geyser `transport` setting is not managed by the recipe.
-- Web UI: patch management has a view (hosts, updates, history, poll, plans with propose/approve/apply/decline; branch `ui/patch-view`); groups/policy, engine-guard details, restic, image updater and runtime views are missing or mock-only.
+- Web UI: patch management has a view (hosts, updates, history, poll, plans with propose/approve/apply/decline; branch `ui/patch-view`); groups/policy, engine-guard details, restic source editing and restore, image updater and runtime views are missing or mock-only.
 - Hypothesis for the short "node became unknown" events right after agents are deployed (settling) is unproven.
 
 ## Open owner decisions
@@ -46,7 +46,7 @@ Image composer catalog: 2026.10.30-2, includes a Minecraft server (vanilla and P
 1. E19 landed on branch `worktree-agent-ae7f803e7f86b152b` (merged with main on 2026-11-01); merge it and run the verify script.
 2. Independent first-time-reader walkthrough of `INSTALL.md` (an agent that has not seen the code), including HTTPS backend and the HA stack.
 3. Decide the enrollment-token gap with the owner (confirmed on a real host in E19: native agent step fails before the Swarm join, and a joined node is refused; options in the E19 result).
-4. Missing UI views (patch groups/policy, restic, image updater, runtime) behind the module switches.
+4. Missing UI views (patch groups/policy, restic source editing/restore, image updater, runtime) behind the module switches.
 5. Release dry run in a fork or with a throwaway tag only after owner approval; build and test the container images.
 6. Galera update/resize service type, canary executor, SBOM and rescan, real Kubernetes after the Swarm gates.
 7. After all features exist (owner decision, 2026-11-03): redesign navigation and operation. "Cluster", "Swarm" and "Kubernetes" are separate top-level entries today although Swarm and Kubernetes are clusters too, which confuses. The owner wants the new structure designed by the model `gpt-6-astra`; visual style may follow the owner's project `/Users/linolaske/Documents/Code Projekte/PhpstormProjects/timetrack-pwa` (read only, never change it). Not started.

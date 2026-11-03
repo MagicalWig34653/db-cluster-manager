@@ -1901,6 +1901,20 @@ const isPatchHostView = (v: unknown): v is PatchHostView => {
 const isPatchHistoryEntry = (v: unknown): v is PatchHistoryEntry => isObj(v) && isStr(v.hostId) && isStr(v.at) && isStr(v.kind);
 
 // ---------------------------------------------------------------------------
+// Restic host backup sources, read side and start (api/openapi.yaml /host-sources)
+
+export interface HostSource {
+	id: string; name: string; kind: 'managed-host' | 'external-host'; transport: 'agent' | 'ssh-plan'; hostId: string; paths: string[]; excludes?: string[];
+	backend: 'local' | 'sftp' | 's3' | 'rest-server'; repository: string; schedule?: string; checkSubset?: string; lastRunAt?: string; lastRunStatus?: string;
+	runtime?: 'native' | 'container'; runtimeNote?: string;
+}
+const isHostSource = (v: unknown): v is HostSource => {
+	if (!isObj(v) || !isStr(v.id) || !isStr(v.name) || !isStr(v.kind) || !isStr(v.transport) || !isStr(v.hostId) || !isStr(v.backend) || !isStr(v.repository)) return false;
+	v.paths ??= [];
+	return isStrs(v.paths);
+};
+
+// ---------------------------------------------------------------------------
 // Client
 
 export type FetchFn = typeof fetch;
@@ -2165,6 +2179,9 @@ export function createClient(fetchFn: FetchFn) {
 		approvePatchPlan: (id: string, digest: string) => call('POST', `/patch/plans/${encodeURIComponent(id)}/approve`, isPatchPlan, { digest }),
 		declinePatchPlan: (id: string) => call('POST', `/patch/plans/${encodeURIComponent(id)}/decline`, isPatchPlan, {}),
 		applyPatchPlan: (id: string) => call('POST', `/patch/plans/${encodeURIComponent(id)}/apply`, isPatchPlan, {}),
+		hostSources: () => call('GET', '/host-sources', listOf(isHostSource)),
+		/** Starts a backup with retention and subset check; 409 agent_runtime_unavailable when no agent of the host offers restic. */
+		startHostBackup: (id: string) => call('POST', `/host-sources/${encodeURIComponent(id)}/backups`, isOperationRef, {}),
 		notificationSettings: () => call('GET', '/settings/notifications', isNotificationSettings),
 		saveNotificationSettings: (s: NotificationSettingsInput) =>
 			call('PUT', '/settings/notifications', isNotificationSettings, s)
