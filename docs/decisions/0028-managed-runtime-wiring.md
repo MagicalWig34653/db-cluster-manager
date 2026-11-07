@@ -21,5 +21,29 @@ Status: **Implemented with fakes only (2026-10-30); nothing ran against a VM, a 
 
 - Fakes only. The sealed round trip is tested on a one-replica in-memory Raft cluster and through the real runtime restarted on the same data directory; a failover between two real manager processes was not run.
 - The step journal is still in memory; after a restart only the steps stored as succeeded are known, and the step in flight is re-checked on the host.
-- A server that is not yet a Swarm node has no host record and therefore gets no enrollment token; the native agent step of the bootstrap fails until the node is enrolled. Closing this needs a product decision (a token for a not-yet-known host).
+- A server that is not yet a Swarm node has no host record and therefore gets no enrollment token; the native agent step of the bootstrap fails until the node is enrolled. Closed by the owner decision of 2026-11-07 (pre-issued token, see the addendum below; fakes only).
 - Creating a metastore backup still needs `settings.backup.recipientKey` (409 `settings_incomplete` otherwise).
+
+## Addendum 2026-11-07: pre-issued enrollment token for a not-yet-enrolled host
+
+Owner decision: the enrollment-token gap found in E19 ([result](../../tests/p0/results/e19-copy-archive-bootstrap.md), part 3) is closed by **pre-issuing** the token. Fakes only; nothing ran against a VM.
+
+| Question | Chosen mechanism | Alternative and reason |
+| --- | --- | --- |
+| When | `BootstrapService.Run` asks `PlannedEnrollment.Preissue` for the planned host before the state turns `running` and before the first step, but only if the plan has a step that takes the token on stdin. A failure returns an error and leaves the draft `approved`; the host is untouched. | At draft or plan time: the token would live (sealed) for the whole review and survive a failover without need. At run time it is held in memory for that run only and never written to the draft store. |
+| Binding | Single-use token (two-hour TTL, digest only in the store) whose allowed hosts are exactly the draft's host ID. Because the PKI keys every identity (certificate, serial, report) on a host record, a placeholder record `bootstrap/<host id>` (`manager.PlannedSwarm`, enrolled, address from the draft if it is an IP) is created in the same transaction. Swarm sync and deployment ignore that scope. A token of that scope cannot enroll a registered host (swarm mismatch) and a registered token cannot enroll the planned host. | Letting `ConsumeToken` enroll without a record: every later step (signing, serial, report, patch directory) needs one. |
+| Registered host | If an enrolled record with this node ID exists, `Preissue` returns "" and the executor falls back to `HostEnrollmentTokens` as before. A known node that is only discovered or revoked is refused: a placeholder would shadow it. | |
+| Delivery | Unchanged: stdin of the `agent-native` step, never an argument, plan, view, draft document, stored secret or log. | |
+| Failover and resume | Nothing is persisted. Every `Run` (also on a new leader, also a resume) withdraws earlier unused planned tokens of that host and issues a new one. `Release` is idempotent. | Persisting the token sealed: more secret at rest for no gain, since re-issuing is cheap and safe. |
+| Wipe | `finishWipe` (cancel, fingerprint mismatch, expiry, completion) deletes the secrets document and then calls `Release`: unused planned tokens are revoked, a placeholder without an agent identity is deleted; one whose agent enrolled is that agent's record and stays. A failed release keeps the wipe pending and the sweeper retries it. | |
+
+Alternatives considered:
+
+- **Reorder the steps** (Swarm join first, native agent after, enrolled through the node record): the join makes the preflight refuse a second bootstrap of the same host, the node ID is only known after the join, and a Galera-less plain Docker host (no Swarm) would still have no record. Rejected.
+- **Manual token** (the operator creates a token in the UI and types it into the draft): it would put a secret into a form and a draft, needs a host record anyway, and the operator would have to copy it between two screens. Rejected.
+
+Consequences and limits:
+
+- The placeholder appears in the host list with scope `bootstrap`. The host ID is the name the agent enrolls under; the container-agent step still needs a host ID equal to the Swarm node ID, so combine it with the native agent only when the IDs match.
+- A token for a host whose address is not an IP cannot pass the source-address check when `RequireSourceAddr` is on.
+- Fakes only: the manager tests enroll through the real enrollment server and PKI; the bootstrap tests use a simulated host. No lab run.

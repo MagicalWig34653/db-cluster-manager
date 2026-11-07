@@ -7,11 +7,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"slices"
 	"time"
 
 	"github.com/MagicalWig34653/db-cluster-manager/internal/authz"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/enroll"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/metastore"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/patch"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/provision"
 )
@@ -130,8 +132,8 @@ const HostTokenTTL = 2 * time.Hour
 //
 // The host must have an enrolled host record (a Swarm node the administrator
 // enrolled) whose node ID equals the host ID: the agent presents that ID at
-// enrollment. A server that is not yet a Swarm node has no such record and
-// gets no token (see ADR 0028, limits).
+// enrollment. A server that is not yet a Swarm node has no such record; its
+// token is pre-issued by PlannedEnrollment (ADR 0028 addendum).
 type HostEnrollmentTokens struct {
 	PKI *AgentPKI
 	TTL time.Duration
@@ -183,6 +185,141 @@ func (h HostEnrollmentTokens) InstallToken(_ context.Context, hostID string) (st
 		return "", err
 	}
 	return plain, nil
+}
+
+// PlannedSwarm is the reserved scope of the placeholder host record and the
+// tokens of a bootstrap host that is not a Swarm node yet. Swarm IDs are
+// generated ("swarm-...") and never equal it, so no Swarm sync or deployment
+// touches these records.
+const PlannedSwarm = "bootstrap"
+
+// PlannedEnrollment pre-issues the enrollment token of a bootstrap host that
+// has no host record yet (ADR 0028 addendum). It creates a placeholder host
+// record (the PKI keys every identity on a record) and a single-use token
+// limited to that host ID. Neither is created for a host that already has an
+// enrolled record.
+type PlannedEnrollment struct {
+	PKI *AgentPKI
+	TTL time.Duration
+}
+
+var _ provision.PlannedEnrollment = PlannedEnrollment{}
+
+// Preissue implements provision.PlannedEnrollment. Earlier unused tokens of
+// the same planned host are withdrawn first, so at most one is valid.
+func (p PlannedEnrollment) Preissue(_ context.Context, h provision.Host) (string, error) {
+	if p.PKI == nil {
+		return "", errors.New("manager: agent transport not configured")
+	}
+	inst, err := p.PKI.installation()
+	if err != nil {
+		return "", err
+	}
+	_, planned, err := Get[HostRecord](p.PKI.Store, CollHosts, HostKey(PlannedSwarm, h.ID), Consistent())
+	if err != nil {
+		return "", err
+	}
+	if !planned {
+		known, err := p.knownNode(h.ID)
+		switch {
+		case err != nil:
+			return "", err
+		case known == EnrollEnrolled:
+			return "", nil
+		case known != "":
+			return "", fmt.Errorf("manager: node %q is a known Swarm node that is not enrolled", h.ID)
+		}
+	}
+	if err := p.withdraw(h.ID); err != nil {
+		return "", err
+	}
+	ttl := p.TTL
+	if ttl <= 0 {
+		ttl = HostTokenTTL
+	}
+	now := p.PKI.now()
+	tok, plain, err := enroll.NewToken(inst, []string{h.ID}, now, ttl)
+	if err != nil {
+		return "", err
+	}
+	ops := make([]metastore.DocOp, 0, 2)
+	if !planned {
+		host := HostRecord{Swarm: PlannedSwarm, NodeID: h.ID, Enrollment: EnrollEnrolled, EnrolledAt: now}
+		if ip := net.ParseIP(h.Address); ip != nil {
+			host.Addr = ip.String()
+		}
+		op, err := PutOp(CollHosts, HostKey(PlannedSwarm, h.ID), host, IfVersion(0))
+		if err != nil {
+			return "", err
+		}
+		ops = append(ops, op)
+	}
+	op, err := PutOp(CollEnrollTokens, tok.ID, EnrollTokenRecord{Swarm: PlannedSwarm, Token: tok}, IfVersion(0))
+	if err != nil {
+		return "", err
+	}
+	if _, err := p.PKI.Store.Txn(append(ops, op)...); err != nil {
+		return "", err
+	}
+	return plain, nil
+}
+
+// Release implements provision.PlannedEnrollment: unused pre-issued tokens of
+// the host are withdrawn and a placeholder without an agent identity is
+// deleted. A placeholder whose agent enrolled is that agent's record and stays.
+func (p PlannedEnrollment) Release(_ context.Context, h provision.Host) error {
+	if p.PKI == nil {
+		return errors.New("manager: agent transport not configured")
+	}
+	if err := p.withdraw(h.ID); err != nil {
+		return err
+	}
+	rec, ok, err := Get[HostRecord](p.PKI.Store, CollHosts, HostKey(PlannedSwarm, h.ID), Consistent())
+	if err != nil || !ok {
+		return err
+	}
+	if rec.Value.AgentSerial != "" || len(rec.Value.AgentIdentities) > 0 {
+		return nil
+	}
+	return Delete(p.PKI.Store, CollHosts, rec.Key, IfVersion(rec.Version))
+}
+
+// knownNode returns the enrollment state of a registered node with this ID,
+// or "" when no Swarm node of that ID is known.
+func (p PlannedEnrollment) knownNode(hostID string) (Enrollment, error) {
+	hosts, err := List[HostRecord](p.PKI.Store, CollHosts, Consistent())
+	if err != nil {
+		return "", err
+	}
+	for _, h := range hosts {
+		if h.Value.NodeID == hostID && h.Value.Swarm != PlannedSwarm {
+			return h.Value.Enrollment, nil
+		}
+	}
+	return "", nil
+}
+
+// withdraw revokes the unused planned tokens of hostID.
+func (p PlannedEnrollment) withdraw(hostID string) error {
+	recs, err := List[EnrollTokenRecord](p.PKI.Store, CollEnrollTokens, Consistent())
+	if err != nil {
+		return err
+	}
+	for _, r := range recs {
+		if r.Value.Swarm != PlannedSwarm || r.Value.Token.Revoked || !slices.Equal(r.Value.Token.AllowedHosts, []string{hostID}) {
+			continue
+		}
+		if _, _, err := Update(p.PKI.Store, CollEnrollTokens, r.Key, func(cur EnrollTokenRecord, exists bool) (EnrollTokenRecord, error) {
+			if !exists {
+				return cur, ErrNotFound
+			}
+			cur.Token.Revoked = true
+			return cur, nil
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // BootstrapManagerActions are the bootstrap steps that run inside the

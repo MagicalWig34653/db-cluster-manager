@@ -185,12 +185,16 @@ func (s *BootstrapService) Sweep() {
 	}
 }
 
-// finishWipe deletes the stored credentials; on failure the wipe stays
-// pending and is retried by the next expire or sweep.
+// finishWipe deletes the stored credentials and withdraws the pre-issued
+// enrollment; on failure the wipe stays pending and is retried by the next
+// expire or sweep.
 func (s *BootstrapService) finishWipe(d *bootDraft) {
-	if s.Store == nil {
-		d.wipePending = false
-		return
+	var err error
+	if s.Store != nil {
+		err = s.Store.DeleteSecrets(d.req.ID)
 	}
-	d.wipePending = s.Store.DeleteSecrets(d.req.ID) != nil
+	if err == nil && s.deps.Planned != nil {
+		err = s.deps.Planned.Release(context.Background(), d.req.Host)
+	}
+	d.wipePending = err != nil
 }

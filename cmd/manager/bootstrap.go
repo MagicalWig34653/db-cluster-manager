@@ -143,6 +143,7 @@ func (rt *managedRuntime) newBootstrapService(sw *manager.Swarms) *provision.Boo
 	deps := provision.BootstrapDeps{
 		Runner:  newSSHRunner(),
 		Tokens:  manager.HostEnrollmentTokens{PKI: rt.pki},
+		Planned: manager.PlannedEnrollment{PKI: rt.pki},
 		Agents:  patch.BootstrapAgentScripts{},
 		Manager: manager.BootstrapManagerActions{Swarms: sw, Store: st, Keys: rt.keys, Actor: collect.SystemSubject},
 		Journal: opjournal.New(),

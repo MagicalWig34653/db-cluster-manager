@@ -37,7 +37,7 @@ Image composer catalog: 2026.10.30-2, includes a Minecraft server (vanilla and P
 
 ## Open owner decisions
 
-- Enrollment token for a not-yet-enrolled bootstrap host (guide 27): the token exists only for an already registered host.
+- Enrollment token for a not-yet-enrolled bootstrap host: decided 2026-11-07 (pre-issued at run start, ADR 0028 addendum, guide 27); implemented with fakes only, to be confirmed on a lab host.
 - `autoRecover` is opt-in per cluster, default off; Phase 1 auto-approval deviates from "only if all positions are readable" (ADR 0029). Recommendation: leave it off.
 - Whether and when to cut a release candidate for a separate test Swarm (needs a clean independent `INSTALL.md` run first).
 

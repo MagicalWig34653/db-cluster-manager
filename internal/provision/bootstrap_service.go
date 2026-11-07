@@ -5,6 +5,7 @@ package provision
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync"
 	"time"
 )
@@ -105,6 +106,19 @@ func NewBootstrapService(deps BootstrapDeps, env BootstrapEnv, probe HostKeyProb
 	}
 	return &BootstrapService{deps: deps, env: env, probe: probe, agents: agents, drafts: map[string]*bootDraft{},
 		Spawn: func(f func()) { go f() }, Term: func() uint64 { return 1 }, Now: time.Now}
+}
+
+// preissue returns the enrollment token for the planned host when the plan
+// has a step that needs one and a PlannedEnrollment is configured.
+func (s *BootstrapService) preissue(ctx context.Context, d *bootDraft) (string, error) {
+	if s.deps.Planned == nil || !slices.ContainsFunc(d.plan.Steps, func(st BootstrapStep) bool { return st.Stdin == "enrollment" }) {
+		return "", nil
+	}
+	tok, err := s.deps.Planned.Preissue(ctx, d.req.Host)
+	if err != nil {
+		return "", errors.New("provision: enrollment token for the planned host unavailable")
+	}
+	return tok, nil
 }
 
 func (s *BootstrapService) wipe(d *bootDraft) {
@@ -396,6 +410,13 @@ func (s *BootstrapService) Run(ctx context.Context, id string) (BootstrapView, e
 		s.mu.Unlock()
 		return BootstrapView{}, ErrNotLeader
 	}
+	// A host that is not enrolled yet gets its token before anything on it is
+	// changed. It lives in this run only: a failover or a resume issues a new one.
+	enrollToken, err := s.preissue(ctx, d)
+	if err != nil {
+		s.mu.Unlock()
+		return BootstrapView{}, err
+	}
 	prevStatus, prevErr := d.status, d.errText
 	d.status, d.errText = StatusRunning, ""
 	// The running state is durable before the host is touched: a failover
@@ -406,6 +427,7 @@ func (s *BootstrapService) Run(ctx context.Context, id string) (BootstrapView, e
 		return BootstrapView{}, err
 	}
 	plan, sec := *d.plan, d.secrets
+	sec.EnrollToken = enrollToken
 	deps := s.deps
 	s.mu.Unlock()
 
