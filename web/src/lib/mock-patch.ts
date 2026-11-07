@@ -91,7 +91,7 @@ export function patchMock(method: string, path: string, body: unknown): Response
 		plans[id] = { id, hostId: hp[1], packages: names, securityOnly: !!input.securityOnly, reboot: !!input.reboot, digest: id.padEnd(64, 'c'), state: 'proposed', createdBy: 'admin', createdAt: ago(0) };
 		return json(201, plans[id]);
 	}
-	if (path === '/api/v1/patch/hosts' && method === 'GET') return json(200, { items: Object.values(views).map((v) => v.summary) });
+	if (path === '/api/v1/patch/hosts' && method === 'GET') return json(200, Object.values(views).map((v) => v.summary));
 	const m = path.match(/^\/api\/v1\/patch\/hosts\/([^/]+)(\/poll|\/history)?$/);
 	if (!m) return;
 	const view = views[m[1]];

@@ -13,7 +13,7 @@
 	import * as Table from '../../../lib/components/ui/table/index.js';
 
 	const hosts = load(api.patchHosts);
-	const rows = $derived(hosts.state.status === 'ok' ? sortPatchHosts(hosts.state.value.items) : []);
+	const rows = $derived(hosts.state.status === 'ok' ? sortPatchHosts(hosts.state.value) : []);
 	let open = $state('');
 	let view = $state<PatchHostView | undefined>();
 	let history = $state<PatchHistoryEntry[]>([]);
@@ -91,4 +91,4 @@
 	</Table.Root>
 	</div>
 {/if}
-{#if hosts.state.status === 'ok'}<PatchPlans hosts={hosts.state.value.items} /><PatchGroups hosts={hosts.state.value.items} onchange={hosts.refresh} />{/if}
+{#if hosts.state.status === 'ok'}<PatchPlans hosts={hosts.state.value} /><PatchGroups hosts={hosts.state.value} onchange={hosts.refresh} />{/if}

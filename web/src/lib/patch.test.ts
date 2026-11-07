@@ -26,7 +26,7 @@ describe('patch overview', () => {
 	});
 	it('loads hosts, a host view and history through the mock contract', async () => {
 		const client = createClient(async (url, init) => patchMock(init?.method ?? 'GET', String(url).replace(/^.*(?=\/api\/)/, ''), {}) ?? new Response('', { status: 404 }));
-		const { items } = await client.patchHosts();
+		const items = await client.patchHosts();
 		expect(items.length).toBeGreaterThan(0);
 		const view = await client.patchHost(items[0].host.id);
 		expect(view.summary.host.id).toBe(items[0].host.id);

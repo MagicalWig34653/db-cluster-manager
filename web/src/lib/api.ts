@@ -2213,7 +2213,7 @@ export function createClient(fetchFn: FetchFn) {
 		setVulnProviderConsent: (id: string, grant: boolean, statement?: string) =>
 			call('PUT', `/vuln/providers/${encodeURIComponent(id)}/consent`, isVulnProvider, { grant, ...(statement !== undefined ? { statement } : {}) }),
 		vulnAudit: () => call('GET', '/vuln/audit', listOfArray(isVulnAuditRecord)),
-		patchHosts: () => call('GET', '/patch/hosts', listOf(isPatchHostSummary)),
+		patchHosts: () => call('GET', '/patch/hosts', listOfArray(isPatchHostSummary)),
 		patchHost: (id: string) => call('GET', `/patch/hosts/${encodeURIComponent(id)}`, isPatchHostView),
 		/** Asks the host's patch agent for a fresh report (read-only on the host). */
 		pollPatchHost: (id: string) => call('POST', `/patch/hosts/${encodeURIComponent(id)}/poll`, isPatchHostView, {}),
