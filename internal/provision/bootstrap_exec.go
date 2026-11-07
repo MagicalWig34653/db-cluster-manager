@@ -82,6 +82,16 @@ type TokenSource interface {
 	EnrollToken(ctx context.Context, h Host, runtime string) (string, error)
 }
 
+// PlannedEnrollment pre-issues the enrollment token of a host that is not yet
+// enrolled (ADR 0028 addendum). Preissue returns a single-use token bound to
+// exactly that host, or "" when the host already has an enrolled record (the
+// TokenSource then issues it at the step). Release withdraws what Preissue
+// created and is a no-op when nothing was pre-issued.
+type PlannedEnrollment interface {
+	Preissue(ctx context.Context, h Host) (string, error)
+	Release(ctx context.Context, h Host) error
+}
+
 // ManagerActions are the steps that run inside the manager, not on the host.
 type ManagerActions interface {
 	DeployContainerAgent(ctx context.Context, h Host) error
@@ -90,8 +100,10 @@ type ManagerActions interface {
 
 // BootstrapDeps are the collaborators of the executor.
 type BootstrapDeps struct {
-	Runner  CommandRunner
-	Tokens  TokenSource
+	Runner CommandRunner
+	Tokens TokenSource
+	// Planned is optional; without it only registered hosts get a token.
+	Planned PlannedEnrollment
 	Agents  AgentScripts
 	Manager ManagerActions
 	Journal *opjournal.Journal
@@ -103,6 +115,9 @@ type BootstrapSecrets struct {
 	Root      Credential
 	Dedicated Credential
 	JoinToken string
+	// EnrollToken is a pre-issued enrollment token (PlannedEnrollment). It
+	// is held for one run only and never stored.
+	EnrollToken string
 }
 
 // StepProgress is the state of one step.
@@ -275,10 +290,13 @@ func runStep(ctx context.Context, d BootstrapDeps, plan BootstrapPlan, st Bootst
 	stdin := ""
 	switch st.Stdin {
 	case "enrollment":
-		if d.Tokens == nil {
-			return "", ErrNoHook
+		tok, err := sec.EnrollToken, error(nil)
+		if tok == "" {
+			if d.Tokens == nil {
+				return "", ErrNoHook
+			}
+			tok, err = d.Tokens.EnrollToken(ctx, plan.Host, "native")
 		}
-		tok, err := d.Tokens.EnrollToken(ctx, plan.Host, "native")
 		if err != nil || tok == "" || strings.ContainsAny(tok, " \n\r\t") {
 			return "", errors.New("provision: enrollment token unavailable")
 		}
