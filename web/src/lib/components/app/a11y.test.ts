@@ -3,6 +3,7 @@ import { render } from 'svelte/server';
 import { contrast, tokens } from '../../../../scripts/contrast.mjs';
 import StateView from './StateView.svelte';
 import FormErrors from './FormErrors.svelte';
+import PatchPolicyFields from './PatchPolicyFields.svelte';
 
 describe('accessible shared states', () => {
   it('announces loading and errors with distinct live roles', () => {
@@ -15,6 +16,22 @@ describe('accessible shared states', () => {
     const html = render(FormErrors, { props: { errors: ['valSvcName', 'valSvcImage'] } }).body;
     expect(html).toContain('role="alert"');
     expect(html).toContain('<li>');
+  });
+});
+
+describe('patch policy fields', () => {
+  it('shows the report-only default and warns when container runtime updates need approval', () => {
+    const base = { errors: [], prefix: 'pp' };
+    const def = render(PatchPolicyFields, { props: { ...base, policy: { containerRuntime: 'report_only' } } }).body;
+    expect(def).toContain('Standard: nur melden');
+    expect(def).not.toContain('Achtung:');
+    const warn = render(PatchPolicyFields, { props: { ...base, policy: { containerRuntime: 'approval_required' } } }).body;
+    expect(warn).toContain('Achtung:');
+    expect(warn).toContain('aria-describedby="pp-runtime-note"');
+  });
+  it('marks a field invalid for its validation error', () => {
+    const html = render(PatchPolicyFields, { props: { errors: ['valPatchReportEvery'], prefix: 'pp', policy: {} } }).body;
+    expect(html).toMatch(/id="pp-every"[^>]*aria-invalid="true"/);
   });
 });
 
