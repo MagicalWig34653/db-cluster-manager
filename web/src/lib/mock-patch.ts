@@ -32,7 +32,38 @@ const plans: Record<string, any> = {
 };
 let planSeq = 3;
 
+let defaultPolicy: Record<string, unknown> = {};
+const groups: Record<string, any> = { production: { id: 'production', name: 'Production', policy: { mode: 'approval_required', securityOnly: true, windows: [{ days: ['sun'], start: '03:00', durationMinutes: 120, zone: 'Europe/Berlin' }], reboot: 'with_plan' } } };
+
+function groupsMock(method: string, path: string, body: any): Response | undefined {
+	if (path === '/api/v1/patch/policy') {
+		if (method === 'PUT') defaultPolicy = body ?? {};
+		return method === 'GET' || method === 'PUT' ? json(200, defaultPolicy) : undefined;
+	}
+	if (path === '/api/v1/patch/groups' && method === 'GET') return json(200, Object.values(groups));
+	const g = path.match(/^\/api\/v1\/patch\/groups\/([^/]+)$/);
+	if (g && method === 'PUT') {
+		if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(g[1]) || typeof body?.name !== 'string') return json(400, { error: 'bad_request' });
+		return json(200, (groups[g[1]] = { id: g[1], name: body.name, ...(body.policy ? { policy: body.policy } : {}) }));
+	}
+	if (g && method === 'DELETE') {
+		if (!groups[g[1]]) return json(404, { error: 'not_found' });
+		if (Object.values(views).some((v) => v.summary.host.group === g[1])) return json(409, { error: 'conflict' });
+		delete groups[g[1]];
+		return new Response(null, { status: 204 });
+	}
+	const h = path.match(/^\/api\/v1\/patch\/hosts\/([^/]+)$/);
+	if (h && method === 'PUT') {
+		if (body?.group && !groups[body.group]) return json(400, { error: 'bad_request' });
+		const host = { ...(views[h[1]]?.summary.host ?? { id: h[1] }), ...body };
+		if (views[h[1]]) views[h[1]].summary.host = host;
+		return json(200, host);
+	}
+}
+
 export function patchMock(method: string, path: string, body: unknown): Response | undefined {
+	const grouped = groupsMock(method, path, body);
+	if (grouped) return grouped;
 	if (path === '/api/v1/patch/plans' && method === 'GET') return json(200, Object.values(plans).reverse());
 	const pm = path.match(/^\/api\/v1\/patch\/plans\/([^/]+)\/(approve|decline|apply)$/);
 	if (pm && method === 'POST') {

@@ -1861,7 +1861,7 @@ const listOfArray =
 // ---------------------------------------------------------------------------
 // OS patch management (X15; api/openapi.yaml /patch/*)
 
-export interface PatchHost { id: string; name: string; group?: string; lastPollAt?: string; lastPollError?: string; agentRuntime?: string }
+export interface PatchHost { id: string; name: string; group?: string; policy?: PatchPolicy; lastPollAt?: string; lastPollError?: string; agentRuntime?: string }
 export interface PatchUpdate { name: string; installed?: string; available: string; arch?: string; source?: string; security?: boolean; class?: 'os' | 'container-runtime'; advisories?: string[] }
 export interface PatchHostSummary {
 	host: PatchHost;
@@ -1882,6 +1882,18 @@ export interface PatchPlan {
 	id: string; hostId: string; packages: string[]; securityOnly?: boolean; reboot?: boolean; digest: string; state: PatchPlanState;
 	createdBy?: string; createdAt?: string; approvedBy?: string; finishedAt?: string; error?: string; remaining?: string[]; containerRuntime?: boolean;
 }
+export const patchModes = ['report_only', 'approval_required'] as const;
+export const patchReboots = ['never', 'with_plan', 'auto_in_window'] as const;
+export const patchDays = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
+export interface PatchWindow { days?: (typeof patchDays)[number][]; start: string; durationMinutes: number; zone?: string }
+/** Empty mode and containerRuntime mean report_only; empty reboot means never. */
+export interface PatchPolicy {
+	mode?: (typeof patchModes)[number]; securityOnly?: boolean; windows?: PatchWindow[]; reboot?: (typeof patchReboots)[number];
+	containerRuntime?: (typeof patchModes)[number]; reportEveryMinutes?: number;
+}
+export interface PatchGroup { id: string; name: string; policy?: PatchPolicy }
+export interface PatchGroupInput { name: string; policy?: PatchPolicy }
+export interface PatchHostInput { name?: string; group?: string; policy?: PatchPolicy }
 export interface PatchProposeInput { packages?: string[]; securityOnly?: boolean; reboot?: boolean }
 
 // The Go API can send null for an empty list; absent lists become arrays.
@@ -1890,6 +1902,14 @@ const isPatchPlan = (v: unknown): v is PatchPlan => {
 	v.packages ??= [];
 	return isStrs(v.packages);
 };
+const isPatchPolicy = (v: unknown): v is PatchPolicy => {
+	if (!isObj(v)) return false;
+	v.windows ??= [];
+	return Array.isArray(v.windows) && v.windows.every((w) => isObj(w) && isStr(w.start) && typeof w.durationMinutes === 'number') &&
+		[v.mode, v.containerRuntime].every((m) => m === undefined || oneOf(patchModes)(m)) && (v.reboot === undefined || oneOf(patchReboots)(v.reboot));
+};
+const isPatchGroup = (v: unknown): v is PatchGroup => isObj(v) && isStr(v.id) && isStr(v.name) && (v.policy === undefined || isPatchPolicy(v.policy));
+const isPatchHost = (v: unknown): v is PatchHost => isObj(v) && isStr(v.id) && isStr(v.name) && (v.policy === undefined || isPatchPolicy(v.policy));
 const isPatchHostSummary = (v: unknown): v is PatchHostSummary =>
 	isObj(v) && isObj(v.host) && isStr(v.host.id) && isStr(v.host.name) && typeof v.stale === 'boolean' &&
 	typeof v.updatesPending === 'number' && typeof v.securityPending === 'number' && isStr(v.rebootRequired) && typeof v.securityKnown === 'boolean';
@@ -2198,6 +2218,13 @@ export function createClient(fetchFn: FetchFn) {
 		/** Asks the host's patch agent for a fresh report (read-only on the host). */
 		pollPatchHost: (id: string) => call('POST', `/patch/hosts/${encodeURIComponent(id)}/poll`, isPatchHostView, {}),
 		patchHistory: (id: string) => call('GET', `/patch/hosts/${encodeURIComponent(id)}/history`, listOfArray(isPatchHistoryEntry)),
+		patchPolicy: () => call('GET', '/patch/policy', isPatchPolicy),
+		savePatchPolicy: (policy: PatchPolicy) => call('PUT', '/patch/policy', isPatchPolicy, policy),
+		patchGroups: () => call('GET', '/patch/groups', listOfArray(isPatchGroup)),
+		savePatchGroup: (id: string, input: PatchGroupInput) => call('PUT', `/patch/groups/${encodeURIComponent(id)}`, isPatchGroup, input),
+		/** 409 while hosts still belong to the group. */
+		deletePatchGroup: (id: string) => call('DELETE', `/patch/groups/${encodeURIComponent(id)}`, isAny),
+		savePatchHost: (id: string, input: PatchHostInput) => call('PUT', `/patch/hosts/${encodeURIComponent(id)}`, isPatchHost, input),
 		patchPlans: () => call('GET', '/patch/plans', listOfArray(isPatchPlan)),
 		/** Read-only on the host: the package manager only simulates; nothing is installed until approve and apply. */
 		proposePatchPlan: (hostId: string, input: PatchProposeInput) => call('POST', `/patch/hosts/${encodeURIComponent(hostId)}/plans`, isPatchPlan, input),
