@@ -1901,6 +1901,32 @@ const isPatchHostView = (v: unknown): v is PatchHostView => {
 const isPatchHistoryEntry = (v: unknown): v is PatchHistoryEntry => isObj(v) && isStr(v.hostId) && isStr(v.at) && isStr(v.kind);
 
 // ---------------------------------------------------------------------------
+// Image updates (X16, ADR 0025; api/openapi.yaml /image-updates/*). Policy editing, offers and policy removal have no client method yet.
+
+export interface ImageUpdateWindow { days?: string[]; start: string; durationMinutes: number; zone?: string }
+export interface ImageUpdatePolicy { serviceId?: string; mode?: string; track?: string; windows?: ImageUpdateWindow[] }
+export interface ImageUpdateImage { ref?: string; tag?: string; digest?: string }
+export type ImageUpdatePlanState = 'proposed' | 'approved' | 'running' | 'succeeded' | 'failed' | 'rolled_back' | 'declined' | 'superseded';
+export interface ImageUpdatePlan {
+	id: string; serviceId: string; serviceName?: string; swarm?: string; serviceType?: string;
+	kind?: 'digest' | 'patch' | 'minor' | 'major' | 'built' | 'rollback'; source?: 'registry' | 'imagebuild' | 'rollback';
+	from?: ImageUpdateImage; to?: ImageUpdateImage; database?: boolean; route?: 'service-update' | 'planner' | 'report-only';
+	digest: string; state: ImageUpdatePlanState; auto?: boolean; createdBy?: string; createdAt?: string; approvedBy?: string; finishedAt?: string;
+	operationId?: string; executedBy?: 'native' | 'container'; error?: string;
+}
+/** `service` is a free-form object in the contract; the manager sends id, name, swarm, type, image and foreign. */
+export interface ImageUpdateServiceView {
+	service: { id: string; name: string; swarm?: string; type?: string; image?: string; foreign?: boolean };
+	scope: 'owned' | 'opt-in'; database?: boolean; policy?: ImageUpdatePolicy; state?: { lastCheckAt?: string; lastError?: string }; openPlan?: string;
+}
+export interface ImageUpdateCheckResult { plan?: ImageUpdatePlan; message?: string }
+
+const isImageUpdatePlan = (v: unknown): v is ImageUpdatePlan => isObj(v) && isStr(v.id) && isStr(v.serviceId) && isStr(v.digest) && isStr(v.state);
+const isImageUpdateServiceView = (v: unknown): v is ImageUpdateServiceView =>
+	isObj(v) && isObj(v.service) && isStr(v.service.id) && isStr(v.service.name) && isStr(v.scope);
+const isImageUpdateCheckResult = (v: unknown): v is ImageUpdateCheckResult => isObj(v) && (v.plan === undefined || isImageUpdatePlan(v.plan));
+
+// ---------------------------------------------------------------------------
 // Restic host backup sources, read side and start (api/openapi.yaml /host-sources)
 
 export interface HostSource {
@@ -2179,6 +2205,17 @@ export function createClient(fetchFn: FetchFn) {
 		approvePatchPlan: (id: string, digest: string) => call('POST', `/patch/plans/${encodeURIComponent(id)}/approve`, isPatchPlan, { digest }),
 		declinePatchPlan: (id: string) => call('POST', `/patch/plans/${encodeURIComponent(id)}/decline`, isPatchPlan, {}),
 		applyPatchPlan: (id: string) => call('POST', `/patch/plans/${encodeURIComponent(id)}/apply`, isPatchPlan, {}),
+		imageUpdateServices: () => call('GET', '/image-updates/services', listOfArray(isImageUpdateServiceView)),
+		/** Reads the registry only and creates or reuses a plan; never touches the service. */
+		checkImageUpdate: (serviceId: string) => call('POST', `/image-updates/services/${encodeURIComponent(serviceId)}/check`, isImageUpdateCheckResult, {}),
+		imageUpdatePlans: () => call('GET', '/image-updates/plans', listOfArray(isImageUpdatePlan)),
+		imageUpdatePlan: (id: string) => call('GET', `/image-updates/plans/${encodeURIComponent(id)}`, isImageUpdatePlan),
+		/** The digest binds the approval to the plan the operator saw; 409 approval_mismatch or policy_conflict (Galera, foreign). */
+		approveImageUpdatePlan: (id: string, digest: string) => call('POST', `/image-updates/plans/${encodeURIComponent(id)}/approve`, isImageUpdatePlan, { digest }),
+		declineImageUpdatePlan: (id: string) => call('POST', `/image-updates/plans/${encodeURIComponent(id)}/decline`, isImageUpdatePlan, {}),
+		applyImageUpdatePlan: (id: string) => call('POST', `/image-updates/plans/${encodeURIComponent(id)}/apply`, isImageUpdatePlan, {}),
+		/** Creates a plan back to the previous image; it needs its own approval. */
+		rollbackImageUpdatePlan: (id: string) => call('POST', `/image-updates/plans/${encodeURIComponent(id)}/rollback`, isImageUpdatePlan, {}),
 		hostSources: () => call('GET', '/host-sources', listOf(isHostSource)),
 		/** Starts a backup with retention and subset check; 409 agent_runtime_unavailable when no agent of the host offers restic. */
 		startHostBackup: (id: string) => call('POST', `/host-sources/${encodeURIComponent(id)}/backups`, isOperationRef, {}),
