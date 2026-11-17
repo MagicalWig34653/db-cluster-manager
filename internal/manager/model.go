@@ -237,10 +237,12 @@ const DefaultMonitorSocket = galera.SocketRelPath
 // OperationRecord stores an operation's definition (needed by a new leader
 // to take it over) and its latest runner view (for the UI).
 type OperationRecord struct {
-	ID      string `json:"id"`
-	Kind    string `json:"kind"`
-	Swarm   string `json:"swarm,omitempty"`
-	Cluster string `json:"cluster,omitempty"`
+	// HostSource binds host restore approval to its backup source.
+	HostSource string `json:"hostSource,omitempty"`
+	ID         string `json:"id"`
+	Kind       string `json:"kind"`
+	Swarm      string `json:"swarm,omitempty"`
+	Cluster    string `json:"cluster,omitempty"`
 	// Service is the managed service (services.go) of a service operation.
 	Service     string           `json:"service,omitempty"`
 	RequestedBy string           `json:"requestedBy"`

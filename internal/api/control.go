@@ -201,7 +201,10 @@ const OperationKindOutageRecovery = "galera/full-outage-recovery"
 // delete on the cluster for a cluster deletion, recover on the cluster for
 // a guided full-outage recovery, restore on the cluster's backups for other
 // operations, manager settings for unlocated ones.
-func ApprovalPermission(kind, swarm, cluster string) (authz.Action, authz.Resource) {
+func ApprovalPermission(kind, swarm, cluster string, hostSource ...string) (authz.Action, authz.Resource) {
+	if kind == "restic/restore" && len(hostSource) > 0 && hostSource[0] != "" {
+		return authz.ActionRestore, hostSourceResource(HostSource{ID: hostSource[0], Swarm: swarm})
+	}
 	// Service operations are located at a Swarm, not a cluster: creating a
 	// service needs create, deleting one needs delete on the service
 	// resource in that Swarm.

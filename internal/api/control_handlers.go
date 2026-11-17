@@ -331,7 +331,7 @@ func (s *server) resolveOperationApproval(r *http.Request) (authz.Resource, any,
 	if err != nil {
 		return authz.Resource{}, nil, err
 	}
-	_, res := ApprovalPermission(op.Kind, op.Swarm, op.Cluster)
+	_, res := ApprovalPermission(op.Kind, op.Swarm, op.Cluster, op.HostSource)
 	return res, op, nil
 }
 
@@ -340,7 +340,7 @@ func approvalAction(target any) authz.Action {
 	if !ok {
 		return authz.ActionRestore
 	}
-	act, _ := ApprovalPermission(op.Kind, op.Swarm, op.Cluster)
+	act, _ := ApprovalPermission(op.Kind, op.Swarm, op.Cluster, op.HostSource)
 	return act
 }
 

@@ -108,3 +108,31 @@ func TestHostSourceRuntimeRefusalAndView(t *testing.T) {
 		t.Fatal("refused run reached the backend")
 	}
 }
+
+func TestHostRestoreApprovalResource(t *testing.T) {
+	for _, swarm := range []string{"", "s1"} {
+		op := Operation{ID: "restore", Kind: "restic/restore", Swarm: swarm, HostSource: "home"}
+		action, resource := ApprovalPermission(op.Kind, op.Swarm, op.Cluster, op.HostSource)
+		want := hostSourceResource(HostSource{ID: "home", Swarm: swarm})
+		if action != authz.ActionRestore || resource != want {
+			t.Fatalf("approval: %s %+v, want %+v", action, resource, want)
+		}
+		if approvalAction(op) != action {
+			t.Fatal("handler action mismatch")
+		}
+	}
+}
+
+func TestHostRestoreApprovalRouteUsesSourcePermission(t *testing.T) {
+	cf := newControlFixture(t)
+	if err := cf.policy.AddRole(authz.Role{Name: "restore-home", Permissions: []authz.Permission{{Type: authz.ResourceBackup, Action: authz.ActionRestore, ID: "home"}}}); err != nil {
+		t.Fatal(err)
+	}
+	client := cf.loggedIn("restorer", "restore-home", authz.SwarmScope("s1"))
+	cf.inventory.operations = []Operation{
+		{ID: "home-op", Kind: "restic/restore", Swarm: "s1", HostSource: "home", Approval: &OperationApproval{Digest: digestA}},
+		{ID: "other-op", Kind: "restic/restore", Swarm: "s1", HostSource: "other", Approval: &OperationApproval{Digest: digestA}},
+	}
+	wantStatus(t, client.do("POST", "/api/v1/operations/home-op/approve", map[string]string{"digest": digestA}), http.StatusOK)
+	wantError(t, client.do("POST", "/api/v1/operations/other-op/approve", map[string]string{"digest": digestA}), http.StatusForbidden, errForbidden)
+}

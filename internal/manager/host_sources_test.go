@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/agentrt"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/authz"
 	"strings"
 	"testing"
 
@@ -196,4 +197,56 @@ func TestHostBackupFailureNotificationUsesRunnerOutcome(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatal("duplicate notification")
 	}
+}
+
+func TestHostRestoreApprovalUsesSourcePermission(t *testing.T) {
+	l, svcs, _ := serviceFixture(t)
+	setReports(t, l, "sw1", "h1", agentrt.ContainerInfo(true))
+	s := &HostSources{Ops: svcs.Ops, Keys: testKey}
+	ctx := context.Background()
+	_, err := s.Put(ctx, adminSubject, api.HostSourceInput{HostSource: api.HostSource{
+		ID: "home", Name: "Home", Kind: "managed-host", Transport: "agent", Swarm: "sw1", HostID: "h1", Paths: []string{"/srv/home"},
+		Backend: restic.BackendLocal, Repository: "/backup/repo", PasswordSecret: "restic-password"}, Password: "test-only"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pol := svcs.Ops.Authorizer.Policy()
+	if err := pol.AddRole(authz.Role{Name: "home-restorer", Permissions: []authz.Permission{{Type: authz.ResourceBackup, Action: authz.ActionRestore, ID: "home"}}}); err != nil {
+		t.Fatal(err)
+	}
+	actor := authz.Subject{ID: "home-restorer", Kind: authz.SubjectUser}
+	if err := pol.Bind(authz.Binding{Subject: actor, Role: "home-restorer", Scope: authz.SwarmScope("sw1")}); err != nil {
+		t.Fatal(err)
+	}
+	ref, err := s.Restore(ctx, actor, "home", api.HostRestoreInput{Snapshot: "abc123", Target: "/srv/restored"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, ok, err := Get[OperationRecord](l.Store(), CollOperations, ref.ID)
+	if err != nil || !ok {
+		t.Fatal(err)
+	}
+	if r.Value.HostSource != "home" {
+		t.Fatal("operation lost source identity")
+	}
+	act, res := approvalPermission(r.Value)
+	if act != authz.ActionRestore || res != hostSourceRes(api.HostSource{ID: "home", Swarm: "sw1"}) {
+		t.Fatalf("approval scope: %s %+v", act, res)
+	}
+	if _, err := svcs.Ops.Approve(actor, ref.ID, r.Value.ApprovalDigest); err != nil {
+		t.Fatalf("source restorer cannot approve: %v", err)
+	}
+	ops, err := (Inventory{Store: l.Store()}).Operations(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, op := range ops {
+		if op.ID == ref.ID {
+			if op.HostSource != "home" {
+				t.Fatal("API view lost source")
+			}
+			return
+		}
+	}
+	t.Fatal("operation missing from API view")
 }

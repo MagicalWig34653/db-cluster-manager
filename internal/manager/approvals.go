@@ -117,7 +117,7 @@ func locatedRes(swarm, cluster string) authz.Resource {
 // otherwise (manager settings for unlocated operations). The API checks the
 // same mapping (api.ApprovalPermission).
 func approvalPermission(rec OperationRecord) (authz.Action, authz.Resource) {
-	return api.ApprovalPermission(rec.Kind, rec.Swarm, rec.Cluster)
+	return api.ApprovalPermission(rec.Kind, rec.Swarm, rec.Cluster, rec.HostSource)
 }
 
 // Approve records actor's approval of the operation's destructive steps for

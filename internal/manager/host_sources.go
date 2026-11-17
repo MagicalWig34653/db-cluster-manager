@@ -356,7 +356,7 @@ func (s *HostSources) start(ctx context.Context, actor authz.Subject, id string,
 	if err != nil {
 		return api.OperationRef{}, MapCommandError(err)
 	}
-	rec := OperationRecord{ID: op.ID, Kind: op.Kind, Swarm: h.Swarm, RequestedBy: actor.ID, RequestedAt: s.Ops.Svc.cfg.Now(), Definition: op,
+	rec := OperationRecord{ID: op.ID, Kind: op.Kind, Swarm: h.Swarm, HostSource: h.ID, RequestedBy: actor.ID, RequestedAt: s.Ops.Svc.cfg.Now(), Definition: op,
 		ApprovalID: approvalID, ApprovalDigest: digest}
 	if err := s.Ops.commit(rec, nil); err != nil {
 		return api.OperationRef{}, MapCommandError(err)

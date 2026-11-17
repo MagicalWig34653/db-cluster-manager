@@ -212,7 +212,7 @@ func (inv Inventory) Operations(context.Context) ([]api.Operation, error) {
 	out := make([]api.Operation, 0, len(recs))
 	for _, r := range recs {
 		v := r.Value
-		op := api.Operation{ID: v.ID, Kind: v.Kind, Swarm: v.Swarm, Cluster: v.Cluster,
+		op := api.Operation{ID: v.ID, Kind: v.Kind, Swarm: v.Swarm, Cluster: v.Cluster, HostSource: v.HostSource,
 			State: operationState(v), StartedAt: v.RequestedAt, EndedAt: v.EndedAt}
 		if v.View != nil {
 			op.Reason = v.View.Reason

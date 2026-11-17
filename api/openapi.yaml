@@ -4379,6 +4379,7 @@ components:
         kind: { type: string }
         swarm: { type: string }
         cluster: { type: string }
+        hostSource: { type: string, description: Backup source whose restore permission authorizes approval of a host restore }
         state: { type: string, enum: [pending, running, succeeded, failed, aborted, unknown], description: "aborted: an operator abort ended the operation at a safe boundary; failed: a step failed without an abort" }
         startedAt: { type: string, format: date-time }
         endedAt: { type: string, format: date-time }

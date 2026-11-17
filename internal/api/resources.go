@@ -148,13 +148,15 @@ type Endpoint struct {
 // Operation is one journaled management operation. Swarm and Cluster locate
 // it; both empty means a manager-level operation.
 type Operation struct {
-	ID        string         `json:"id"`
-	Kind      string         `json:"kind"`
-	Swarm     string         `json:"swarm,omitempty"`
-	Cluster   string         `json:"cluster,omitempty"`
-	State     OperationState `json:"state"`
-	StartedAt time.Time      `json:"startedAt,omitzero"`
-	EndedAt   time.Time      `json:"endedAt,omitzero"`
+	// HostSource binds host restore approval to its backup source.
+	HostSource string         `json:"hostSource,omitempty"`
+	ID         string         `json:"id"`
+	Kind       string         `json:"kind"`
+	Swarm      string         `json:"swarm,omitempty"`
+	Cluster    string         `json:"cluster,omitempty"`
+	State      OperationState `json:"state"`
+	StartedAt  time.Time      `json:"startedAt,omitzero"`
+	EndedAt    time.Time      `json:"endedAt,omitzero"`
 	// Approval is set for operations whose destructive steps wait for an
 	// explicit approval (POST /operations/{id}/approve).
 	Approval *OperationApproval `json:"approval,omitempty"`
