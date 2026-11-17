@@ -216,3 +216,36 @@ func TestCodesPersistAndLoad(t *testing.T) {
 		t.Fatal("revoke not persisted")
 	}
 }
+
+func TestSessionRevokeReportsPersistenceFailureAndRetries(t *testing.T) {
+	accounts := NewAccounts()
+	if err := accounts.Create(persistAccount("alice")); err != nil {
+		t.Fatal(err)
+	}
+	p := newMemPersister()
+	s := NewSessions(DefaultSessionPolicy, accounts, time.Now)
+	s.SetPersister(p, nil)
+	token, _, err := s.Issue("alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.fail = errors.New("no quorum")
+	if err := s.Revoke(token); !errors.Is(err, p.fail) {
+		t.Fatalf("revocation falsely acknowledged: %v", err)
+	}
+	p.fail = nil
+	if err := s.Revoke(token); err != nil {
+		t.Fatal(err)
+	}
+	var records []SessionRecord
+	for _, r := range p.sessions {
+		records = append(records, r)
+	}
+	reloaded := NewSessions(DefaultSessionPolicy, accounts, time.Now)
+	if err := reloaded.Load(records); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reloaded.Validate(token); err == nil {
+		t.Fatal("revoked session revived after reload")
+	}
+}

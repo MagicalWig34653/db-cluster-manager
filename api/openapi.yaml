@@ -314,12 +314,14 @@ paths:
       description: >-
         Accepts a full or a recovery session. The session ends even if the
         audit record cannot be stored (refusing would keep a credential
-        alive); that failure is logged.
+        alive); that failure is logged. A failed durable session revocation
+        returns 503 and keeps the cookie so the client can retry.
       operationId: logout
       responses:
         "204": { description: Signed out; cookies cleared }
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
   /auth/session:
     get:
       summary: Describe the current session

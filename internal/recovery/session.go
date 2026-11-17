@@ -169,18 +169,22 @@ func (s *Sessions) Rotate(token string) (string, Session, error) {
 	if err := s.putLocked(nd, next); err != nil {
 		return "", Session{}, err
 	}
-	s.deleteLocked(d)
+	if err := s.deleteLocked(d); err != nil {
+		_ = s.deleteLocked(nd)
+		return "", Session{}, err
+	}
 	s.byHash[nd] = &next
 	return tok, next, nil
 }
 
 // Revoke ends one session. Revoking an unknown token is not an error.
-func (s *Sessions) Revoke(token string) {
+func (s *Sessions) Revoke(token string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.byHash[digest(token)]; ok {
-		s.deleteLocked(digest(token))
+		return s.deleteLocked(digest(token))
 	}
+	return nil
 }
 
 // RevokeUser ends all sessions of a user and returns how many ended.

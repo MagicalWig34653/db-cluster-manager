@@ -5,6 +5,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/recovery"
 	"net/http"
 	"testing"
 	"time"
@@ -189,5 +190,20 @@ func TestRegisterPasskeyAuditFailureDenies(t *testing.T) {
 	}
 	if n != 1 {
 		t.Fatalf("passkeys = %d, want 1", n)
+	}
+}
+
+type failingLogoutPersister struct{}
+
+func (failingLogoutPersister) PutSession(recovery.SessionRecord) error { return nil }
+func (failingLogoutPersister) DeleteSession(string) error              { return errors.New("no quorum") }
+
+func TestLogoutDoesNotAcknowledgeFailedRevocation(t *testing.T) {
+	f := newFixture(t)
+	c, _, _ := f.setupAdmin("admin")
+	f.sessions.SetPersister(failingLogoutPersister{}, nil)
+	wantError(t, c.do("POST", "/api/v1/auth/logout", nil), http.StatusServiceUnavailable, errUnavailable)
+	if _, ok := c.cookies["__Host-dcm_session"]; !ok {
+		t.Fatal("failed logout cleared retry credential")
 	}
 }

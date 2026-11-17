@@ -308,10 +308,16 @@ func (s *server) handleLoginFinish(w http.ResponseWriter, r *http.Request, _ *ca
 // keep a credential alive, which is the less safe outcome. The failure is
 // logged instead.
 func (s *server) handleLogout(w http.ResponseWriter, r *http.Request, c *caller) {
+	var err error
 	if c.restricted {
-		s.cfg.RecoverySessions.Revoke(c.token)
+		err = s.cfg.RecoverySessions.Revoke(c.token)
 	} else {
-		s.cfg.Sessions.Revoke(c.token)
+		err = s.cfg.Sessions.Revoke(c.token)
+	}
+	if err != nil {
+		s.log.Error("api: session revocation could not be stored", "err", err)
+		writeError(w, http.StatusServiceUnavailable, errUnavailable)
+		return
 	}
 	s.clearCookie(w, s.cookies.session)
 	s.clearCookie(w, s.cookies.recovery)

@@ -20,11 +20,10 @@ import (
 //   - Account changes, new and rotated sessions and consumed recovery codes
 //     are persisted before they take effect; a persister error rejects the
 //     change (fail closed).
-//   - Deletions (revoked, expired or pruned sessions; revoked code sets) and
-//     code-set enrolment cannot report errors through the existing API. They
-//     are persisted best effort and errors go to the persister's error
-//     callback. A session whose deletion was lost reappears after a reload
-//     but still expires by its own timeouts and credential epoch.
+//   - Session deletions are persisted before removal; explicit Revoke reports
+//     failures to its caller so logout cannot acknowledge a lost revocation.
+//     Background cleanup reports failures to the error callback and retries
+//     while the record remains in memory. Code-set deletion stays best effort.
 //   - Session activity (LastSeenAt) is persisted at most once per quarter of
 //     the idle timeout, so a reload can end a session somewhat earlier than
 //     its idle timeout would have.
@@ -157,15 +156,19 @@ func (s *Sessions) putLocked(d [32]byte, sess Session) error {
 	return nil
 }
 
-func (s *Sessions) deleteLocked(d [32]byte) {
+func (s *Sessions) deleteLocked(d [32]byte) error {
+	if s.persist != nil {
+		if err := s.persist.DeleteSession(hex.EncodeToString(d[:])); err != nil {
+			err = fmt.Errorf("recovery: persist session deletion: %w", err)
+			if s.onErr != nil {
+				s.onErr(err)
+			}
+			return err
+		}
+	}
 	delete(s.byHash, d)
 	delete(s.seenPersisted, d)
-	if s.persist == nil {
-		return
-	}
-	if err := s.persist.DeleteSession(hex.EncodeToString(d[:])); err != nil && s.onErr != nil {
-		s.onErr(fmt.Errorf("recovery: persist session deletion: %w", err))
-	}
+	return nil
 }
 
 // touchLocked persists activity when enough time passed since the last
