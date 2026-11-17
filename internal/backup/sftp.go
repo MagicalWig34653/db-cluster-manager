@@ -277,13 +277,7 @@ func (b *SFTPBackend) Put(ctx context.Context, name string, r io.Reader) error {
 		if err = f.Close(); err != nil {
 			return err
 		}
-		dst := b.p(name)
-		if err = cl.PosixRename(tmp, dst); err != nil {
-			// Servers without posix-rename: replace non-atomically.
-			_ = cl.Remove(dst)
-			err = cl.Rename(tmp, dst)
-		}
-		return err
+		return publishSFTP(cl, tmp, b.p(name))
 	})
 }
 
@@ -389,3 +383,13 @@ func (b *SFTPBackend) Delete(ctx context.Context, name string) error {
 }
 
 var _ Backend = (*SFTPBackend)(nil)
+
+// Atomic replacement is required even on servers without posix-rename.
+// Refuse unsupported replacement rather than deleting an existing backup.
+type sftpPublisher interface {
+	PosixRename(string, string) error
+}
+
+func publishSFTP(cl sftpPublisher, tmp, dst string) error {
+	return cl.PosixRename(tmp, dst)
+}
