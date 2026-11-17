@@ -48,6 +48,8 @@ For the active task, maintain: objective, changed files/contracts, executed chec
 
 ## Current next action
 
+Review correction follow-up (2026-11-17): the caller reports all checks green except the host restore approval route regression. Static inspection confirms the existing ADR 0011 visibility rule: unreadable denied sources return 404, readable denied sources 403. The regression now asserts both cases and allows only the home-source approval to reach the backend, using source-scoped restore rights without settings rights. No handler change. Execution remains **PENDING** for this revised test; no builds, tests, Docker commands, network calls or pushes were performed. Next action: the caller reruns the focused API regression with `-race` from [BERICHT-FIXES.md](../BERICHT-FIXES.md).
+
 Review corrections (2026-11-17): implementation and regression-test sources for all eight supplied high/medium findings are committed. Verification is **PENDING**: the owner prohibited executing builds, tests, Docker commands and network calls in this work package. Next action for the caller: run the exact per-finding commands in [BERICHT-FIXES.md](../BERICHT-FIXES.md), then the affected package suites. SFTP publication requires `posix-rename`; pending metrics remain local on archive failure and disk pressure may stop ingestion. Existing W05/R1 gates remain open.
 
 

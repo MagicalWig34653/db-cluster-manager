@@ -106,6 +106,14 @@ go test ./internal/manager -run '^TestHostRestoreApprovalUsesSourcePermission$' 
 go test ./internal/api -run '^TestHostRestoreApproval(Resource|RouteUsesSourcePermission)$' -race -count=1
 ```
 
+## Nachbesserung zu Befund 8 (2026-11-17)
+
+Der Prüfer meldet die volle Suite und alle Regressionstests mit `-race` bis auf `TestHostRestoreApprovalRouteUsesSourcePermission` als grün. Dieser Test erwartete für `other` HTTP 403, obwohl seine Rolle ausschließlich `restore` auf `home` und kein `read` auf `other` hatte. Das beobachtete HTTP 404 entspricht der dokumentierten Entscheidung in [ADR 0011, Punkt 2](docs/decisions/0011-command-api-and-approvals.md): Bei verweigerter Aktion verbirgt `hideUnreadable` eine nicht lesbare Ressource mit 404; eine lesbare Ressource ergibt 403. Die Freigaberoute in `server.go` und ihre zentrale Berechtigungsprüfung setzen dies bereits korrekt um. Eine Handleränderung würde die bestehende Sichtbarkeitsregel verletzen.
+
+Der Regressionstest prüft jetzt beide Fälle mit getrennten Fixtures: ohne Leserecht auf `other` exakt 404 `not_found`, mit ausschließlich zusätzlichem quellbezogenem `read` auf `other` exakt 403 `forbidden`. In beiden Fällen muss `home` mit ausschließlich `restore` auf dieser Quelle und ohne globale Einstellungsrechte HTTP 200 liefern. Der Backend-Fake darf exakt die Freigabe für `home-op` erhalten. Damit bleiben die ursprüngliche Absicht von Befund 8 und die Grenze zwischen den Quellen geprüft; zusätzlich ist die Sichtbarkeitsregel abgesichert.
+
+In dieser Nachbesserung wurden nur Code und Diff statisch geprüft sowie `gofmt` und `git diff --check` ausgeführt. Keine Builds, Tests, Docker- oder Netzaufrufe, kein Push. Das Prüfergebnis oben stammt vom Aufrufer und gilt für den Stand vor dieser Nachbesserung; der geänderte Test wurde hier nicht ausgeführt. Nächster Schritt: Der Aufrufer wiederholt den oben genannten API-Regressionsbefehl mit `-race`.
+
 ## Nächster Schritt
 
 Der Aufrufer führt die obigen gezielten Regressionstests aus und anschließend die betroffenen Paketsuiten. Laufzeitverhalten, Kompilierbarkeit und Race-Freiheit sind in dieser Sitzung ausdrücklich nicht nachgewiesen. Es wurden keine Release-Gates geschlossen.

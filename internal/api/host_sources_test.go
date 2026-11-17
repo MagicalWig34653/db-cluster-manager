@@ -124,15 +124,35 @@ func TestHostRestoreApprovalResource(t *testing.T) {
 }
 
 func TestHostRestoreApprovalRouteUsesSourcePermission(t *testing.T) {
-	cf := newControlFixture(t)
-	if err := cf.policy.AddRole(authz.Role{Name: "restore-home", Permissions: []authz.Permission{{Type: authz.ResourceBackup, Action: authz.ActionRestore, ID: "home"}}}); err != nil {
-		t.Fatal(err)
+	for _, tc := range []struct {
+		name      string
+		readOther bool
+		status    int
+		code      string
+	}{
+		{name: "unreadable source is hidden", status: http.StatusNotFound, code: errNotFound},
+		{name: "readable source needs restore permission", readOther: true, status: http.StatusForbidden, code: errForbidden},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cf := newControlFixture(t)
+			permissions := []authz.Permission{{Type: authz.ResourceBackup, Action: authz.ActionRestore, ID: "home"}}
+			if tc.readOther {
+				permissions = append(permissions, authz.Permission{Type: authz.ResourceBackup, Action: authz.ActionRead, ID: "other"})
+			}
+			if err := cf.policy.AddRole(authz.Role{Name: "restore-home", Permissions: permissions}); err != nil {
+				t.Fatal(err)
+			}
+			client := cf.loggedIn("restorer", "restore-home", authz.SwarmScope("s1"))
+			cf.inventory.operations = []Operation{
+				{ID: "home-op", Kind: "restic/restore", Swarm: "s1", HostSource: "home", Approval: &OperationApproval{Digest: digestA}},
+				{ID: "other-op", Kind: "restic/restore", Swarm: "s1", HostSource: "other", Approval: &OperationApproval{Digest: digestA}},
+			}
+			// Source-scoped restore alone suffices; neither read nor settings rights are required.
+			wantStatus(t, client.do("POST", "/api/v1/operations/home-op/approve", map[string]string{"digest": digestA}), http.StatusOK)
+			wantError(t, client.do("POST", "/api/v1/operations/other-op/approve", map[string]string{"digest": digestA}), tc.status, tc.code)
+			if calls := cf.ctl.Calls(); len(calls) != 1 || calls[0] != "restorer:approve home-op "+digestA {
+				t.Fatalf("approval calls %v, want only home-op", calls)
+			}
+		})
 	}
-	client := cf.loggedIn("restorer", "restore-home", authz.SwarmScope("s1"))
-	cf.inventory.operations = []Operation{
-		{ID: "home-op", Kind: "restic/restore", Swarm: "s1", HostSource: "home", Approval: &OperationApproval{Digest: digestA}},
-		{ID: "other-op", Kind: "restic/restore", Swarm: "s1", HostSource: "other", Approval: &OperationApproval{Digest: digestA}},
-	}
-	wantStatus(t, client.do("POST", "/api/v1/operations/home-op/approve", map[string]string{"digest": digestA}), http.StatusOK)
-	wantError(t, client.do("POST", "/api/v1/operations/other-op/approve", map[string]string{"digest": digestA}), http.StatusForbidden, errForbidden)
 }
