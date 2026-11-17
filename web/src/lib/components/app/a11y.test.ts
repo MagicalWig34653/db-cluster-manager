@@ -4,6 +4,7 @@ import { contrast, tokens } from '../../../../scripts/contrast.mjs';
 import StateView from './StateView.svelte';
 import FormErrors from './FormErrors.svelte';
 import PatchPolicyFields from './PatchPolicyFields.svelte';
+import { t } from '../../locale.svelte';
 
 describe('accessible shared states', () => {
   it('announces loading and errors with distinct live roles', () => {
@@ -23,10 +24,11 @@ describe('patch policy fields', () => {
   it('shows the report-only default and warns when container runtime updates need approval', () => {
     const base = { errors: [], prefix: 'pp' };
     const def = render(PatchPolicyFields, { props: { ...base, policy: { containerRuntime: 'report_only' } } }).body;
-    expect(def).toContain('Standard: nur melden');
-    expect(def).not.toContain('Achtung:');
+    // Text der aktiven Sprache prüfen: CI läuft englisch, lokal oft deutsch
+    expect(def).toContain(t('patchPolicyContainerRuntimeDefault'));
+    expect(def).not.toContain(t('patchPolicyContainerRuntimeWarn'));
     const warn = render(PatchPolicyFields, { props: { ...base, policy: { containerRuntime: 'approval_required' } } }).body;
-    expect(warn).toContain('Achtung:');
+    expect(warn).toContain(t('patchPolicyContainerRuntimeWarn'));
     expect(warn).toContain('aria-describedby="pp-runtime-note"');
   });
   it('marks a field invalid for its validation error', () => {
