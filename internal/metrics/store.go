@@ -25,12 +25,13 @@ type hseries struct {
 }
 
 type block struct {
-	minT, maxT int64 // window [minT, maxT)
-	raw, agg   *blockFile
-	rawBad     bool // file present but unreadable
-	aggBad     bool
-	rawSize    int64
-	aggSize    int64
+	minT, maxT     int64 // window [minT, maxT)
+	raw, agg       *blockFile
+	rawBad         bool // file present but unreadable
+	aggBad         bool
+	rawSize        int64
+	aggSize        int64
+	archiveReaders int // protected by Store.mu
 }
 
 func (b *block) bytes() int64 { return b.rawSize + b.aggSize }
@@ -625,6 +626,10 @@ func (s *Store) enforceRetentionLocked(now time.Time) error {
 	nowMs := now.UnixMilli()
 	kept := s.blocks[:0:0]
 	for _, b := range s.blocks {
+		if b.archiveReaders > 0 {
+			kept = append(kept, b)
+			continue
+		}
 		age := nowMs - b.maxT
 		switch {
 		case age > s.opts.AggRetention.Milliseconds():
@@ -638,10 +643,17 @@ func (s *Store) enforceRetentionLocked(now time.Time) error {
 	}
 	s.blocks = kept
 	for s.totalBytesLocked() > s.opts.MaxBytes && len(s.blocks) > 0 {
-		b := s.blocks[0]
+		i := 0
+		for i < len(s.blocks) && s.blocks[i].archiveReaders > 0 {
+			i++
+		}
+		if i == len(s.blocks) {
+			break
+		}
+		b := s.blocks[i]
 		s.removeBlockFiles(b, true, true)
 		s.expiredUntil, changed = max64(s.expiredUntil, b.maxT), true
-		s.blocks = s.blocks[1:]
+		s.blocks = append(s.blocks[:i], s.blocks[i+1:]...)
 	}
 	if changed {
 		return s.saveMeta()
@@ -703,14 +715,27 @@ func (s *Store) ArchiveBlocks(ctx context.Context) (int, error) {
 	if s.opts.Archive == nil {
 		return 0, nil
 	}
-	s.mu.RLock()
-	var todo []*block
+	type pending struct {
+		meta  BlockMeta
+		path  string
+		block *block
+	}
+	s.mu.Lock()
+	var todo []pending
 	for _, b := range s.blocks {
 		if b.agg != nil && !s.archIdx.Has(blockID(b.minT, b.maxT)) {
-			todo = append(todo, b)
+			b.archiveReaders++
+			todo = append(todo, pending{BlockMeta{ID: blockID(b.minT, b.maxT), MinT: b.minT, MaxT: b.maxT}, b.agg.path, b})
 		}
 	}
-	s.mu.RUnlock()
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		for _, p := range todo {
+			p.block.archiveReaders--
+		}
+	}()
 	var errs []error
 	n := 0
 	for _, b := range todo {
@@ -718,12 +743,13 @@ func (s *Store) ArchiveBlocks(ctx context.Context) (int, error) {
 			errs = append(errs, err)
 			break
 		}
-		data, err := os.ReadFile(b.agg.path)
+		data, err := os.ReadFile(b.path)
 		if err != nil {
 			errs = append(errs, err)
 			continue
 		}
-		meta := BlockMeta{ID: blockID(b.minT, b.maxT), MinT: b.minT, MaxT: b.maxT, Size: int64(len(data))}
+		meta := b.meta
+		meta.Size = int64(len(data))
 		if err := s.opts.Archive.PutBlock(ctx, meta, data); err != nil {
 			errs = append(errs, fmt.Errorf("archive block %s: %w", meta.ID, err))
 			continue

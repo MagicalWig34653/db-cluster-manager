@@ -236,3 +236,40 @@ func TestArchiveBlockTooLargeIsGap(t *testing.T) {
 		t.Fatalf("err=%v gaps=%+v", err, res.Gaps)
 	}
 }
+
+// Retention runs after the first upload, while later snapshot entries still
+// need their local files. This deterministically exercises the former race.
+type retentionDuringUpload struct {
+	Archive
+	once   sync.Once
+	retain func()
+}
+
+func (a *retentionDuringUpload) PutBlock(ctx context.Context, m BlockMeta, data []byte) error {
+	a.once.Do(a.retain)
+	return a.Archive.PutBlock(ctx, m, data)
+}
+
+func TestArchiveSnapshotSurvivesRetention(t *testing.T) {
+	la, err := NewLocalArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &retentionDuringUpload{Archive: la}
+	o, clk := testOpts(t, func(o *Options) { o.Archive = a })
+	s := openT(t, o)
+	fill(t, s, MustLabels("g"), base, base+9*hour, 10000, func(int64) float64 { return 1 })
+	want := s.Stats().Blocks
+	if want < 2 {
+		t.Fatal("need multiple sealed blocks")
+	}
+	a.retain = func() {
+		clk.Set(base + 365*day)
+		if err := s.Seal(); err != nil {
+			t.Error(err)
+		}
+	}
+	if n, err := s.ArchiveBlocks(context.Background()); err != nil || n != want {
+		t.Fatalf("archived %d, want %d: %v", n, want, err)
+	}
+}
