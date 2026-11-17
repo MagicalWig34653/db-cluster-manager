@@ -41,7 +41,7 @@ func (b *Backups) completedPhysical(clusterID string) ([]BackupRecord, error) {
 	var out []done
 	for _, r := range recs {
 		v := r.Value
-		if v.Cluster != clusterID || v.Method != dbbackup.MethodPhysical || len(v.Objects) == 0 || !v.DeletedAt.IsZero() {
+		if v.Cluster != clusterID || v.Deleting || v.Method != dbbackup.MethodPhysical || len(v.Objects) == 0 || !v.DeletedAt.IsZero() {
 			continue
 		}
 		op, ok, err := Get[OperationRecord](b.store(), CollOperations, v.OpID)

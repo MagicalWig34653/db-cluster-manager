@@ -122,6 +122,8 @@ type BackupRecord struct {
 	Trigger   string          `json:"trigger"` // manual or schedule
 	By        string          `json:"by"`
 	StartedAt time.Time       `json:"startedAt"`
+	// Deleting reserves this source against new inspection pins, including after failover.
+	Deleting bool `json:"deleting,omitempty"`
 	// DeletedAt is set when retention deleted the backup's objects.
 	DeletedAt time.Time `json:"deletedAt,omitzero"`
 }
@@ -545,6 +547,22 @@ func (b *Backups) commit(rec OperationRecord, extra ...docOp) error {
 	}
 	ops := []metastore.DocOp{op}
 	for _, e := range extra {
+		if ir, ok := e.v.(InspectionRecord); ok && ir.Session.BackupID != "" {
+			r, exists, err := Get[BackupRecord](b.store(), CollBackups, ir.Session.BackupID, Consistent())
+			if err != nil {
+				return err
+			}
+			if !exists || r.Value.Deleting || !r.Value.DeletedAt.IsZero() {
+				return api.ErrConflict
+			}
+			// A same-value CAS write makes the pin conflict with a deletion
+			// selected from an earlier snapshot. Both changes are replicated.
+			guard, err := PutOp(CollBackups, r.Key, r.Value, IfVersion(r.Version))
+			if err != nil {
+				return err
+			}
+			ops = append(ops, guard)
+		}
 		d, err := PutOp(e.coll, e.key, e.v, IfVersion(0))
 		if err != nil {
 			return err
@@ -594,7 +612,7 @@ func (b *Backups) chooseBackup(clusterID, want string) (BackupRecord, error) {
 	var bestAt time.Time
 	for _, r := range recs {
 		v := r.Value
-		if v.Cluster != clusterID || v.Method != dbbackup.MethodPhysical || len(v.Objects) == 0 || (want != "" && v.ID != want) {
+		if v.Cluster != clusterID || v.Deleting || !v.DeletedAt.IsZero() || v.Method != dbbackup.MethodPhysical || len(v.Objects) == 0 || (want != "" && v.ID != want) {
 			continue
 		}
 		op, ok, err := Get[OperationRecord](b.store(), CollOperations, v.OpID)

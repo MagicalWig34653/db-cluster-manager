@@ -194,3 +194,41 @@ func TestRetentionKeepsVerifiedAndPinnedSets(t *testing.T) {
 		t.Fatalf("live %v deleted %v", got, ids(deleted))
 	}
 }
+
+func TestRetentionReservationAndInspectionPinAreAtomic(t *testing.T) {
+	for _, pinFirst := range []bool{true, false} {
+		t.Run(map[bool]string{true: "pin-first", false: "delete-first"}[pinFirst], func(t *testing.T) {
+			env := newBackupEnv(t, true)
+			env.completedBackup(t, "old", env.clock.Now())
+			sets, records, err := env.b.backupSets("clu-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			pin := func() error {
+				return env.b.commit(OperationRecord{ID: "inspection-op"}, PutOpOf(CollInspections, "inspection", InspectionRecord{
+					Cluster: "clu-1", Session: dbbackup.InspectionSession{ID: "inspection", BackupID: "old"}}))
+			}
+			if pinFirst {
+				if err := pin(); err != nil {
+					t.Fatal(err)
+				}
+				if err := env.b.reserveRetention(sets, records); !errors.Is(err, ErrConflict) {
+					t.Fatalf("stale deletion accepted: %v", err)
+				}
+			} else {
+				if err := env.b.reserveRetention(sets, records); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := env.b.chooseBackup("clu-1", "old"); !errors.Is(err, api.ErrNotFound) {
+					t.Fatalf("reserved source still selectable: %v", err)
+				}
+				if err := pin(); !errors.Is(err, api.ErrConflict) {
+					t.Fatalf("reserved source accepted: %v", err)
+				}
+				if _, ok, _ := Get[InspectionRecord](env.svc.Store(), CollInspections, "inspection"); ok {
+					t.Fatal("pin committed despite reservation")
+				}
+			}
+		})
+	}
+}

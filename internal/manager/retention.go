@@ -118,8 +118,22 @@ func (b *Backups) retainCluster(ctx context.Context, clusterID string, pol backu
 		return err
 	}
 	_, remove := dbbackup.RetentionSelect(sets, pol)
+	// A reservation is an irreversible cleanup intent: finish it even if
+	// the retention policy changed or the newest verified set changed.
+	selected := map[string]bool{}
+	for _, set := range remove {
+		selected[set.BackupID] = true
+	}
+	for _, set := range sets {
+		if byID[set.BackupID].Value.Deleting && !selected[set.BackupID] {
+			remove = append(remove, set)
+		}
+	}
 	if len(remove) == 0 {
 		return nil
+	}
+	if err := b.reserveRetention(remove, byID); err != nil {
+		return err
 	}
 	// The binlog archives of a removed backup go with it, before it.
 	logs, err := b.binlogSets(ctx, clusterID, remove)
@@ -154,4 +168,21 @@ func (b *Backups) retainCluster(ctx context.Context, clusterID string, pol backu
 			fmt.Sprintf("retention deleted %d backup set(s) of %s: %v", len(removed), c.Value.Name, removed))
 	}
 	return err
+}
+
+// reserveRetention fences every selected source against concurrent pins.
+// Reservations remain durable on failure so a later pass can finish cleanup.
+func (b *Backups) reserveRetention(sets []dbbackup.BackupSet, records map[string]Versioned[BackupRecord]) error {
+	for _, set := range sets {
+		r := records[set.BackupID]
+		v := r.Value
+		v.Deleting = true
+		next, err := Put(b.store(), CollBackups, set.BackupID, v, IfVersion(r.Version))
+		if err != nil {
+			return err
+		}
+		r.Version, r.Value = next, v
+		records[set.BackupID] = r
+	}
+	return nil
 }
