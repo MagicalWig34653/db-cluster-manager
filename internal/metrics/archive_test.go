@@ -273,3 +273,52 @@ func TestArchiveSnapshotSurvivesRetention(t *testing.T) {
 		t.Fatalf("archived %d, want %d: %v", n, want, err)
 	}
 }
+
+type failingPutArchive struct {
+	Archive
+	fail bool
+}
+
+func (a *failingPutArchive) PutBlock(ctx context.Context, m BlockMeta, data []byte) error {
+	if a.fail {
+		return errors.New("archive unavailable")
+	}
+	return a.Archive.PutBlock(ctx, m, data)
+}
+
+func TestMaintainArchivesExpiredBlocksBeforeDeletion(t *testing.T) {
+	for _, budget := range []bool{false, true} {
+		t.Run(fmt.Sprint("budget=", budget), func(t *testing.T) {
+			la, err := NewLocalArchive(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			a := &failingPutArchive{Archive: la, fail: true}
+			o, clk := testOpts(t, func(o *Options) { o.Archive = a })
+			s := openT(t, o)
+			fill(t, s, MustLabels("g"), base, base+9*hour, 10000, func(int64) float64 { return 1 })
+			if budget {
+				s.opts.MaxBytes = 1
+			}
+			clk.Set(base + 365*day)
+			if err := s.Maintain(context.Background()); err == nil {
+				t.Fatal("archive failure not reported")
+			}
+			want := s.Stats().Blocks
+			if want < 3 {
+				t.Fatal("unarchived blocks lost")
+			}
+			a.fail = false
+			if err := s.Maintain(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			metas, err := la.ListRanges(context.Background(), base, base+10*hour)
+			if err != nil || len(metas) != want {
+				t.Fatalf("archive has %d, want %d: %v", len(metas), want, err)
+			}
+			if s.Stats().Blocks != 0 {
+				t.Fatal("archived expired blocks retained")
+			}
+		})
+	}
+}

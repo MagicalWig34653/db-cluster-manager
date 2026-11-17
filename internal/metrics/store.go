@@ -456,6 +456,9 @@ func (s *Store) Append(entries []Entry) (int, error) {
 	if err := s.sealLocked(); err != nil {
 		errs = append(errs, err)
 	}
+	if err := s.enforceRetentionLocked(now); err != nil {
+		errs = append(errs, err)
+	}
 	return ok, errors.Join(errs...)
 }
 
@@ -549,7 +552,7 @@ func (s *Store) sealWindowLocked(ws, we int64) error {
 	if err := s.rewriteWALLocked(); err != nil {
 		return err
 	}
-	return s.enforceRetentionLocked(s.opts.Now())
+	return nil
 }
 
 func (s *Store) rewriteWALLocked() error {
@@ -618,6 +621,12 @@ func (s *Store) removeBlockFiles(b *block, raw, agg bool) {
 	}
 }
 
+// Pending archive uploads survive both age and budget retention. Once the
+// budget is full Append refuses new samples; Maintain reports upload errors.
+func (s *Store) blockProtectedLocked(b *block) bool {
+	return b.archiveReaders > 0 || (s.opts.Archive != nil && !s.archIdx.Has(blockID(b.minT, b.maxT)))
+}
+
 // enforceRetentionLocked drops whole files, never part of one: raw files older
 // than RawRetention, whole blocks older than AggRetention, then the oldest
 // blocks while the disk budget is exceeded.
@@ -626,7 +635,7 @@ func (s *Store) enforceRetentionLocked(now time.Time) error {
 	nowMs := now.UnixMilli()
 	kept := s.blocks[:0:0]
 	for _, b := range s.blocks {
-		if b.archiveReaders > 0 {
+		if s.blockProtectedLocked(b) {
 			kept = append(kept, b)
 			continue
 		}
@@ -644,7 +653,7 @@ func (s *Store) enforceRetentionLocked(now time.Time) error {
 	s.blocks = kept
 	for s.totalBytesLocked() > s.opts.MaxBytes && len(s.blocks) > 0 {
 		i := 0
-		for i < len(s.blocks) && s.blocks[i].archiveReaders > 0 {
+		for i < len(s.blocks) && s.blockProtectedLocked(s.blocks[i]) {
 			i++
 		}
 		if i == len(s.blocks) {
@@ -709,8 +718,8 @@ func (s *Store) RefreshArchive(ctx context.Context) error {
 }
 
 // ArchiveBlocks uploads the rollup file of every sealed block that is not yet
-// in the archive index and returns how many were uploaded. Schedule it more
-// often than AggRetention so that expiring data is archived first.
+// in the archive index and returns how many were uploaded. Pending blocks
+// are protected from retention until an upload succeeds.
 func (s *Store) ArchiveBlocks(ctx context.Context) (int, error) {
 	if s.opts.Archive == nil {
 		return 0, nil
@@ -763,7 +772,13 @@ func (s *Store) ArchiveBlocks(ctx context.Context) (int, error) {
 
 // Maintain seals, archives and applies retention, in that order.
 func (s *Store) Maintain(ctx context.Context) error {
-	err := s.Seal()
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return ErrClosed
+	}
+	err := s.sealLocked()
+	s.mu.Unlock()
 	_, aerr := s.ArchiveBlocks(ctx)
 	s.mu.Lock()
 	rerr := s.enforceRetentionLocked(s.opts.Now())
