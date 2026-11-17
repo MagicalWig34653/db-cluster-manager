@@ -93,18 +93,38 @@ func (r SSHRunner) Run(ctx context.Context, h Host, cred Credential, command, st
 		return "", fmt.Errorf("provision: SSH dial failed")
 	}
 	defer conn.Close()
+	// DialContext stops watching ctx after TCP connect. Keep cancellation
+	// active through the handshake, channel opening and command execution.
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stop()
+	deadline := time.Now().Add(timeout)
+	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
+		deadline = d
+	}
+	if err := conn.SetDeadline(deadline); err != nil {
+		return "", err
+	}
 	config := &ssh.ClientConfig{User: h.User, Auth: []ssh.AuthMethod{auth}, HostKeyCallback: callback, HostKeyAlgorithms: algos, Timeout: timeout}
 	clientConn, chans, reqs, err := ssh.NewClientConn(conn, address, config)
 	if err != nil {
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
 		return "", fmt.Errorf("provision: SSH host-key or authentication failed")
 	}
 	client := ssh.NewClient(clientConn, chans, reqs)
 	defer client.Close()
 	session, err := client.NewSession()
 	if err != nil {
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
 		return "", fmt.Errorf("provision: SSH session failed")
 	}
 	defer session.Close()
+	if err := conn.SetDeadline(time.Time{}); err != nil {
+		return "", err
+	}
 	session.Stdin = strings.NewReader(stdin)
 	var out limitedBuffer
 	session.Stdout, session.Stderr = &out, &out
