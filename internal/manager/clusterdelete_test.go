@@ -16,6 +16,7 @@ import (
 	"github.com/MagicalWig34653/db-cluster-manager/internal/authz"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/dbbackup"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/galera"
+	"github.com/MagicalWig34653/db-cluster-manager/internal/metastore"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/runner"
 )
 
@@ -215,5 +216,76 @@ func TestDeletePlanCoversJobsInspectionsAndReplacementVolumes(t *testing.T) {
 	cl, _, _ := Get[ClusterRecord](st, CollClusters, "clu-1")
 	if ir.Value.TeardownOp != d.Operation.ID || cl.Value.DeleteOp != d.Operation.ID {
 		t.Fatalf("records not marked: %q %q", ir.Value.TeardownOp, cl.Value.DeleteOp)
+	}
+}
+
+// TestDeleteReplansAfterClusterVersionConflict: a background writer (health
+// observation, reconciler) bumped the cluster record between the planning
+// and the transaction of the deletion, which surfaced as a 409 (CI amd64,
+// TestDeleteSurvivesLeaderLossWhileVolumeBusy). The deletion is planned
+// again on the fresh record; a conflict that never ends stays an error.
+func TestDeleteReplansAfterClusterVersionConflict(t *testing.T) {
+	env := newBackupEnv(t, true)
+	st := env.svc.Store()
+	bump := func() {
+		cur, _, err := Get[ClusterRecord](st, CollClusters, "clu-1", Consistent())
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		if _, err := Put(st, CollClusters, "clu-1", cur.Value, nil); err != nil {
+			t.Error(err)
+		}
+	}
+	bumps := 0
+	beforeClusterDeleteTxn = func() {
+		bumps++
+		if bumps == 1 {
+			bump()
+		}
+	}
+	t.Cleanup(func() { beforeClusterDeleteTxn = nil })
+	d, err := env.ops.DeleteCluster(adminSubject, "clu-1")
+	if err != nil {
+		t.Fatalf("delete after a concurrent cluster update: %v", err)
+	}
+	if bumps != 2 {
+		t.Errorf("planned %d times, want 2", bumps)
+	}
+	cur, _, err := Get[ClusterRecord](st, CollClusters, "clu-1", Consistent())
+	if err != nil || cur.Value.DeleteOp != d.Operation.ID {
+		t.Fatalf("cluster delete mark %q, want %q (%v)", cur.Value.DeleteOp, d.Operation.ID, err)
+	}
+	if _, ok, _ := Get[OperationRecord](st, CollOperations, d.Operation.ID); !ok {
+		t.Fatal("operation not stored")
+	}
+}
+
+func TestDeleteGivesUpOnPersistentVersionConflict(t *testing.T) {
+	env := newBackupEnv(t, true)
+	st := env.svc.Store()
+	bumps := 0
+	beforeClusterDeleteTxn = func() {
+		bumps++
+		cur, _, _ := Get[ClusterRecord](st, CollClusters, "clu-1", Consistent())
+		if _, err := Put(st, CollClusters, "clu-1", cur.Value, nil); err != nil {
+			t.Error(err)
+		}
+	}
+	t.Cleanup(func() { beforeClusterDeleteTxn = nil })
+	if _, err := env.ops.DeleteCluster(adminSubject, "clu-1"); !errors.Is(err, metastore.ErrVersionConflict) {
+		t.Fatalf("persistent conflict: %v", err)
+	}
+	if bumps != maxUpdateAttempts {
+		t.Errorf("planned %d times, want %d", bumps, maxUpdateAttempts)
+	}
+	ops, err := List[OperationRecord](st, CollOperations, Consistent())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range ops {
+		if r.Value.Kind == OpClusterDelete {
+			t.Fatalf("deletion %s stored despite the conflict", r.Value.ID)
+		}
 	}
 }

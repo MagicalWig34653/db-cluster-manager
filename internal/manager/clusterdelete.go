@@ -73,37 +73,24 @@ func (o *Operations) DeleteCluster(actor authz.Subject, clusterID string) (Clust
 	if err != nil {
 		return ClusterDeletion{}, err
 	}
-	pd, err := o.prepareClusterDelete(actor, clusterID)
-	if err != nil {
-		return ClusterDeletion{}, err
-	}
-	cur, c, op, sessions, failed, digest := pd.cur, pd.cur.Value, pd.op, pd.sessions, pd.failed, pd.digest
-	opID, approvalID := pd.op.ID, pd.approvalID
-	rec := OperationRecord{ID: opID, Kind: op.Kind, Swarm: c.Swarm, Cluster: c.ID, RequestedBy: actor.ID,
-		RequestedAt: o.Svc.cfg.Now(), Definition: op, Nodes: c.Nodes, ApprovalID: approvalID, ApprovalDigest: digest}
-	opDoc, err := PutOp(CollOperations, opID, rec, IfVersion(0))
-	if err != nil {
-		return ClusterDeletion{}, err
-	}
-	marked := c
-	marked.DeleteOp = opID
-	clDoc, err := PutOp(CollClusters, c.ID, marked, IfVersion(cur.Version))
-	if err != nil {
-		return ClusterDeletion{}, err
-	}
-	docs := []metastore.DocOp{opDoc, clDoc}
-	for _, s := range sessions {
-		ir := s.Value
-		ir.TeardownOp = opID
-		d, err := PutOp(CollInspections, s.Key, ir, IfVersion(s.Version))
-		if err != nil {
-			return ClusterDeletion{}, err
+	// Background writers (health observations, reconciler) bump the cluster
+	// record's version; the transaction then fails as a whole without writing,
+	// so the deletion is planned again on the fresh record instead of
+	// surfacing a spurious 409 (CI amd64, TestDeleteSurvivesLeaderLossWhileVolumeBusy).
+	var (
+		pd  preparedDeletion
+		rec OperationRecord
+	)
+	for range maxUpdateAttempts {
+		pd, rec, err = o.storeClusterDelete(actor, clusterID)
+		if !errors.Is(err, metastore.ErrVersionConflict) {
+			break
 		}
-		docs = append(docs, d)
 	}
-	if _, err := o.Svc.store.Txn(docs...); err != nil {
+	if err != nil {
 		return ClusterDeletion{}, err
 	}
+	c, op, failed, digest, opID := pd.cur.Value, pd.op, pd.failed, pd.digest, pd.op.ID
 	// Failed operations keep their runner locks until aborted (lab E4 F10);
 	// the deletion needs the cluster lock.
 	for _, id := range failed {
@@ -119,6 +106,49 @@ func (o *Operations) DeleteCluster(actor authz.Subject, clusterID string) (Clust
 	// succeeded (Service.saveView -> finishClusterDelete).
 	o.start(l, op, nil)
 	return ClusterDeletion{Operation: rec, Digest: digest}, nil
+}
+
+// beforeClusterDeleteTxn, if set (tests), runs between the planning and the
+// transaction of a deletion.
+var beforeClusterDeleteTxn func()
+
+// storeClusterDelete plans the deletion and stores the operation, the
+// cluster's delete mark and the inspection teardown marks in one
+// transaction. A version conflict writes nothing; the plan (with its new
+// operation and approval IDs) is then discarded.
+func (o *Operations) storeClusterDelete(actor authz.Subject, clusterID string) (preparedDeletion, OperationRecord, error) {
+	pd, err := o.prepareClusterDelete(actor, clusterID)
+	if err != nil {
+		return pd, OperationRecord{}, err
+	}
+	if beforeClusterDeleteTxn != nil {
+		beforeClusterDeleteTxn()
+	}
+	cur, c, op := pd.cur, pd.cur.Value, pd.op
+	rec := OperationRecord{ID: op.ID, Kind: op.Kind, Swarm: c.Swarm, Cluster: c.ID, RequestedBy: actor.ID,
+		RequestedAt: o.Svc.cfg.Now(), Definition: op, Nodes: c.Nodes, ApprovalID: pd.approvalID, ApprovalDigest: pd.digest}
+	opDoc, err := PutOp(CollOperations, op.ID, rec, IfVersion(0))
+	if err != nil {
+		return pd, rec, err
+	}
+	marked := c
+	marked.DeleteOp = op.ID
+	clDoc, err := PutOp(CollClusters, c.ID, marked, IfVersion(cur.Version))
+	if err != nil {
+		return pd, rec, err
+	}
+	docs := []metastore.DocOp{opDoc, clDoc}
+	for _, s := range pd.sessions {
+		ir := s.Value
+		ir.TeardownOp = op.ID
+		d, err := PutOp(CollInspections, s.Key, ir, IfVersion(s.Version))
+		if err != nil {
+			return pd, rec, err
+		}
+		docs = append(docs, d)
+	}
+	_, err = o.Svc.store.Txn(docs...)
+	return pd, rec, err
 }
 
 // preparedDeletion is a planned cluster deletion that is not stored yet.
