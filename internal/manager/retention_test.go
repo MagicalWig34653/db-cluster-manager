@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"slices"
 	"testing"
 	"time"
@@ -228,6 +229,66 @@ func TestRetentionReservationAndInspectionPinAreAtomic(t *testing.T) {
 				if _, ok, _ := Get[InspectionRecord](env.svc.Store(), CollInspections, "inspection"); ok {
 					t.Fatal("pin committed despite reservation")
 				}
+			}
+		})
+	}
+}
+
+type retentionFailureBackend struct {
+	backup.Backend
+	failDelete string
+	readErr    error
+}
+
+func (b retentionFailureBackend) Delete(ctx context.Context, name string) error {
+	if b.failDelete == "*" || name == b.failDelete {
+		return errors.New("backend unavailable")
+	}
+	return b.Backend.Delete(ctx, name)
+}
+func (b retentionFailureBackend) Get(ctx context.Context, name string) (io.ReadCloser, error) {
+	if b.readErr != nil {
+		return nil, b.readErr
+	}
+	return b.Backend.Get(ctx, name)
+}
+
+func TestRetentionDoesNotConfirmIncompleteDeletion(t *testing.T) {
+	for _, mode := range []string{"read-error", "stream-left", "second-object-left"} {
+		t.Run(mode, func(t *testing.T) {
+			env := newBackupEnv(t, true)
+			env.completedBackup(t, "old", env.clock.Now().Add(-time.Hour))
+			env.completedBackup(t, "new", env.clock.Now())
+			r, _, _ := Get[BackupRecord](env.svc.Store(), CollBackups, "old")
+			be := retentionFailureBackend{Backend: env.be, failDelete: r.Value.Objects[0]}
+			if mode == "read-error" {
+				be.failDelete = "*"
+				be.readErr = errors.New("network down")
+			}
+			if mode == "second-object-left" {
+				v := r.Value
+				v.Objects = append(v.Objects, "second-object")
+				if _, err := Put(env.svc.Store(), CollBackups, "old", v, IfVersion(r.Version)); err != nil {
+					t.Fatal(err)
+				}
+				be.failDelete = dbbackup.ManifestName("second-object")
+			}
+			env.b.Backend = be
+			if err := env.b.retainCluster(context.Background(), "clu-1", backup.Policy{KeepLast: 1}); err == nil {
+				t.Fatal("missing backend error")
+			}
+			r, _, _ = Get[BackupRecord](env.svc.Store(), CollBackups, "old")
+			if !r.Value.DeletedAt.IsZero() {
+				t.Fatal("incomplete deletion confirmed")
+			}
+			// The durable reservation must remain retryable.
+			env.b.Backend = env.be
+			if err := env.b.retainCluster(context.Background(), "clu-1", backup.Policy{KeepLast: 1}); err != nil {
+				t.Fatal(err)
+			}
+			r, _, _ = Get[BackupRecord](env.svc.Store(), CollBackups, "old")
+			if r.Value.DeletedAt.IsZero() {
+				t.Fatal("completed retry not recorded")
 			}
 		})
 	}

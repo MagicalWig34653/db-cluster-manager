@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 
 	"github.com/MagicalWig34653/db-cluster-manager/internal/api"
 	"github.com/MagicalWig34653/db-cluster-manager/internal/backup"
@@ -140,16 +139,23 @@ func (b *Backups) retainCluster(ctx context.Context, clusterID string, pol backu
 	if err != nil {
 		return err
 	}
-	err = dbbackup.ApplyRetention(ctx, b.Backend, append(slices.Clone(logs), remove...))
-	// Mark only the sets whose manifests are gone; a failed deletion is
-	// retried on the next pass.
+	// Confirm a set only after every dependent log, manifest, stream and
+	// status object was deleted. Read failures never prove absence.
 	var removed []string
 	for _, s := range remove {
-		if len(s.Objects) > 0 {
-			if rc, gerr := b.Backend.Get(ctx, dbbackup.ManifestName(s.Objects[0])); gerr == nil {
-				_ = rc.Close()
-				continue
+		var dependent []dbbackup.BackupSet
+		for _, log := range logs {
+			if log.BaseBackupID == s.BackupID {
+				dependent = append(dependent, log)
 			}
+		}
+		if derr := dbbackup.ApplyRetention(ctx, b.Backend, append(dependent, s)); derr != nil {
+			err = errors.Join(err, derr)
+			continue
+		}
+		if cerr := b.removeCopiesOf(ctx, s.BackupID); cerr != nil {
+			err = errors.Join(err, cerr)
+			continue
 		}
 		rec := byID[s.BackupID]
 		v := rec.Value
@@ -159,8 +165,6 @@ func (b *Backups) retainCluster(ctx context.Context, clusterID string, pol backu
 			continue
 		}
 		removed = append(removed, s.BackupID)
-		// Copies of a deleted set go with it (retention coupling).
-		err = errors.Join(err, b.removeCopiesOf(ctx, s.BackupID))
 	}
 	if len(removed) > 0 {
 		c, _, _ := Get[ClusterRecord](b.store(), CollClusters, clusterID)
