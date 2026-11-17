@@ -4,6 +4,14 @@ Updated: 2026-11-02.
 
 Start of a new session: read [the hand-off](handoffs/NEXT-SESSION.md) first (state, unverified areas, open owner decisions, next steps, working rules).
 
+## Review corrections (2026-11-17; static inspection only, not executed)
+
+All eight high/medium findings in the supplied review were confirmed against the code and addressed in separate commits, with regression tests written before each implementation change. Changes cover metrics archive snapshots and retention, replicated backup deletion reservations versus inspection pins, safe SFTP publication, complete deletion confirmation, durable logout revocation, SSH setup deadlines/cancellation, and source-scoped host restore approval. The API contract includes logout persistence errors and operation `hostSource`.
+
+No builds, tests, Docker commands, network calls or pushes were performed, as explicitly requested. Changed Go files were formatted and `git diff --check` was inspected; compilation, test outcomes and race safety remain unverified. [The correction report](../BERICHT-FIXES.md) records each finding, commit, exact caller test commands and compatibility limits. SFTP uploads now require `posix-rename`; unavailable metric archives retain pending blocks and can cause sample admission to stop at the disk budget. Legacy host operations without source identity keep their restrictive approval fallback.
+
+Next action: the caller runs the report's focused regression commands, then the affected package suites. No release gate is closed by these static changes.
+
 ## Pre-issued enrollment token for a not-yet-enrolled bootstrap host (2026-11-07; branch `worktree-agent-a9019bd2b22d981f9`, not merged; fakes only)
 
 Owner decision of 2026-11-07 implemented ([ADR 0028 addendum](decisions/0028-managed-runtime-wiring.md), guide 27 DE/EN). `BootstrapService.Run` asks the new `provision.PlannedEnrollment` for a token before the state turns `running` and before the first step, if the plan has a step that takes the token on stdin. `manager.PlannedEnrollment` (wired in `cmd/manager/bootstrap.go`) creates a single-use token (two-hour TTL, digest only stored) limited to the draft's host ID, plus a placeholder host record in the reserved scope `bootstrap` (the PKI keys every identity on a host record). A registered host (enrolled record) gets nothing pre-issued and keeps the old `HostEnrollmentTokens` path. The token is held in memory for the run, delivered on stdin, never persisted; a failover or resume issues a new one and withdraws the old. Cancel, fingerprint mismatch, expiry and completion call `Release` (unused tokens revoked, placeholder without agent identity deleted); a failed release stays pending for the sweeper. No OpenAPI change (no request or response field changed).

@@ -48,6 +48,9 @@ For the active task, maintain: objective, changed files/contracts, executed chec
 
 ## Current next action
 
+Review corrections (2026-11-17): implementation and regression-test sources for all eight supplied high/medium findings are committed. Verification is **PENDING**: the owner prohibited executing builds, tests, Docker commands and network calls in this work package. Next action for the caller: run the exact per-finding commands in [BERICHT-FIXES.md](../BERICHT-FIXES.md), then the affected package suites. SFTP publication requires `posix-rename`; pending metrics remain local on archive failure and disk pressure may stop ingestion. Existing W05/R1 gates remain open.
+
+
 Release candidate E13 (2026-10-30): lab ran partly later that day ([e13-rc-lab.md](../tests/p0/results/e13-rc-lab.md)); remaining: stage 3 backup/restore/PITR with local and MinIO targets and the manual INSTALL.md walkthrough. Earlier: **lab run not executed** because the host was out of resources (disk 8-10 GiB free, swap about 91 % used, load 18-584; [record](../tests/p0/results/e13-not-run.md)); no VM was created. Done host-only: `scripts/rc-package.sh` (archives, SBOMs, checksums, release notes run locally), `tests/p0/rc-demo.sh` (never executed), [RELEASE-CANDIDATE.md](RELEASE-CANDIDATE.md) draft. Next action: when the host has at least 40 GiB free disk, swap headroom and load below about 30, run `tests/p0/rc-demo.sh up`, the INSTALL.md walkthrough, the Playwright end-to-end and the backup/PITR runs, then fix what they find test-first.
 Optional modules (2026-10-30, ADR 0030, fakes only): registry, runtime switch API, UI page and guide 28 are done; see [STATUS](STATUS.md#optional-modules-2026-10-30-adr-0030-fakes-and-in-process-manager-only-no-vm-used). Next: check the page in a browser at 360 px and test a switched state across a leader change.
 

@@ -2,6 +2,10 @@
 
 Updated: 2026-10-26. [Requirements](KONZEPT.md) are the canonical detailed record of confirmed user choices. [ADR 0001](decisions/0001-product-direction.md) records the resulting product direction.
 
+## Review correction mechanisms (2026-11-17; static evidence only)
+
+Backup inspection pins and retention reservations now contend through the same backup record version in replicated transactions. A process-local mutex was rejected because it would not fence another manager after a leadership change. Reservations remain durable until cleanup finishes. Metrics archive readers use copied metadata plus Store-lock-protected file pins; pending uploads also block retention, with sample admission refusing work when the disk budget is exhausted. Holding the Store lock across remote uploads was rejected because it would block ingestion and queries for network latency. SFTP publication now requires atomic `posix-rename`; deleting the destination before ordinary rename was rejected because a disconnect destroys the previous backup. These mechanisms follow the existing safety requirements; they do not introduce new product permissions or automatic recovery. Regression tests were authored but not executed under the owner's command restrictions. [The report](../BERICHT-FIXES.md) lists limitations and the caller's verification steps.
+
 ## Confirmed direction
 
 **Native host backups (X14, 2026-10-27):** The owner requested restic for individual managed hosts and external hosts without cluster membership. [ADR 0022](decisions/0022-native-restic-host-backups.md) records the CLI JSON, secret handling, host transport and restore mechanisms, plus the fake-only implementation limits. External SSH has a fake-tested adapter; real SSH/restic evidence, external agent enrollment, managed-agent secret delivery and UI remain open, not a support claim.
